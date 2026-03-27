@@ -1309,6 +1309,194 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
   const nistControls = config.nistControls;
   const govFile = agent.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-policy.md";
 
+  const nistDescriptions = {
+    "AC-2": "Account Management — account lifecycle, access authorisation",
+    "AU-2": "Event Logging — audit events, tamper-evident log",
+    "SA-4": "Acquisition Process — security in procurement",
+    "IR-4": "Incident Handling — detection, containment, recovery",
+    "SC-28": "Protection of Information at Rest — encryption",
+    "RA-5": "Vulnerability Monitoring — scanning and remediation",
+    "MP-6": "Media Sanitization — secure disposal",
+    "IA-5": "Authenticator Management — credential lifecycle",
+    "SI-10": "Information Input Validation — injection prevention",
+    "AC-17": "Remote Access — usage restrictions",
+    "SC-8":  "Transmission Confidentiality — TLS/encryption in transit",
+    "PE-3":  "Physical Access Control — facility access enforcement",
+  };
+
+  const downloadAsPDF = () => {
+    const date = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    const nistRows = nistControls.map(c =>
+      `<tr><td class="badge blue">${c}</td><td>${nistDescriptions[c] || c}</td></tr>`
+    ).join("");
+    const mustRows  = mustRules.map(r  => `<tr><td class="badge green">MUST</td><td>${r}</td></tr>`).join("");
+    const mustNotRows = mustNotRules.map(r => `<tr><td class="badge red">MUST NOT</td><td>${r}</td></tr>`).join("");
+    const mayRows   = mayRules.map(r   => `<tr><td class="badge purple">MAY</td><td>${r}</td></tr>`).join("");
+    const addlRows  = (config.additionalFrameworks || []).map(f => `<li>${f}</li>`).join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>${agent} — Agent Policy Document</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Outfit:wght@400;600;700;900&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Outfit', sans-serif; font-size: 11pt; color: #111; background: #fff; padding: 32px 40px 48px; line-height: 1.6; }
+  @page { margin: 18mm 15mm; size: A4; }
+  @media print { body { padding: 0; } .no-print { display: none !important; } }
+
+  .letterhead { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f97316; padding-bottom: 14px; margin-bottom: 22px; }
+  .brand { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 15pt; color: #f97316; }
+  .brand-sub { font-size: 8pt; color: #888; font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+  .doc-meta { text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 8pt; color: #666; line-height: 1.8; }
+
+  h1 { font-size: 20pt; font-weight: 900; letter-spacing: -0.03em; margin-bottom: 4px; }
+  h2 { font-size: 10pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #f97316; margin: 22px 0 8px; font-family: 'IBM Plex Mono', monospace; }
+  h3 { font-size: 9pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin: 16px 0 6px; font-family: 'IBM Plex Mono', monospace; }
+
+  .agent-meta { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px; }
+  .tag { font-family: 'IBM Plex Mono', monospace; font-size: 8pt; font-weight: 700; border-radius: 4px; padding: 2px 8px; border: 1px solid; }
+  .tag-orange { color: #f97316; border-color: #f9731660; background: #f9731610; }
+  .tag-blue   { color: #3b82f6; border-color: #3b82f660; background: #3b82f610; }
+  .tag-purple { color: #a855f7; border-color: #a855f760; background: #a855f710; }
+
+  .govfile { background: #f8f8f8; border: 1px solid #ddd; border-radius: 6px; padding: 8px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 9pt; color: #444; margin-bottom: 16px; display: flex; justify-content: space-between; }
+  .govfile span { color: #888; }
+
+  .mandate { background: #fff7ed; border: 1px solid #fed7aa; border-left: 3px solid #f97316; border-radius: 6px; padding: 12px 16px; font-size: 11pt; line-height: 1.8; margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+  td { padding: 6px 10px; vertical-align: top; font-size: 10pt; border-bottom: 1px solid #f0f0f0; }
+  td:first-child { width: 88px; padding-top: 8px; }
+
+  .badge { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 7.5pt; border-radius: 4px; padding: 2px 7px; border: 1px solid; white-space: nowrap; }
+  .green  { color: #16a34a; border-color: #16a34a60; background: #16a34a12; }
+  .red    { color: #dc2626; border-color: #dc262660; background: #dc262612; }
+  .purple { color: #9333ea; border-color: #9333ea60; background: #9333ea12; }
+  .blue   { color: #2563eb; border-color: #2563eb60; background: #2563eb12; }
+
+  .exception-step { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; page-break-inside: avoid; }
+  .step-num { width: 22px; height: 22px; border-radius: 50%; background: #f3e8ff; border: 1px solid #c084fc; color: #9333ea; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 9pt; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-label { font-weight: 700; font-size: 10pt; margin-bottom: 1px; }
+  .step-detail { font-size: 9pt; color: #555; font-family: 'IBM Plex Mono', monospace; }
+
+  .fw-section { margin-bottom: 14px; }
+  .fw-title { font-family: 'IBM Plex Mono', monospace; font-size: 8pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+  .fw-title.blue   { color: #2563eb; }
+  .fw-title.green  { color: #16a34a; }
+  .fw-title.purple { color: #9333ea; }
+  .fw-title.orange { color: #ea580c; }
+
+  ul.addl { padding-left: 18px; font-size: 10pt; color: #333; line-height: 1.8; }
+
+  .footer { margin-top: 36px; border-top: 1px solid #ddd; padding-top: 12px; display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 8pt; color: #999; }
+  .print-btn { position: fixed; bottom: 28px; right: 28px; background: #f97316; color: white; border: none; border-radius: 8px; padding: 12px 24px; font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 14px; cursor: pointer; box-shadow: 0 4px 20px rgba(249,115,22,0.4); }
+  .print-btn:hover { background: #ea580c; }
+</style>
+</head>
+<body>
+
+<div class="letterhead">
+  <div>
+    <div class="brand">VDA-MD Framework</div>
+    <div class="brand-sub">Value-Driven AI with Markdowns · Agent Policy Document</div>
+  </div>
+  <div class="doc-meta">
+    <div><strong>${companyName || "VDA-MD"}</strong></div>
+    <div>${config.label}</div>
+    <div>${date}</div>
+    <div style="margin-top:4px;color:#aaa">CONFIDENTIAL — INTERNAL USE</div>
+  </div>
+</div>
+
+<h1>${agent}</h1>
+<div class="agent-meta">
+  <span class="tag tag-orange">${domain}</span>
+  <span class="tag tag-orange">VDA-MD Agent</span>
+  <span class="tag tag-purple">EU AI Act</span>
+  <span class="tag tag-blue">NIST SP 800-53</span>
+</div>
+<div style="font-size:10pt;color:#555;margin-bottom:12px;">Domain owner: <strong>${owner}</strong></div>
+
+<div class="govfile">
+  <span>📄 &nbsp;<code>${govFile}</code></span>
+  <span>governance/.md</span>
+</div>
+
+<h2>Primary Role</h2>
+<div class="mandate">${mandate}</div>
+
+<h2>Agent Rules</h2>
+
+<h3 style="color:#16a34a;">MUST</h3>
+<table>${mustRows}</table>
+
+<h3 style="color:#dc2626;">MUST NOT</h3>
+<table>${mustNotRows}</table>
+
+<h3 style="color:#9333ea;">MAY</h3>
+<table>${mayRows}</table>
+
+<h2>Exception Path</h2>
+<div style="font-size:10pt;color:#555;margin-bottom:12px;">When a decision falls outside baseline rules, the agent checks for an active exception overlay before escalating.</div>
+${[
+  { step: "1", label: "Baseline evaluation", detail: "Agent evaluates parameters against baseline .md rules" },
+  { step: "2", label: "Exception check", detail: "If FAIL or ESCALATE — check for active exception overlay" },
+  { step: "3", label: "Conditions verified", detail: "All exception conditions must be met before applying" },
+  { step: "4", label: "Re-evaluation", detail: "Agent re-evaluates under combined baseline + exception rules" },
+  { step: "5", label: "Witness Agent log", detail: "exception_applied: true logged regardless of final outcome" },
+].map(s => `<div class="exception-step"><div class="step-num">${s.step}</div><div><div class="step-label">${s.label}</div><div class="step-detail">${s.detail}</div></div></div>`).join("")}
+
+<h2>Compliance Framework</h2>
+
+<div class="fw-section">
+  <div class="fw-title blue">NIST SP 800-53 Rev 5</div>
+  <table>${nistRows}</table>
+</div>
+
+<div class="fw-section">
+  <div class="fw-title green">GDPR</div>
+  <table>
+    <tr><td class="badge green">Art. 5</td><td>Principles relating to processing — lawfulness, fairness, transparency</td></tr>
+    <tr><td class="badge green">Art. 6</td><td>Lawfulness of processing — legal basis required for each action</td></tr>
+    <tr><td class="badge green">Art. 22</td><td>Automated decision-making — right to human review preserved</td></tr>
+    <tr><td class="badge green">Art. 25</td><td>Data protection by design — minimal data per agent operation</td></tr>
+  </table>
+</div>
+
+<div class="fw-section">
+  <div class="fw-title purple">EU AI Act</div>
+  <table>
+    <tr><td class="badge purple">Art. 9</td><td>Risk management — documented per agent, reviewed annually</td></tr>
+    <tr><td class="badge purple">Art. 12</td><td>Record-keeping — Witness Agent provides automatic audit trail</td></tr>
+    <tr><td class="badge purple">Art. 13</td><td>Transparency — agent decisions explainable to affected parties</td></tr>
+    <tr><td class="badge purple">Art. 14</td><td>Human oversight — domain owner can override at any time</td></tr>
+    <tr><td class="badge purple">Art. 17</td><td>Quality management — governance files version-controlled in Git</td></tr>
+  </table>
+</div>
+
+${addlRows ? `<div class="fw-section">
+  <div class="fw-title orange">Industry-Specific Frameworks — ${config.label}</div>
+  <ul class="addl">${addlRows}</ul>
+</div>` : ""}
+
+<div class="footer">
+  <span>${agent} · ${domain} · ${companyName || "VDA-MD"}</span>
+  <span>VDA-MD Framework · C2MD Pipeline · Proprietary IP · ${new Date().getFullYear()}</span>
+</div>
+
+<button class="print-btn no-print" onclick="window.print()">⬇ Save as PDF</button>
+</body>
+</html>`;
+
+    const win = window.open("", "_blank");
+    if (!win) { alert("Pop-up blocked — please allow pop-ups for this site and try again."); return; }
+    win.document.write(html);
+    win.document.close();
+    win.onload = () => win.print();
+  };
+
   const drawerTabs = [
     { id: "rules",      label: "Agent Rules",     icon: "📋" },
     { id: "exception",  label: "Exception Path",  icon: "⚡" },
@@ -1338,7 +1526,12 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
               <h3 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 20, color: T.text, letterSpacing: "-0.02em", marginBottom: 4 }}>{agent}</h3>
               <div style={{ fontSize: 12, color: T.dim, fontFamily: T.mono }}>Domain owner: {owner}</div>
             </div>
-            <button onClick={dismiss} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, width: 32, height: 32, cursor: "pointer", color: T.muted, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: 12 }}>✕</button>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 12 }}>
+              <button onClick={downloadAsPDF} title="Download agent policy as PDF" style={{ background: `${color}15`, border: `1px solid ${color}50`, borderRadius: 8, height: 32, padding: "0 10px", cursor: "pointer", color: color, fontSize: 11, fontFamily: T.mono, fontWeight: 700, display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
+                <span style={{ fontSize: 13 }}>⬇</span> PDF
+              </button>
+              <button onClick={dismiss} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, width: 32, height: 32, cursor: "pointer", color: T.muted, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
           </div>
           {/* Governing file chip */}
           <div style={{ display: "flex", gap: 6, alignItems: "center", background: "#04050a", border: `1px solid ${T.border}`, borderRadius: 7, padding: "7px 12px" }}>
