@@ -78,6 +78,10 @@ Available models (via proxy):
 Express 5 API server. Routes in `src/routes/`.
 - `health.ts` — `GET /api/healthz`
 - `ai-proxy.ts` — `POST /api/ai/messages` (Anthropic proxy)
+- `companies.ts` — REST CRUD for companies:
+  - `GET /api/companies` — list all (sorted by savedAt DESC)
+  - `POST /api/companies` — create a company record
+  - `DELETE /api/companies/:id` — delete by integer id
 
 ### `lib/integrations-anthropic-ai` (`@workspace/integrations-anthropic-ai`)
 
@@ -86,6 +90,17 @@ Pre-configured Anthropic SDK client using Replit AI Integration env vars.
 ### `lib/db` (`@workspace/db`)
 
 Database layer using Drizzle ORM with PostgreSQL.
+
+**Schema:** `companies` table
+- `id` — serial primary key
+- `company_name`, `website_url`, `industry` — company identity
+- `brand_context` — ingested brand text (up to 8000 chars)
+- `files_count` — count of uploaded documents
+- `saved_at` — user save timestamp (bigint)
+- `uploaded_files` — JSONB (currently null, reserved)
+- `created_at`, `updated_at` — auto-managed timestamps
+
+Run `pnpm --filter @workspace/db run push` to sync schema changes to the database.
 
 ### `lib/api-spec` (`@workspace/api-spec`)
 

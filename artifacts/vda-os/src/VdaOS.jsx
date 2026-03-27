@@ -2681,15 +2681,9 @@ function Directory({ onNew, onLoad }) {
   useEffect(() => {
     (async () => {
       try {
-        const result = await window.storage.list("vdamd-company:");
-        const entries = [];
-        for (const key of (result?.keys || [])) {
-          try {
-            const r = await window.storage.get(key);
-            if (r?.value) entries.push({ key, ...JSON.parse(r.value) });
-          } catch {}
-        }
-        entries.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+        const res = await fetch("/api/companies");
+        if (!res.ok) throw new Error("Failed to load");
+        const entries = await res.json();
         setCompanies(entries);
       } catch {
         setCompanies([]);
@@ -2697,11 +2691,11 @@ function Directory({ onNew, onLoad }) {
     })();
   }, []);
 
-  const deleteCompany = async (key, e) => {
+  const deleteCompany = async (id, e) => {
     e.stopPropagation();
-    setDeleting(key);
-    try { await window.storage.delete(key); } catch {}
-    setCompanies(p => p.filter(c => c.key !== key));
+    setDeleting(id);
+    try { await fetch(`/api/companies/${id}`, { method: "DELETE" }); } catch {}
+    setCompanies(p => p.filter(c => c.id !== id));
     setDeleting(null);
   };
 
@@ -2782,12 +2776,12 @@ function Directory({ onNew, onLoad }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, marginBottom: 32 }}>
               {companies.map(co => {
                 const cfg = industryConfig(co.industry);
-                const isHov = hovered === co.key;
-                const savedDate = co.savedAt ? new Date(co.savedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Unknown";
+                const isHov = hovered === co.id;
+                const savedDate = co.savedAt ? new Date(Number(co.savedAt)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Unknown";
                 return (
-                  <div key={co.key}
+                  <div key={co.id}
                     onClick={() => onLoad(co)}
-                    onMouseEnter={() => setHovered(co.key)}
+                    onMouseEnter={() => setHovered(co.id)}
                     onMouseLeave={() => setHovered(null)}
                     style={{
                       background: isHov ? `${T.orange}0c` : T.card,
@@ -2801,7 +2795,7 @@ function Directory({ onNew, onLoad }) {
                   >
                     {/* Delete button */}
                     <button
-                      onClick={e => deleteCompany(co.key, e)}
+                      onClick={e => deleteCompany(co.id, e)}
                       style={{
                         position: "absolute", top: 12, right: 12,
                         background: `${T.red}15`, border: `1px solid ${T.red}30`,
@@ -2809,7 +2803,7 @@ function Directory({ onNew, onLoad }) {
                         color: T.red, fontSize: 12, display: "flex", alignItems: "center",
                         justifyContent: "center", opacity: isHov ? 1 : 0, transition: "opacity 0.15s",
                       }}
-                    >{deleting === co.key ? "…" : "✕"}</button>
+                    >{deleting === co.id ? "…" : "✕"}</button>
 
                     {/* Company avatar + name */}
                     <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14 }}>
@@ -2928,14 +2922,20 @@ export default function VdaOS() {
     if (!setup || saving) return;
     setSaving(true);
     try {
-      const key = "vdamd-company:" + setup.companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now();
-      await window.storage.set(key, JSON.stringify({
-        ...setup,
-        savedAt: Date.now(),
-        filesCount: setup.uploadedFiles?.length || 0,
-        // Store only first 8000 chars of brandContext to stay under limits
-        brandContext: (setup.brandContext || "").slice(0, 8000),
-      }));
+      const res = await fetch("/api/companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: setup.companyName,
+          websiteUrl: setup.websiteUrl || null,
+          industry: setup.industry,
+          brandContext: (setup.brandContext || "").slice(0, 8000),
+          filesCount: setup.uploadedFiles?.length || 0,
+          savedAt: Date.now(),
+          uploadedFiles: null,
+        }),
+      });
+      if (!res.ok) throw new Error("Save failed");
       setIsSaved(true);
     } catch (e) {
       console.error("Save failed:", e);
