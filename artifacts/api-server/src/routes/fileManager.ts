@@ -107,13 +107,14 @@ router.post("/fm/init", async (req, res) => {
 router.post("/fm/compliance-check", async (req, res) => {
   try {
     const { content, industry, fileType, savedContent } = req.body;
-    if (!content || !industry) return res.status(400).json({ error: "content and industry required" });
+    if (industry === undefined || industry === null) return res.status(400).json({ error: "industry required" });
+    const safeContent: string = (content as string) || "";
 
     const industryKey = (industry as string).toLowerCase().split(" ")[0];
     const compMap = INDUSTRY_COMPLIANCE_MAP[industryKey] || null;
     const thresholds = MINIMUM_CLAUSE_THRESHOLDS[(fileType as string)?.toUpperCase()] || MINIMUM_CLAUSE_THRESHOLDS.CUSTOM;
 
-    const currentClauses = countClauses(content as string);
+    const currentClauses = countClauses(safeContent);
     const savedClauses = savedContent ? countClauses(savedContent as string) : null;
 
     type ElementStatus = "present" | "missing" | "diluted";
@@ -122,7 +123,7 @@ router.post("/fm/compliance-check", async (req, res) => {
     if (compMap) {
       for (const ctrl of compMap.nistControls) {
         const countInStr = (s: string) => (s.match(new RegExp(ctrl.replace("-", "[\\s\\-]?"), "gi")) || []).length;
-        const currentCount = countInStr(content as string);
+        const currentCount = countInStr(safeContent);
         const savedCount = savedContent ? countInStr(savedContent as string) : null;
         let status: ElementStatus;
         if (currentCount > 0) {
@@ -137,7 +138,7 @@ router.post("/fm/compliance-check", async (req, res) => {
 
       for (const fw of compMap.frameworks) {
         const countFw = (s: string) => fw.keywords.reduce((acc, kw) => acc + (s.toLowerCase().split(kw.toLowerCase()).length - 1), 0);
-        const currentCount = countFw(content as string);
+        const currentCount = countFw(safeContent);
         const savedCount = savedContent ? countFw(savedContent as string) : null;
         let status: ElementStatus;
         if (currentCount > 0) {

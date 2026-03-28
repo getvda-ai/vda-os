@@ -3701,11 +3701,14 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
           fileType: selectedFile.fileType,
         }),
       });
-      freshCheck = await resp.json();
-      setComplianceCheck(freshCheck);
+      if (!resp.ok) {
+        checkFailed = true;
+      } else {
+        freshCheck = await resp.json();
+        setComplianceCheck(freshCheck);
+      }
     } catch (_) {
       checkFailed = true;
-      freshCheck = complianceCheck;
     }
 
     if (checkFailed || freshCheck?.hasDilution) {
