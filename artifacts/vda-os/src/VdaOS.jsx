@@ -3519,7 +3519,6 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const [complianceCheck, setComplianceCheck] = useState(null);
   const [complianceLoading, setComplianceLoading] = useState(false);
   const [showDilutionModal, setShowDilutionModal] = useState(false);
-  const [dilutionOverride, setDilutionOverride] = useState("");
   const [pendingSaveContent, setPendingSaveContent] = useState(null);
   const editorRef = useRef(null);
   const searchTimeout = useRef(null);
@@ -3713,21 +3712,19 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 
     if (checkFailed || freshCheck?.hasDilution) {
       setPendingSaveContent({ content: editorContent, msg, checkFailed });
-      setDilutionOverride("");
       setShowDilutionModal(true);
       return;
     }
     await handleSave(msg);
   };
 
-  const handleDilutionConfirm = async () => {
+  const handleDilutionConfirm = async (overrideString) => {
     if (!pendingSaveContent) return;
-    const fullMsg = dilutionOverride
-      ? `[OVERRIDE: ${dilutionOverride}] — ${pendingSaveContent.msg}`
+    const fullMsg = overrideString
+      ? `${overrideString} — ${pendingSaveContent.msg}`
       : pendingSaveContent.msg;
     setShowDilutionModal(false);
     setPendingSaveContent(null);
-    setDilutionOverride("");
     await handleSave(fullMsg);
   };
 
@@ -4427,8 +4424,6 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
       {showDilutionModal && (
         <DilutionModal
           elements={complianceCheck?.elements?.filter(e => e.status === "diluted") || []}
-          overrideReason={dilutionOverride}
-          onReasonChange={setDilutionOverride}
           onConfirm={handleDilutionConfirm}
           onCancel={() => { setShowDilutionModal(false); setPendingSaveContent(null); }}
           checkFailed={pendingSaveContent?.checkFailed || false}
@@ -4439,15 +4434,61 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 }
 
 // ─────────────────────────────────────────────
-// DILUTION GUARD MODAL
+// DILUTION GUARD MODAL — structured override form
 // ─────────────────────────────────────────────
-function DilutionModal({ elements, overrideReason, onReasonChange, onConfirm, onCancel, checkFailed }) {
-  const canConfirm = overrideReason.trim().length >= 10;
+const OVERRIDE_CATEGORIES = [
+  { id: "temporary",         label: "Temporary",          desc: "Will be restored before next release",    detail: null },
+  { id: "business-exception",label: "Business exception", desc: "Approved by",                             detail: "owner" },
+  { id: "not-applicable",    label: "Control not applicable", desc: "Reason:",                             detail: "reason" },
+  { id: "superseded",        label: "Superseded by",      desc: "References:",                             detail: "ref" },
+];
+
+function DilutionModal({ elements, onConfirm, onCancel, checkFailed }) {
+  const [category, setCategory]     = useState("");
+  const [detail, setDetail]         = useState("");
+  const [role, setRole]             = useState("");
+  const [ackRecorded, setAckRecorded] = useState(false);
+  const [ackAccountable, setAckAccountable] = useState(false);
+
+  const hasLegalElement = elements.some(e => e.category === "framework");
+  const selectedCat     = OVERRIDE_CATEGORIES.find(c => c.id === category);
+  const needsDetail     = selectedCat?.detail !== null && selectedCat?.detail !== undefined;
+  const detailOk        = !needsDetail || detail.trim().length > 0;
+  const roleTrimmed     = role.trim();
+  const legalRoleOk     = !hasLegalElement || ["CFO", "CEO"].includes(roleTrimmed.toUpperCase());
+  const canConfirm      = category && detailOk && roleTrimmed.length > 0 && ackRecorded && ackAccountable && legalRoleOk;
+
+  const handleConfirm = () => {
+    if (!canConfirm) return;
+    let catLabel = selectedCat.label;
+    if (selectedCat.detail === "owner")  catLabel = `Business exception approved by ${detail.trim()}`;
+    if (selectedCat.detail === "reason") catLabel = `Control not applicable — ${detail.trim()}`;
+    if (selectedCat.detail === "ref")    catLabel = `Superseded by ${detail.trim()}`;
+    if (selectedCat.detail === null)     catLabel = "Temporary — will be restored before next release";
+    onConfirm(`[OVERRIDE: ${catLabel} | Approved: ${roleTrimmed}]`);
+  };
+
+  const inp = (val, setVal, placeholder, disabled) => (
+    <input
+      type="text"
+      value={val}
+      onChange={e => { if (!disabled) setVal(e.target.value); }}
+      placeholder={placeholder}
+      disabled={disabled}
+      style={{
+        flex: 1, padding: "5px 9px", borderRadius: 5, border: `1px solid ${val.trim() ? T.amber + "70" : T.border}`,
+        background: disabled ? T.bg + "80" : T.bg, color: disabled ? T.dim : T.text,
+        fontSize: 12, fontFamily: T.mono, outline: "none",
+      }}
+    />
+  );
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-      <div style={{ background: T.card, border: `1px solid ${T.red}60`, borderRadius: 14, width: 520, maxWidth: "95vw", padding: 0, overflow: "hidden" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.red}60`, borderRadius: 14, width: 560, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", padding: 0 }}>
+
         {/* Header */}
-        <div style={{ background: `${T.red}18`, borderBottom: `1px solid ${T.red}40`, padding: "16px 22px", display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ background: `${T.red}18`, borderBottom: `1px solid ${T.red}40`, padding: "16px 22px", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 1 }}>
           <span style={{ fontSize: 20 }}>⚠</span>
           <div>
             <div style={{ fontWeight: 900, fontSize: 15, color: T.red, letterSpacing: "-0.02em" }}>
@@ -4455,59 +4496,116 @@ function DilutionModal({ elements, overrideReason, onReasonChange, onConfirm, on
             </div>
             <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>
               {checkFailed
-                ? "Compliance verification could not be completed — save blocked until override reason provided"
-                : "Mandatory elements have been removed from this governance file"}
+                ? "Verification could not be completed — a structured override is required to proceed"
+                : "Mandatory elements have been weakened — categorise this override for the audit record"}
             </div>
           </div>
         </div>
 
-        <div style={{ padding: "18px 22px" }}>
-          {/* Diluted elements list */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.07em" }}>Elements at risk</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {elements.map(el => (
-                <div key={el.id} style={{ padding: "6px 10px", borderRadius: 6, background: `${T.red}10`, border: `1px solid ${T.red}35`, display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: T.red, fontFamily: T.mono }}>DILUTED</span>
-                  <span style={{ fontSize: 11, color: T.text, fontFamily: T.mono }}>{el.label}</span>
-                  <span style={{ fontSize: 10, color: T.dim, marginLeft: "auto", textTransform: "uppercase" }}>{el.category}</span>
+        <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 18 }}>
+
+          {/* Elements at risk */}
+          {elements.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.07em" }}>Elements at risk</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {elements.map(el => (
+                  <div key={el.id} style={{ padding: "6px 10px", borderRadius: 6, background: `${T.red}10`, border: `1px solid ${T.red}35`, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: T.red, fontFamily: T.mono }}>DILUTED</span>
+                    <span style={{ fontSize: 11, color: T.text, fontFamily: T.mono }}>{el.label}</span>
+                    <span style={{ fontSize: 10, color: el.category === "framework" ? T.amber : T.dim, marginLeft: "auto", textTransform: "uppercase", fontWeight: el.category === "framework" ? 700 : 400 }}>
+                      {el.category === "framework" ? "⚖ LEGAL" : el.category}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {hasLegalElement && (
+                <div style={{ marginTop: 8, padding: "7px 10px", borderRadius: 6, background: `${T.amber}15`, border: `1px solid ${T.amber}50`, fontSize: 11, color: T.amber, fontWeight: 700 }}>
+                  This override includes a legal requirement. Only a CFO or CEO may authorise this decision.
                 </div>
-              ))}
+              )}
+            </div>
+          )}
+
+          {/* Override reason category */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Override reason (required)</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {OVERRIDE_CATEGORIES.map(cat => {
+                const isSelected = category === cat.id;
+                return (
+                  <label key={cat.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 12px", borderRadius: 8, border: `1px solid ${isSelected ? T.amber + "80" : T.border}`, background: isSelected ? `${T.amber}0D` : "transparent", transition: "all 0.15s" }}>
+                    <input
+                      type="radio"
+                      name="override-category"
+                      value={cat.id}
+                      checked={isSelected}
+                      onChange={() => { setCategory(cat.id); setDetail(""); }}
+                      style={{ marginTop: 2, accentColor: T.amber }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: isSelected ? 700 : 500, color: isSelected ? T.text : T.muted }}>
+                        {cat.label}
+                        {cat.detail === null && <span style={{ color: T.dim, fontWeight: 400 }}> — {cat.desc}</span>}
+                      </div>
+                      {isSelected && cat.detail && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                          <span style={{ fontSize: 11, color: T.dim, whiteSpace: "nowrap" }}>{cat.desc}</span>
+                          {inp(detail, setDetail,
+                            cat.detail === "owner"  ? "Name or role of approver" :
+                            cat.detail === "reason" ? "Explain why this control does not apply" :
+                            "Reference document or policy ID", false)}
+                        </div>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
-          {/* Override reason */}
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 6 }}>
-              To proceed, provide a mandatory override justification (min. 10 characters):
+          {/* Acknowledgements */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Acknowledgement</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={ackRecorded}
+                  onChange={e => setAckRecorded(e.target.checked)}
+                  style={{ marginTop: 2, accentColor: T.amber }}
+                />
+                <span style={{ fontSize: 12, color: ackRecorded ? T.text : T.muted, lineHeight: 1.5 }}>
+                  I understand this override will be permanently recorded in the version history and audit log
+                </span>
+              </label>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={ackAccountable}
+                  onChange={e => setAckAccountable(e.target.checked)}
+                  style={{ marginTop: 2, accentColor: T.amber }}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: ackAccountable ? T.text : T.muted, lineHeight: 1.5 }}>I accept accountability as</span>
+                  {inp(role, setRole, hasLegalElement ? "CFO or CEO" : "your role or title", false)}
+                  <span style={{ fontSize: 12, color: ackAccountable ? T.text : T.muted }}>for this decision</span>
+                </div>
+              </label>
+              {hasLegalElement && roleTrimmed.length > 0 && !legalRoleOk && (
+                <div style={{ padding: "7px 10px", borderRadius: 6, background: `${T.red}15`, border: `1px solid ${T.red}50`, fontSize: 11, color: T.red, fontWeight: 700 }}>
+                  Legal requirement overrides must be authorised by the CFO or CEO
+                </div>
+              )}
             </div>
-            <textarea
-              rows={3}
-              value={overrideReason}
-              onChange={e => onReasonChange(e.target.value)}
-              placeholder="e.g. Temporary exception approved by CISO — control coverage maintained via alternate means in policy doc XYZ-004"
-              style={{
-                width: "100%", boxSizing: "border-box", borderRadius: 7, padding: "10px 12px",
-                background: T.bg, border: `1px solid ${overrideReason.trim().length >= 10 ? T.amber + "70" : T.border}`,
-                color: T.text, fontSize: 12, fontFamily: T.mono, resize: "vertical", lineHeight: 1.5,
-                outline: "none",
-              }}
-            />
-            <div style={{ fontSize: 10, color: overrideReason.trim().length >= 10 ? T.green : T.dim, fontFamily: T.mono, marginTop: 4 }}>
-              {overrideReason.trim().length}/10 chars minimum {overrideReason.trim().length >= 10 ? "✓" : ""}
-            </div>
-          </div>
-
-          <div style={{ fontSize: 11, color: T.dim, marginBottom: 18, padding: "8px 10px", background: T.bg, borderRadius: 6, border: `1px solid ${T.border}`, lineHeight: 1.6 }}>
-            The override reason will be permanently appended to the commit message and visible in version history, creating an audit trail.
           </div>
 
           {/* Actions */}
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", paddingTop: 4 }}>
             <button onClick={onCancel} style={{ padding: "8px 18px", borderRadius: 7, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 13, cursor: "pointer" }}>
               Cancel
             </button>
-            <button onClick={onConfirm} disabled={!canConfirm} style={{
+            <button onClick={handleConfirm} disabled={!canConfirm} style={{
               padding: "8px 20px", borderRadius: 7, border: `1px solid ${canConfirm ? T.red + "80" : T.border}`,
               background: canConfirm ? `${T.red}20` : T.bg, color: canConfirm ? T.red : T.dim,
               fontSize: 13, fontWeight: 700, cursor: canConfirm ? "pointer" : "default",
