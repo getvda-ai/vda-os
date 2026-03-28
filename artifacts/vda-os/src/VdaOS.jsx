@@ -3520,9 +3520,13 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const [complianceLoading, setComplianceLoading] = useState(false);
   const [showDilutionModal, setShowDilutionModal] = useState(false);
   const [pendingSaveContent, setPendingSaveContent] = useState(null);
+  const [integrityCheck, setIntegrityCheck] = useState(null);
+  const [integrityLoading, setIntegrityLoading] = useState(false);
+  const [archiveBlock, setArchiveBlock] = useState(null);
   const editorRef = useRef(null);
   const searchTimeout = useRef(null);
   const complianceTimeout = useRef(null);
+  const integrityTimeout = useRef(null);
 
   const loadFiles = async () => {
     if (!companyId) return;
@@ -3561,7 +3565,9 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     setSaveMsg(null);
     setPreviewMode(false);
     setComplianceCheck(null);
+    setIntegrityCheck(null);
     runComplianceCheck(full.content || "", null, full);
+    runIntegrityCheck(full.content || "", full);
   };
 
   const handleEditorChange = (e) => {
@@ -3572,6 +3578,10 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     complianceTimeout.current = setTimeout(() => {
       runComplianceCheck(newContent, selectedFile?.content || null);
     }, 600);
+    clearTimeout(integrityTimeout.current);
+    integrityTimeout.current = setTimeout(() => {
+      runIntegrityCheck(newContent);
+    }, 1200);
   };
 
   const handleSave = async (msg) => {
@@ -3644,8 +3654,19 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 
   const handleDelete = async (file) => {
     if (!window.confirm(`Archive "${file.filename}"? It will be hidden but not permanently deleted.`)) return;
-    await fetch(`/api/fm/file/${file.id}?companyId=${companyId}`, { method: "DELETE" });
-    if (selectedFile?.id === file.id) { setSelectedFile(null); setEditorContent(""); }
+    const resp = await fetch(`/api/fm/file/${file.id}?companyId=${companyId}`, { method: "DELETE" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      if (err.reason === "core_file") {
+        setArchiveBlock({ type: "core", filename: file.filename, fileType: err.fileType });
+      } else if (err.reason === "referenced") {
+        setArchiveBlock({ type: "referenced", filename: file.filename, referencedBy: err.referencedBy || [] });
+      } else {
+        alert(err.error || "Archive failed");
+      }
+      return;
+    }
+    if (selectedFile?.id === file.id) { setSelectedFile(null); setEditorContent(""); setIntegrityCheck(null); }
     await loadFiles();
   };
 
@@ -3683,6 +3704,27 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
       setComplianceCheck(data);
     } catch (e) { /* silent */ }
     setComplianceLoading(false);
+  };
+
+  const runIntegrityCheck = async (content, fileOverride) => {
+    const file = fileOverride || selectedFile;
+    if (!file || !companyId) return;
+    setIntegrityLoading(true);
+    try {
+      const resp = await fetch("/api/fm/integrity-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          content: content || file.content || "",
+          filename: file.filename,
+          fileId: file.id,
+        }),
+      });
+      const data = await resp.json();
+      setIntegrityCheck(data);
+    } catch (e) { /* silent */ }
+    setIntegrityLoading(false);
   };
 
   const handleSaveWithGuard = async (msg) => {
@@ -4114,7 +4156,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
           {[{ id: "agent", label: "FM Agent" }, { id: "history", label: "History" }, { id: "diff", label: "Diff" }].map(p => (
             <button key={p.id} onClick={() => {
               setRightPanel(p.id);
-              if (p.id === "agent" && selectedFile) runComplianceCheck(editorContent, selectedFile.content, selectedFile);
+              if (p.id === "agent" && selectedFile) { runComplianceCheck(editorContent, selectedFile.content, selectedFile); runIntegrityCheck(editorContent, selectedFile); }
               if (p.id === "history" && selectedFile) handleHistory();
               if (p.id === "diff" && selectedFile) { handleHistory(); handleDiff(); }
             }} style={{
@@ -4174,6 +4216,73 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
                       ))}
                     </div>
                   ) : !complianceLoading && (
+                    <div style={{ fontSize: 11, color: T.dim, textAlign: "center", padding: "8px 0" }}>No file selected</div>
+                  )}
+                </div>
+              )}
+
+              {/* ── INTEGRITY GRAPH ── */}
+              {selectedFile && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.teal, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      Reference Graph
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {integrityCheck && (() => {
+                        const broken = (integrityCheck.outboundRefs || []).filter(r => r.status === "broken").length;
+                        const missingCore = (integrityCheck.missingCoreTypes || []).length;
+                        const bad = broken + missingCore;
+                        return (
+                          <span style={{ fontSize: 11, fontWeight: 800, fontFamily: T.mono, color: bad > 0 ? T.red : T.green }}>
+                            {bad > 0 ? `${bad} issue${bad > 1 ? "s" : ""}` : "✓ intact"}
+                          </span>
+                        );
+                      })()}
+                      {integrityLoading && <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>checking…</span>}
+                    </div>
+                  </div>
+
+                  {integrityCheck ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {/* Missing core types */}
+                      {(integrityCheck.missingCoreTypes || []).map(t => (
+                        <div key={t} style={{ padding: "5px 8px", borderRadius: 5, background: `${T.red}12`, border: `1px solid ${T.red}35`, display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, color: T.red, fontFamily: T.mono }}>MISSING CORE</span>
+                          <span style={{ fontSize: 10, color: T.text, fontFamily: T.mono }}>{t} file not present</span>
+                        </div>
+                      ))}
+                      {/* Outbound refs */}
+                      {(integrityCheck.outboundRefs || []).length > 0 ? (
+                        <>
+                          <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 }}>References from this file</div>
+                          {integrityCheck.outboundRefs.map(r => (
+                            <div key={r.name} style={{ padding: "5px 8px", borderRadius: 5, background: r.status === "intact" ? `${T.green}10` : `${T.red}12`, border: `1px solid ${r.status === "intact" ? T.green + "30" : T.red + "35"}`, display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 9, fontWeight: 800, fontFamily: T.mono, color: r.status === "intact" ? T.green : T.red }}>
+                                {r.status === "intact" ? "✓" : "BROKEN"}
+                              </span>
+                              <span style={{ fontSize: 10, color: T.text, fontFamily: T.mono, flex: 1 }}>{r.name}</span>
+                              {r.status === "broken" && <span style={{ fontSize: 9, color: T.red }}>not found in FM</span>}
+                            </div>
+                          ))}
+                        </>
+                      ) : (
+                        <div style={{ fontSize: 10, color: T.dim, padding: "4px 0" }}>No cross-file references detected</div>
+                      )}
+                      {/* Inbound refs */}
+                      {(integrityCheck.inboundRefs || []).length > 0 && (
+                        <>
+                          <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 }}>Referenced by</div>
+                          {integrityCheck.inboundRefs.map(r => (
+                            <div key={r.fileId} style={{ padding: "5px 8px", borderRadius: 5, background: `${T.teal}0D`, border: `1px solid ${T.teal}30`, display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 9, fontWeight: 800, fontFamily: T.mono, color: T.teal }}>↑ IN</span>
+                              <span style={{ fontSize: 10, color: T.text, fontFamily: T.mono }}>{r.name}</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  ) : !integrityLoading && (
                     <div style={{ fontSize: 11, color: T.dim, textAlign: "center", padding: "8px 0" }}>No file selected</div>
                   )}
                 </div>
@@ -4429,6 +4538,11 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
           checkFailed={pendingSaveContent?.checkFailed || false}
         />
       )}
+
+      {/* ── ARCHIVE BLOCK MODAL ── */}
+      {archiveBlock && (
+        <ArchiveBlockModal block={archiveBlock} onClose={() => setArchiveBlock(null)} />
+      )}
     </div>
   );
 }
@@ -4620,8 +4734,62 @@ function DilutionModal({ elements, onConfirm, onCancel, checkFailed }) {
 }
 
 // ─────────────────────────────────────────────
-// NEW FILE MODAL
+// ARCHIVE BLOCK MODAL
 // ─────────────────────────────────────────────
+function ArchiveBlockModal({ block, onClose }) {
+  if (!block) return null;
+  const isCore = block.type === "core";
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.red}60`, borderRadius: 14, width: 480, maxWidth: "95vw", padding: 0, overflow: "hidden" }}>
+        <div style={{ background: `${T.red}18`, borderBottom: `1px solid ${T.red}40`, padding: "16px 22px", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 20 }}>🔒</span>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 15, color: T.red, letterSpacing: "-0.02em" }}>
+              {isCore ? "Core File — Cannot Archive" : "Referential Integrity Violation"}
+            </div>
+            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>
+              {isCore
+                ? `${block.fileType} files are mandatory for the governance framework`
+                : `${block.filename} is referenced by other active files`}
+            </div>
+          </div>
+        </div>
+        <div style={{ padding: "18px 22px" }}>
+          {isCore ? (
+            <div style={{ fontSize: 12, color: T.text, lineHeight: 1.7, marginBottom: 18 }}>
+              <strong>{block.filename}</strong> is a mandatory core governance file (<span style={{ color: T.amber, fontFamily: T.mono, fontSize: 11 }}>{block.fileType}</span>).
+              Core files form the foundational governance baseline and cannot be archived.
+              To replace it, create a new version and sign it off — do not archive the existing one.
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, color: T.text, lineHeight: 1.7, marginBottom: 10 }}>
+                Archiving <strong>{block.filename}</strong> would create a broken reference in the following active files:
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 18 }}>
+                {(block.referencedBy || []).map(name => (
+                  <div key={name} style={{ padding: "6px 10px", borderRadius: 6, background: `${T.red}10`, border: `1px solid ${T.red}35`, fontSize: 11, fontFamily: T.mono, color: T.text }}>
+                    ↑ {name}
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: T.dim, padding: "8px 10px", background: T.bg, borderRadius: 6, border: `1px solid ${T.border}`, lineHeight: 1.6, marginBottom: 4 }}>
+                Remove or update the references in those files first, then archive this file.
+              </div>
+            </>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={onClose} style={{ padding: "8px 22px", borderRadius: 7, border: `1px solid ${T.border}`, background: `${T.red}18`, color: T.red, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Understood
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NewFileModal({ config, companyName, onSave, onClose }) {
   const [step, setStep] = useState(0);
   const [fileType, setFileType] = useState(null);

@@ -72,12 +72,20 @@ const MINIMUM_CLAUSE_THRESHOLDS: Record<string, { must: number; mustNot: number;
   CUSTOM:     { must: 1, mustNot: 0, may: 0 },
 };
 
+const CORE_FILE_TYPES = ["AGENTS", "COMPLIANCE", "SOP"];
+
 function countClauses(content: string) {
   const must = (content.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
   const mustNot = (content.match(/\bMUST NOT\b/g) || []).length;
   const may = (content.match(/\bMAY\b/g) || []).length;
   const words = content.split(/\s+/).filter(Boolean).length;
   return { mustCount: must, mustNotCount: mustNot, mayCount: may, wordCount: words };
+}
+
+function extractFileRefs(content: string): string[] {
+  const refs = new Set<string>();
+  for (const m of content.matchAll(/\b([A-Za-z][A-Za-z0-9_\-]*\.md)\b/g)) refs.add(m[1]);
+  return Array.from(refs);
 }
 
 function parseYamlFrontMatter(content: string) {
@@ -374,6 +382,51 @@ router.post("/fm/sign/:id", async (req, res) => {
   }
 });
 
+router.post("/fm/integrity-check", async (req, res) => {
+  try {
+    const { companyId: rawCompanyId, content, filename, fileId: rawFileId } = req.body;
+    const companyId = rawCompanyId ? parseInt(String(rawCompanyId), 10) : null;
+    if (!companyId) return res.status(400).json({ error: "companyId required" });
+    const fileId = rawFileId ? parseInt(String(rawFileId), 10) : null;
+
+    const allFiles = await db.select({
+      id: governanceFiles.id,
+      filename: governanceFiles.filename,
+      fileType: governanceFiles.fileType,
+      content: governanceFiles.content,
+    }).from(governanceFiles)
+      .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)));
+
+    const activeFilenames = new Set(allFiles.map(f => f.filename));
+    const presentTypes = new Set(allFiles.map(f => (f.fileType || "").toUpperCase()));
+
+    const outboundRefs: { name: string; status: "intact" | "broken" }[] = [];
+    if (content) {
+      const refs = extractFileRefs(content as string);
+      for (const ref of refs) {
+        if (filename && ref === filename) continue;
+        outboundRefs.push({ name: ref, status: activeFilenames.has(ref) ? "intact" : "broken" });
+      }
+    }
+
+    const inboundRefs: { name: string; fileId: number }[] = [];
+    if (filename) {
+      for (const f of allFiles) {
+        if (f.id === fileId) continue;
+        if (f.content && extractFileRefs(f.content).includes(filename as string)) {
+          inboundRefs.push({ name: f.filename, fileId: f.id });
+        }
+      }
+    }
+
+    const missingCoreTypes = CORE_FILE_TYPES.filter(t => !presentTypes.has(t));
+
+    res.json({ outboundRefs, inboundRefs, missingCoreTypes });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete("/fm/file/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -383,6 +436,41 @@ router.delete("/fm/file/:id", async (req, res) => {
       const owned = await assertFileOwnership(id, companyId);
       if (!owned) return res.status(404).json({ error: "Not found" });
     }
+
+    const [targetFile] = await db.select({
+      fileType: governanceFiles.fileType,
+      filename: governanceFiles.filename,
+    }).from(governanceFiles).where(eq(governanceFiles.id, id));
+    if (!targetFile) return res.status(404).json({ error: "Not found" });
+
+    if (CORE_FILE_TYPES.includes((targetFile.fileType || "").toUpperCase())) {
+      return res.status(403).json({
+        error: `${targetFile.fileType} is a mandatory core governance file and cannot be archived`,
+        reason: "core_file",
+        fileType: targetFile.fileType,
+      });
+    }
+
+    if (companyId) {
+      const siblings = await db.select({ id: governanceFiles.id, filename: governanceFiles.filename, content: governanceFiles.content })
+        .from(governanceFiles)
+        .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)));
+      const referencedBy: string[] = [];
+      for (const f of siblings) {
+        if (f.id === id) continue;
+        if (f.content && extractFileRefs(f.content).includes(targetFile.filename)) {
+          referencedBy.push(f.filename);
+        }
+      }
+      if (referencedBy.length > 0) {
+        return res.status(409).json({
+          error: "File is referenced by other active governance files",
+          reason: "referenced",
+          referencedBy,
+        });
+      }
+    }
+
     await db.update(governanceFiles).set({ isArchived: true, updatedAt: new Date() })
       .where(eq(governanceFiles.id, id));
     res.json({ success: true });
