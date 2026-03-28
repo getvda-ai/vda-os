@@ -40,6 +40,14 @@ VDA-MD makes governance the *starting point* rather than the audit layer. Every 
 
 Because the files are plain markdown, they live comfortably in Git, are reviewable in PRs, and integrate with any CI/CD pipeline that can run a shell command.
 
+### Execution-layer agnostic by design
+
+VDA-MD governs *what* agents are authorised to do and *how* that authorisation is documented — not *how* the agents run. The governance mandate is independent of which model, framework, or platform executes your agents today.
+
+Your AGENTS.md file does not reference GPT-4, Claude, LangChain, or AutoGen. It defines roles, constraints, compliance obligations, and escalation paths. When the AI landscape changes — and it will — your governance estate remains intact. Swap the model, re-platform the runtime, migrate to the next orchestration framework: the governance files, the version history, the audit trail, and the compliance coverage do not move.
+
+This is a deliberate architectural choice. Governance that is entangled with the execution layer becomes a liability every time the technology shifts. Governance that sits above the execution layer becomes a durable organisational asset.
+
 ---
 
 ## Concepts
