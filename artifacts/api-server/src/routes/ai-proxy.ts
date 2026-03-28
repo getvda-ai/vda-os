@@ -9,11 +9,28 @@ const MODEL_MAP: Record<string, string> = {
   "claude-haiku-4-20250514": "claude-haiku-4-5",
 };
 
-function resolveModel(requested: string): string {
+export function resolveModel(requested: string): string {
   if (MODEL_MAP[requested]) return MODEL_MAP[requested];
   const supported = ["claude-sonnet-4-6", "claude-sonnet-4-5", "claude-opus-4-6", "claude-opus-4-5", "claude-opus-4-1", "claude-haiku-4-5"];
   if (supported.includes(requested)) return requested;
   return "claude-sonnet-4-6";
+}
+
+export async function callAI(params: {
+  model?: string;
+  max_tokens?: number;
+  system?: string;
+  messages: { role: "user" | "assistant"; content: string }[];
+}): Promise<string> {
+  const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
+  const response = await anthropic.messages.create({
+    model: resolvedModel,
+    max_tokens: params.max_tokens || 8192,
+    messages: params.messages,
+    ...(params.system ? { system: params.system } : {}),
+  });
+  const block = response.content[0];
+  return block?.type === "text" ? block.text : "";
 }
 
 router.post("/ai/messages", async (req, res) => {

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { callAI } from "./ai-proxy.js";
 import { db, governanceFiles, governanceFileVersions } from "@workspace/db";
 import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
 
@@ -352,7 +352,7 @@ Return only the markdown content with YAML front matter. Do not include any expl
 - Industry: ${industry || "general"}
 - File Type: ${fileType}
 - Axis: ${axis || "shared"}
-- Brand context: ${brandContext ? brandContext.slice(0, 500) : "not provided"}
+- Brand context: ${brandContext ? (brandContext as string).slice(0, 500) : "not provided"}
 - Existing files: ${existingFiles ? (existingFiles as string[]).join(", ") : "none"}
 
 Requirements:
@@ -360,16 +360,15 @@ Requirements:
 - Include at least 3 MUST clauses, 2 MUST NOT clauses, and 2 MAY clauses
 - Keep it under 400 words
 - Make it specific to the industry and company context`;
-    const response = await anthropic.messages.create({
+    const content = await callAI({
       model: "claude-sonnet-4-6",
       max_tokens: 1024,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     });
-    const content = response.content[0]?.type === "text" ? response.content[0].text : "";
     const clauses = countClauses(content);
     const meta = parseYamlFrontMatter(content);
-    res.json({ content, ...clauses, meta, model: response.model });
+    res.json({ content, ...clauses, meta });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -388,18 +387,17 @@ Format as structured markdown with sections: Summary, Files Included, Key Change
 - Company: ${companyName || "the organisation"}
 - Industry: ${industry || "general"}
 - Release date: ${releaseDate || new Date().toISOString().slice(0, 10)}
-- LIVE files included (${liveFiles.length}): ${liveFiles.join(", ")}
-- DRAFT files excluded (${(draftFiles || []).length}): ${(draftFiles || []).join(", ")}
+- LIVE files included (${(liveFiles as string[]).length}): ${(liveFiles as string[]).join(", ")}
+- DRAFT files excluded (${((draftFiles || []) as string[]).length}): ${((draftFiles || []) as string[]).join(", ")}
 
 Write professional release notes under 300 words. Include a compliance summary and any recommended next steps.`;
-    const response = await anthropic.messages.create({
+    const notes = await callAI({
       model: "claude-sonnet-4-6",
       max_tokens: 768,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     });
-    const notes = response.content[0]?.type === "text" ? response.content[0].text : "";
-    res.json({ releaseNotes: notes, model: response.model });
+    res.json({ releaseNotes: notes });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
