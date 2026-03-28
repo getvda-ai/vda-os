@@ -3572,7 +3572,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     clearTimeout(complianceTimeout.current);
     complianceTimeout.current = setTimeout(() => {
       runComplianceCheck(newContent, selectedFile?.content || null);
-    }, 700);
+    }, 600);
   };
 
   const handleSave = async (msg) => {
@@ -4560,6 +4560,8 @@ function NewFileModal({ config, companyName, onSave, onClose }) {
           axis,
           companyName,
           industry: config?.id || config?.label || "general",
+          requiredControls: config?.nistControls || [],
+          requiredFrameworks: config?.additionalFrameworks || [],
           brandContext: config?.brandContext,
         }),
       });
