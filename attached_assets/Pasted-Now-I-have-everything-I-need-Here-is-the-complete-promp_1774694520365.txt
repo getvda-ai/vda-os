@@ -1,0 +1,555 @@
+Now I have everything I need. Here is the complete prompt:
+
+Replit Prompt: A2MD Normalizer Tab
+You are adding a new tab called "A2MD Normaliser" to an existing React single-file 
+application (vdamd-templateV2.jsx). This is part of the VDA-MD (Value-Driven AI 
+Markdown) Framework — an enterprise AI governance system.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT A2MD IS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A2MD (Agent to Markdown) is the normalisation pipeline that takes ANY existing 
+agent Markdown file — from any vendor, framework, or format (OpenAI system prompts 
+saved as .md, LangChain agent configs, GitHub Copilot AGENTS.md files, WSO2 AFM 
+files, Claude CLAUDE.md files, or any plain-text agent definition) — and outputs 
+a fully VDA-MD governed Markdown file that:
+
+1. Has correct YAML front matter (agent_id, domain, owner, axis, journey_stage, 
+   normalisation_level, vendor, baseline)
+2. Has rules normalised to MUST / MUST NOT / MAY clause format
+3. Has the agent placed on the Two-Axis governance map (vertical = customer journey, 
+   horizontal = shared services)
+4. Has an explicit escalation path defined
+5. Has cross-domain inheritance rules where applicable
+6. Is Witness Agent readable (every clause is citable)
+7. Has a compliance baseline inherited from the company's industry config
+
+A2MD is the companion to C2MD. C2MD translates compliance standards → Markdown. 
+A2MD translates existing agent files → VDA-MD governed Markdown.
+
+The axiom of the framework is: EVERY agent, regardless of origin or vendor, MUST 
+have a VDA-MD Markdown file before it can operate in a governed enterprise. A2MD 
+is how you enforce that axiom for pre-existing agents.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DESIGN SYSTEM — MATCH EXACTLY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Use these existing design tokens from the file (already defined as const T):
+
+  bg: "#07080a"          — page background
+  surface: "#0d0f12"     — panels
+  card: "#111418"        — cards
+  border: "#1e2229"      — borders
+  borderHi: "#2e3340"    — hover borders
+  orange: "#FF6B2B"      — primary action / brand
+  blue: "#4A9EFF"        — business domain
+  purple: "#A066FF"      — compliance / EU AI Act
+  green: "#22D47A"       — success / governed
+  red: "#FF4D6A"         — error / fail
+  amber: "#FFB020"       — warning / review
+  teal: "#00C9C8"        — shared services
+  text: "#FFFFFF"
+  dim: "#CBD2E0"
+  mono: IBM Plex Mono
+  sans: Outfit
+
+Animations available: pulse-ring, slide-up, spin, glow-pulse, badge-in, wizard-in
+
+Reuse the existing Tag component:
+  function Tag({ color, children }) — renders a small badge
+
+Reuse the existing streaming pattern from C2MDStudioTab:
+  - status: "idle" | "calling" | "streaming" | "done" | "error"
+  - displayedMd: string that grows character by character during streaming
+  - Use the Anthropic API at https://api.anthropic.com/v1/messages
+  - Model: claude-sonnet-4-20250514
+  - max_tokens: 4000
+  - Stream the response and update displayedMd incrementally
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB REGISTRATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In the App() root component, find the tabs array:
+
+  const tabs = setup ? [
+    { id: "journey",   label: "Journey Map",     icon: "🗺" },
+    { id: "c2md",      label: "C2MD Studio",      icon: "🔬" },
+    { id: "exception", label: "Exception Engine", icon: "⚡" },
+    { id: "witness",   label: "Witness Agent...", icon: "🕵️" },
+  ] : [];
+
+Add after the witness entry:
+
+  { id: "a2md", label: "A2MD Normaliser", icon: "⚙️" }
+
+In the content render section, add:
+
+  {tab === "a2md" && (
+    <A2MDNormaliserTab 
+      config={config} 
+      companyName={setup.companyName} 
+      onLogEntry={addLog} 
+    />
+  )}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+A2MDNormaliserTab COMPONENT — FULL SPEC
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Props: { config, companyName, onLogEntry }
+
+State:
+  inputMd        — string, raw pasted or uploaded agent markdown
+  inputSource    — string, e.g. "OpenAI", "LangChain", "GitHub Copilot", 
+                   "Claude Code", "WSO2 AFM", "Custom", "Unknown"
+  agentName      — string, the agent's name (editable)
+  detectedGaps   — array of gap objects (populated after analysis)
+  outputMd       — string, the normalised VDA-MD output
+  displayedMd    — string, streaming version of outputMd
+  status         — "idle" | "analysing" | "normalising" | "done" | "error"
+  axisPlacement  — object { axis: "vertical"|"horizontal", stage: string, 
+                   owner: string } (inferred by AI and shown to user)
+  gapScore       — number 0-100 (how much was missing from input)
+  normalisedAt   — timestamp
+  activePanel    — "input" | "gaps" | "output"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LAYOUT — 3 COLUMN PIPELINE VIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The tab renders as a horizontal 3-panel pipeline:
+
+COLUMN 1 — INPUT PANEL (amber border when active)
+  Header: "External Agent File"
+  Subheader: "Paste any agent Markdown — any vendor, any format"
+  
+  Source selector row (pill buttons):
+    OpenAI · LangChain · GitHub Copilot · Claude Code · WSO2 AFM · Custom
+    (selecting one updates inputSource, changes the placeholder text)
+  
+  Placeholder text per source:
+    OpenAI:          "# System Prompt\nYou are a helpful assistant that..."
+    LangChain:       "# Agent Definition\n## Tools\n- search\n- calculator..."
+    GitHub Copilot:  "---\nname: my-agent\ndescription: ...\n---\n## Role..."
+    Claude Code:     "# CLAUDE.md\n## Project Overview\n..."
+    WSO2 AFM:        "---\nname: pr-analyzer\nversion: 1.0\ntools:\n..."
+    Custom:          "Paste any agent definition, system prompt, or 
+                      governance document in Markdown format..."
+  
+  Large textarea (monospace, dark background #03040a, green text):
+    - 400px min height
+    - Shows placeholder text until user types
+    - Character count in bottom right corner
+    - Paste button (triggers navigator.clipboard.readText())
+  
+  Agent name field below textarea:
+    Label: "Agent Name (for governance file)"
+    Input: text, pre-filled if detectable from content
+  
+  "Analyse Gaps →" button (amber/orange, full width):
+    - Disabled if inputMd is empty
+    - Triggers PHASE 1: GAP ANALYSIS API call
+    - Shows spinner animation while running
+
+COLUMN 2 — GAP ANALYSIS PANEL (red/amber border, fills after analysis)
+  Header: "Gap Analysis"
+  Subheader: "What's missing vs VDA-MD schema"
+  
+  While analysing: show spinning loader with "Analysing structure..."
+  
+  After analysis, show:
+  
+  GAP SCORE METER at top:
+    - Large circle or arc showing 0-100
+    - 0 = completely ungoverned (red)
+    - 50 = partially governed (amber)  
+    - 100 = already VDA-MD compliant (green)
+    - Label: "Governance Completeness"
+    - Subtext: "X gaps detected"
+  
+  AXIS PLACEMENT CARD:
+    - Shows where AI placed this agent on the Two-Axis map
+    - "Axis: VERTICAL — Customer Journey" or "HORIZONTAL — Shared Services"
+    - "Stage: [detected stage]"
+    - "Inferred Owner: [detected owner]"
+    - Orange badge if inferred (not explicit in source)
+    - Green badge if found in source
+  
+  GAPS LIST:
+    Each gap is a card with:
+    - Icon: ✗ (red, critical) or ⚠ (amber, recommended) or ℹ (blue, optional)
+    - Gap name (e.g. "Missing YAML front matter", "No escalation path", 
+      "Rules not in MUST/MUST NOT/MAY format", "No owner defined", 
+      "No cross-domain inheritance rules", "No Witness Agent clause format",
+      "No compliance baseline reference", "No violation definition")
+    - One-line description of what needs to be added
+    - Severity: CRITICAL | RECOMMENDED | OPTIONAL
+  
+  Gap categories to always check for:
+    CRITICAL:
+      - YAML front matter (agent_id, domain, owner, axis, journey_stage)
+      - Owner not named or not a real role
+      - No escalation path
+      - No violation definition
+    RECOMMENDED:
+      - Rules not in MUST/MUST NOT/MAY format
+      - No cross-domain inheritance reference
+      - No Witness Agent compatible clause format
+      - Compliance baseline not referenced
+    OPTIONAL:
+      - No agent_id slug
+      - No vendor field
+      - No normalisation_level field
+      - No baseline: true/false flag
+  
+  "Normalise → VDA-MD" button (green, full width):
+    - Only enabled after gap analysis completes
+    - Triggers PHASE 2: NORMALISATION API call
+
+COLUMN 3 — OUTPUT PANEL (green border when content present)
+  Header: "VDA-MD Governed Output"
+  Subheader: "[agentName].md · Ready for Two-Axis Map"
+  
+  While normalising: show streaming text appearing character by character
+    (exact same streaming pattern as C2MD Studio)
+    Blinking cursor ▊ at end of stream
+  
+  After done: show full normalised markdown in green monospace
+    with macOS-style window chrome (red/yellow/green dots)
+    Filename in title bar: [agent-slug]-vdamd.md
+  
+  BELOW the output, show NORMALISATION REPORT card:
+    - "Gaps Resolved: X/Y"
+    - "Rules Added: X MUST, X MUST NOT, X MAY"
+    - "Axis Placement: [axis] → [stage]"
+    - "Owner Assigned: [owner]"
+    - "Compliance Baseline: Inherited from [config.label]"
+    - "Witness Agent: Compatible ✓"
+    - Confidence score (0-100%, same bar style as C2MD clause confidence)
+  
+  ACTION ROW at bottom:
+    - "📋 Copy Markdown" button (copies outputMd to clipboard)
+    - "💾 Save to Governance Map" button (calls onLogEntry to add to 
+      Witness Agent log with decision: "NORMALISED", file: filename)
+    - "↗ View on Journey Map" button (switches tab to "journey")
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 1 API CALL — GAP ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+POST to https://api.anthropic.com/v1/messages
+
+System prompt:
+"""
+You are the A2MD Gap Analysis Engine, part of the VDA-MD (Value-Driven AI Markdown) 
+Framework. Your job is to analyse an existing agent Markdown file and identify every 
+structural gap between it and a valid VDA-MD governed agent file.
+
+A valid VDA-MD agent file MUST have ALL of the following:
+
+YAML FRONT MATTER containing:
+  agent_id: (slugified agent name)
+  domain: (Business | Operations | Compliance | Technology | Finance | HR)
+  owner: (named role, not "the team" or "IT")
+  axis: (vertical | horizontal)
+  journey_stage: (one of the journey stages OR shared service id)
+  normalisation_level: (1 | 2 | 3)
+  vendor: (vendor name or "VDA-MD Native")
+  baseline: (true | false)
+
+SECTIONS:
+  ## Agent Scope — what this agent is for
+  ## Permitted Actions — MUST / MUST NOT / MAY rules only
+  ## Escalation Path — who and when
+  ## Cross-Domain Inheritance — what horizontal permissions are needed
+  ## Violation Definition — what constitutes non-compliance
+  ## Compliance Baseline — which standards this agent inherits
+
+RULES FORMAT:
+  All rules must use exactly: MUST, MUST NOT, or MAY as the first word.
+  No passive voice rules. No vague rules. Each rule must be a single 
+  testable action.
+
+WITNESS AGENT COMPATIBILITY:
+  Every rule must be citable as a single clause. Rules longer than 2 lines 
+  should be split. Every section must have at least one rule.
+
+You will respond with ONLY a JSON object, no preamble, no markdown fences:
+
+{
+  "agentName": "detected or inferred agent name",
+  "gapScore": number 0-100 (100 = fully compliant, 0 = completely ungoverned),
+  "axisPlacement": {
+    "axis": "vertical" or "horizontal",
+    "stage": "the most likely journey stage or shared service",
+    "owner": "inferred owner role",
+    "confidence": 0.0-1.0,
+    "inferred": true or false (true if not explicitly stated in source)
+  },
+  "gaps": [
+    {
+      "id": "slug-id",
+      "name": "Human readable gap name",
+      "description": "One sentence: what is missing and why it matters",
+      "severity": "CRITICAL" | "RECOMMENDED" | "OPTIONAL",
+      "section": "yaml_front_matter" | "scope" | "rules" | "escalation" | 
+                 "cross_domain" | "violation" | "compliance_baseline"
+    }
+  ],
+  "detectedRules": {
+    "must": number,
+    "must_not": number,
+    "may": number
+  },
+  "sourceFormat": "detected format of the input file"
+}
+"""
+
+User message:
+"""
+Company: [companyName]
+Industry: [config.label]
+Source Format Hint: [inputSource]
+Journey Stages available: [config.journeyStages.map(s => s.id + ": " + s.label).join(", ")]
+Shared Services available: [config.sharedServices.map(s => s.id + ": " + s.label).join(", ")]
+
+INPUT AGENT FILE:
+[inputMd]
+"""
+
+Parse the JSON response. Populate detectedGaps, axisPlacement, gapScore state.
+Set activePanel to "gaps" after success.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 2 API CALL — NORMALISATION (STREAMING)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+POST to https://api.anthropic.com/v1/messages with stream: true
+Use the same streaming reader pattern as C2MDStudioTab.
+
+System prompt:
+"""
+You are the A2MD Normalisation Engine, part of the VDA-MD (Value-Driven AI Markdown) 
+Framework. Your job is to take an existing agent file and rewrite it as a fully 
+compliant VDA-MD governed Markdown file.
+
+NORMALISATION RULES:
+1. Preserve all valid existing content — do not discard working rules
+2. Translate any rules that are not in MUST/MUST NOT/MAY format into that format
+3. Add ALL missing sections identified in the gap analysis
+4. Infer reasonable rules from context where sections are missing — do not leave 
+   sections empty, but mark inferred rules with a comment: # [A2MD inferred]
+5. The YAML front matter must be complete and accurate
+6. Owner must be a real named role from the company's org (use the industry config)
+7. The escalation path must name specific roles, not "the system" or "IT"
+8. Cross-domain inheritance must explicitly reference horizontal shared service 
+   files if the agent could ever trigger financial, HR, or procurement actions
+9. Every rule must be independently citable as a Witness Agent clause
+10. The output must be deployable as-is — a governance owner should be able to 
+    sign this file without rewriting it
+
+OUTPUT FORMAT:
+Output ONLY the complete Markdown file, starting with --- (YAML front matter).
+No preamble. No explanation. No markdown code fences. Just the raw .md content.
+The file will be saved directly and deployed.
+
+After the main Markdown content, on a new line add exactly:
+---A2MD_REPORT---
+Then output a JSON object (single line) with this structure:
+{
+  "gapsResolved": number,
+  "totalGaps": number,
+  "rulesAdded": {"must": number, "mustNot": number, "may": number},
+  "axisPlacement": {"axis": string, "stage": string, "owner": string},
+  "complianceBaseline": string,
+  "witnessCompatible": true,
+  "confidence": number 0.0-1.0,
+  "filename": "agent-slug-vdamd.md"
+}
+"""
+
+User message:
+"""
+Company: [companyName]
+Industry: [config.label]
+Industry Icon: [config.icon]
+
+AXIS PLACEMENT (from gap analysis):
+Axis: [axisPlacement.axis]
+Stage: [axisPlacement.stage]
+Owner: [axisPlacement.owner]
+
+GAPS TO RESOLVE:
+[detectedGaps.map(g => `- [${g.severity}] ${g.name}: ${g.description}`).join("\n")]
+
+COMPLIANCE FRAMEWORKS FOR THIS INDUSTRY:
+NIST Controls: [config.nistControls.join(", ")]
+Additional: [config.additionalFrameworks.join(", ")]
+
+JOURNEY STAGES:
+[config.journeyStages.map(s => `${s.id}: ${s.label} — Owner: ${s.owner}`).join("\n")]
+
+SHARED SERVICES:
+[config.sharedServices.map(s => `${s.id}: ${s.label} — Owner: ${s.owner}`).join("\n")]
+
+ORIGINAL AGENT FILE (Source: [inputSource]):
+[inputMd]
+"""
+
+STREAMING HANDLING:
+- As chunks arrive, append to displayedMd
+- When the full response is received, split on "---A2MD_REPORT---"
+- Part 1 = the clean Markdown file (set as outputMd)
+- Part 2 = parse as JSON, set normalisationReport state
+- Set status to "done", set activePanel to "output"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WITNESS AGENT INTEGRATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When "Save to Governance Map" is clicked, call onLogEntry with:
+{
+  agent: agentName || "Unknown Agent",
+  decision: "NORMALISED",
+  file: normalisationReport.filename || "agent-vdamd.md",
+  clause: "A2MD normalisation completed — " + detectedGaps.length + 
+          " gaps resolved, all MUST/MUST NOT/MAY rules verified",
+  exception: false,
+  source: inputSource,
+  gapScore: gapScore,
+  normalisedAt: Date.now()
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HEADER SECTION OF THE TAB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+At the top of the tab, before the 3-column layout, render:
+
+Title row:
+  ⚙️ A2MD Normaliser
+  Tags: [Live API] [Any Vendor] [config.label]
+
+Subtitle (match C2MD Studio style):
+  "Every AI agent — regardless of vendor or origin — must have a VDA-MD 
+  governed Markdown file before it can operate in a governed enterprise. 
+  A2MD normalises any existing agent file into a compliant governance 
+  passport in one step."
+
+EXPLAINER ROW (3 cards, matching the framework's card style):
+  Card 1 — Input (amber icon ⬤):
+    "Any Agent File"
+    "OpenAI prompts, LangChain configs, GitHub Copilot AGENTS.md, 
+     WSO2 AFM, Claude Code CLAUDE.md, or any plain-text agent definition"
+  
+  Card 2 — Process (orange icon →):
+    "Gap Analysis + Normalisation"  
+    "AI identifies every structural gap against the VDA-MD schema, 
+     then rewrites the file with all missing governance elements added"
+  
+  Card 3 — Output (green icon ✓):
+    "VDA-MD Governed Passport"
+    "Complete YAML front matter, MUST/MUST NOT/MAY rules, escalation 
+     paths, Witness Agent compatibility, Two-Axis placement confirmed"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EMPTY STATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When nothing has been pasted yet, Column 2 and Column 3 show 
+placeholder states:
+
+Column 2 placeholder:
+  Large gap meter showing — with dashes
+  Text: "Paste an agent file and click Analyse Gaps to see what's missing"
+  Show 3 example gap cards (greyed out) as a preview:
+    ✗ YAML front matter — CRITICAL
+    ⚠ No escalation path — RECOMMENDED  
+    ℹ No agent_id slug — OPTIONAL
+
+Column 3 placeholder:
+  Code editor chrome with dashes in title bar
+  Text centred: "⚙ → Normalised output will appear here"
+  Subtext: "The complete VDA-MD governed .md file, ready to deploy"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SAMPLE INPUT FOR TESTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add a "Load Sample" button in the input panel that pre-fills inputMd 
+with this realistic but deliberately ungoverned agent file:
+
+---
+name: check-in-assistant
+description: Helps guests check in at the hotel
+---
+
+## Role
+You are a hotel check-in assistant. Help guests check in quickly.
+
+## Behaviour  
+- Be friendly and efficient
+- Check if room is ready
+- Assign a room if available
+- Handle loyalty member upgrades when possible
+- If there's a problem, escalate to the front desk team
+- Don't process payments over £500
+
+## Tools
+- room_availability_check
+- room_assignment  
+- loyalty_lookup
+- send_notification
+
+Also set inputSource to "Custom" and agentName to "Check-in Assistant"
+when Load Sample is clicked.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RESPONSIVE / LAYOUT NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- 3-column grid: gridTemplateColumns: "1fr 1fr 1fr", gap: 20
+- On mobile (max-width 900px): stack vertically
+- Each column: background T.surface, border T.border, borderRadius 12, 
+  padding 20, minHeight 600
+- Column 1 border-left: 3px solid T.amber when inputMd.length > 0
+- Column 2 border-left: 3px solid (gapScore > 70 ? T.green : 
+  gapScore > 40 ? T.amber : T.red) when gaps detected
+- Column 3 border-left: 3px solid T.green when outputMd.length > 0
+- Overall tab padding: 28px, same as other tabs
+- Header padding matches C2MD Studio exactly
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL IMPLEMENTATION NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. The Anthropic API key is already handled — do NOT add any API key 
+   input or management. Use the same fetch pattern as C2MDStudioTab.
+
+2. The two API calls are SEQUENTIAL not parallel:
+   Phase 1 (gap analysis) must complete before Phase 2 (normalisation) 
+   can run. The user sees the gaps first, then triggers normalisation.
+
+3. All streaming logic must exactly match the pattern in C2MDStudioTab 
+   — same reader, same chunk accumulation, same cursor animation.
+
+4. The ---A2MD_REPORT--- delimiter in Phase 2 response must be split 
+   correctly. The displayedMd during streaming shows everything. After 
+   done, outputMd = content before delimiter only.
+
+5. The "Save to Governance Map" action writes to the Witness Agent log 
+   via onLogEntry — this is how normalised agents appear in the 
+   Witness tab. The Witness tab should display NORMALISED decisions 
+   with a special ⚙ icon (distinct from PASS/FAIL/ESCALATE).
+
+6. This tab must be fully functional when config and companyName are 
+   provided — it uses config.journeyStages, config.sharedServices, 
+   config.nistControls, config.additionalFrameworks, and config.label 
+   in both API prompts.
+
+7. Match all typography, spacing, animation, and colour conventions 
+   from the existing tabs exactly. A new developer should not be able 
+   to tell which tab was added later.

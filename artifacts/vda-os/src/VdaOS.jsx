@@ -445,9 +445,10 @@ function Tag({ children, color }) {
 
 function DecisionBadge({ decision, large }) {
   const cfg = {
-    PASS:     { bg: "#0a2818", border: "#1a6038", color: "#4ade80", icon: "✓" },
-    FAIL:     { bg: "#200a0a", border: "#6b1414", color: "#f87171", icon: "✗" },
-    ESCALATE: { bg: "#1f1500", border: "#6b4200", color: "#fbbf24", icon: "⚠" },
+    PASS:       { bg: "#0a2818", border: "#1a6038", color: "#4ade80", icon: "✓" },
+    FAIL:       { bg: "#200a0a", border: "#6b1414", color: "#f87171", icon: "✗" },
+    ESCALATE:   { bg: "#1f1500", border: "#6b4200", color: "#fbbf24", icon: "⚠" },
+    NORMALISED: { bg: "#001f1f", border: "#006666", color: "#00C9C8", icon: "⚙" },
   }[decision] || { bg: T.card, border: T.border, color: T.muted, icon: "?" };
   return (
     <span style={{
@@ -2103,6 +2104,690 @@ function JourneyMapTab({ config, companyName }) {
 }
 
 // ─────────────────────────────────────────────
+// A2MD NORMALISER TAB
+// ─────────────────────────────────────────────
+
+const SAMPLE_AGENT_MD = `---
+name: check-in-assistant
+description: Helps guests check in at the hotel
+---
+
+## Role
+You are a hotel check-in assistant. Help guests check in quickly.
+
+## Behaviour  
+- Be friendly and efficient
+- Check if room is ready
+- Assign a room if available
+- Handle loyalty member upgrades when possible
+- If there's a problem, escalate to the front desk team
+- Don't process payments over £500
+
+## Tools
+- room_availability_check
+- room_assignment  
+- loyalty_lookup
+- send_notification`;
+
+const SOURCE_PLACEHOLDERS = {
+  "OpenAI": "# System Prompt\nYou are a helpful assistant that...",
+  "LangChain": "# Agent Definition\n## Tools\n- search\n- calculator...",
+  "GitHub Copilot": "---\nname: my-agent\ndescription: ...\n---\n## Role...",
+  "Claude Code": "# CLAUDE.md\n## Project Overview\n...",
+  "WSO2 AFM": "---\nname: pr-analyzer\nversion: 1.0\ntools:\n  - ...",
+  "Custom": "Paste any agent definition, system prompt, or governance document in Markdown format...",
+  "Unknown": "Paste any agent definition, system prompt, or governance document in Markdown format...",
+};
+
+function GapScoreRing({ score }) {
+  const r = 44;
+  const circ = 2 * Math.PI * r;
+  const fill = score == null ? 0 : (score / 100) * circ;
+  const color = score == null ? T.border : score > 70 ? T.green : score > 40 ? T.amber : T.red;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      <svg width={104} height={104} viewBox="0 0 104 104">
+        <circle cx={52} cy={52} r={r} fill="none" stroke={T.border} strokeWidth={8} />
+        <circle cx={52} cy={52} r={r} fill="none" stroke={color} strokeWidth={8}
+          strokeDasharray={`${fill} ${circ}`}
+          strokeDashoffset={circ * 0.25}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dasharray 0.6s ease" }} />
+        <text x={52} y={52} textAnchor="middle" dy="0.35em"
+          fill={score == null ? T.dim : color}
+          fontSize={score == null ? 18 : 22}
+          fontFamily={T.mono} fontWeight={700}>
+          {score == null ? "—" : score}
+        </text>
+      </svg>
+      <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, textAlign: "center", letterSpacing: "0.05em" }}>GOVERNANCE<br/>COMPLETENESS</div>
+    </div>
+  );
+}
+
+function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn }) {
+  const [inputMd, setInputMd] = useState("");
+  const [inputSource, setInputSource] = useState("Custom");
+  const [agentName, setAgentName] = useState("");
+  const [detectedGaps, setDetectedGaps] = useState([]);
+  const [outputMd, setOutputMd] = useState("");
+  const [displayedMd, setDisplayedMd] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [axisPlacement, setAxisPlacement] = useState(null);
+  const [gapScore, setGapScore] = useState(null);
+  const [normalisedAt, setNormalisedAt] = useState(null);
+  const [normReport, setNormReport] = useState(null);
+  const [error, setError] = useState(null);
+  const [detectedRules, setDetectedRules] = useState(null);
+  const streamRef = useRef(null);
+  const fileRef = useRef(null);
+
+  const isAnalysing = status === "analysing";
+  const isNormalising = status === "normalising";
+  const isBusy = isAnalysing || isNormalising;
+  const isDone = status === "done";
+  const hasGaps = detectedGaps.length > 0;
+  const hasOutput = outputMd.length > 0;
+
+  const activePanel = isDone ? "output" : hasGaps ? "gaps" : "input";
+
+  const col1BorderColor = inputMd.length > 0 ? T.amber : T.border;
+  const col2BorderColor = hasGaps ? (gapScore > 70 ? T.green : gapScore > 40 ? T.amber : T.red) : T.border;
+  const col3BorderColor = hasOutput ? T.green : T.border;
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setInputMd(ev.target.result);
+      if (!agentName) setAgentName(file.name.replace(/\.(md|txt)$/, ""));
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      setInputMd(text);
+    } catch {
+      alert("Clipboard access denied — please paste manually into the text area.");
+    }
+  };
+
+  const handleLoadSample = () => {
+    setInputMd(SAMPLE_AGENT_MD);
+    setInputSource("Custom");
+    setAgentName("Check-in Assistant");
+  };
+
+  const handleDownload = () => {
+    if (!outputMd) return;
+    const slug = (normReport?.filename) || ((agentName || "agent").toLowerCase().replace(/\s+/g, "-") + "-vdamd.md");
+    const blob = new Blob([outputMd], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = slug; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopy = () => {
+    if (outputMd) navigator.clipboard.writeText(outputMd);
+  };
+
+  const handleSaveToGov = () => {
+    if (!outputMd || !onLogEntry) return;
+    const filename = normReport?.filename || ((agentName || "agent").toLowerCase().replace(/\s+/g, "-") + "-vdamd.md");
+    onLogEntry({
+      id: Date.now(),
+      timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      agent: agentName || "Unknown Agent",
+      decision: "NORMALISED",
+      fileReferenced: filename,
+      clauseApplied: "A2MD normalisation completed — " + detectedGaps.length + " gaps resolved, all MUST/MUST NOT/MAY rules verified",
+      actionProposed: `External agent file normalised to VDA-MD schema · Source: ${inputSource} · Gap score: ${gapScore}/100 → 100/100`,
+      exceptionApplied: false,
+      escalationTarget: null,
+      reasoning: normReport
+        ? `${normReport.gapsResolved}/${normReport.totalGaps} gaps resolved. Rules added: ${normReport.rulesAdded?.must || 0} MUST, ${normReport.rulesAdded?.mustNot || 0} MUST NOT, ${normReport.rulesAdded?.may || 0} MAY. Axis: ${normReport.axisPlacement?.axis} → ${normReport.axisPlacement?.stage}. Compliance baseline inherited from ${normReport.complianceBaseline || "industry config"}.`
+        : `Agent file normalised from ${inputSource} format. ${detectedGaps.length} governance gaps resolved.`,
+    });
+  };
+
+  const handleAnalyse = async () => {
+    if (!inputMd.trim() || isBusy) return;
+    setError(null);
+    setDetectedGaps([]);
+    setGapScore(null);
+    setAxisPlacement(null);
+    setOutputMd("");
+    setDisplayedMd("");
+    setNormReport(null);
+    setStatus("analysing");
+
+    const systemPrompt = `You are the A2MD Gap Analysis Engine, part of the VDA-MD (Value-Driven AI Markdown) Framework. Your job is to analyse an existing agent Markdown file and identify every structural gap between it and a valid VDA-MD governed agent file.
+
+A valid VDA-MD agent file MUST have ALL of the following:
+
+YAML FRONT MATTER containing:
+  agent_id: (slugified agent name)
+  domain: (Business | Operations | Compliance | Technology | Finance | HR)
+  owner: (named role, not "the team" or "IT")
+  axis: (vertical | horizontal)
+  journey_stage: (one of the journey stages OR shared service id)
+  normalisation_level: (1 | 2 | 3)
+  vendor: (vendor name or "VDA-MD Native")
+  baseline: (true | false)
+
+SECTIONS:
+  ## Agent Scope — what this agent is for
+  ## Permitted Actions — MUST / MUST NOT / MAY rules only
+  ## Escalation Path — who and when
+  ## Cross-Domain Inheritance — what horizontal permissions are needed
+  ## Violation Definition — what constitutes non-compliance
+  ## Compliance Baseline — which standards this agent inherits
+
+RULES FORMAT:
+  All rules must use exactly: MUST, MUST NOT, or MAY as the first word.
+  No passive voice rules. No vague rules. Each rule must be a single testable action.
+
+WITNESS AGENT COMPATIBILITY:
+  Every rule must be citable as a single clause. Rules longer than 2 lines should be split. Every section must have at least one rule.
+
+You will respond with ONLY a JSON object, no preamble, no markdown fences:
+
+{
+  "agentName": "detected or inferred agent name",
+  "gapScore": 0-100,
+  "axisPlacement": {
+    "axis": "vertical or horizontal",
+    "stage": "the most likely journey stage or shared service",
+    "owner": "inferred owner role",
+    "confidence": 0.0-1.0,
+    "inferred": true or false
+  },
+  "gaps": [
+    {
+      "id": "slug-id",
+      "name": "Human readable gap name",
+      "description": "One sentence: what is missing and why it matters",
+      "severity": "CRITICAL or RECOMMENDED or OPTIONAL",
+      "section": "yaml_front_matter or scope or rules or escalation or cross_domain or violation or compliance_baseline"
+    }
+  ],
+  "detectedRules": {
+    "must": number,
+    "must_not": number,
+    "may": number
+  },
+  "sourceFormat": "detected format of the input file"
+}`;
+
+    const userMsg = `Company: ${companyName}
+Industry: ${config.label}
+Source Format Hint: ${inputSource}
+Journey Stages available: ${config.journeyStages.map(s => s.id + ": " + s.label).join(", ")}
+Shared Services available: ${(config.sharedServices || []).map(s => s.id + ": " + s.label).join(", ")}
+
+INPUT AGENT FILE:
+${inputMd}`;
+
+    try {
+      const resp = await fetch("/api/ai/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 2000,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userMsg }],
+        }),
+      });
+      if (!resp.ok) throw new Error("Gap analysis API error: " + resp.status);
+      const data = await resp.json();
+      const raw = data.content[0].text.trim();
+      const jsonStr = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      const parsed = JSON.parse(jsonStr);
+
+      setDetectedGaps(parsed.gaps || []);
+      setGapScore(parsed.gapScore ?? null);
+      setAxisPlacement(parsed.axisPlacement || null);
+      setDetectedRules(parsed.detectedRules || null);
+      if (!agentName && parsed.agentName) setAgentName(parsed.agentName);
+      setStatus("gaps");
+    } catch (e) {
+      setStatus("error");
+      setError(e.message);
+    }
+  };
+
+  const handleNormalise = async () => {
+    if (!hasGaps || isBusy) return;
+    setError(null);
+    setOutputMd("");
+    setDisplayedMd("");
+    setNormReport(null);
+    setStatus("normalising");
+
+    const systemPrompt = `You are the A2MD Normalisation Engine, part of the VDA-MD (Value-Driven AI Markdown) Framework. Your job is to take an existing agent file and rewrite it as a fully compliant VDA-MD governed Markdown file.
+
+NORMALISATION RULES:
+1. Preserve all valid existing content — do not discard working rules
+2. Translate any rules that are not in MUST/MUST NOT/MAY format into that format
+3. Add ALL missing sections identified in the gap analysis
+4. Infer reasonable rules from context where sections are missing — mark inferred rules with a comment: # [A2MD inferred]
+5. The YAML front matter must be complete and accurate
+6. Owner must be a real named role from the company's org (use the industry config)
+7. The escalation path must name specific roles, not "the system" or "IT"
+8. Cross-domain inheritance must explicitly reference horizontal shared service files if the agent could ever trigger financial, HR, or procurement actions
+9. Every rule must be independently citable as a Witness Agent clause
+10. The output must be deployable as-is — a governance owner should be able to sign this file without rewriting it
+
+OUTPUT FORMAT:
+Output ONLY the complete Markdown file, starting with --- (YAML front matter).
+No preamble. No explanation. No markdown code fences. Just the raw .md content.
+The file will be saved directly and deployed.
+
+After the main Markdown content, on a new line add exactly:
+---A2MD_REPORT---
+Then output a JSON object (single line) with this structure:
+{"gapsResolved":number,"totalGaps":number,"rulesAdded":{"must":number,"mustNot":number,"may":number},"axisPlacement":{"axis":"string","stage":"string","owner":"string"},"complianceBaseline":"string","witnessCompatible":true,"confidence":number,"filename":"agent-slug-vdamd.md"}`;
+
+    const userMsg = `Company: ${companyName}
+Industry: ${config.label}
+Industry Icon: ${config.icon}
+
+AXIS PLACEMENT (from gap analysis):
+Axis: ${axisPlacement?.axis || "vertical"}
+Stage: ${axisPlacement?.stage || ""}
+Owner: ${axisPlacement?.owner || ""}
+
+GAPS TO RESOLVE:
+${detectedGaps.map(g => `- [${g.severity}] ${g.name}: ${g.description}`).join("\n")}
+
+COMPLIANCE FRAMEWORKS FOR THIS INDUSTRY:
+NIST Controls: ${config.nistControls.join(", ")}
+Additional: ${(config.additionalFrameworks || []).join(", ")}
+
+JOURNEY STAGES:
+${config.journeyStages.map(s => `${s.id}: ${s.label} — Owner: ${s.owner}`).join("\n")}
+
+SHARED SERVICES:
+${(config.sharedServices || []).map(s => `${s.id}: ${s.label} — Owner: ${s.owner}`).join("\n")}
+
+ORIGINAL AGENT FILE (Source: ${inputSource}):
+${inputMd}`;
+
+    try {
+      const resp = await fetch("/api/ai/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 4000,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userMsg }],
+        }),
+      });
+      if (!resp.ok) throw new Error("Normalisation API error: " + resp.status);
+      const data = await resp.json();
+      const fullText = data.content[0].text;
+
+      const delimIdx = fullText.indexOf("---A2MD_REPORT---");
+      const mdPart = delimIdx >= 0 ? fullText.substring(0, delimIdx).trim() : fullText.trim();
+      const reportPart = delimIdx >= 0 ? fullText.substring(delimIdx + 17).trim() : null;
+
+      let report = null;
+      if (reportPart) {
+        try { report = JSON.parse(reportPart); } catch {}
+      }
+
+      setOutputMd(mdPart);
+      setNormReport(report);
+      setNormalisedAt(Date.now());
+
+      let i = 0;
+      clearInterval(streamRef.current);
+      const full = mdPart;
+      streamRef.current = setInterval(() => {
+        if (i >= full.length) {
+          clearInterval(streamRef.current);
+          setStatus("done");
+          return;
+        }
+        i = Math.min(i + 6, full.length);
+        setDisplayedMd(full.substring(0, i));
+      }, 8);
+    } catch (e) {
+      clearInterval(streamRef.current);
+      setStatus("error");
+      setError(e.message);
+    }
+  };
+
+  const SOURCES = ["OpenAI", "LangChain", "GitHub Copilot", "Claude Code", "WSO2 AFM", "Custom"];
+
+  const severityIcon = (sev) => sev === "CRITICAL" ? "✗" : sev === "RECOMMENDED" ? "⚠" : "ℹ";
+  const severityColor = (sev) => sev === "CRITICAL" ? T.red : sev === "RECOMMENDED" ? T.amber : T.blue;
+
+  return (
+    <div style={{ padding: "28px 28px 40px" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+          <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 24, color: T.text, letterSpacing: "-0.03em" }}>⚙️ A2MD Normaliser</h2>
+          <Tag color={T.orange}>Live API</Tag>
+          <Tag color={T.blue}>Any Vendor</Tag>
+          <Tag color={T.purple}>{config.label}</Tag>
+        </div>
+        <p style={{ color: T.muted, fontSize: 16, lineHeight: 1.7, maxWidth: 780 }}>
+          Every AI agent — regardless of vendor or origin — must have a VDA-MD governed Markdown file before it can operate in a governed enterprise. A2MD normalises any existing agent file into a compliant governance passport in one step.
+        </p>
+      </div>
+
+      {/* Explainer cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 28 }}>
+        {[
+          { dot: T.amber, title: "Any Agent File", body: "OpenAI prompts, LangChain configs, GitHub Copilot AGENTS.md, WSO2 AFM, Claude Code CLAUDE.md, or any plain-text agent definition" },
+          { dot: T.orange, title: "Gap Analysis + Normalisation", body: "AI identifies every structural gap against the VDA-MD schema, then rewrites the file with all missing governance elements added" },
+          { dot: T.green, title: "VDA-MD Governed Passport", body: "Complete YAML front matter, MUST/MUST NOT/MAY rules, escalation paths, Witness Agent compatibility, Two-Axis placement confirmed" },
+        ].map((c, i) => (
+          <div key={i} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", display: "flex", gap: 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: c.dot, marginTop: 4, flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>{c.title}</div>
+              <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.5 }}>{c.body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 3-column pipeline */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, alignItems: "start" }}>
+
+        {/* COLUMN 1 — INPUT */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col1BorderColor}`, borderRadius: 12, padding: 20, minHeight: 600 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>External Agent File</div>
+          <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>Paste any agent Markdown — any vendor, any format</div>
+
+          {/* Source selector */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {SOURCES.map(src => (
+              <button key={src} onClick={() => setInputSource(src)} style={{
+                padding: "4px 10px", borderRadius: 20, fontSize: 11, fontFamily: T.mono,
+                border: `1px solid ${inputSource === src ? T.amber : T.border}`,
+                background: inputSource === src ? T.amber + "18" : "transparent",
+                color: inputSource === src ? T.amber : T.dim,
+                cursor: "pointer", transition: "all 0.15s",
+              }}>{src}</button>
+            ))}
+          </div>
+
+          {/* Textarea */}
+          <div style={{ position: "relative" }}>
+            <textarea
+              value={inputMd}
+              onChange={e => setInputMd(e.target.value)}
+              placeholder={SOURCE_PLACEHOLDERS[inputSource]}
+              style={{
+                width: "100%", minHeight: 340, background: "#03040a",
+                border: `1px solid ${T.border}`, borderRadius: 8, padding: 14,
+                color: T.green, fontFamily: T.mono, fontSize: 11, lineHeight: 1.7,
+                resize: "vertical", outline: "none", boxSizing: "border-box",
+              }}
+            />
+            <div style={{ position: "absolute", bottom: 10, right: 10, fontSize: 10, color: T.dim, fontFamily: T.mono }}>
+              {inputMd.length.toLocaleString()} chars
+            </div>
+          </div>
+
+          {/* Upload + Paste buttons */}
+          <div style={{ display: "flex", gap: 8, marginTop: 10, marginBottom: 14 }}>
+            <button onClick={() => fileRef.current?.click()} style={{
+              flex: 1, padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.border}`,
+              background: T.card, color: T.dim, cursor: "pointer", fontSize: 12, fontFamily: T.sans,
+            }}>📁 Upload .md File</button>
+            <input ref={fileRef} type="file" accept=".md,.txt" style={{ display: "none" }} onChange={handleFileUpload} />
+            <button onClick={handlePaste} style={{
+              flex: 1, padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.border}`,
+              background: T.card, color: T.dim, cursor: "pointer", fontSize: 12, fontFamily: T.sans,
+            }}>📋 Paste</button>
+            <button onClick={handleLoadSample} style={{
+              flex: 1, padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.amber}40`,
+              background: T.amber + "10", color: T.amber, cursor: "pointer", fontSize: 12, fontFamily: T.sans,
+            }}>Load Sample</button>
+          </div>
+
+          {/* Agent name */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 6, letterSpacing: "0.05em" }}>AGENT NAME (for governance file)</label>
+            <input
+              value={agentName}
+              onChange={e => setAgentName(e.target.value)}
+              placeholder="e.g. Check-in Assistant"
+              style={{
+                width: "100%", padding: "9px 12px", borderRadius: 7, border: `1px solid ${T.border}`,
+                background: T.card, color: T.text, fontFamily: T.sans, fontSize: 13,
+                outline: "none", boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          {/* Analyse button */}
+          <button
+            onClick={handleAnalyse}
+            disabled={!inputMd.trim() || isBusy}
+            style={{
+              width: "100%", padding: "12px 0", borderRadius: 8, border: "none",
+              background: !inputMd.trim() || isBusy ? T.border : T.amber,
+              color: !inputMd.trim() || isBusy ? T.dim : "#000",
+              cursor: !inputMd.trim() || isBusy ? "not-allowed" : "pointer",
+              fontWeight: 700, fontSize: 14, fontFamily: T.sans, transition: "all 0.2s",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}
+          >
+            {isAnalysing ? <><span className="spin" style={{ display: "inline-block" }}>⟳</span> Analysing…</> : "Analyse Gaps →"}
+          </button>
+
+          {error && <div style={{ marginTop: 12, padding: "10px 14px", background: T.red + "18", border: `1px solid ${T.red}40`, borderRadius: 7, color: T.red, fontSize: 12, fontFamily: T.mono }}>{error}</div>}
+        </div>
+
+        {/* COLUMN 2 — GAP ANALYSIS */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col2BorderColor}`, borderRadius: 12, padding: 20, minHeight: 600 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>Gap Analysis</div>
+          <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>What's missing vs VDA-MD schema</div>
+
+          {isAnalysing ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 60, gap: 16 }}>
+              <div style={{ fontSize: 36, animation: "spin 1.2s linear infinite" }}>⟳</div>
+              <div style={{ color: T.amber, fontFamily: T.mono, fontSize: 13 }}>Analysing structure…</div>
+            </div>
+          ) : !hasGaps ? (
+            <div style={{ paddingTop: 20 }}>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+                <GapScoreRing score={null} />
+              </div>
+              <div style={{ color: T.dim, fontSize: 12, textAlign: "center", marginBottom: 24, fontFamily: T.mono }}>Paste an agent file and click Analyse Gaps<br/>to see what's missing</div>
+              {[
+                { icon: "✗", label: "YAML front matter", sev: "CRITICAL" },
+                { icon: "⚠", label: "No escalation path", sev: "RECOMMENDED" },
+                { icon: "ℹ", label: "No agent_id slug", sev: "OPTIONAL" },
+              ].map((ex, i) => (
+                <div key={i} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 8, opacity: 0.4, display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ color: severityColor(ex.sev), fontSize: 14, fontFamily: T.mono }}>{ex.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: T.dim }}>{ex.label}</div>
+                  </div>
+                  <Tag color={severityColor(ex.sev)}>{ex.sev}</Tag>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div>
+              {/* Gap score ring */}
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+                <GapScoreRing score={gapScore} />
+              </div>
+              <div style={{ textAlign: "center", fontSize: 12, color: T.dim, fontFamily: T.mono, marginBottom: 20 }}>
+                {detectedGaps.length} gap{detectedGaps.length !== 1 ? "s" : ""} detected
+              </div>
+
+              {/* Axis placement */}
+              {axisPlacement && (
+                <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 14px", marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, letterSpacing: "0.05em", marginBottom: 8 }}>AXIS PLACEMENT</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                    <Tag color={T.orange}>{(axisPlacement.axis || "").toUpperCase()}</Tag>
+                    {axisPlacement.inferred && <Tag color={T.amber}>Inferred</Tag>}
+                    {!axisPlacement.inferred && <Tag color={T.green}>Explicit</Tag>}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.text, marginBottom: 3 }}>Stage: <span style={{ color: T.orange }}>{axisPlacement.stage}</span></div>
+                  <div style={{ fontSize: 12, color: T.dim }}>Owner: {axisPlacement.owner}</div>
+                </div>
+              )}
+
+              {/* Detected rules */}
+              {detectedRules && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                  {[
+                    { label: "MUST", val: detectedRules.must, color: T.green },
+                    { label: "MUST NOT", val: detectedRules.must_not, color: T.red },
+                    { label: "MAY", val: detectedRules.may, color: T.blue },
+                  ].map(r => (
+                    <div key={r.label} style={{ flex: 1, background: T.card, border: `1px solid ${r.color}30`, borderRadius: 7, padding: "8px 10px", textAlign: "center" }}>
+                      <div style={{ fontSize: 16, fontWeight: 900, color: r.color, fontFamily: T.mono }}>{r.val}</div>
+                      <div style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, letterSpacing: "0.05em" }}>{r.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Gaps list */}
+              <div style={{ maxHeight: 280, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                {detectedGaps.map((g, i) => (
+                  <div key={i} style={{ background: T.card, border: `1px solid ${severityColor(g.severity)}30`, borderRadius: 8, padding: "10px 14px", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <span style={{ color: severityColor(g.severity), fontSize: 14, fontFamily: T.mono, marginTop: 1 }}>{severityIcon(g.severity)}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 3 }}>{g.name}</div>
+                      <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.4 }}>{g.description}</div>
+                    </div>
+                    <Tag color={severityColor(g.severity)}>{g.severity}</Tag>
+                  </div>
+                ))}
+              </div>
+
+              {/* Normalise button */}
+              <button
+                onClick={handleNormalise}
+                disabled={isBusy || isDone}
+                style={{
+                  width: "100%", padding: "12px 0", borderRadius: 8, border: "none",
+                  background: isBusy || isDone ? T.border : T.green,
+                  color: isBusy || isDone ? T.dim : "#000",
+                  cursor: isBusy || isDone ? "not-allowed" : "pointer",
+                  fontWeight: 700, fontSize: 14, fontFamily: T.sans, transition: "all 0.2s",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}
+              >
+                {isNormalising ? <><span style={{ display: "inline-block", animation: "spin 1.2s linear infinite" }}>⟳</span> Normalising…</> : isDone ? "✓ Normalised" : "Normalise → VDA-MD"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* COLUMN 3 — OUTPUT */}
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col3BorderColor}`, borderRadius: 12, padding: 20, minHeight: 600 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>VDA-MD Governed Output</div>
+          <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>
+            {agentName ? `${agentName.toLowerCase().replace(/\s+/g, "-")}-vdamd.md` : "output.md"} · Ready for Two-Axis Map
+          </div>
+
+          {/* macOS chrome */}
+          <div style={{ background: "#03040a", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+            <div style={{ padding: "8px 14px", background: "#050609", display: "flex", gap: 7, borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
+              {["#ff5f57","#febc2e","#28c840"].map((c,i) => <div key={i} style={{ width: 9, height: 9, borderRadius: "50%", background: c }} />)}
+              <span style={{ fontSize: 11, color: T.dim, marginLeft: 4, fontFamily: T.mono }}>
+                {normReport?.filename || (agentName ? agentName.toLowerCase().replace(/\s+/g, "-") + "-vdamd.md" : "--- pending ---")}
+              </span>
+            </div>
+            {!isNormalising && !hasOutput ? (
+              <div style={{ minHeight: 340, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                <div style={{ fontSize: 28, opacity: 0.3 }}>⚙</div>
+                <div style={{ color: T.dim, fontFamily: T.mono, fontSize: 12 }}>→ Normalised output will appear here</div>
+                <div style={{ color: T.dim, fontSize: 11, opacity: 0.6 }}>The complete VDA-MD governed .md file, ready to deploy</div>
+              </div>
+            ) : (
+              <pre style={{
+                color: T.green, fontSize: 11, lineHeight: 1.8, fontFamily: T.mono,
+                whiteSpace: "pre-wrap", margin: 0, padding: 14,
+                maxHeight: 400, overflowY: "auto",
+              }}>
+                {displayedMd || ""}
+                {isNormalising && <span style={{ animation: "glow-pulse 1s ease-in-out infinite", color: T.green }}>▊</span>}
+              </pre>
+            )}
+          </div>
+
+          {/* Normalisation report */}
+          {isDone && normReport && (
+            <div style={{ background: T.card, border: `1px solid ${T.green}30`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, letterSpacing: "0.05em", marginBottom: 12 }}>NORMALISATION REPORT</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {[
+                  { label: "Gaps Resolved", val: `${normReport.gapsResolved}/${normReport.totalGaps}` },
+                  { label: "Rules Added", val: `${normReport.rulesAdded?.must || 0} MUST · ${normReport.rulesAdded?.mustNot || 0} MUST NOT · ${normReport.rulesAdded?.may || 0} MAY` },
+                  { label: "Axis Placement", val: `${normReport.axisPlacement?.axis} → ${normReport.axisPlacement?.stage}` },
+                  { label: "Owner Assigned", val: normReport.axisPlacement?.owner },
+                  { label: "Compliance Baseline", val: `Inherited from ${config.label}` },
+                  { label: "Witness Agent", val: "Compatible ✓" },
+                ].map(row => (
+                  <div key={row.label} style={{ display: "flex", gap: 8, fontSize: 12 }}>
+                    <span style={{ color: T.dim, minWidth: 130, fontFamily: T.mono, fontSize: 11 }}>{row.label}</span>
+                    <span style={{ color: T.text }}>{row.val}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Confidence bar */}
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                  <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>CONFIDENCE</span>
+                  <span style={{ fontSize: 11, color: T.green, fontFamily: T.mono }}>{Math.round((normReport.confidence || 0) * 100)}%</span>
+                </div>
+                <div style={{ height: 6, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.round((normReport.confidence || 0) * 100)}%`, background: T.green, borderRadius: 3, transition: "width 0.8s ease" }} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          {isDone && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={handleDownload} style={{
+                flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.green}60`,
+                background: T.green + "12", color: T.green, cursor: "pointer",
+                fontWeight: 700, fontSize: 12, fontFamily: T.sans,
+              }}>⬇ Download .md</button>
+              <button onClick={handleCopy} style={{
+                flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`,
+                background: T.card, color: T.dim, cursor: "pointer",
+                fontWeight: 600, fontSize: 12, fontFamily: T.sans,
+              }}>📋 Copy Markdown</button>
+              <button onClick={handleSaveToGov} style={{
+                flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.orange}60`,
+                background: T.orange + "12", color: T.orange, cursor: "pointer",
+                fontWeight: 700, fontSize: 12, fontFamily: T.sans,
+              }}>💾 Save to Governance Map</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // C2MD STUDIO TAB
 // ─────────────────────────────────────────────
 function C2MDStudioTab({ config, companyName, brandContext, cache, setCache }) {
@@ -2440,7 +3125,7 @@ function ExceptionEngineTab({ config, companyName, onLogEntry }) {
 // WITNESS AGENT TAB
 // ─────────────────────────────────────────────
 function WitnessAgentTab({ log, config, companyName, isSeeded }) {
-  const stats = { PASS: log.filter(e => e.decision === "PASS").length, FAIL: log.filter(e => e.decision === "FAIL").length, ESCALATE: log.filter(e => e.decision === "ESCALATE").length, exceptions: log.filter(e => e.exceptionApplied).length };
+  const stats = { PASS: log.filter(e => e.decision === "PASS").length, FAIL: log.filter(e => e.decision === "FAIL").length, ESCALATE: log.filter(e => e.decision === "ESCALATE").length, NORMALISED: log.filter(e => e.decision === "NORMALISED").length, exceptions: log.filter(e => e.exceptionApplied).length };
   return (
     <div style={{ padding: "28px 28px 40px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 16 }}>
@@ -2451,7 +3136,7 @@ function WitnessAgentTab({ log, config, companyName, isSeeded }) {
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
-          {[{ label: "Total", val: log.length, color: T.muted }, { label: "PASS", val: stats.PASS, color: T.green }, { label: "FAIL", val: stats.FAIL, color: T.red }, { label: "ESCALATE", val: stats.ESCALATE, color: T.amber }, { label: "Exceptions", val: stats.exceptions, color: T.purple }].map(s => (
+          {[{ label: "Total", val: log.length, color: T.muted }, { label: "PASS", val: stats.PASS, color: T.green }, { label: "FAIL", val: stats.FAIL, color: T.red }, { label: "ESCALATE", val: stats.ESCALATE, color: T.amber }, { label: "A2MD", val: stats.NORMALISED, color: T.teal }, { label: "Exceptions", val: stats.exceptions, color: T.purple }].map(s => (
             <div key={s.label} style={{ background: T.card, border: `1px solid ${s.color}30`, borderRadius: 8, padding: "10px 14px", textAlign: "center", minWidth: 64 }}>
               <div style={{ fontFamily: T.mono, fontWeight: 700, fontSize: 22, color: s.color }}>{s.val}</div>
               <div style={{ fontSize: 10, color: T.dim, marginTop: 2 }}>{s.label}</div>
@@ -2485,8 +3170,8 @@ function WitnessAgentTab({ log, config, companyName, isSeeded }) {
           {[...log].reverse().map((e) => (
             <div key={e.id} style={{
               background: "#090b0d",
-              border: `1px solid ${e.decision === "PASS" ? T.green + "25" : e.decision === "FAIL" ? T.red + "25" : e.decision === "ESCALATE" ? T.amber + "25" : T.border}`,
-              borderLeft: `3px solid ${e.decision === "PASS" ? T.green : e.decision === "FAIL" ? T.red : e.decision === "ESCALATE" ? T.amber : T.border}`,
+              border: `1px solid ${e.decision === "PASS" ? T.green + "25" : e.decision === "FAIL" ? T.red + "25" : e.decision === "ESCALATE" ? T.amber + "25" : e.decision === "NORMALISED" ? T.teal + "40" : T.border}`,
+              borderLeft: `3px solid ${e.decision === "PASS" ? T.green : e.decision === "FAIL" ? T.red : e.decision === "ESCALATE" ? T.amber : e.decision === "NORMALISED" ? T.teal : T.border}`,
               borderRadius: 8, padding: "12px 16px", fontFamily: T.mono, fontSize: 13, animation: "slide-up 0.3s ease",
             }}>
               {/* Row 1: timestamp + agent + decision + exception badge */}
@@ -2958,6 +3643,7 @@ export default function VdaOS() {
     { id: "c2md",      label: "C2MD Studio",      icon: "🔬" },
     { id: "exception", label: "Exception Engine", icon: "⚡" },
     { id: "witness",   label: "Witness Agent" + (log.length ? " (" + log.length + ")" : ""), icon: "🕵️" },
+    { id: "a2md",      label: "A2MD Normaliser",  icon: "⚙️" },
   ] : [];
 
   return (
@@ -3059,6 +3745,7 @@ export default function VdaOS() {
           {tab === "c2md"      && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} />}
           {tab === "exception" && <ExceptionEngineTab config={config} companyName={setup.companyName} onLogEntry={addLog} />}
           {tab === "witness"   && <WitnessAgentTab log={log} config={config} companyName={setup.companyName} isSeeded={logIsSeeded} />}
+          {tab === "a2md"      && <A2MDNormaliserTab config={config} companyName={setup.companyName} onLogEntry={addLog} setTabFn={setTab} />}
         </>
       )}
     </div>
