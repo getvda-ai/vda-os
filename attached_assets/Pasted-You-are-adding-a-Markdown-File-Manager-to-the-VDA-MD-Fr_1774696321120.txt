@@ -1,0 +1,831 @@
+You are adding a Markdown File Manager to the VDA-MD Framework. This is both a 
+tab inside the existing React app (vdamd-templateV2.jsx) AND a Node.js/Express 
+backend service running in the same Replit project.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT THIS IS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A full CRUD Markdown file manager with invisible Git version control baked in.
+Every file in the VDA-MD framework — AGENTS.md, SOP.md, SKILL.md, EXCEPTION.md,
+C2MD compliance files, A2MD normalised passports — lives here. The manager is 
+also itself an AI agent (the FM Agent) that monitors, suggests, and automates.
+
+Core axiom: every save is a Git commit. Every owner approval is a Git tag. 
+Every release is a Git release. The user never sees Git — they see governance 
+workflow. Git is invisible infrastructure.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BACKEND — server.js (Express + simple-git)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Install dependencies:
+  npm install express simple-git cors chokidar fs-extra matter js-yaml uuid
+
+Create server.js in the project root. This runs alongside the React app.
+Use port 3001.
+
+FILE SYSTEM STRUCTURE:
+
+  /governance/
+    /[company-slug]/
+      /[industry]/
+        /journey/
+          /[stage-id]/
+            agents.md
+            sop.md
+            skill.md
+            exception.md
+        /shared/
+          /[service-id]/
+            agents.md
+            sop.md
+            exception.md
+        /compliance/
+          ac-2.md
+          au-2.md
+          [control-id].md
+      /releases/
+        [tag].md       ← auto-generated release notes
+
+  /governance/.git/    ← Git repo, hidden from user
+
+On first run, initialise a Git repo in /governance/ if none exists:
+  git.init()
+  git.addConfig('user.name', 'VDA-MD File Manager')
+  git.addConfig('user.email', 'filemanager@vdamd.local')
+
+BACKEND API ROUTES:
+
+POST /api/fm/init
+  Body: { companySlug, industry }
+  Creates the directory structure above
+  Runs git init if needed
+  Returns: { success, path }
+
+GET /api/fm/files/:companySlug
+  Returns all .md files as a tree with metadata:
+  [
+    {
+      id: uuid,
+      path: "journey/arrive/agents.md",
+      filename: "agents.md",
+      type: "AGENTS" | "SOP" | "SKILL" | "EXCEPTION" | "COMPLIANCE" | "RELEASE",
+      axis: "vertical" | "horizontal" | "compliance",
+      stage: stage id or service id,
+      owner: from YAML front matter,
+      domain: from YAML front matter,
+      status: "draft" | "review" | "live" | "expired",
+      expiresAt: date or null (from YAML front matter),
+      lastModified: timestamp,
+      commitHash: latest git commit hash for this file,
+      isExpired: boolean,
+      expiresInDays: number or null,
+      wordCount: number,
+      clauseCount: { must: n, mustNot: n, may: n },
+      signedBy: from YAML front matter or null,
+      signedAt: from YAML front matter or null,
+    }
+  ]
+
+GET /api/fm/file/:companySlug/*
+  Returns full file content + metadata + git history for one file
+  gitHistory: last 20 commits for this file
+  [
+    { hash, message, author, date, diff }
+  ]
+
+POST /api/fm/file/:companySlug/*
+  Body: { content, message, author }
+  Writes file to disk
+  Runs: git add [file] && git commit -m "[message]"
+  Auto-generates commit message if none provided:
+    "Update [filename] — [clauseCount] clauses, owner: [owner]"
+  Returns: { success, commitHash, path }
+
+POST /api/fm/sign/:companySlug/*
+  Body: { signerName, signerRole }
+  Adds to YAML front matter:
+    signed_by: [signerName]
+    signed_role: [signerRole]
+    signed_at: [ISO timestamp]
+    status: live
+  Commits: "✓ Owner sign-off: [filename] approved by [signerName]"
+  Creates a Git tag: "signed/[filename-slug]/[timestamp]"
+  Returns: { success, commitHash, tag }
+
+DELETE /api/fm/file/:companySlug/*
+  Moves file to /governance/[company]/_archive/[filename]-[timestamp].md
+  (Never hard-deletes — archive only)
+  Commits: "Archive [filename]"
+  Returns: { success }
+
+GET /api/fm/history/:companySlug/*
+  Returns git log for a specific file with diffs
+  Params: ?limit=20
+
+GET /api/fm/diff/:companySlug/*
+  Params: ?from=[hash]&to=[hash]
+  Returns unified diff between two commits for one file
+
+POST /api/fm/branch/:companySlug
+  Body: { branchName }
+  Creates a new Git branch
+  Branch naming convention: "draft/[slug]" or "release/v[n]"
+
+POST /api/fm/release/:companySlug
+  Body: { version, notes }
+  Tags current HEAD: "release/v[version]"
+  Generates RELEASE.md in /releases/ with:
+    - All files signed in this release period
+    - Clause counts by file type
+    - Owner sign-off list
+    - Compliance coverage matrix (which NIST controls are covered)
+    - FM Agent auto-generated release summary (calls Anthropic API)
+  Returns: { success, tag, releaseNotesPath }
+
+GET /api/fm/status/:companySlug
+  Returns governance health dashboard data:
+  {
+    totalFiles: n,
+    byType: { AGENTS: n, SOP: n, SKILL: n, EXCEPTION: n, COMPLIANCE: n },
+    byStatus: { draft: n, review: n, live: n, expired: n },
+    expiringSoon: [ files expiring within 30 days ],
+    unsigned: [ files with status != live ],
+    lastCommit: { hash, message, date },
+    totalCommits: n,
+    coverageMatrix: { [nistControl]: { covered: bool, file: path } }
+  }
+
+POST /api/fm/agent/suggest/:companySlug/*
+  Body: { fileContent, context }
+  Calls Anthropic API to suggest improvements to a file
+  Returns: { suggestions: [...], improvedContent: string }
+
+POST /api/fm/agent/release-notes/:companySlug
+  Body: { fromTag, toTag, fileList }
+  Calls Anthropic API to write release notes
+  Returns: { notes: string }
+
+POST /api/fm/search/:companySlug
+  Body: { query, filters: { type, axis, owner, status, domain } }
+  Full-text search across all .md files
+  Also matches on YAML front matter fields
+  Returns: [ { file, excerpt, matchedClauses } ]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB REGISTRATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In App() tabs array add:
+  { id: "filemanager", label: "File Manager", icon: "📁" }
+
+Add content render:
+  {tab === "filemanager" && (
+    <FileManagerTab
+      config={config}
+      companyName={setup.companyName}
+      industry={setup.industry}
+      onLogEntry={addLog}
+    />
+  )}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FRONTEND COMPONENT — FileManagerTab
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Props: { config, companyName, industry, onLogEntry }
+
+API_BASE constant: "http://localhost:3001/api/fm"
+Company slug: companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+
+State:
+  files          — array of file metadata objects
+  selectedFile   — currently open file object or null
+  fileContent    — string, current editor content
+  originalContent — string, content at last save (for dirty detection)
+  view           — "grid" | "tree" | "editor" | "history" | "diff" | "search"
+  searchQuery    — string
+  searchResults  — array
+  filters        — { type, axis, owner, status }
+  history        — array of commits for selected file
+  diff           — { from, to, unified } for diff view
+  status         — governance health object
+  saving         — boolean
+  suggesting     — boolean
+  suggestion     — string (FM Agent suggestion)
+  activePane     — "files" | "editor" | "agent"
+  commitMsg      — string (editable before save)
+  newFileModal   — boolean
+  newFileData    — { type, axis, stage, filename, owner, domain }
+  releaseModal   — boolean
+  signModal      — boolean
+  isDirty        — boolean (fileContent !== originalContent)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LAYOUT — 3 PANE LAYOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The tab has 3 vertical panes:
+
+PANE 1 — LEFT SIDEBAR (260px fixed width)
+  Governance health strip at top (compact):
+    Row of 4 mini stat chips:
+      [Live: n] [Draft: n] [Review: n] [⚠ Expiring: n]
+    Last commit info: "● [hash] · [relative time]"
+
+  View toggle: [Grid] [Tree] (pill buttons)
+  
+  Filter row:
+    Type dropdown: All / AGENTS / SOP / SKILL / EXCEPTION / COMPLIANCE
+    Status dropdown: All / Draft / Review / Live / Expired
+  
+  Search bar (triggers POST /search on enter or debounce 400ms):
+    Placeholder: "Search clauses, owners, rules..."
+    
+  FILE LIST (scrollable):
+    Group by axis: 
+      ── CUSTOMER JOURNEY ──
+        [stage name]
+          file card (compact)
+      ── SHARED SERVICES ──
+        [service name]
+          file card (compact)
+      ── COMPLIANCE ──
+          file card (compact)
+    
+    Each compact file card shows:
+      • Color dot: green=live, amber=review, orange=draft, red=expired
+      • Filename (truncated)
+      • Owner (tiny, muted)
+      • Type badge (AGENTS/SOP/SKILL/EXCEPTION/COMPLIANCE)
+      • If EXCEPTION.md: expiry countdown badge
+        "⏱ 12d" in amber if < 30 days
+        "⚠ Expired" in red if past expiry
+      • Click to open in editor pane
+    
+    "＋ New File" button at bottom (opens new file modal)
+
+PANE 2 — EDITOR (flex: 1, main area)
+  
+  When no file selected: show empty state
+    Icon: 📄
+    Text: "Select a file to edit"
+    Subtext: "Or create a new file using the + button"
+    "Browse all files →" link
+  
+  When file selected, show EDITOR HEADER:
+    Breadcrumb: [axis] › [stage] › [filename]
+    Status badge (color coded)
+    
+    Action row:
+      • [💾 Save] button — disabled if not dirty
+        Shows commit message input (one-line, editable) above button
+        On click: POST /file, then git commit
+        Auto-suggests commit message from diff
+      • [✓ Sign off] button — only if status is "review"
+        Opens sign modal
+      • [⏱ History] button — opens history panel
+      • [⎇ Branch] button — creates draft branch
+      • [FM Agent ✨] button — triggers suggestion
+      • [🗑 Archive] button (confirm dialog)
+    
+    Dirty indicator: "● Unsaved changes" in orange if isDirty
+    Git info bar: "Last commit: [short hash] · [message] · [relative time]"
+
+  EDITOR BODY:
+    Two-column split: 50/50
+    
+    LEFT: Raw Markdown editor
+      CodeMirror-style textarea (use a simple styled textarea with monospace font)
+      Syntax highlighting not required — clean monospace is fine
+      Line numbers in left gutter (simple implementation)
+      Background: #03040a (matches C2MD/A2MD code panels)
+      Text color: #e8e8e8
+      YAML front matter highlighted differently (amber/orange text)
+        — detect lines between first --- and second --- markers
+      MUST/MUST NOT/MAY keywords highlighted:
+        MUST (not MUST NOT) → green (#22D47A)
+        MUST NOT → red (#FF4D6A)
+        MAY → blue (#4A9EFF)
+      Show character count and clause count live below editor
+    
+    RIGHT: Rendered preview
+      Parse YAML front matter and show as a structured metadata card:
+        agent_id, domain, owner, axis, journey_stage, status
+        Each field as a labeled row matching app design tokens
+      Below metadata card: render Markdown body as styled HTML
+        Use a simple markdown-to-HTML parser (marked.js from CDN)
+        Style: white text on dark card background
+        MUST/MUST NOT/MAY rules styled with same color coding
+        Headers bold and slightly larger
+      Bottom of preview: Clause count summary
+        "X MUST · Y MUST NOT · Z MAY · Total: N rules"
+  
+  SCHEMA VALIDATION BAR (below editor, always visible):
+    Show validation status in real time as user types
+    Green bar: "✓ Schema valid — all required fields present"
+    Amber bar: "⚠ Missing: [field names]" 
+    Required fields: agent_id, domain, owner, axis, journey_stage
+    Show which VDA-MD file type the schema matches
+
+PANE 3 — RIGHT PANEL (320px, collapsible)
+  
+  Default view: FM AGENT PANEL
+    Header: "⚙ FM Agent"
+    Subheader: "File Manager Intelligence"
+    
+    GOVERNANCE HEALTH SECTION:
+      Mini coverage matrix — grid showing each NIST control
+      Green cell = covered by a live file
+      Amber cell = covered but draft/review
+      Red cell = not covered
+      Clicking a cell jumps to that compliance file
+    
+    EXPIRY MONITOR:
+      List of EXCEPTION.md files with expiry dates
+      Sorted by urgency:
+        ⚠ [filename] — expires in [n] days
+        Click to open file
+      "No expiring files" state when clear
+    
+    UNSIGNED FILES:
+      List of files with status != "live"
+      Shows owner name for each
+      "Request sign-off" button (copies a prompt to clipboard)
+    
+    FM AGENT SUGGEST BUTTON:
+      When a file is open in editor:
+      "✨ Suggest improvements" button (teal, full width)
+      Shows spinner while calling /agent/suggest
+      Displays suggestion in expandable card:
+        "FM Agent suggests:"
+        [suggestion text in green monospace]
+        "Apply suggestion" button — pastes into editor
+        "Dismiss" button
+    
+    RELEASE SECTION at bottom:
+      Current branch display
+      "🏷 Create Release" button (opens release modal)
+      Last 5 release tags listed
+      Click any tag to view that release's RELEASE.md
+
+  HISTORY VIEW (when ⏱ History button clicked):
+    Replaces right panel content
+    Timeline of commits for selected file:
+      Each commit row:
+        • Short hash (monospace, orange)
+        • Commit message
+        • Author
+        • Relative timestamp
+        • [View diff] button
+        • [Restore] button (with confirmation)
+    "← Back to FM Agent" link at top
+  
+  DIFF VIEW (when [View diff] clicked from history):
+    Unified diff display
+    Red lines: removed (background rgba(255,77,106,0.1))
+    Green lines: added (background rgba(34,212,122,0.1))
+    Line numbers both sides
+    "← Back to History" link
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODALS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NEW FILE MODAL:
+  Title: "Create Governance File"
+  
+  Step 1 — File Type:
+    Large card selector (2x3 grid):
+      AGENTS.md — "Agent identity, scope, and rules"
+      SOP.md    — "Standard operating procedure"  
+      SKILL.md  — "Agent capability definition"
+      EXCEPTION.md — "Temporary policy override with expiry"
+      COMPLIANCE.md — "Translated regulatory control (C2MD)"
+      CUSTOM.md — "Freeform governance document"
+  
+  Step 2 — Placement:
+    Axis selector: Vertical (Customer Journey) / Horizontal (Shared Services)
+    Stage/Service dropdown populated from config.journeyStages or 
+    config.sharedServices based on axis selection
+  
+  Step 3 — Identity:
+    Owner field (text, required)
+    Domain field (dropdown: Business/Operations/Compliance/Technology/Finance/HR)
+    Agent name or document name
+    
+  Step 4 — Expiry (only for EXCEPTION.md):
+    Expiry date picker
+    Approver name
+    Exception reason (one-liner)
+  
+  On Create:
+    Auto-generates YAML front matter from all form fields
+    Creates file with template content matching the type:
+      AGENTS.md template:
+        Scope section, Permitted Actions (with placeholder MUST/MAY rules),
+        Escalation Path, Cross-Domain Inheritance, Violation Definition
+      EXCEPTION.md template:
+        Exception details, Override rules, Expiry, Approver, Revert instructions
+      SOP.md template:
+        Purpose, Trigger conditions, Steps (numbered), Success criteria, Rollback
+      etc.
+    Saves file via POST /file
+    Commits: "Create [type]: [filename]"
+    Opens file in editor
+
+SIGN-OFF MODAL:
+  Title: "Owner Sign-Off"
+  Subtitle: "This approves [filename] for production deployment"
+  
+  Shows file summary:
+    • Clause count
+    • Last modified
+    • Current status
+  
+  Signer name field (text)
+  Signer role field (text, pre-filled from owner in YAML)
+  Confirmation checkbox:
+    "I confirm this file accurately represents the governed agent's 
+    operational mandate and I accept accountability as owner"
+  
+  "Sign & Approve →" button (green)
+  
+  On sign: POST /sign, then show success with commit hash and tag
+
+RELEASE MODAL:
+  Title: "Create Release"
+  
+  Version field: "v1.0", "v1.1" etc
+  Release type: Major / Minor / Patch (pill selector)
+  
+  Shows release summary:
+    • Files since last release: [n]
+    • Signed files: [n/n]
+    • Draft files (warning): [n]
+  
+  Warning if any files are draft or unsigned:
+    "⚠ [n] files are not yet signed. A release should only include 
+    fully signed governance files."
+  
+  "Generate Release Notes (FM Agent)" button:
+    Calls POST /agent/release-notes
+    Shows streaming generated notes in preview panel
+  
+  "Create Release Tag" button (disabled until notes generated)
+  
+  On create:
+    Tags Git HEAD with "release/v[version]"
+    Writes RELEASE.md to /releases/
+    Shows success with tag and link to release notes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SEARCH RESULTS VIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When search query is active, the main pane shows search results:
+
+Header: "Results for '[query]' — [n] matches"
+
+Each result card:
+  File path + type badge
+  Owner and domain
+  Matched excerpt with query term highlighted in amber
+  Matched clause(s) highlighted:
+    "MUST verify identity..." — matched "verify"
+  "Open file" button
+  "Inspect clause" button (jumps to that line in editor)
+
+Filter chips above results:
+  [All types] [AGENTS only] [EXCEPTION only] etc
+  [All axes] [Vertical] [Horizontal]
+  [All statuses] [Live only]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FM AGENT — API CALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SUGGEST IMPROVEMENTS (/agent/suggest):
+
+System prompt:
+"""
+You are the VDA-MD File Manager Agent. You review governance Markdown files 
+and suggest precise, actionable improvements.
+
+A great VDA-MD governance file:
+1. Has complete YAML front matter (agent_id, domain, owner, axis, 
+   journey_stage, status, baseline)
+2. Uses only MUST / MUST NOT / MAY as rule prefixes — no passive voice, 
+   no vague language
+3. Has a specific, named escalation path (role names, not "the team")
+4. Has a violation definition that is specific and testable
+5. Has cross-domain inheritance rules if the agent touches finance, HR, 
+   or procurement
+6. Has rules that are independently citable as single Witness Agent clauses
+
+Review the provided file and output:
+- A brief assessment (2-3 sentences)
+- Up to 5 specific improvements with the exact text to add or change
+- A rewritten version of any rule that is vague or passive voice
+- Overall governance quality score: 0-100
+
+Format as plain text (no JSON, no fences). Start with the score on line 1:
+SCORE: [n]/100
+Then your assessment and suggestions.
+"""
+
+User message:
+"""
+Company: [companyName]
+Industry: [config.label]
+File path: [selectedFile.path]
+
+FILE CONTENT:
+[fileContent]
+"""
+
+RELEASE NOTES (/agent/release-notes):
+
+System prompt:
+"""
+You are the VDA-MD Release Notes Agent. You generate professional, 
+board-readable release notes for a VDA-MD governance release.
+
+A VDA-MD release represents a set of governance files being promoted to 
+production — every file in the release has been owner-signed and is now 
+the governing mandate for its assigned AI agents.
+
+Write release notes that:
+1. Lead with what governance coverage was added or changed
+2. List every file included with its type and owner sign-off
+3. Note any exception files and their expiry dates
+4. Note compliance controls newly covered
+5. Call out any gaps or files still in draft
+6. End with a one-paragraph board summary: what AI agents are now governed, 
+   who is accountable, what compliance standards are satisfied
+
+Tone: professional, concise, suitable for a board audit pack or regulatory 
+submission. Not marketing language. Not technical jargon.
+"""
+
+User message:
+"""
+Company: [companyName]
+Version: [version]
+Industry: [config.label]
+
+FILES IN THIS RELEASE:
+[fileList.map(f => 
+  `${f.path} — ${f.type} — Owner: ${f.owner} — Status: ${f.status} — 
+  Clauses: ${f.clauseCount.must} MUST, ${f.clauseCount.mustNot} MUST NOT, 
+  ${f.clauseCount.may} MAY`
+).join("\n")]
+
+COMPLIANCE CONTROLS COVERED:
+[coverageMatrix entries where covered=true]
+"""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INTEGRATION WITH OTHER TABS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+C2MD STUDIO:
+After a file is generated in C2MD Studio, add a "Save to File Manager" 
+button below the output. On click:
+  POST /api/fm/file/[slug]/compliance/[filename]
+  Body: { content: outputMd, message: "C2MD: Generated [control-id] from NIST OSCAL" }
+Show success toast: "Saved to /compliance/[filename] · Committed"
+
+A2MD NORMALISER:
+After normalisation is complete, the existing "Save to Governance Map" 
+button should ALSO save to the file manager:
+  POST /api/fm/file/[slug]/journey/[stage]/[filename]
+  Body: { content: outputMd, message: "A2MD: Normalised [agentName] governance passport" }
+Show file manager badge: "📁 Saved · View in File Manager →"
+
+WITNESS AGENT:
+When the Witness Agent displays a log entry with a file reference, 
+add a "📁 Open file" link next to the filename that opens the 
+File Manager tab with that file selected and focused.
+
+EXCEPTION ENGINE:
+When an exception scenario produces an ESCALATE or PASS decision,
+offer "Create EXCEPTION.md" button that pre-fills the new file modal 
+with exception details from the scenario.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILE TEMPLATES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Define a TEMPLATES constant with 6 templates. Each has:
+  type, yamlTemplate (function of params), bodyTemplate (function of params)
+
+AGENTS.md template (params: agentName, domain, owner, axis, stageId, company):
+"""
+---
+agent_id: [slug of agentName]
+domain: [domain]
+owner: [owner]
+axis: [axis]
+journey_stage: [stageId]
+normalisation_level: 3
+vendor: VDA-MD Native
+baseline: true
+status: draft
+company: [company]
+created_at: [ISO date]
+---
+
+## Agent Scope
+[agentName] is responsible for [axis === 'vertical' ? 'customer-facing' : 
+'shared service'] operations in the [stageId] stage.
+
+## Permitted Actions
+- MUST [primary action] before proceeding
+- MUST verify authorisation level matches required permissions
+- MUST log every decision to the Witness Agent audit trail
+- MUST NOT proceed with actions outside defined scope without escalation
+- MAY [discretionary action] when conditions are met
+- MAY escalate to [owner] when uncertain
+
+## Escalation Path
+- Routine exceptions → [owner]
+- Cross-domain actions → Shared Services owner
+- Policy violations → Compliance Director
+
+## Cross-Domain Inheritance
+Actions triggering financial transactions MUST inherit permissions from 
+the Order-to-Cash Shared Services governance file.
+Actions triggering HR data access MUST inherit permissions from the 
+HR & Payroll Shared Services governance file.
+
+## Violation Definition
+Any action taken outside the Permitted Actions above, any cross-domain 
+action without verified inheritance, or any decision not logged to the 
+Witness Agent audit trail constitutes a violation.
+"""
+
+EXCEPTION.md template (params: exceptionTitle, owner, expiresAt, reason, stageId):
+"""
+---
+agent_id: exception-[slug]
+type: EXCEPTION
+domain: [domain]
+owner: [owner]
+axis: [axis]
+journey_stage: [stageId]
+status: review
+expires_at: [expiresAt]
+exception_reason: [reason]
+approved_by: [owner]
+created_at: [ISO date]
+---
+
+## Exception Title
+[exceptionTitle]
+
+## Exception Scope
+This exception temporarily overrides the standard baseline rules for 
+[stageId] in the following specific scenario:
+
+## Override Rules
+- MAY [the exceptional action] until [expiresAt]
+- MUST document every instance where this exception is invoked
+- MUST NOT extend this exception without a new owner sign-off
+- MUST revert to baseline rules on [expiresAt] automatically
+
+## Expiry and Revert
+This exception file expires on [expiresAt]. Upon expiry:
+- The governing agent MUST revert to baseline AGENTS.md rules
+- The Witness Agent will flag any continued exception invocations as violations
+- A new EXCEPTION.md must be created and signed if extension is required
+
+## Violation Definition
+Invoking this exception outside the defined scope, after the expiry date, 
+or without documenting the invocation constitutes a violation.
+"""
+
+SOP.md, SKILL.md, COMPLIANCE.md, CUSTOM.md templates follow the same
+pattern — provide sensible structured templates with placeholder content
+that guides the user toward VDA-MD compliant content.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DESIGN SYSTEM — MATCH EXACTLY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All existing design tokens (const T) apply exactly as in the main app.
+The File Manager tab should be visually indistinguishable from the 
+other tabs.
+
+Additional CSS for this tab only:
+
+Editor syntax highlighting (inline style on individual characters — 
+simplest approach: parse text and wrap tokens):
+  YAML front matter zone: color #FFB020 (amber)
+  "MUST NOT" anywhere: color #FF4D6A (red), font-weight 700
+  "MUST " (followed by space, not NOT): color #22D47A (green), font-weight 700
+  "MAY ": color #4A9EFF (blue), font-weight 700
+  "##" headers: color #A066FF (purple), font-weight 700
+  Comments (lines starting with #): color #CBD2E0 (dim), opacity 0.7
+
+Diff view:
+  Added lines: background rgba(34,212,122,0.08), color #22D47A
+  Removed lines: background rgba(255,77,106,0.08), color #FF4D6A
+  Context lines: background transparent, color #CBD2E0
+  Line numbers: color #1e2229, font-family mono
+
+Status colors (match Witness Agent):
+  live: T.green
+  review: T.amber
+  draft: T.orange
+  expired: T.red
+
+Expiry urgency:
+  > 30 days: T.dim (no special treatment)
+  8-30 days: T.amber with ⚠ icon
+  1-7 days: T.red with ⚠ icon, pulsing animation
+  Expired: T.red with "EXPIRED" badge, pulse-ring animation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BACKEND STARTUP INTEGRATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In package.json scripts:
+  "start": "concurrently \"node server.js\" \"vite\""
+  "server": "node server.js"
+  "client": "vite"
+
+Install concurrently:
+  npm install concurrently --save-dev
+
+The React app's vite config should proxy /api/* to localhost:3001 to 
+avoid CORS issues in production:
+  In vite.config.js:
+    server: {
+      proxy: {
+        '/api': 'http://localhost:3001'
+      }
+    }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL IMPLEMENTATION NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. NEVER expose Git commands to the user. The entire Git layer is 
+   invisible. Users see "Save", "Sign off", "Release" — not "commit", 
+   "tag", "push".
+
+2. NEVER hard-delete any file. Archive always. This is a governance 
+   system — deletion of governance records is itself a compliance risk.
+
+3. YAML front matter parsing: use the gray-matter library on the backend 
+   to reliably parse and write front matter. On the frontend, parse it 
+   manually for syntax highlighting (detect lines between --- markers).
+
+4. The clause counter is critical for the governance health dashboard. 
+   Count using these exact rules:
+   - MUST clause: line starting with "- MUST " (must not contain "NOT")
+   - MUST NOT clause: line starting with "- MUST NOT "
+   - MAY clause: line starting with "- MAY "
+   
+5. The EXCEPTION.md expiry monitor must run on both frontend load 
+   (check all files on mount) AND should set a daily interval check 
+   (setInterval every 60 seconds in dev, daily in prod).
+
+6. When the FM Agent writes its own commits (auto-commit on expiry 
+   warning generation, release note creation), the Git author should 
+   be "FM Agent <filemanager@vdamd.local>" to distinguish from 
+   human author commits.
+
+7. The editor must show a "dirty" state (isDirty = true) the moment 
+   any character changes. The Save button should be disabled when 
+   not dirty and bright orange when dirty. Navigating away from a 
+   dirty file should show a confirmation dialog.
+
+8. For the diff view — compute a simple line-diff on the client side 
+   using a lightweight algorithm (you can use a simple LCS approach 
+   or import diff from CDN: https://cdnjs.cloudflare.com/ajax/libs/
+   jsdiff/5.1.0/diff.min.js). Keep it simple — added/removed/context 
+   lines only, no word-level highlighting needed.
+
+9. Marked.js for Markdown rendering (preview pane) — import from CDN:
+   https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js
+
+10. The File Manager should initialise automatically on first use — 
+    call POST /api/fm/init with the company slug and industry when 
+    the tab first mounts if no files are found. This creates the 
+    directory structure and bootstraps the Git repo.
+
+11. For the "Request sign-off" feature in the FM Agent panel, generate 
+    a copyable message like:
+    "Hi [owner], your sign-off is required on [filename] in the 
+    VDA-MD File Manager. This file governs [agentName] in the 
+    [stage] stage. Please review and approve at [URL]. 
+    Framework: VDA-MD · Company: [companyName]"
+    Copy to clipboard via navigator.clipboard.writeText()
+
+12. The governance coverage matrix in the FM Agent panel should map 
+    config.nistControls to files in /compliance/ that contain that 
+    control_id in their YAML front matter. A control is "covered" if 
+    a live, signed compliance file exists for it.
