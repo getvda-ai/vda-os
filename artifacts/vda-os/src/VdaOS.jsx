@@ -3516,8 +3516,14 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const [releaseLoading, setReleaseLoading] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [navigateToFileId, setNavigateToFileId] = useState(null);
+  const [complianceCheck, setComplianceCheck] = useState(null);
+  const [complianceLoading, setComplianceLoading] = useState(false);
+  const [showDilutionModal, setShowDilutionModal] = useState(false);
+  const [dilutionOverride, setDilutionOverride] = useState("");
+  const [pendingSaveContent, setPendingSaveContent] = useState(null);
   const editorRef = useRef(null);
   const searchTimeout = useRef(null);
+  const complianceTimeout = useRef(null);
 
   const loadFiles = async () => {
     if (!companyId) return;
@@ -3555,11 +3561,18 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     setAiSuggestion(null);
     setSaveMsg(null);
     setPreviewMode(false);
+    setComplianceCheck(null);
+    runComplianceCheck(full.content || "", null, full);
   };
 
   const handleEditorChange = (e) => {
-    setEditorContent(e.target.value);
-    setIsDirty(e.target.value !== (selectedFile?.content || ""));
+    const newContent = e.target.value;
+    setEditorContent(newContent);
+    setIsDirty(newContent !== (selectedFile?.content || ""));
+    clearTimeout(complianceTimeout.current);
+    complianceTimeout.current = setTimeout(() => {
+      runComplianceCheck(newContent, selectedFile?.content || null);
+    }, 700);
   };
 
   const handleSave = async (msg) => {
@@ -3578,6 +3591,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
       const resp = await fetch(`/api/fm/file/${selectedFile.id}?companyId=${companyId}`);
       const updated = await resp.json();
       setSelectedFile(updated);
+      runComplianceCheck(updated.content || "", null, updated);
     } catch (e) { setSaveMsg("Error: " + e.message); }
     setIsSaving(false);
   };
@@ -3649,6 +3663,47 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
       const data = await resp.json();
       setSearchResults(Array.isArray(data) ? data : []);
     }, 350);
+  };
+
+  const runComplianceCheck = async (content, savedContent, fileOverride) => {
+    const file = fileOverride || selectedFile;
+    if (!file || !config) return;
+    setComplianceLoading(true);
+    try {
+      const resp = await fetch("/api/fm/compliance-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          savedContent: savedContent || null,
+          industry: config.id || config.label || "general",
+          fileType: file.fileType,
+        }),
+      });
+      const data = await resp.json();
+      setComplianceCheck(data);
+    } catch (e) { /* silent */ }
+    setComplianceLoading(false);
+  };
+
+  const handleSaveWithGuard = async (msg) => {
+    if (!selectedFile || !isDirty) return;
+    if (complianceCheck?.hasDilution) {
+      setPendingSaveContent({ content: editorContent, msg });
+      setDilutionOverride("");
+      setShowDilutionModal(true);
+      return;
+    }
+    await handleSave(msg);
+  };
+
+  const handleDilutionConfirm = async () => {
+    if (!pendingSaveContent) return;
+    const fullMsg = pendingSaveContent.msg + (dilutionOverride ? ` [DILUTION OVERRIDE: ${dilutionOverride}]` : "");
+    setShowDilutionModal(false);
+    setPendingSaveContent(null);
+    setDilutionOverride("");
+    await handleSave(fullMsg);
   };
 
   const handleAISuggest = async () => {
@@ -3885,12 +3940,14 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
                 <button onClick={() => setPreviewMode(p => !p)} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${previewMode ? T.purple : T.border}`, background: previewMode ? `${T.purple}20` : "none", color: previewMode ? T.purple : T.dim, fontSize: 11, cursor: "pointer" }}>
                   {previewMode ? "Edit" : "Preview"}
                 </button>
-                <button onClick={() => handleSave("Updated")} disabled={!isDirty || isSaving} style={{
-                  padding: "4px 12px", borderRadius: 5, border: `1px solid ${isDirty ? T.blue + "80" : T.border}`,
-                  background: isDirty ? `${T.blue}20` : "none", color: isDirty ? T.blue : T.dim,
+                <button onClick={() => handleSaveWithGuard("Updated")} disabled={!isDirty || isSaving} style={{
+                  padding: "4px 12px", borderRadius: 5,
+                  border: `1px solid ${complianceCheck?.hasDilution && isDirty ? T.red + "80" : isDirty ? T.blue + "80" : T.border}`,
+                  background: complianceCheck?.hasDilution && isDirty ? `${T.red}20` : isDirty ? `${T.blue}20` : "none",
+                  color: complianceCheck?.hasDilution && isDirty ? T.red : isDirty ? T.blue : T.dim,
                   fontSize: 11, cursor: isDirty ? "pointer" : "default", fontWeight: 700,
                 }}>
-                  {isSaving ? "Saving…" : "Save"}
+                  {isSaving ? "Saving…" : complianceCheck?.hasDilution && isDirty ? "⚠ Save" : "Save"}
                 </button>
                 <button onClick={handleHistory} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer" }}>
                   History
@@ -4049,6 +4106,54 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
         <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
           {rightPanel === "agent" && (
             <>
+              {/* ── COMPLIANCE SHIELD ── */}
+              {selectedFile && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.teal, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      Compliance Shield
+                    </div>
+                    {complianceCheck && (
+                      <div style={{
+                        fontSize: 11, fontWeight: 800, fontFamily: T.mono,
+                        color: complianceCheck.hasDilution ? T.red : complianceCheck.covered === complianceCheck.total ? T.green : T.amber,
+                      }}>
+                        {complianceCheck.covered}/{complianceCheck.total}
+                        {complianceCheck.hasDilution && " ⚠"}
+                      </div>
+                    )}
+                    {complianceLoading && <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>checking…</span>}
+                  </div>
+                  {complianceCheck?.hasDilution && (
+                    <div style={{ marginBottom: 8, padding: "6px 8px", borderRadius: 5, background: `${T.red}12`, border: `1px solid ${T.red}40`, fontSize: 10, color: T.red, fontWeight: 700 }}>
+                      ⚠ Mandatory elements removed — save blocked until override reason provided
+                    </div>
+                  )}
+                  {complianceCheck?.elements?.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {complianceCheck.elements.map(el => (
+                        <div key={el.id} style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "4px 8px", borderRadius: 5,
+                          background: el.status === "present" ? `${T.green}10` : el.status === "diluted" ? `${T.red}12` : `${T.amber}10`,
+                          border: `1px solid ${el.status === "present" ? T.green + "30" : el.status === "diluted" ? T.red + "40" : T.amber + "30"}`,
+                        }}>
+                          <span style={{ fontSize: 10, fontFamily: T.mono, color: T.text }}>{el.label}</span>
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, fontFamily: T.mono,
+                            color: el.status === "present" ? T.green : el.status === "diluted" ? T.red : T.amber,
+                          }}>
+                            {el.status === "present" ? "✓" : el.status === "diluted" ? "DILUTED" : "MISSING"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !complianceLoading && (
+                    <div style={{ fontSize: 11, color: T.dim, textAlign: "center", padding: "8px 0" }}>No file selected</div>
+                  )}
+                </div>
+              )}
+
               {/* NIST Coverage Matrix */}
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>NIST Coverage</div>
@@ -4289,6 +4394,94 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
           onClose={() => { setShowReleaseModal(false); setReleaseNotes(""); }}
         />
       )}
+
+      {/* ── DILUTION GUARD MODAL ── */}
+      {showDilutionModal && (
+        <DilutionModal
+          elements={complianceCheck?.elements?.filter(e => e.status === "diluted") || []}
+          overrideReason={dilutionOverride}
+          onReasonChange={setDilutionOverride}
+          onConfirm={handleDilutionConfirm}
+          onCancel={() => { setShowDilutionModal(false); setPendingSaveContent(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// DILUTION GUARD MODAL
+// ─────────────────────────────────────────────
+function DilutionModal({ elements, overrideReason, onReasonChange, onConfirm, onCancel }) {
+  const canConfirm = overrideReason.trim().length >= 10;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.red}60`, borderRadius: 14, width: 520, maxWidth: "95vw", padding: 0, overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{ background: `${T.red}18`, borderBottom: `1px solid ${T.red}40`, padding: "16px 22px", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 20 }}>⚠</span>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 15, color: T.red, letterSpacing: "-0.02em" }}>Compliance Dilution Detected</div>
+            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>Mandatory elements have been removed from this governance file</div>
+          </div>
+        </div>
+
+        <div style={{ padding: "18px 22px" }}>
+          {/* Diluted elements list */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.07em" }}>Elements at risk</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {elements.map(el => (
+                <div key={el.id} style={{ padding: "6px 10px", borderRadius: 6, background: `${T.red}10`, border: `1px solid ${T.red}35`, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: T.red, fontFamily: T.mono }}>DILUTED</span>
+                  <span style={{ fontSize: 11, color: T.text, fontFamily: T.mono }}>{el.label}</span>
+                  <span style={{ fontSize: 10, color: T.dim, marginLeft: "auto", textTransform: "uppercase" }}>{el.category}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Override reason */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 6 }}>
+              To proceed, provide a mandatory override justification (min. 10 characters):
+            </div>
+            <textarea
+              rows={3}
+              value={overrideReason}
+              onChange={e => onReasonChange(e.target.value)}
+              placeholder="e.g. Temporary exception approved by CISO — control coverage maintained via alternate means in policy doc XYZ-004"
+              style={{
+                width: "100%", boxSizing: "border-box", borderRadius: 7, padding: "10px 12px",
+                background: T.bg, border: `1px solid ${overrideReason.trim().length >= 10 ? T.amber + "70" : T.border}`,
+                color: T.text, fontSize: 12, fontFamily: T.mono, resize: "vertical", lineHeight: 1.5,
+                outline: "none",
+              }}
+            />
+            <div style={{ fontSize: 10, color: overrideReason.trim().length >= 10 ? T.green : T.dim, fontFamily: T.mono, marginTop: 4 }}>
+              {overrideReason.trim().length}/10 chars minimum {overrideReason.trim().length >= 10 ? "✓" : ""}
+            </div>
+          </div>
+
+          <div style={{ fontSize: 11, color: T.dim, marginBottom: 18, padding: "8px 10px", background: T.bg, borderRadius: 6, border: `1px solid ${T.border}`, lineHeight: 1.6 }}>
+            The override reason will be permanently appended to the commit message and visible in version history, creating an audit trail.
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button onClick={onCancel} style={{ padding: "8px 18px", borderRadius: 7, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 13, cursor: "pointer" }}>
+              Cancel
+            </button>
+            <button onClick={onConfirm} disabled={!canConfirm} style={{
+              padding: "8px 20px", borderRadius: 7, border: `1px solid ${canConfirm ? T.red + "80" : T.border}`,
+              background: canConfirm ? `${T.red}20` : T.bg, color: canConfirm ? T.red : T.dim,
+              fontSize: 13, fontWeight: 700, cursor: canConfirm ? "pointer" : "default",
+            }}>
+              Override & Save
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

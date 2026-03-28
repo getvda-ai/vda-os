@@ -5,6 +5,73 @@ import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
 
 const router = Router();
 
+const INDUSTRY_COMPLIANCE_MAP: Record<string, { nistControls: string[]; frameworks: { id: string; label: string; keywords: string[] }[] }> = {
+  hospitality: {
+    nistControls: ["AC-2", "AU-2", "SA-4", "IR-4"],
+    frameworks: [
+      { id: "pci-dss", label: "PCI DSS", keywords: ["PCI DSS", "PCI-DSS", "payment card"] },
+      { id: "iso-22301", label: "ISO 22301", keywords: ["ISO 22301", "business continuity"] },
+    ],
+  },
+  financial: {
+    nistControls: ["AC-2", "AU-2", "SC-28", "RA-5", "IR-4"],
+    frameworks: [
+      { id: "sox", label: "SOX", keywords: ["SOX", "Sarbanes-Oxley", "financial reporting"] },
+      { id: "dora", label: "DORA", keywords: ["DORA", "digital operational resilience"] },
+      { id: "mifid", label: "MiFID II", keywords: ["MiFID", "MiFID II", "investment services"] },
+    ],
+  },
+  healthcare: {
+    nistControls: ["AC-2", "AU-2", "MP-6", "SC-28", "IA-5"],
+    frameworks: [
+      { id: "hipaa", label: "HIPAA / UK DSPT", keywords: ["HIPAA", "DSPT", "health data", "patient data"] },
+      { id: "nhs-dtac", label: "NHS DTAC", keywords: ["NHS DTAC", "DTAC", "digital technology assessment"] },
+      { id: "mdr", label: "MDR", keywords: ["MDR", "medical device regulation"] },
+    ],
+  },
+  retail: {
+    nistControls: ["AC-2", "AU-2", "SA-4", "SI-10"],
+    frameworks: [
+      { id: "pci-dss", label: "PCI DSS", keywords: ["PCI DSS", "PCI-DSS", "payment card"] },
+      { id: "consumer-duty", label: "Consumer Duty", keywords: ["Consumer Duty", "FCA"] },
+      { id: "gdpr", label: "GDPR / CCPA", keywords: ["GDPR", "CCPA", "consumer data", "data protection"] },
+    ],
+  },
+  professional: {
+    nistControls: ["AC-2", "AU-2", "AC-17", "SC-8"],
+    frameworks: [
+      { id: "iso-27001", label: "ISO 27001", keywords: ["ISO 27001", "information security"] },
+      { id: "sra", label: "SRA / Legal", keywords: ["SRA", "regulatory frameworks", "legal"] },
+    ],
+  },
+  manufacturing: {
+    nistControls: ["AC-2", "AU-2", "SA-4", "PE-3", "SC-28"],
+    frameworks: [
+      { id: "iso-9001", label: "ISO 9001", keywords: ["ISO 9001", "quality management"] },
+      { id: "itar", label: "ITAR / Export Controls", keywords: ["ITAR", "export controls"] },
+      { id: "iec-62443", label: "IEC 62443", keywords: ["IEC 62443", "OT/ICS", "operational technology"] },
+    ],
+  },
+  marina: {
+    nistControls: ["AC-2", "AU-2", "SA-4", "SI-10"],
+    frameworks: [
+      { id: "mca", label: "MCA / MSN Regulations", keywords: ["MCA", "MSN", "maritime safety"] },
+      { id: "consumer-duty", label: "Consumer Duty", keywords: ["Consumer Duty", "FCA"] },
+      { id: "gdpr", label: "GDPR / CCPA", keywords: ["GDPR", "CCPA", "data protection"] },
+      { id: "marine-insurance", label: "Marine Insurance Act", keywords: ["Marine Insurance Act", "vessel cover"] },
+    ],
+  },
+};
+
+const MINIMUM_CLAUSE_THRESHOLDS: Record<string, { must: number; mustNot: number; may: number }> = {
+  AGENTS:     { must: 3, mustNot: 2, may: 2 },
+  SOP:        { must: 3, mustNot: 1, may: 1 },
+  COMPLIANCE: { must: 3, mustNot: 2, may: 1 },
+  SKILL:      { must: 2, mustNot: 1, may: 1 },
+  EXCEPTION:  { must: 1, mustNot: 1, may: 1 },
+  CUSTOM:     { must: 1, mustNot: 0, may: 0 },
+};
+
 function countClauses(content: string) {
   const must = (content.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
   const mustNot = (content.match(/\bMUST NOT\b/g) || []).length;
@@ -32,6 +99,91 @@ router.post("/fm/init", async (req, res) => {
     const existing = await db.select({ id: governanceFiles.id }).from(governanceFiles)
       .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)));
     res.json({ count: existing.length, initialised: existing.length > 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/fm/compliance-check", async (req, res) => {
+  try {
+    const { content, industry, fileType, savedContent } = req.body;
+    if (!content || !industry) return res.status(400).json({ error: "content and industry required" });
+
+    const industryKey = (industry as string).toLowerCase().split(" ")[0];
+    const compMap = INDUSTRY_COMPLIANCE_MAP[industryKey] || null;
+    const thresholds = MINIMUM_CLAUSE_THRESHOLDS[(fileType as string)?.toUpperCase()] || MINIMUM_CLAUSE_THRESHOLDS.CUSTOM;
+
+    const currentClauses = countClauses(content as string);
+    const savedClauses = savedContent ? countClauses(savedContent as string) : null;
+
+    const elements: { id: string; label: string; category: "nist" | "framework" | "clause"; status: "present" | "missing" | "diluted" }[] = [];
+
+    if (compMap) {
+      for (const ctrl of compMap.nistControls) {
+        const pattern = new RegExp(ctrl.replace("-", "[\\s-]?"), "i");
+        const presentInCurrent = pattern.test(content as string);
+        const presentInSaved = savedContent ? pattern.test(savedContent as string) : null;
+        let status: "present" | "missing" | "diluted";
+        if (presentInCurrent) {
+          status = "present";
+        } else if (presentInSaved === true) {
+          status = "diluted";
+        } else {
+          status = "missing";
+        }
+        elements.push({ id: ctrl, label: `NIST ${ctrl}`, category: "nist", status });
+      }
+
+      for (const fw of compMap.frameworks) {
+        const presentInCurrent = fw.keywords.some(kw => (content as string).toLowerCase().includes(kw.toLowerCase()));
+        const presentInSaved = savedContent ? fw.keywords.some(kw => (savedContent as string).toLowerCase().includes(kw.toLowerCase())) : null;
+        let status: "present" | "missing" | "diluted";
+        if (presentInCurrent) {
+          status = "present";
+        } else if (presentInSaved === true) {
+          status = "diluted";
+        } else {
+          status = "missing";
+        }
+        elements.push({ id: fw.id, label: fw.label, category: "framework", status });
+      }
+    }
+
+    const mustOk = currentClauses.mustCount >= thresholds.must;
+    const mustNotOk = currentClauses.mustNotCount >= thresholds.mustNot;
+    const mayOk = currentClauses.mayCount >= thresholds.may;
+
+    const mustDiluted = savedClauses && currentClauses.mustCount < savedClauses.mustCount && currentClauses.mustCount < thresholds.must;
+    const mustNotDiluted = savedClauses && currentClauses.mustNotCount < savedClauses.mustNotCount && currentClauses.mustNotCount < thresholds.mustNot;
+
+    elements.push({
+      id: "must-clauses",
+      label: `MUST clauses (min ${thresholds.must})`,
+      category: "clause",
+      status: mustOk ? "present" : mustDiluted ? "diluted" : "missing",
+    });
+    if (thresholds.mustNot > 0) {
+      elements.push({
+        id: "must-not-clauses",
+        label: `MUST NOT clauses (min ${thresholds.mustNot})`,
+        category: "clause",
+        status: mustNotOk ? "present" : mustNotDiluted ? "diluted" : "missing",
+      });
+    }
+    if (thresholds.may > 0) {
+      elements.push({
+        id: "may-clauses",
+        label: `MAY clauses (min ${thresholds.may})`,
+        category: "clause",
+        status: mayOk ? "present" : "missing",
+      });
+    }
+
+    const total = elements.length;
+    const covered = elements.filter(e => e.status === "present").length;
+    const hasDilution = elements.some(e => e.status === "diluted");
+
+    res.json({ elements, total, covered, hasDilution, clauses: currentClauses });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -425,8 +577,16 @@ Respond with ONLY the JSON object, no markdown fences.`;
       }
     }
 
+    const industryKey = ((industry || "") as string).toLowerCase().split(" ")[0];
+    const compMap = INDUSTRY_COMPLIANCE_MAP[industryKey] || null;
+    const thresholds = MINIMUM_CLAUSE_THRESHOLDS[(fileType as string)?.toUpperCase()] || MINIMUM_CLAUSE_THRESHOLDS.CUSTOM;
+
+    const mandatoryNist = compMap ? compMap.nistControls.join(", ") : "AC-2, AU-2";
+    const mandatoryFrameworks = compMap ? compMap.frameworks.map(f => f.label).join(", ") : "applicable regulatory frameworks";
+
     const systemPrompt = `You are a governance file drafting assistant for AI operating systems using the VDA-MD framework. 
 You generate concise, structured governance documents using MUST/MUST NOT/MAY clause language. 
+CRITICAL: You MUST include ALL mandatory compliance elements listed in the user prompt. Omitting any required NIST control or regulatory framework reference is a compliance violation.
 Return only the markdown content with YAML front matter. Do not include any explanation or preamble.`;
     const userPrompt = `Generate a governance file for:
 - Company: ${companyName || "the organisation"}
@@ -436,11 +596,22 @@ Return only the markdown content with YAML front matter. Do not include any expl
 - Brand context: ${brandContext ? (brandContext as string).slice(0, 500) : "not provided"}
 - Existing files: ${existingFiles ? (existingFiles as string[]).join(", ") : "none"}
 
-Requirements:
+MANDATORY COMPLIANCE REQUIREMENTS — ALL must appear explicitly in the file:
+- NIST SP 800-53 controls required: ${mandatoryNist}
+  → Reference each control by ID (e.g. "AC-2", "AU-2") in the Compliance Baseline section
+- Regulatory frameworks required: ${mandatoryFrameworks}
+  → Reference each framework by name in the file content
+
+MANDATORY CLAUSE MINIMUMS:
+- At least ${thresholds.must} MUST clauses
+- At least ${thresholds.mustNot} MUST NOT clauses
+- At least ${thresholds.may} MAY clauses
+
+OTHER REQUIREMENTS:
 - Begin with YAML front matter (---)
-- Include at least 3 MUST clauses, 2 MUST NOT clauses, and 2 MAY clauses
-- Keep it under 400 words
-- Make it specific to the industry and company context`;
+- Keep it under 500 words
+- Make it specific to the industry and company context
+- Include a "## Compliance Baseline" section listing all required NIST controls and frameworks`;
     const content = await callAI({
       model: "claude-sonnet-4-6",
       max_tokens: 1024,
