@@ -3544,7 +3544,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 
   const handleSelectFile = async (file) => {
     if (isDirty && selectedFile && !window.confirm("You have unsaved changes. Discard them?")) return;
-    const resp = await fetch(`/api/fm/file/${file.id}`);
+    const resp = await fetch(`/api/fm/file/${file.id}?companyId=${companyId}`);
     const full = await resp.json();
     setSelectedFile(full);
     setEditorContent(full.content || "");
@@ -3569,13 +3569,13 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
       await fetch(`/api/fm/file/${selectedFile.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: editorContent, commitMessage: msg || "Updated" }),
+        body: JSON.stringify({ content: editorContent, commitMessage: msg || "Updated", companyId }),
       });
       setIsDirty(false);
       setSaveMsg("Saved ✓");
       setTimeout(() => setSaveMsg(null), 2500);
       await loadFiles();
-      const resp = await fetch(`/api/fm/file/${selectedFile.id}`);
+      const resp = await fetch(`/api/fm/file/${selectedFile.id}?companyId=${companyId}`);
       const updated = await resp.json();
       setSelectedFile(updated);
     } catch (e) { setSaveMsg("Error: " + e.message); }
@@ -3585,7 +3585,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const handleHistory = async () => {
     if (!selectedFile) return;
     setRightPanel("history");
-    const resp = await fetch(`/api/fm/history/${selectedFile.id}`);
+    const resp = await fetch(`/api/fm/history/${selectedFile.id}?companyId=${companyId}`);
     const data = await resp.json();
     setHistory(Array.isArray(data) ? data : []);
   };
@@ -3597,7 +3597,8 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     const params = new URLSearchParams();
     if (fromId) params.set("fromVersion", String(fromId));
     if (toId) params.set("toVersion", String(toId));
-    const url = `/api/fm/diff/${selectedFile.id}${params.toString() ? "?" + params.toString() : ""}`;
+    params.set("companyId", String(companyId));
+    const url = `/api/fm/diff/${selectedFile.id}?${params.toString()}`;
     const resp = await fetch(url);
     const data = await resp.json();
     setDiffData(data);
@@ -3609,10 +3610,10 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     await fetch(`/api/fm/sign/${selectedFile.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signedBy, signedRole }),
+      body: JSON.stringify({ signedBy, signedRole, companyId }),
     });
     await loadFiles();
-    const resp = await fetch(`/api/fm/file/${selectedFile.id}`);
+    const resp = await fetch(`/api/fm/file/${selectedFile.id}?companyId=${companyId}`);
     setSelectedFile(await resp.json());
     setShowSignoffModal(false);
     if (onSaveToWitness) {
@@ -3630,7 +3631,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 
   const handleDelete = async (file) => {
     if (!window.confirm(`Archive "${file.filename}"? It will be hidden but not permanently deleted.`)) return;
-    await fetch(`/api/fm/file/${file.id}`, { method: "DELETE" });
+    await fetch(`/api/fm/file/${file.id}?companyId=${companyId}`, { method: "DELETE" });
     if (selectedFile?.id === file.id) { setSelectedFile(null); setEditorContent(""); }
     await loadFiles();
   };
@@ -5126,14 +5127,39 @@ export default function VdaOS() {
   }, []);
 
   const handleSetupComplete = async (data) => {
-    setSetup(data);
-    setTab("journey");
     const cfg = { ...INDUSTRY_CONFIGS[data.industry], id: data.industry };
     setLog(buildSeedLog(cfg, data.companyName));
     setLogIsSeeded(true);
-    setIsSaved(false);
     setScreen("hub");
+    setTab("journey");
     setC2mdCache({});
+    try {
+      const res = await fetch("/api/companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: data.companyName,
+          websiteUrl: data.websiteUrl || null,
+          industry: data.industry,
+          brandContext: (data.brandContext || "").slice(0, 8000),
+          filesCount: data.uploadedFiles?.length || 0,
+          savedAt: Date.now(),
+          uploadedFiles: null,
+        }),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setSetup({ ...data, id: saved.id });
+        setIsSaved(true);
+      } else {
+        setSetup(data);
+        setIsSaved(false);
+      }
+    } catch (e) {
+      console.error("Auto-save failed:", e);
+      setSetup(data);
+      setIsSaved(false);
+    }
   };
 
   const handleLoad = (savedData) => {
@@ -5149,6 +5175,7 @@ export default function VdaOS() {
 
   const handleSave = async () => {
     if (!setup || saving) return;
+    if (setup.id) { setIsSaved(true); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/companies", {
@@ -5165,6 +5192,8 @@ export default function VdaOS() {
         }),
       });
       if (!res.ok) throw new Error("Save failed");
+      const saved = await res.json();
+      setSetup(p => ({ ...p, id: saved.id }));
       setIsSaved(true);
     } catch (e) {
       console.error("Save failed:", e);

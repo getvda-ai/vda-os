@@ -77,11 +77,24 @@ router.get("/fm/files/:companyId", async (req, res) => {
   }
 });
 
+async function assertFileOwnership(fileId: number, companyId: number | null) {
+  const [file] = await db.select({ id: governanceFiles.id, companyId: governanceFiles.companyId })
+    .from(governanceFiles).where(eq(governanceFiles.id, fileId));
+  if (!file) return null;
+  if (companyId !== null && file.companyId !== companyId) return null;
+  return file;
+}
+
 router.get("/fm/file/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
-    const [file] = await db.select().from(governanceFiles).where(eq(governanceFiles.id, id));
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : null;
+    if (companyId !== null && isNaN(companyId)) return res.status(400).json({ error: "Invalid companyId" });
+    const [file] = await db.select().from(governanceFiles)
+      .where(companyId !== null
+        ? and(eq(governanceFiles.id, id), eq(governanceFiles.companyId, companyId))
+        : eq(governanceFiles.id, id));
     if (!file) return res.status(404).json({ error: "Not found" });
     res.json(file);
   } catch (err: any) {
@@ -140,7 +153,12 @@ router.put("/fm/file/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
-    const { content, commitMessage, author, ...rest } = req.body;
+    const { content, commitMessage, author, companyId: rawCompanyId, ...rest } = req.body;
+    const companyId = rawCompanyId ? parseInt(String(rawCompanyId), 10) : null;
+    if (companyId !== null) {
+      const owned = await assertFileOwnership(id, companyId);
+      if (!owned) return res.status(404).json({ error: "Not found" });
+    }
     const clauses = content ? countClauses(content) : {};
     const meta = content ? parseYamlFrontMatter(content) : {};
     const updateData: Record<string, any> = {
@@ -180,7 +198,12 @@ router.post("/fm/sign/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
-    const { signedBy, signedRole } = req.body;
+    const { signedBy, signedRole, companyId: rawCompanyId } = req.body;
+    const companyId = rawCompanyId ? parseInt(String(rawCompanyId), 10) : null;
+    if (companyId !== null) {
+      const owned = await assertFileOwnership(id, companyId);
+      if (!owned) return res.status(404).json({ error: "Not found" });
+    }
     const [file] = await db.update(governanceFiles).set({
       status: "live",
       signedBy: signedBy || "User",
@@ -199,6 +222,11 @@ router.delete("/fm/file/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : null;
+    if (companyId !== null) {
+      const owned = await assertFileOwnership(id, companyId);
+      if (!owned) return res.status(404).json({ error: "Not found" });
+    }
     await db.update(governanceFiles).set({ isArchived: true, updatedAt: new Date() })
       .where(eq(governanceFiles.id, id));
     res.json({ success: true });
@@ -211,6 +239,11 @@ router.get("/fm/history/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : null;
+    if (companyId !== null) {
+      const owned = await assertFileOwnership(id, companyId);
+      if (!owned) return res.status(404).json({ error: "Not found" });
+    }
     const versions = await db.select({
       id: governanceFileVersions.id,
       fileId: governanceFileVersions.fileId,
@@ -264,7 +297,12 @@ router.get("/fm/diff/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
-    const { fromVersion, toVersion } = req.query as { fromVersion?: string; toVersion?: string };
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : null;
+    if (companyId !== null) {
+      const owned = await assertFileOwnership(id, companyId);
+      if (!owned) return res.status(404).json({ error: "Not found" });
+    }
+    const { fromVersion, toVersion } = req.query as { fromVersion?: string; toVersion?: string; companyId?: string };
     const versions = await db.select().from(governanceFileVersions)
       .where(eq(governanceFileVersions.fileId, id))
       .orderBy(desc(governanceFileVersions.versionNumber));
