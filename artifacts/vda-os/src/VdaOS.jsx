@@ -3688,7 +3688,23 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 
   const handleSaveWithGuard = async (msg) => {
     if (!selectedFile || !isDirty) return;
-    if (complianceCheck?.hasDilution) {
+    let freshCheck = complianceCheck;
+    try {
+      const resp = await fetch("/api/fm/compliance-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: editorContent,
+          savedContent: selectedFile?.content || null,
+          industry: config?.id || config?.label || "general",
+          fileType: selectedFile.fileType,
+        }),
+      });
+      freshCheck = await resp.json();
+      setComplianceCheck(freshCheck);
+    } catch (_) { /* use last known state on failure */ }
+
+    if (freshCheck?.hasDilution) {
       setPendingSaveContent({ content: editorContent, msg });
       setDilutionOverride("");
       setShowDilutionModal(true);
@@ -3699,7 +3715,9 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 
   const handleDilutionConfirm = async () => {
     if (!pendingSaveContent) return;
-    const fullMsg = pendingSaveContent.msg + (dilutionOverride ? ` [DILUTION OVERRIDE: ${dilutionOverride}]` : "");
+    const fullMsg = dilutionOverride
+      ? `[OVERRIDE: ${dilutionOverride}] — ${pendingSaveContent.msg}`
+      : pendingSaveContent.msg;
     setShowDilutionModal(false);
     setPendingSaveContent(null);
     setDilutionOverride("");
@@ -4090,6 +4108,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
           {[{ id: "agent", label: "FM Agent" }, { id: "history", label: "History" }, { id: "diff", label: "Diff" }].map(p => (
             <button key={p.id} onClick={() => {
               setRightPanel(p.id);
+              if (p.id === "agent" && selectedFile) runComplianceCheck(editorContent, selectedFile.content, selectedFile);
               if (p.id === "history" && selectedFile) handleHistory();
               if (p.id === "diff" && selectedFile) { handleHistory(); handleDiff(); }
             }} style={{
@@ -4498,6 +4517,8 @@ function NewFileModal({ config, companyName, onSave, onClose }) {
   const [preview, setPreview] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [exceptionReason, setExceptionReason] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiGenWarnings, setAiGenWarnings] = useState([]);
 
   const isException = fileType === "EXCEPTION";
   const steps = isException ? ["Type", "Placement", "Identity", "Expiry"] : ["Type", "Placement", "Identity"];
@@ -4506,14 +4527,38 @@ function NewFileModal({ config, companyName, onSave, onClose }) {
     if (fileType) {
       const tmpl = FM_FILE_TEMPLATES[fileType] || FM_FILE_TEMPLATES.CUSTOM;
       setPreview(tmpl(config, companyName));
+      setAiGenWarnings([]);
     }
   }, [fileType, config, companyName]);
 
+  const handleAIGenerate = async () => {
+    if (!fileType || aiGenerating) return;
+    setAiGenerating(true);
+    setAiGenWarnings([]);
+    try {
+      const resp = await fetch("/api/fm/agent/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileType,
+          axis,
+          companyName,
+          industry: config?.id || config?.label || "general",
+          brandContext: config?.brandContext,
+        }),
+      });
+      const data = await resp.json();
+      if (data?.content) {
+        setPreview(data.content);
+        if (data.complianceWarnings?.length > 0) setAiGenWarnings(data.complianceWarnings);
+      }
+    } catch (e) { /* silent */ }
+    setAiGenerating(false);
+  };
+
   const handleCreate = () => {
-    const tmpl = FM_FILE_TEMPLATES[fileType] || FM_FILE_TEMPLATES.CUSTOM;
-    const content = tmpl(config, companyName);
     const slug = filename || (companyName.toLowerCase().replace(/\s+/g, "-") + "-" + fileType.toLowerCase() + ".md");
-    onSave({ filename: slug, fileType, axis, stage: stage || null, content, expiresAt: expiresAt || null, exceptionReason: exceptionReason || null });
+    onSave({ filename: slug, fileType, axis, stage: stage || null, content: preview, expiresAt: expiresAt || null, exceptionReason: exceptionReason || null });
   };
 
   const canProceed = step === 0 ? !!fileType : true;
@@ -4627,7 +4672,24 @@ function NewFileModal({ config, companyName, onSave, onClose }) {
               </div>
               {fileType && (
                 <div>
-                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Template Preview</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, color: T.muted, fontWeight: 600 }}>Content Preview</div>
+                    <button onClick={handleAIGenerate} disabled={aiGenerating} style={{
+                      padding: "4px 12px", borderRadius: 5, fontSize: 11, fontWeight: 700,
+                      border: `1px solid ${T.purple}60`, background: `${T.purple}18`,
+                      color: T.purple, cursor: aiGenerating ? "default" : "pointer",
+                    }}>
+                      {aiGenerating ? "Generating…" : "✦ Generate with AI"}
+                    </button>
+                  </div>
+                  {aiGenWarnings.length > 0 && (
+                    <div style={{ marginBottom: 8, padding: "8px 10px", borderRadius: 6, background: `${T.amber}10`, border: `1px solid ${T.amber}30` }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.amber, marginBottom: 4 }}>Compliance warnings in generated file:</div>
+                      {aiGenWarnings.map((w, i) => (
+                        <div key={i} style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, lineHeight: 1.5 }}>⚠ {w}</div>
+                      ))}
+                    </div>
+                  )}
                   <pre style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, fontSize: 10, color: "#7dd3fc", fontFamily: T.mono, maxHeight: 280, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
                     {preview}
                   </pre>

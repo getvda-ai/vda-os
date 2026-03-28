@@ -116,17 +116,18 @@ router.post("/fm/compliance-check", async (req, res) => {
     const currentClauses = countClauses(content as string);
     const savedClauses = savedContent ? countClauses(savedContent as string) : null;
 
-    const elements: { id: string; label: string; category: "nist" | "framework" | "clause"; status: "present" | "missing" | "diluted" }[] = [];
+    type ElementStatus = "present" | "missing" | "diluted";
+    const elements: { id: string; label: string; category: "nist" | "framework" | "clause"; status: ElementStatus }[] = [];
 
     if (compMap) {
       for (const ctrl of compMap.nistControls) {
-        const pattern = new RegExp(ctrl.replace("-", "[\\s-]?"), "i");
-        const presentInCurrent = pattern.test(content as string);
-        const presentInSaved = savedContent ? pattern.test(savedContent as string) : null;
-        let status: "present" | "missing" | "diluted";
-        if (presentInCurrent) {
-          status = "present";
-        } else if (presentInSaved === true) {
+        const countInStr = (s: string) => (s.match(new RegExp(ctrl.replace("-", "[\\s\\-]?"), "gi")) || []).length;
+        const currentCount = countInStr(content as string);
+        const savedCount = savedContent ? countInStr(savedContent as string) : null;
+        let status: ElementStatus;
+        if (currentCount > 0) {
+          status = (savedCount !== null && currentCount < savedCount) ? "diluted" : "present";
+        } else if (savedCount !== null && savedCount > 0) {
           status = "diluted";
         } else {
           status = "missing";
@@ -135,12 +136,13 @@ router.post("/fm/compliance-check", async (req, res) => {
       }
 
       for (const fw of compMap.frameworks) {
-        const presentInCurrent = fw.keywords.some(kw => (content as string).toLowerCase().includes(kw.toLowerCase()));
-        const presentInSaved = savedContent ? fw.keywords.some(kw => (savedContent as string).toLowerCase().includes(kw.toLowerCase())) : null;
-        let status: "present" | "missing" | "diluted";
-        if (presentInCurrent) {
-          status = "present";
-        } else if (presentInSaved === true) {
+        const countFw = (s: string) => fw.keywords.reduce((acc, kw) => acc + (s.toLowerCase().split(kw.toLowerCase()).length - 1), 0);
+        const currentCount = countFw(content as string);
+        const savedCount = savedContent ? countFw(savedContent as string) : null;
+        let status: ElementStatus;
+        if (currentCount > 0) {
+          status = (savedCount !== null && currentCount < savedCount) ? "diluted" : "present";
+        } else if (savedCount !== null && savedCount > 0) {
           status = "diluted";
         } else {
           status = "missing";
@@ -153,21 +155,22 @@ router.post("/fm/compliance-check", async (req, res) => {
     const mustNotOk = currentClauses.mustNotCount >= thresholds.mustNot;
     const mayOk = currentClauses.mayCount >= thresholds.may;
 
-    const mustDiluted = savedClauses && currentClauses.mustCount < savedClauses.mustCount && currentClauses.mustCount < thresholds.must;
-    const mustNotDiluted = savedClauses && currentClauses.mustNotCount < savedClauses.mustNotCount && currentClauses.mustNotCount < thresholds.mustNot;
+    const mustDiluted = savedClauses !== null && currentClauses.mustCount < savedClauses.mustCount;
+    const mustNotDiluted = savedClauses !== null && currentClauses.mustNotCount < savedClauses.mustNotCount;
+    const mayDiluted = savedClauses !== null && currentClauses.mayCount < savedClauses.mayCount;
 
     elements.push({
       id: "must-clauses",
       label: `MUST clauses (min ${thresholds.must})`,
       category: "clause",
-      status: mustOk ? "present" : mustDiluted ? "diluted" : "missing",
+      status: mustOk ? (mustDiluted ? "diluted" : "present") : mustDiluted ? "diluted" : "missing",
     });
     if (thresholds.mustNot > 0) {
       elements.push({
         id: "must-not-clauses",
         label: `MUST NOT clauses (min ${thresholds.mustNot})`,
         category: "clause",
-        status: mustNotOk ? "present" : mustNotDiluted ? "diluted" : "missing",
+        status: mustNotOk ? (mustNotDiluted ? "diluted" : "present") : mustNotDiluted ? "diluted" : "missing",
       });
     }
     if (thresholds.may > 0) {
@@ -175,7 +178,7 @@ router.post("/fm/compliance-check", async (req, res) => {
         id: "may-clauses",
         label: `MAY clauses (min ${thresholds.may})`,
         category: "clause",
-        status: mayOk ? "present" : "missing",
+        status: mayOk ? (mayDiluted ? "diluted" : "present") : mayDiluted ? "diluted" : "missing",
       });
     }
 
@@ -620,7 +623,23 @@ OTHER REQUIREMENTS:
     });
     const clauses = countClauses(content);
     const meta = parseYamlFrontMatter(content);
-    res.json({ content, ...clauses, meta });
+
+    const complianceWarnings: string[] = [];
+    if (compMap) {
+      for (const ctrl of compMap.nistControls) {
+        const countInStr = (s: string) => (s.match(new RegExp(ctrl.replace("-", "[\\s\\-]?"), "gi")) || []).length;
+        if (countInStr(content) === 0) complianceWarnings.push(`NIST ${ctrl} not referenced in generated file`);
+      }
+      for (const fw of compMap.frameworks) {
+        const present = fw.keywords.some(kw => content.toLowerCase().includes(kw.toLowerCase()));
+        if (!present) complianceWarnings.push(`${fw.label} not referenced in generated file`);
+      }
+    }
+    if (clauses.mustCount < thresholds.must) complianceWarnings.push(`Generated file has ${clauses.mustCount} MUST clauses (minimum ${thresholds.must})`);
+    if (thresholds.mustNot > 0 && clauses.mustNotCount < thresholds.mustNot) complianceWarnings.push(`Generated file has ${clauses.mustNotCount} MUST NOT clauses (minimum ${thresholds.mustNot})`);
+    if (thresholds.may > 0 && clauses.mayCount < thresholds.may) complianceWarnings.push(`Generated file has ${clauses.mayCount} MAY clauses (minimum ${thresholds.may})`);
+
+    res.json({ content, ...clauses, meta, complianceWarnings });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
