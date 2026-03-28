@@ -3688,7 +3688,8 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 
   const handleSaveWithGuard = async (msg) => {
     if (!selectedFile || !isDirty) return;
-    let freshCheck = complianceCheck;
+    let freshCheck = null;
+    let checkFailed = false;
     try {
       const resp = await fetch("/api/fm/compliance-check", {
         method: "POST",
@@ -3702,10 +3703,13 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
       });
       freshCheck = await resp.json();
       setComplianceCheck(freshCheck);
-    } catch (_) { /* use last known state on failure */ }
+    } catch (_) {
+      checkFailed = true;
+      freshCheck = complianceCheck;
+    }
 
-    if (freshCheck?.hasDilution) {
-      setPendingSaveContent({ content: editorContent, msg });
+    if (checkFailed || freshCheck?.hasDilution) {
+      setPendingSaveContent({ content: editorContent, msg, checkFailed });
       setDilutionOverride("");
       setShowDilutionModal(true);
       return;
@@ -3781,6 +3785,8 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     setSelectedFile(file);
     setEditorContent(file.content || "");
     setIsDirty(false);
+    setComplianceCheck(null);
+    runComplianceCheck(file.content || "", null, file);
   };
 
   const displayedFiles = searchResults
@@ -4135,7 +4141,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
                     {complianceCheck && (
                       <div style={{
                         fontSize: 11, fontWeight: 800, fontFamily: T.mono,
-                        color: complianceCheck.hasDilution ? T.red : complianceCheck.covered === complianceCheck.total ? T.green : T.amber,
+                        color: complianceCheck.hasDilution ? T.amber : complianceCheck.covered === complianceCheck.total ? T.green : T.red,
                       }}>
                         {complianceCheck.covered}/{complianceCheck.total}
                         {complianceCheck.hasDilution && " ⚠"}
@@ -4154,13 +4160,13 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
                         <div key={el.id} style={{
                           display: "flex", alignItems: "center", justifyContent: "space-between",
                           padding: "4px 8px", borderRadius: 5,
-                          background: el.status === "present" ? `${T.green}10` : el.status === "diluted" ? `${T.red}12` : `${T.amber}10`,
-                          border: `1px solid ${el.status === "present" ? T.green + "30" : el.status === "diluted" ? T.red + "40" : T.amber + "30"}`,
+                          background: el.status === "present" ? `${T.green}10` : el.status === "diluted" ? `${T.amber}12` : `${T.red}10`,
+                          border: `1px solid ${el.status === "present" ? T.green + "30" : el.status === "diluted" ? T.amber + "40" : T.red + "30"}`,
                         }}>
                           <span style={{ fontSize: 10, fontFamily: T.mono, color: T.text }}>{el.label}</span>
                           <span style={{
                             fontSize: 9, fontWeight: 700, fontFamily: T.mono,
-                            color: el.status === "present" ? T.green : el.status === "diluted" ? T.red : T.amber,
+                            color: el.status === "present" ? T.green : el.status === "diluted" ? T.amber : T.red,
                           }}>
                             {el.status === "present" ? "✓" : el.status === "diluted" ? "DILUTED" : "MISSING"}
                           </span>
@@ -4422,6 +4428,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
           onReasonChange={setDilutionOverride}
           onConfirm={handleDilutionConfirm}
           onCancel={() => { setShowDilutionModal(false); setPendingSaveContent(null); }}
+          checkFailed={pendingSaveContent?.checkFailed || false}
         />
       )}
     </div>
@@ -4431,7 +4438,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
 // ─────────────────────────────────────────────
 // DILUTION GUARD MODAL
 // ─────────────────────────────────────────────
-function DilutionModal({ elements, overrideReason, onReasonChange, onConfirm, onCancel }) {
+function DilutionModal({ elements, overrideReason, onReasonChange, onConfirm, onCancel, checkFailed }) {
   const canConfirm = overrideReason.trim().length >= 10;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
@@ -4440,8 +4447,14 @@ function DilutionModal({ elements, overrideReason, onReasonChange, onConfirm, on
         <div style={{ background: `${T.red}18`, borderBottom: `1px solid ${T.red}40`, padding: "16px 22px", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 20 }}>⚠</span>
           <div>
-            <div style={{ fontWeight: 900, fontSize: 15, color: T.red, letterSpacing: "-0.02em" }}>Compliance Dilution Detected</div>
-            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>Mandatory elements have been removed from this governance file</div>
+            <div style={{ fontWeight: 900, fontSize: 15, color: T.red, letterSpacing: "-0.02em" }}>
+              {checkFailed ? "Compliance Check Unavailable" : "Compliance Dilution Detected"}
+            </div>
+            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>
+              {checkFailed
+                ? "Compliance verification could not be completed — save blocked until override reason provided"
+                : "Mandatory elements have been removed from this governance file"}
+            </div>
           </div>
         </div>
 

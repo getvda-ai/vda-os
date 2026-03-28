@@ -66,7 +66,7 @@ const INDUSTRY_COMPLIANCE_MAP: Record<string, { nistControls: string[]; framewor
 const MINIMUM_CLAUSE_THRESHOLDS: Record<string, { must: number; mustNot: number; may: number }> = {
   AGENTS:     { must: 3, mustNot: 2, may: 2 },
   SOP:        { must: 3, mustNot: 1, may: 1 },
-  COMPLIANCE: { must: 3, mustNot: 2, may: 1 },
+  COMPLIANCE: { must: 3, mustNot: 2, may: 2 },
   SKILL:      { must: 2, mustNot: 1, may: 1 },
   EXCEPTION:  { must: 1, mustNot: 1, may: 1 },
   CUSTOM:     { must: 1, mustNot: 0, may: 0 },
