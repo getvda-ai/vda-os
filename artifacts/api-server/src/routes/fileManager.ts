@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { db, governanceFiles, governanceFileVersions } from "@workspace/db";
 import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
 
@@ -334,6 +335,71 @@ router.post("/fm/search/:companyId", async (req, res) => {
       })(),
     }));
     res.json(results.map(r => ({ ...r, content: undefined })));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/fm/agent/suggest", async (req, res) => {
+  try {
+    const { fileType, axis, companyName, industry, existingFiles, brandContext } = req.body;
+    if (!fileType) return res.status(400).json({ error: "fileType required" });
+    const systemPrompt = `You are a governance file drafting assistant for AI operating systems using the VDA-MD framework. 
+You generate concise, structured governance documents using MUST/MUST NOT/MAY clause language. 
+Return only the markdown content with YAML front matter. Do not include any explanation or preamble.`;
+    const userPrompt = `Generate a governance file for:
+- Company: ${companyName || "the organisation"}
+- Industry: ${industry || "general"}
+- File Type: ${fileType}
+- Axis: ${axis || "shared"}
+- Brand context: ${brandContext ? brandContext.slice(0, 500) : "not provided"}
+- Existing files: ${existingFiles ? (existingFiles as string[]).join(", ") : "none"}
+
+Requirements:
+- Begin with YAML front matter (---)
+- Include at least 3 MUST clauses, 2 MUST NOT clauses, and 2 MAY clauses
+- Keep it under 400 words
+- Make it specific to the industry and company context`;
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+    const content = response.content[0]?.type === "text" ? response.content[0].text : "";
+    const clauses = countClauses(content);
+    const meta = parseYamlFrontMatter(content);
+    res.json({ content, ...clauses, meta, model: response.model });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/fm/agent/release-notes", async (req, res) => {
+  try {
+    const { releaseName, companyName, industry, liveFiles, draftFiles, releaseDate } = req.body;
+    if (!liveFiles || !Array.isArray(liveFiles)) {
+      return res.status(400).json({ error: "liveFiles array required" });
+    }
+    const systemPrompt = `You are an AI governance release manager. Write concise, professional release notes for governance file bundles. 
+Format as structured markdown with sections: Summary, Files Included, Key Changes, Compliance Notes.`;
+    const userPrompt = `Write release notes for:
+- Release name: ${releaseName || "Governance Release"}
+- Company: ${companyName || "the organisation"}
+- Industry: ${industry || "general"}
+- Release date: ${releaseDate || new Date().toISOString().slice(0, 10)}
+- LIVE files included (${liveFiles.length}): ${liveFiles.join(", ")}
+- DRAFT files excluded (${(draftFiles || []).length}): ${(draftFiles || []).join(", ")}
+
+Write professional release notes under 300 words. Include a compliance summary and any recommended next steps.`;
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 768,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+    const notes = response.content[0]?.type === "text" ? response.content[0].text : "";
+    res.json({ releaseNotes: notes, model: response.model });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

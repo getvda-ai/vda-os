@@ -3679,28 +3679,30 @@ Respond with ONLY the JSON object, no markdown fences.`,
   const handleGenerateReleaseNotes = async () => {
     setReleaseLoading(true);
     const liveFiles = files.filter(f => f.status === "live");
+    const draftFiles = files.filter(f => f.status === "draft");
     try {
-      const resp = await fetch("/api/ai/messages", {
+      const resp = await fetch("/api/fm/agent/release-notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 800,
-          system: "You are a governance release notes generator. Write concise, professional release notes for a governance baseline update. Plain text, no markdown.",
-          messages: [{ role: "user", content: `Company: ${companyName}\nIndustry: ${config?.label}\nLive files: ${liveFiles.map(f => f.filename + " (owner: " + (f.owner || "TBC") + ")").join(", ")}\nGenerate release notes for this governance baseline.` }],
+          companyName,
+          industry: config?.label,
+          liveFiles: liveFiles.map(f => f.filename),
+          draftFiles: draftFiles.map(f => f.filename),
+          releaseDate: new Date().toISOString().slice(0, 10),
         }),
       });
       const data = await resp.json();
-      setReleaseNotes(data?.content?.[0]?.text || "");
+      setReleaseNotes(data?.releaseNotes || "");
     } catch (e) { setReleaseNotes("Error generating notes: " + e.message); }
     setReleaseLoading(false);
   };
 
-  const handleNewFileSave = async ({ filename, fileType, axis, stage, content }) => {
+  const handleNewFileSave = async ({ filename, fileType, axis, stage, content, expiresAt, exceptionReason }) => {
     const resp = await fetch("/api/fm/file", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ companyId, filename, fileType, axis, stage, content, status: "draft" }),
+      body: JSON.stringify({ companyId, filename, fileType, axis, stage, content, status: "draft", expiresAt: expiresAt || null, exceptionReason: exceptionReason || null }),
     });
     const file = await resp.json();
     await loadFiles();
@@ -3891,27 +3893,39 @@ Respond with ONLY the JSON object, no markdown fences.`,
               </div>
             </div>
 
-            {/* Schema validation bar */}
-            <div style={{ padding: "5px 16px", background: "#04060a", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 14, alignItems: "center" }}>
-              {[
-                { label: "MUST", count: selectedFile.mustCount || 0, color: T.green },
-                { label: "MUST NOT", count: selectedFile.mustNotCount || 0, color: T.red },
-                { label: "MAY", count: selectedFile.mayCount || 0, color: T.amber },
-                { label: "Words", count: selectedFile.wordCount || 0, color: T.dim },
-              ].map(s => (
-                <span key={s.label} style={{ fontSize: 10, fontFamily: T.mono, color: s.color }}>
-                  {s.count} {s.label}
-                </span>
-              ))}
-              <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginLeft: "auto" }}>
-                {selectedFile.owner ? `owner: ${selectedFile.owner}` : ""}{selectedFile.nistControl ? ` · ${selectedFile.nistControl}` : ""}
-              </span>
-              {selectedFile.updatedAt && (
-                <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>
-                  updated: {new Date(selectedFile.updatedAt).toLocaleDateString("en-GB")}
-                </span>
-              )}
-            </div>
+            {/* Schema validation bar — live from editorContent */}
+            {(() => {
+              const liveMust = (editorContent.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
+              const liveMustNot = (editorContent.match(/\bMUST NOT\b/g) || []).length;
+              const liveMay = (editorContent.match(/\bMAY\b/g) || []).length;
+              const liveWords = editorContent.split(/\s+/).filter(Boolean).length;
+              const hasYaml = /^---\s*\n/.test(editorContent);
+              return (
+                <div style={{ padding: "5px 16px", background: "#04060a", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 14, alignItems: "center" }}>
+                  {[
+                    { label: "MUST", count: liveMust, color: T.green },
+                    { label: "MUST NOT", count: liveMustNot, color: T.red },
+                    { label: "MAY", count: liveMay, color: T.amber },
+                    { label: "Words", count: liveWords, color: T.dim },
+                  ].map(s => (
+                    <span key={s.label} style={{ fontSize: 10, fontFamily: T.mono, color: s.color }}>
+                      {s.count} {s.label}
+                    </span>
+                  ))}
+                  <span style={{ fontSize: 10, fontFamily: T.mono, color: hasYaml ? T.teal : T.red, marginLeft: 8 }}>
+                    {hasYaml ? "✓ YAML" : "⚠ no front matter"}
+                  </span>
+                  <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginLeft: "auto" }}>
+                    {selectedFile.owner ? `owner: ${selectedFile.owner}` : ""}{selectedFile.nistControl ? ` · ${selectedFile.nistControl}` : ""}
+                  </span>
+                  {selectedFile.updatedAt && (
+                    <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>
+                      updated: {new Date(selectedFile.updatedAt).toLocaleDateString("en-GB")}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Editor / Preview */}
             <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
@@ -3920,19 +3934,35 @@ Respond with ONLY the JSON object, no markdown fences.`,
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(editorContent) }}
                 />
               ) : (
-                <textarea
-                  ref={editorRef}
-                  value={editorContent}
-                  onChange={handleEditorChange}
-                  spellCheck={false}
-                  style={{
-                    width: "100%", height: "100%", background: "#050608",
-                    color: "#e2e8f0", fontFamily: T.mono, fontSize: 13,
-                    lineHeight: 1.7, border: "none", outline: "none",
-                    padding: "16px 20px", resize: "none",
-                    whiteSpace: "pre-wrap",
-                  }}
-                />
+                <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                  {/* Syntax highlight backdrop */}
+                  <pre
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute", inset: 0, margin: 0,
+                      padding: "16px 20px", fontFamily: T.mono, fontSize: 13,
+                      lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                      overflowY: "hidden", pointerEvents: "none",
+                      background: "#050608", zIndex: 0,
+                    }}
+                    dangerouslySetInnerHTML={{ __html: highlightMd(editorContent) }}
+                  />
+                  <textarea
+                    ref={editorRef}
+                    value={editorContent}
+                    onChange={handleEditorChange}
+                    spellCheck={false}
+                    style={{
+                      position: "absolute", inset: 0,
+                      width: "100%", height: "100%", background: "transparent",
+                      color: "transparent", fontFamily: T.mono, fontSize: 13,
+                      lineHeight: 1.7, border: "none", outline: "none",
+                      padding: "16px 20px", resize: "none",
+                      whiteSpace: "pre-wrap", caretColor: "#e2e8f0",
+                      zIndex: 1,
+                    }}
+                  />
+                </div>
               )}
             </div>
 
@@ -4189,6 +4219,7 @@ Respond with ONLY the JSON object, no markdown fences.`,
       {showReleaseModal && (
         <ReleaseModal
           files={files}
+          companyId={companyId}
           companyName={companyName}
           config={config}
           releaseNotes={releaseNotes}
@@ -4211,8 +4242,11 @@ function NewFileModal({ config, companyName, onSave, onClose }) {
   const [stage, setStage] = useState("");
   const [filename, setFilename] = useState("");
   const [preview, setPreview] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [exceptionReason, setExceptionReason] = useState("");
 
-  const steps = ["Type", "Placement", "Identity"];
+  const isException = fileType === "EXCEPTION";
+  const steps = isException ? ["Type", "Placement", "Identity", "Expiry"] : ["Type", "Placement", "Identity"];
 
   useEffect(() => {
     if (fileType) {
@@ -4225,8 +4259,10 @@ function NewFileModal({ config, companyName, onSave, onClose }) {
     const tmpl = FM_FILE_TEMPLATES[fileType] || FM_FILE_TEMPLATES.CUSTOM;
     const content = tmpl(config, companyName);
     const slug = filename || (companyName.toLowerCase().replace(/\s+/g, "-") + "-" + fileType.toLowerCase() + ".md");
-    onSave({ filename: slug, fileType, axis, stage: stage || null, content });
+    onSave({ filename: slug, fileType, axis, stage: stage || null, content, expiresAt: expiresAt || null, exceptionReason: exceptionReason || null });
   };
+
+  const canProceed = step === 0 ? !!fileType : true;
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
@@ -4238,6 +4274,13 @@ function NewFileModal({ config, companyName, onSave, onClose }) {
             <div style={{ fontSize: 11, color: T.dim, marginTop: 3, fontFamily: T.mono }}>Step {step + 1} of {steps.length}: {steps[step]}</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: T.dim, fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
+
+        {/* Step progress bar */}
+        <div style={{ display: "flex", height: 3, background: T.bg }}>
+          {steps.map((_, i) => (
+            <div key={i} style={{ flex: 1, background: i <= step ? T.orange : "transparent", transition: "background 0.25s", marginRight: 1 }} />
+          ))}
         </div>
 
         {/* Steps */}
@@ -4338,26 +4381,69 @@ function NewFileModal({ config, companyName, onSave, onClose }) {
               )}
             </div>
           )}
+
+          {step === 3 && isException && (
+            <div>
+              <div style={{ background: `${T.amber}10`, border: `1px solid ${T.amber}30`, borderRadius: 8, padding: "12px 16px", marginBottom: 20, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span style={{ fontSize: 20 }}>⚠</span>
+                <div style={{ fontSize: 12, color: T.amber, lineHeight: 1.5 }}>
+                  Exception files require an expiry date and justification. They will appear in the expiry monitor and FM Agent alerts.
+                </div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Expiry Date <span style={{ color: T.red }}>*</span></div>
+                <input
+                  type="date"
+                  value={expiresAt}
+                  onChange={e => setExpiresAt(e.target.value)}
+                  min={new Date().toISOString().slice(0, 10)}
+                  style={{ width: "100%", background: T.bg, border: `1px solid ${expiresAt ? T.amber : T.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, color: T.text, fontFamily: T.mono, outline: "none" }}
+                />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Exception Justification <span style={{ color: T.red }}>*</span></div>
+                <textarea
+                  value={exceptionReason}
+                  onChange={e => setExceptionReason(e.target.value)}
+                  rows={4}
+                  placeholder="Describe the business justification for this exception (e.g. vendor constraint, regulatory transition, legacy system dependency)..."
+                  style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, color: T.text, fontFamily: T.mono, outline: "none", resize: "vertical" }}
+                />
+              </div>
+              {expiresAt && (
+                <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>
+                  Days until expiry: <span style={{ color: T.amber, fontWeight: 700 }}>
+                    {Math.ceil((new Date(expiresAt) - new Date()) / (1000 * 60 * 60 * 24))}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
         <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
           <button onClick={() => step > 0 ? setStep(s => s - 1) : onClose()} style={{ padding: "7px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 12, cursor: "pointer" }}>
-            {step === 0 ? "Cancel" : "Back"}
+            {step === 0 ? "Cancel" : "← Back"}
           </button>
           {step < steps.length - 1 ? (
-            <button onClick={() => setStep(s => s + 1)} disabled={step === 0 && !fileType} style={{
-              padding: "7px 20px", borderRadius: 6, background: fileType || step > 0 ? T.orange : T.border,
+            <button onClick={() => setStep(s => s + 1)} disabled={!canProceed} style={{
+              padding: "7px 20px", borderRadius: 6, background: canProceed ? T.orange : T.border,
               border: "none", color: "#fff", fontSize: 12, fontWeight: 700,
-              cursor: (step === 0 && !fileType) ? "default" : "pointer", opacity: step === 0 && !fileType ? 0.5 : 1,
+              cursor: canProceed ? "pointer" : "default", opacity: canProceed ? 1 : 0.5,
             }}>
               Next →
             </button>
           ) : (
-            <button onClick={handleCreate} style={{
-              padding: "7px 20px", borderRadius: 6, background: T.green,
-              border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer",
-            }}>
+            <button
+              onClick={handleCreate}
+              disabled={isException && (!expiresAt || !exceptionReason)}
+              style={{
+                padding: "7px 20px", borderRadius: 6, background: T.green,
+                border: "none", color: "#fff", fontSize: 12, fontWeight: 700,
+                cursor: (isException && (!expiresAt || !exceptionReason)) ? "default" : "pointer",
+                opacity: (isException && (!expiresAt || !exceptionReason)) ? 0.5 : 1,
+              }}>
               Create File
             </button>
           )}
@@ -4413,17 +4499,30 @@ function SignoffModal({ file, onConfirm, onClose }) {
 // ─────────────────────────────────────────────
 // RELEASE MODAL
 // ─────────────────────────────────────────────
-function ReleaseModal({ files, companyName, config, releaseNotes, releaseLoading, onGenerateNotes, onClose }) {
+function ReleaseModal({ files, companyId, companyName, config, releaseNotes, releaseLoading, onGenerateNotes, onClose }) {
   const liveFiles = files.filter(f => f.status === "live");
   const draftFiles = files.filter(f => f.status === "draft");
   const [releaseName, setReleaseName] = useState(`${companyName} Governance Baseline v${new Date().toISOString().slice(0, 10)}`);
+  const [releasing, setReleasing] = useState(false);
 
-  const handleDownload = () => {
-    const content = `# ${releaseName}\n\n**Date:** ${new Date().toISOString().slice(0, 10)}\n**Company:** ${companyName}\n**Industry:** ${config?.label}\n\n## Release Notes\n\n${releaseNotes || "No release notes generated."}\n\n## Live Files (${liveFiles.length})\n\n${liveFiles.map(f => `- ${f.filename} (${f.owner || "TBC"})`).join("\n")}\n\n## Pending Files (${draftFiles.length})\n\n${draftFiles.map(f => `- ${f.filename} [DRAFT]`).join("\n")}\n`;
-    const blob = new Blob([content], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "governance-release-notes.md"; a.click();
-    URL.revokeObjectURL(url);
+  const handleRelease = async () => {
+    setReleasing(true);
+    try {
+      const resp = await fetch(`/api/fm/release/${companyId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ releaseName, releaseNotes }),
+      });
+      const data = await resp.json();
+      const content = `# ${data.releaseName}\n\n**Date:** ${data.createdAt?.slice(0, 10)}\n**Company:** ${companyName}\n**Industry:** ${config?.label}\n\n## Release Notes\n\n${releaseNotes || "No release notes generated."}\n\n## Live Files (${data.liveCount})\n\n${(data.liveFiles || []).map(f => `- ${f}`).join("\n")}\n\n## Pending / Excluded (${data.draftCount})\n\n${draftFiles.map(f => `- ${f.filename} [DRAFT]`).join("\n")}\n`;
+      const blob = new Blob([content], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `${releaseName.replace(/\s+/g, "-")}.md`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Release error", e);
+    }
+    setReleasing(false);
   };
 
   return (
@@ -4481,11 +4580,13 @@ function ReleaseModal({ files, companyName, config, releaseNotes, releaseLoading
         </div>
         <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 12, cursor: "pointer" }}>Cancel</button>
-          <button onClick={handleDownload} style={{
+          <button onClick={handleRelease} disabled={releasing || liveFiles.length === 0} style={{
             padding: "7px 20px", borderRadius: 6, background: T.purple,
-            border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            border: "none", color: "#fff", fontSize: 12, fontWeight: 700,
+            cursor: (releasing || liveFiles.length === 0) ? "default" : "pointer",
+            opacity: liveFiles.length === 0 ? 0.5 : 1,
           }}>
-            ↓ Download Release
+            {releasing ? "Creating…" : "↓ Create & Download Release"}
           </button>
         </div>
       </div>
