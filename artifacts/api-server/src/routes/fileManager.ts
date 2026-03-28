@@ -267,8 +267,13 @@ router.get("/fm/version/:versionId", async (req, res) => {
   try {
     const id = parseInt(req.params.versionId, 10);
     if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : null;
     const [version] = await db.select().from(governanceFileVersions).where(eq(governanceFileVersions.id, id));
     if (!version) return res.status(404).json({ error: "Not found" });
+    if (companyId !== null) {
+      const owned = await assertFileOwnership(version.fileId, companyId);
+      if (!owned) return res.status(404).json({ error: "Not found" });
+    }
     res.json(version);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -391,8 +396,35 @@ router.post("/fm/search/:companyId", async (req, res) => {
 
 router.post("/fm/agent/suggest", async (req, res) => {
   try {
-    const { fileType, axis, companyName, industry, existingFiles, brandContext } = req.body;
+    const { fileType, axis, companyName, industry, existingFiles, brandContext, existingContent, filename } = req.body;
     if (!fileType) return res.status(400).json({ error: "fileType required" });
+
+    if (existingContent) {
+      const systemPrompt = `You are a VDA-MD Governance Improvement Engine. Analyse the governance file and return a JSON object with:
+{
+  "overallScore": 0-100,
+  "strengths": ["strength 1", "strength 2"],
+  "improvements": [
+    { "priority": "HIGH|MEDIUM|LOW", "issue": "short description", "suggestion": "specific rewrite or addition", "reason": "why this matters" }
+  ],
+  "nistGaps": ["missing control or coverage gap"],
+  "summary": "one paragraph summary"
+}
+Respond with ONLY the JSON object, no markdown fences.`;
+      const raw = await callAI({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1500,
+        system: systemPrompt,
+        messages: [{ role: "user", content: `Company: ${companyName || "the organisation"}\nIndustry: ${industry || "general"}\nFile: ${filename || fileType}\n\n${(existingContent as string).slice(0, 4000)}` }],
+      });
+      try {
+        const clean = raw.replace(/^```json[\r\n]*/i, "").replace(/^```[\r\n]*/i, "").replace(/[\r\n]*```\s*$/i, "").trim();
+        return res.json(JSON.parse(clean));
+      } catch {
+        return res.json({ overallScore: 0, summary: raw, improvements: [], nistGaps: [], strengths: [] });
+      }
+    }
+
     const systemPrompt = `You are a governance file drafting assistant for AI operating systems using the VDA-MD framework. 
 You generate concise, structured governance documents using MUST/MUST NOT/MAY clause language. 
 Return only the markdown content with YAML front matter. Do not include any explanation or preamble.`;

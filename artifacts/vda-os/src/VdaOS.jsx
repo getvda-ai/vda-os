@@ -3656,30 +3656,20 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     setAiLoading(true);
     setAiSuggestion(null);
     try {
-      const resp = await fetch("/api/ai/messages", {
+      const resp = await fetch("/api/fm/agent/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
-          system: `You are a VDA-MD Governance Improvement Engine. Analyse the governance file and return a JSON object with:
-{
-  "overallScore": 0-100,
-  "strengths": ["strength 1", "strength 2"],
-  "improvements": [
-    { "priority": "HIGH|MEDIUM|LOW", "issue": "short description", "suggestion": "specific rewrite or addition", "reason": "why this matters" }
-  ],
-  "nistGaps": ["missing control or coverage gap"],
-  "summary": "one paragraph summary"
-}
-Respond with ONLY the JSON object, no markdown fences.`,
-          messages: [{ role: "user", content: `Company: ${companyName}\nIndustry: ${config?.label}\nFile: ${selectedFile.filename}\n\n${editorContent.slice(0, 4000)}` }],
+          fileType: selectedFile.fileType,
+          axis: selectedFile.axis,
+          companyName,
+          industry: config?.label,
+          filename: selectedFile.filename,
+          existingContent: editorContent.slice(0, 4000),
         }),
       });
       const data = await resp.json();
-      const raw = data?.content?.[0]?.text?.trim() || "{}";
-      const clean = raw.replace(/^```json[\r\n]*/i, "").replace(/^```[\r\n]*/i, "").replace(/[\r\n]*```\s*$/i, "").trim();
-      setAiSuggestion(JSON.parse(clean));
+      setAiSuggestion(data);
     } catch (e) { setAiSuggestion({ error: e.message }); }
     setAiLoading(false);
   };
