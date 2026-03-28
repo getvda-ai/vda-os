@@ -3895,7 +3895,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
                 <button onClick={handleHistory} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer" }}>
                   History
                 </button>
-                <button onClick={handleDiff} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer" }}>
+                <button onClick={() => { handleHistory(); handleDiff(); }} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer" }}>
                   Diff
                 </button>
                 <button
