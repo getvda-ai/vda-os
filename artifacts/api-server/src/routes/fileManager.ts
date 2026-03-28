@@ -316,6 +316,9 @@ router.post("/fm/search/:companyId", async (req, res) => {
       fileType: governanceFiles.fileType,
       axis: governanceFiles.axis,
       status: governanceFiles.status,
+      owner: governanceFiles.owner,
+      domain: governanceFiles.domain,
+      nistControl: governanceFiles.nistControl,
       content: governanceFiles.content,
     }).from(governanceFiles)
       .where(and(
@@ -324,13 +327,21 @@ router.post("/fm/search/:companyId", async (req, res) => {
         or(
           ilike(governanceFiles.content, `%${query}%`),
           ilike(governanceFiles.filename, `%${query}%`),
+          ilike(governanceFiles.fileType, `%${query}%`),
+          ilike(governanceFiles.status, `%${query}%`),
+          sql`${governanceFiles.owner} ILIKE ${`%${query}%`}`,
+          sql`${governanceFiles.domain} ILIKE ${`%${query}%`}`,
+          sql`${governanceFiles.nistControl} ILIKE ${`%${query}%`}`,
+          sql`${governanceFiles.axis} ILIKE ${`%${query}%`}`,
         )
       ));
     const results = files.map(f => ({
       ...f,
       snippet: (() => {
         const idx = f.content.toLowerCase().indexOf(query.toLowerCase());
-        if (idx < 0) return "";
+        if (idx < 0) {
+          return [f.owner, f.domain, f.nistControl, f.fileType, f.status].filter(Boolean).join(" · ");
+        }
         return f.content.slice(Math.max(0, idx - 60), idx + 120);
       })(),
     }));

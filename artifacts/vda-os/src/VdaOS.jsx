@@ -3504,6 +3504,9 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const [searchResults, setSearchResults] = useState(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [axisFilter, setAxisFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [diffFromId, setDiffFromId] = useState(null);
+  const [diffToId, setDiffToId] = useState(null);
   const [showNewFileModal, setShowNewFileModal] = useState(false);
   const [showSignoffModal, setShowSignoffModal] = useState(false);
   const [showReleaseModal, setShowReleaseModal] = useState(false);
@@ -3587,11 +3590,15 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     setHistory(Array.isArray(data) ? data : []);
   };
 
-  const handleDiff = async () => {
+  const handleDiff = async (fromId, toId) => {
     if (!selectedFile) return;
     setRightPanel("diff");
     setDiffLoading(true);
-    const resp = await fetch(`/api/fm/diff/${selectedFile.id}`);
+    const params = new URLSearchParams();
+    if (fromId) params.set("fromVersion", String(fromId));
+    if (toId) params.set("toVersion", String(toId));
+    const url = `/api/fm/diff/${selectedFile.id}${params.toString() ? "?" + params.toString() : ""}`;
+    const resp = await fetch(url);
     const data = await resp.json();
     setDiffData(data);
     setDiffLoading(false);
@@ -3716,7 +3723,8 @@ Respond with ONLY the JSON object, no markdown fences.`,
     ? searchResults
     : files.filter(f =>
         (typeFilter === "all" || f.fileType === typeFilter) &&
-        (axisFilter === "all" || f.axis === axisFilter)
+        (axisFilter === "all" || f.axis === axisFilter) &&
+        (statusFilter === "all" || f.status === statusFilter)
       );
 
   const liveCount = files.filter(f => f.status === "live").length;
@@ -3758,12 +3766,33 @@ Respond with ONLY the JSON object, no markdown fences.`,
           />
         </div>
 
-        {/* Filters */}
-        <div style={{ padding: "8px 12px", display: "flex", gap: 5, borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+        {/* Type Filters */}
+        <div style={{ padding: "6px 12px", display: "flex", gap: 4, borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
           {["all", "AGENTS", "SOP", "SKILL", "EXCEPTION", "COMPLIANCE", "CUSTOM"].map(t => (
             <button key={t} onClick={() => { setTypeFilter(t); setSearchResults(null); setSearchQuery(""); }}
-              style={{ padding: "3px 7px", borderRadius: 4, border: `1px solid ${typeFilter === t ? T.orange : T.border}`, background: typeFilter === t ? `${T.orange}20` : "none", color: typeFilter === t ? T.orange : T.dim, fontSize: 10, cursor: "pointer", fontFamily: T.mono }}>
-              {t}
+              style={{ padding: "2px 6px", borderRadius: 4, border: `1px solid ${typeFilter === t ? T.orange : T.border}`, background: typeFilter === t ? `${T.orange}20` : "none", color: typeFilter === t ? T.orange : T.dim, fontSize: 9, cursor: "pointer", fontFamily: T.mono }}>
+              {t === "all" ? "ALL TYPES" : t}
+            </button>
+          ))}
+        </div>
+        {/* Status + Axis Filters */}
+        <div style={{ padding: "6px 12px", display: "flex", gap: 4, borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+          {[
+            { key: "all", label: "ALL STATUS", color: T.dim },
+            { key: "live", label: "LIVE", color: T.green },
+            { key: "draft", label: "DRAFT", color: T.amber },
+            { key: "archived", label: "ARCHIVED", color: T.muted },
+          ].map(s => (
+            <button key={s.key} onClick={() => { setStatusFilter(s.key); setSearchResults(null); setSearchQuery(""); }}
+              style={{ padding: "2px 6px", borderRadius: 4, border: `1px solid ${statusFilter === s.key ? s.color : T.border}`, background: statusFilter === s.key ? `${s.color}20` : "none", color: statusFilter === s.key ? s.color : T.dim, fontSize: 9, cursor: "pointer", fontFamily: T.mono }}>
+              {s.label}
+            </button>
+          ))}
+          <span style={{ width: "100%", height: 1 }} />
+          {FM_AXIS_GROUPS.map(g => (
+            <button key={g.id} onClick={() => { setAxisFilter(axisFilter === g.id ? "all" : g.id); setSearchResults(null); setSearchQuery(""); }}
+              style={{ padding: "2px 6px", borderRadius: 4, border: `1px solid ${axisFilter === g.id ? g.color : T.border}`, background: axisFilter === g.id ? `${g.color}20` : "none", color: axisFilter === g.id ? g.color : T.dim, fontSize: 9, cursor: "pointer", fontFamily: T.mono }}>
+              {g.icon} {g.label}
             </button>
           ))}
         </div>
@@ -4014,7 +4043,7 @@ Respond with ONLY the JSON object, no markdown fences.`,
             <button key={p.id} onClick={() => {
               setRightPanel(p.id);
               if (p.id === "history" && selectedFile) handleHistory();
-              if (p.id === "diff" && selectedFile) handleDiff();
+              if (p.id === "diff" && selectedFile) { handleHistory(); handleDiff(); }
             }} style={{
               flex: 1, padding: "9px 6px", background: "none", border: "none",
               borderBottom: `2px solid ${rightPanel === p.id ? T.orange : "transparent"}`,
@@ -4167,15 +4196,56 @@ Respond with ONLY the JSON object, no markdown fences.`,
 
           {rightPanel === "diff" && (
             <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.teal, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Version Diff</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.teal, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>Version Diff</div>
+              {/* Version selectors */}
+              {history.length >= 2 && (
+                <div style={{ display: "flex", gap: 6, marginBottom: 10, alignItems: "center" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 9, color: T.dim, marginBottom: 3, fontFamily: T.mono }}>FROM</div>
+                    <select
+                      value={diffFromId || ""}
+                      onChange={e => {
+                        const v = e.target.value ? parseInt(e.target.value) : undefined;
+                        setDiffFromId(v || null);
+                        handleDiff(v, diffToId || undefined);
+                      }}
+                      style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 6px", fontSize: 10, color: T.text, fontFamily: T.mono, outline: "none" }}
+                    >
+                      {history.map(v => (
+                        <option key={v.id} value={v.id}>v{v.versionNumber} — {v.commitMessage?.slice(0, 20)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 9, color: T.dim, marginBottom: 3, fontFamily: T.mono }}>TO</div>
+                    <select
+                      value={diffToId || ""}
+                      onChange={e => {
+                        const v = e.target.value ? parseInt(e.target.value) : undefined;
+                        setDiffToId(v || null);
+                        handleDiff(diffFromId || undefined, v);
+                      }}
+                      style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 6px", fontSize: 10, color: T.text, fontFamily: T.mono, outline: "none" }}
+                    >
+                      {history.map(v => (
+                        <option key={v.id} value={v.id}>v{v.versionNumber} — {v.commitMessage?.slice(0, 20)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
               {diffLoading ? (
                 <div style={{ color: T.dim, fontSize: 12, textAlign: "center", paddingTop: 20 }}>Loading…</div>
               ) : !diffData || diffData.diff?.length === 0 ? (
-                <div style={{ color: T.dim, fontSize: 12, textAlign: "center", paddingTop: 20 }}>Only one version — no diff yet</div>
+                <div style={{ color: T.dim, fontSize: 12, textAlign: "center", paddingTop: 20 }}>
+                  {history.length < 2 ? "Only one version — no diff yet" : "No differences between selected versions"}
+                </div>
               ) : (
                 <>
                   <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginBottom: 8 }}>
                     v{diffData.from?.versionNumber} → v{diffData.to?.versionNumber}
+                    <span style={{ marginLeft: 8, color: T.green }}>+{diffData.diff.filter(d => d.type === "added").length}</span>
+                    <span style={{ marginLeft: 4, color: T.red }}>-{diffData.diff.filter(d => d.type === "removed").length}</span>
                   </div>
                   <div style={{ background: T.bg, borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden", maxHeight: 480, overflowY: "auto" }}>
                     {diffData.diff.filter(d => d.type !== "same").map((d, i) => (
