@@ -2165,7 +2165,7 @@ function GapScoreRing({ score }) {
   );
 }
 
-function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn }) {
+function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn, companyId, onSaveToFM }) {
   const [inputMd, setInputMd] = useState("");
   const [inputSource, setInputSource] = useState("Custom");
   const [agentName, setAgentName] = useState("");
@@ -2179,6 +2179,8 @@ function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn }) {
   const [normReport, setNormReport] = useState(null);
   const [error, setError] = useState(null);
   const [detectedRules, setDetectedRules] = useState(null);
+  const [fmSaved, setFmSaved] = useState(false);
+  const [fmSavedFileId, setFmSavedFileId] = useState(null);
   const streamRef = useRef(null);
   const fileRef = useRef(null);
 
@@ -2236,7 +2238,7 @@ function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn }) {
     if (outputMd) navigator.clipboard.writeText(outputMd);
   };
 
-  const handleSaveToGov = () => {
+  const handleSaveToGov = async () => {
     if (!outputMd || !onLogEntry) return;
     const filename = normReport?.filename || ((agentName || "agent").toLowerCase().replace(/\s+/g, "-") + "-vdamd.md");
     onLogEntry({
@@ -2253,6 +2255,12 @@ function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn }) {
         ? `${normReport.gapsResolved}/${normReport.totalGaps} gaps resolved. Rules added: ${normReport.rulesAdded?.must || 0} MUST, ${normReport.rulesAdded?.mustNot || 0} MUST NOT, ${normReport.rulesAdded?.may || 0} MAY. Axis: ${normReport.axisPlacement?.axis} → ${normReport.axisPlacement?.stage}. Compliance baseline inherited from ${normReport.complianceBaseline || "industry config"}.`
         : `Agent file normalised from ${inputSource} format. ${detectedGaps.length} governance gaps resolved.`,
     });
+    if (onSaveToFM && companyId) {
+      try {
+        const file = await onSaveToFM(outputMd, filename);
+        if (file?.id) { setFmSaved(true); setFmSavedFileId(file.id); }
+      } catch {}
+    }
   };
 
   const handleAnalyse = async () => {
@@ -2790,23 +2798,37 @@ ${inputMd}`;
 
           {/* Action buttons */}
           {isDone && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button onClick={handleDownload} style={{
-                flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.green}60`,
-                background: T.green + "12", color: T.green, cursor: "pointer",
-                fontWeight: 700, fontSize: 12, fontFamily: T.sans,
-              }}>⬇ Download .md</button>
-              <button onClick={handleCopy} style={{
-                flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`,
-                background: T.card, color: T.dim, cursor: "pointer",
-                fontWeight: 600, fontSize: 12, fontFamily: T.sans,
-              }}>📋 Copy Markdown</button>
-              <button onClick={handleSaveToGov} style={{
-                flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.orange}60`,
-                background: T.orange + "12", color: T.orange, cursor: "pointer",
-                fontWeight: 700, fontSize: 12, fontFamily: T.sans,
-              }}>💾 Save to Governance Map</button>
-            </div>
+            <>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={handleDownload} style={{
+                  flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.green}60`,
+                  background: T.green + "12", color: T.green, cursor: "pointer",
+                  fontWeight: 700, fontSize: 12, fontFamily: T.sans,
+                }}>⬇ Download .md</button>
+                <button onClick={handleCopy} style={{
+                  flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`,
+                  background: T.card, color: T.dim, cursor: "pointer",
+                  fontWeight: 600, fontSize: 12, fontFamily: T.sans,
+                }}>📋 Copy Markdown</button>
+                <button onClick={handleSaveToGov} style={{
+                  flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.orange}60`,
+                  background: T.orange + "12", color: T.orange, cursor: "pointer",
+                  fontWeight: 700, fontSize: 12, fontFamily: T.sans,
+                }}>💾 Save to Governance Map</button>
+              </div>
+              {fmSaved && (
+                <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", padding: "8px 12px", background: `${T.blue}12`, border: `1px solid ${T.blue}40`, borderRadius: 8, animation: "slide-up 0.3s ease" }}>
+                  <span style={{ fontSize: 13 }}>📁</span>
+                  <span style={{ fontSize: 12, color: T.blue, fontWeight: 600 }}>Saved · </span>
+                  <button onClick={() => setTabFn && setTabFn("filemanager")} style={{
+                    background: "none", border: "none", color: T.blue, fontWeight: 700, fontSize: 12,
+                    cursor: "pointer", textDecoration: "underline", padding: 0,
+                  }}>
+                    View in File Manager →
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -2817,7 +2839,7 @@ ${inputMd}`;
 // ─────────────────────────────────────────────
 // C2MD STUDIO TAB
 // ─────────────────────────────────────────────
-function C2MDStudioTab({ config, companyName, brandContext, cache, setCache }) {
+function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onSaveToFM }) {
   const [sel, setSel] = useState(config.nistControls[0]);
   // cache and setCache come from App root — persists across tab switches
   const [status, setStatus] = useState("idle");
@@ -2996,6 +3018,37 @@ function C2MDStudioTab({ config, companyName, brandContext, cache, setCache }) {
           ))}
         </div>
       )}
+
+      {/* Save to File Manager */}
+      {isDone && result && onSaveToFM && (
+        <C2MDSaveToFMButton result={result} sel={sel} onSaveToFM={onSaveToFM} displayedMd={displayedMd} />
+      )}
+    </div>
+  );
+}
+
+function C2MDSaveToFMButton({ result, sel, onSaveToFM, displayedMd }) {
+  const [saved, setSaved] = useState(false);
+  const handleSave = () => {
+    if (saved) return;
+    const filename = result?.filename || `${sel?.toLowerCase()}.md`;
+    onSaveToFM(displayedMd, filename, "COMPLIANCE");
+    setSaved(true);
+    setTimeout(() => setSaved(false), 4000);
+  };
+  return (
+    <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+      <button onClick={handleSave} style={{
+        padding: "8px 18px", borderRadius: 7,
+        background: saved ? `${T.green}20` : `${T.blue}20`,
+        border: `1px solid ${saved ? T.green + "50" : T.blue + "50"}`,
+        color: saved ? T.green : T.blue,
+        fontSize: 12, fontWeight: 700, cursor: saved ? "default" : "pointer",
+        display: "flex", gap: 8, alignItems: "center", transition: "all 0.2s",
+      }}>
+        <span>{saved ? "✓" : "📁"}</span>
+        {saved ? "Saved to File Manager" : "Save to File Manager"}
+      </button>
     </div>
   );
 }
@@ -3144,6 +3197,1298 @@ function ExceptionEngineTab({ config, companyName, onLogEntry }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// FILE MANAGER — TEMPLATES
+// ─────────────────────────────────────────────
+const FM_FILE_TEMPLATES = {
+  AGENTS: (cfg, company) => `---
+file_type: AGENTS
+agent_id: ${(company || "agent").toLowerCase().replace(/\s+/g, "-")}-agent
+domain: ${cfg?.domainColors ? "Business" : "Business"}
+owner: ${cfg?.journeyStages?.[0]?.owner || "Department Head"}
+axis: vertical
+journey_stage: ${cfg?.journeyStages?.[0]?.id || "onboarding"}
+normalisation_level: 2
+vendor: VDA-MD Native
+baseline: true
+nist_control: AC-2
+---
+
+## Agent Scope
+
+This agent governs automated decision-making within the ${cfg?.journeyStages?.[0]?.label || "core"} journey stage for ${company}.
+
+## Permitted Actions
+
+MUST verify ${cfg?.customerTerm || "customer"} identity before processing any request.
+MUST log every decision to the Witness Agent audit trail before execution.
+MUST NOT process requests that exceed defined authority levels without escalation.
+MUST NOT retain ${cfg?.customerTerm || "customer"} data beyond the required retention window.
+MAY apply standard service rules without human approval for low-risk decisions.
+MAY escalate to a human ${cfg?.employeeTerm || "team member"} when confidence falls below threshold.
+
+## Escalation Path
+
+MUST escalate to ${cfg?.journeyStages?.[0]?.owner || "the department head"} when:
+- Decision confidence is below 80%
+- Request value exceeds automated authority
+- ${cfg?.customerTerm || "Customer"} disputes the automated outcome
+
+## Cross-Domain Inheritance
+
+MAY inherit permissions from the Shared Services axis for procurement and HR decisions.
+MUST apply compliance baseline controls from the Compliance axis at all times.
+
+## Violation Definition
+
+Any decision made without Witness Agent logging constitutes a violation.
+Any decision that bypasses the escalation path without documented justification constitutes a violation.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AC-2, AU-2
+Industry: ${cfg?.additionalFrameworks?.[0] || "Applicable regulatory frameworks"}
+`,
+
+  SOP: (cfg, company) => `---
+file_type: SOP
+owner: ${cfg?.journeyStages?.[0]?.owner || "Operations Lead"}
+domain: Operations
+axis: horizontal
+journey_stage: shared
+normalisation_level: 2
+vendor: VDA-MD Native
+baseline: true
+nist_control: AU-2
+---
+
+## Purpose
+
+This Standard Operating Procedure defines the process for AI agent operation within ${company}.
+
+## Scope
+
+Applies to all AI agents operating within the ${cfg?.label || "industry"} governance framework.
+
+## Procedure
+
+MUST follow the four-step decision cycle: Sense → Reason → Act → Log.
+MUST obtain explicit authorisation for any action above the automated authority threshold.
+MUST NOT execute irreversible actions without human confirmation.
+MAY defer low-risk, high-frequency decisions to fully automated processing.
+
+## Review Cycle
+
+This SOP MUST be reviewed every 90 days.
+Any material changes MUST be signed off by the owner before taking effect.
+
+## Escalation
+
+MUST escalate policy exceptions to the Chief Compliance Officer within 24 hours.
+`,
+
+  SKILL: (cfg, company) => `---
+file_type: SKILL
+owner: ${cfg?.journeyStages?.[0]?.owner || "Technical Lead"}
+domain: Technology
+axis: horizontal
+journey_stage: shared
+normalisation_level: 2
+vendor: VDA-MD Native
+baseline: false
+---
+
+## Skill Scope
+
+This skill file defines a reusable capability that may be invoked by authorised agents within ${company}.
+
+## Permitted Usage
+
+MUST only be invoked by agents with a valid agent_id in their YAML front matter.
+MUST log each invocation to the Witness Agent trail.
+MUST NOT be used outside the journey stages listed in the consuming agent's jurisdiction.
+MAY be shared across axes where the consuming agent has cross-domain inheritance declared.
+
+## Parameters
+
+MUST receive validated, typed inputs only.
+MUST NOT accept raw user-supplied strings without sanitisation.
+
+## Output Contract
+
+MUST return a structured response conforming to the VDA-MD output schema.
+MUST NOT return personally identifiable information unless the consuming agent has explicit permission.
+`,
+
+  EXCEPTION: (cfg, company) => `---
+file_type: EXCEPTION
+owner: ${cfg?.journeyStages?.[0]?.owner || "Department Head"}
+domain: Compliance
+axis: horizontal
+journey_stage: shared
+normalisation_level: 3
+vendor: VDA-MD Native
+baseline: false
+exception_reason: Documented exception to standard governance rule
+expires_at: ${new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+---
+
+## Exception Scope
+
+This exception file documents a specific, time-limited deviation from the standard governance rules within ${company}.
+
+## Exception Justification
+
+MUST state a clear business justification for this exception.
+MUST identify the specific rule being excepted and the duration of the exception.
+MUST NOT be used to permanently bypass a governance control.
+
+## Compensating Controls
+
+MUST implement compensating controls to mitigate the risk introduced by this exception.
+MUST review the exception before the expiry date above.
+MAY renew this exception once, with fresh sign-off, before a permanent policy change is required.
+
+## Approval Chain
+
+MUST be signed off by the owner named above before the exception takes effect.
+MUST be reviewed by the Chief Compliance Officer if the exception exceeds 90 days.
+`,
+
+  COMPLIANCE: (cfg, company) => `---
+file_type: COMPLIANCE
+owner: Chief Compliance Officer
+domain: Compliance
+axis: horizontal
+journey_stage: shared
+normalisation_level: 3
+vendor: VDA-MD Native
+baseline: true
+nist_control: ${cfg?.nistControls?.[0] || "AC-2"}
+---
+
+## Compliance Scope
+
+This file defines the compliance baseline inherited by all agents within ${company}.
+
+## Mandatory Controls
+
+MUST implement NIST SP 800-53 controls: ${(cfg?.nistControls || ["AC-2", "AU-2"]).join(", ")}.
+MUST comply with: ${(cfg?.additionalFrameworks || ["Applicable regulations"]).join(", ")}.
+MUST NOT process data in a manner inconsistent with GDPR Article 5 principles.
+MUST maintain an audit trail per EU AI Act Article 12 requirements.
+
+## Data Handling
+
+MUST classify all data before processing.
+MUST NOT retain data beyond the defined retention period.
+MAY apply automated pseudonymisation for analytics workloads with documented justification.
+
+## Incident Response
+
+MUST notify the Data Protection Officer within 72 hours of a suspected data breach.
+MUST preserve all audit logs for a minimum of 12 months.
+`,
+
+  CUSTOM: (_cfg, company) => `---
+file_type: CUSTOM
+owner: Department Head
+domain: Business
+axis: vertical
+journey_stage: shared
+normalisation_level: 1
+vendor: VDA-MD Native
+baseline: false
+---
+
+## Purpose
+
+Custom governance document for ${company}.
+
+## Rules
+
+MUST define clear governance rules using MUST, MUST NOT, or MAY clauses.
+MUST NOT leave this template without a named owner.
+MAY be promoted to a standard file type once validated.
+`,
+};
+
+const FM_FILE_TYPES = [
+  { type: "AGENTS", icon: "🤖", label: "Agent File", color: "#4A9EFF", desc: "Governs a single AI agent — scope, rules, escalation path" },
+  { type: "SOP", icon: "📋", label: "SOP", color: "#FF6B2B", desc: "Standard Operating Procedure for agent-process interaction" },
+  { type: "SKILL", icon: "⚡", label: "Skill File", color: "#A066FF", desc: "Reusable skill or capability callable by authorised agents" },
+  { type: "EXCEPTION", icon: "⚠️", label: "Exception File", color: "#FFB020", desc: "Time-limited exception to a standard governance rule" },
+  { type: "COMPLIANCE", icon: "✅", label: "Compliance Baseline", color: "#22D47A", desc: "Inherited compliance controls and regulatory requirements" },
+  { type: "CUSTOM", icon: "📄", label: "Custom Document", color: "#CBD2E0", desc: "Custom governance document — any format" },
+];
+
+const FM_AXIS_GROUPS = [
+  { id: "vertical", label: "Customer Journey", icon: "🗺", color: "#4A9EFF" },
+  { id: "horizontal", label: "Shared Services", icon: "⚙", color: "#22D47A" },
+  { id: "compliance", label: "Compliance", icon: "✅", color: "#A066FF" },
+];
+
+function getStatusColor(status) {
+  if (status === "live") return "#22D47A";
+  if (status === "draft") return "#FFB020";
+  if (status === "archived") return "#FF4D6A";
+  return "#CBD2E0";
+}
+
+function getStatusLabel(status) {
+  if (status === "live") return "LIVE";
+  if (status === "draft") return "DRAFT";
+  if (status === "archived") return "ARCHIVED";
+  return status?.toUpperCase() || "UNKNOWN";
+}
+
+function getExpiryDays(expiresAt) {
+  if (!expiresAt) return null;
+  const d = new Date(expiresAt);
+  const now = new Date();
+  return Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+}
+
+function highlightMd(text) {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/(^|\n)(---[\s\S]*?---)/m, (_, pre, fm) =>
+      pre + '<span style="color:#7dd3fc">' + fm + "</span>"
+    )
+    .replace(/\bMUST NOT\b/g, '<span style="color:#FF4D6A;font-weight:700">MUST NOT</span>')
+    .replace(/\bMUST\b(?!\s+NOT)/g, '<span style="color:#22D47A;font-weight:700">MUST</span>')
+    .replace(/\bMAY\b/g, '<span style="color:#FFB020;font-weight:700">MAY</span>')
+    .replace(/(^|\n)(#{1,3} .+)/g, (_, pre, h) =>
+      pre + '<span style="color:#A066FF;font-weight:700">' + h + "</span>"
+    );
+}
+
+function renderMarkdown(text) {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/^---[\s\S]*?---\n/m, (fm) =>
+      '<div style="background:#0d1117;border:1px solid #1e2229;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-family:monospace;font-size:11px;color:#7dd3fc;white-space:pre-wrap">' + fm + "</div>"
+    )
+    .replace(/^### (.+)$/gm, '<h3 style="color:#A066FF;font-weight:700;margin:14px 0 6px;font-size:15px">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 style="color:#4A9EFF;font-weight:800;margin:18px 0 8px;font-size:17px;border-bottom:1px solid #1e2229;padding-bottom:4px">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 style="color:#FF6B2B;font-weight:900;margin:20px 0 10px;font-size:20px">$1</h1>')
+    .replace(/\bMUST NOT\b/g, '<strong style="color:#FF4D6A">MUST NOT</strong>')
+    .replace(/\bMUST\b(?!\s+NOT)/g, '<strong style="color:#22D47A">MUST</strong>')
+    .replace(/\bMAY\b/g, '<strong style="color:#FFB020">MAY</strong>')
+    .replace(/^- (.+)$/gm, '<li style="color:#CBD2E0;margin:3px 0;margin-left:16px">$1</li>')
+    .replace(/\n\n/g, '<br/><br/>');
+}
+
+// ─────────────────────────────────────────────
+// FILE MANAGER TAB
+// ─────────────────────────────────────────────
+function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNavigateToFile }) {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [editorContent, setEditorContent] = useState("");
+  const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+  const [rightPanel, setRightPanel] = useState("agent");
+  const [history, setHistory] = useState([]);
+  const [diffData, setDiffData] = useState(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState(null);
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [axisFilter, setAxisFilter] = useState("all");
+  const [showNewFileModal, setShowNewFileModal] = useState(false);
+  const [showSignoffModal, setShowSignoffModal] = useState(false);
+  const [showReleaseModal, setShowReleaseModal] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [releaseNotes, setReleaseNotes] = useState("");
+  const [releaseLoading, setReleaseLoading] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [navigateToFileId, setNavigateToFileId] = useState(null);
+  const editorRef = useRef(null);
+  const searchTimeout = useRef(null);
+
+  const loadFiles = async () => {
+    if (!companyId) return;
+    setLoading(true);
+    try {
+      const resp = await fetch(`/api/fm/files/${companyId}`);
+      const data = await resp.json();
+      setFiles(Array.isArray(data) ? data : []);
+    } catch { setFiles([]); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadFiles(); }, [companyId]);
+
+  useEffect(() => {
+    if (navigateToFileId && files.length > 0) {
+      const f = files.find(f => f.id === navigateToFileId);
+      if (f) { handleSelectFile(f); setNavigateToFileId(null); }
+    }
+  }, [navigateToFileId, files]);
+
+  if (onNavigateToFile) {
+    onNavigateToFile.current = (id) => { setNavigateToFileId(id); };
+  }
+
+  const handleSelectFile = async (file) => {
+    if (isDirty && selectedFile && !window.confirm("You have unsaved changes. Discard them?")) return;
+    const resp = await fetch(`/api/fm/file/${file.id}`);
+    const full = await resp.json();
+    setSelectedFile(full);
+    setEditorContent(full.content || "");
+    setIsDirty(false);
+    setRightPanel("agent");
+    setHistory([]);
+    setDiffData(null);
+    setAiSuggestion(null);
+    setSaveMsg(null);
+    setPreviewMode(false);
+  };
+
+  const handleEditorChange = (e) => {
+    setEditorContent(e.target.value);
+    setIsDirty(e.target.value !== (selectedFile?.content || ""));
+  };
+
+  const handleSave = async (msg) => {
+    if (!selectedFile || !isDirty) return;
+    setIsSaving(true);
+    try {
+      await fetch(`/api/fm/file/${selectedFile.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editorContent, commitMessage: msg || "Updated" }),
+      });
+      setIsDirty(false);
+      setSaveMsg("Saved ✓");
+      setTimeout(() => setSaveMsg(null), 2500);
+      await loadFiles();
+      const resp = await fetch(`/api/fm/file/${selectedFile.id}`);
+      const updated = await resp.json();
+      setSelectedFile(updated);
+    } catch (e) { setSaveMsg("Error: " + e.message); }
+    setIsSaving(false);
+  };
+
+  const handleHistory = async () => {
+    if (!selectedFile) return;
+    setRightPanel("history");
+    const resp = await fetch(`/api/fm/history/${selectedFile.id}`);
+    const data = await resp.json();
+    setHistory(Array.isArray(data) ? data : []);
+  };
+
+  const handleDiff = async () => {
+    if (!selectedFile) return;
+    setRightPanel("diff");
+    setDiffLoading(true);
+    const resp = await fetch(`/api/fm/diff/${selectedFile.id}`);
+    const data = await resp.json();
+    setDiffData(data);
+    setDiffLoading(false);
+  };
+
+  const handleSignoff = async ({ signedBy, signedRole }) => {
+    if (!selectedFile) return;
+    await fetch(`/api/fm/sign/${selectedFile.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signedBy, signedRole }),
+    });
+    await loadFiles();
+    const resp = await fetch(`/api/fm/file/${selectedFile.id}`);
+    setSelectedFile(await resp.json());
+    setShowSignoffModal(false);
+    if (onSaveToWitness) {
+      onSaveToWitness({
+        id: Date.now(), timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        agent: "File Manager", decision: "PASS",
+        fileReferenced: selectedFile.filename,
+        clauseApplied: `File signed off and promoted to LIVE status by ${signedBy} (${signedRole})`,
+        actionProposed: `Governance file ${selectedFile.filename} → status: LIVE`,
+        exceptionApplied: false, escalationTarget: null,
+        reasoning: `Sign-off completed. File is now part of the active governance baseline.`,
+      });
+    }
+  };
+
+  const handleDelete = async (file) => {
+    if (!window.confirm(`Archive "${file.filename}"? It will be hidden but not permanently deleted.`)) return;
+    await fetch(`/api/fm/file/${file.id}`, { method: "DELETE" });
+    if (selectedFile?.id === file.id) { setSelectedFile(null); setEditorContent(""); }
+    await loadFiles();
+  };
+
+  const handleSearch = (q) => {
+    setSearchQuery(q);
+    clearTimeout(searchTimeout.current);
+    if (!q.trim()) { setSearchResults(null); return; }
+    searchTimeout.current = setTimeout(async () => {
+      const resp = await fetch(`/api/fm/search/${companyId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q }),
+      });
+      const data = await resp.json();
+      setSearchResults(Array.isArray(data) ? data : []);
+    }, 350);
+  };
+
+  const handleAISuggest = async () => {
+    if (!selectedFile || aiLoading) return;
+    setAiLoading(true);
+    setAiSuggestion(null);
+    try {
+      const resp = await fetch("/api/ai/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1500,
+          system: `You are a VDA-MD Governance Improvement Engine. Analyse the governance file and return a JSON object with:
+{
+  "overallScore": 0-100,
+  "strengths": ["strength 1", "strength 2"],
+  "improvements": [
+    { "priority": "HIGH|MEDIUM|LOW", "issue": "short description", "suggestion": "specific rewrite or addition", "reason": "why this matters" }
+  ],
+  "nistGaps": ["missing control or coverage gap"],
+  "summary": "one paragraph summary"
+}
+Respond with ONLY the JSON object, no markdown fences.`,
+          messages: [{ role: "user", content: `Company: ${companyName}\nIndustry: ${config?.label}\nFile: ${selectedFile.filename}\n\n${editorContent.slice(0, 4000)}` }],
+        }),
+      });
+      const data = await resp.json();
+      const raw = data?.content?.[0]?.text?.trim() || "{}";
+      const clean = raw.replace(/^```json[\r\n]*/i, "").replace(/^```[\r\n]*/i, "").replace(/[\r\n]*```\s*$/i, "").trim();
+      setAiSuggestion(JSON.parse(clean));
+    } catch (e) { setAiSuggestion({ error: e.message }); }
+    setAiLoading(false);
+  };
+
+  const handleGenerateReleaseNotes = async () => {
+    setReleaseLoading(true);
+    const liveFiles = files.filter(f => f.status === "live");
+    try {
+      const resp = await fetch("/api/ai/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 800,
+          system: "You are a governance release notes generator. Write concise, professional release notes for a governance baseline update. Plain text, no markdown.",
+          messages: [{ role: "user", content: `Company: ${companyName}\nIndustry: ${config?.label}\nLive files: ${liveFiles.map(f => f.filename + " (owner: " + (f.owner || "TBC") + ")").join(", ")}\nGenerate release notes for this governance baseline.` }],
+        }),
+      });
+      const data = await resp.json();
+      setReleaseNotes(data?.content?.[0]?.text || "");
+    } catch (e) { setReleaseNotes("Error generating notes: " + e.message); }
+    setReleaseLoading(false);
+  };
+
+  const handleNewFileSave = async ({ filename, fileType, axis, stage, content }) => {
+    const resp = await fetch("/api/fm/file", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId, filename, fileType, axis, stage, content, status: "draft" }),
+    });
+    const file = await resp.json();
+    await loadFiles();
+    setShowNewFileModal(false);
+    setSelectedFile(file);
+    setEditorContent(file.content || "");
+    setIsDirty(false);
+  };
+
+  const displayedFiles = searchResults
+    ? searchResults
+    : files.filter(f =>
+        (typeFilter === "all" || f.fileType === typeFilter) &&
+        (axisFilter === "all" || f.axis === axisFilter)
+      );
+
+  const liveCount = files.filter(f => f.status === "live").length;
+  const draftCount = files.filter(f => f.status === "draft").length;
+  const expiringCount = files.filter(f => {
+    const d = getExpiryDays(f.expiresAt);
+    return d !== null && d <= 30 && d > 0;
+  }).length;
+  const unsignedCount = files.filter(f => f.status !== "live").length;
+
+  const nistCovered = [...new Set(files.filter(f => f.nistControl).map(f => f.nistControl))];
+  const nistTotal = config?.nistControls || [];
+
+  return (
+    <div style={{ display: "flex", height: "calc(100vh - 110px)", overflow: "hidden" }}>
+      {/* ── LEFT SIDEBAR ── */}
+      <div style={{ width: 280, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.surface, flexShrink: 0 }}>
+        {/* Health strip */}
+        <div style={{ padding: "12px 14px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { label: "Live", val: liveCount, color: T.green },
+            { label: "Draft", val: draftCount, color: T.amber },
+            { label: "Expiring", val: expiringCount, color: T.red },
+          ].map(s => (
+            <div key={s.label} style={{ flex: 1, minWidth: 52, background: `${s.color}12`, border: `1px solid ${s.color}30`, borderRadius: 6, padding: "4px 8px", textAlign: "center" }}>
+              <div style={{ fontFamily: T.mono, fontWeight: 800, fontSize: 15, color: s.color }}>{s.val}</div>
+              <div style={{ fontSize: 9, color: s.color, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.border}` }}>
+          <input
+            value={searchQuery}
+            onChange={e => handleSearch(e.target.value)}
+            placeholder="Search files & clauses…"
+            style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", fontSize: 12, color: T.text, fontFamily: T.mono, outline: "none" }}
+          />
+        </div>
+
+        {/* Filters */}
+        <div style={{ padding: "8px 12px", display: "flex", gap: 5, borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+          {["all", "AGENTS", "SOP", "SKILL", "EXCEPTION", "COMPLIANCE", "CUSTOM"].map(t => (
+            <button key={t} onClick={() => { setTypeFilter(t); setSearchResults(null); setSearchQuery(""); }}
+              style={{ padding: "3px 7px", borderRadius: 4, border: `1px solid ${typeFilter === t ? T.orange : T.border}`, background: typeFilter === t ? `${T.orange}20` : "none", color: typeFilter === t ? T.orange : T.dim, fontSize: 10, cursor: "pointer", fontFamily: T.mono }}>
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* New File + file list */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+              {searchResults ? `${searchResults.length} results` : `${displayedFiles.length} files`}
+            </span>
+            <button onClick={() => setShowNewFileModal(true)} style={{
+              background: `${T.orange}20`, border: `1px solid ${T.orange}40`, borderRadius: 5,
+              padding: "3px 8px", fontSize: 11, color: T.orange, cursor: "pointer", fontWeight: 700,
+            }}>+ New</button>
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: "center", padding: 24, color: T.dim, fontSize: 12 }}>Loading…</div>
+          ) : displayedFiles.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 24, color: T.dim }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>📂</div>
+              <div style={{ fontSize: 12, color: T.dim }}>No files yet</div>
+              <div style={{ fontSize: 11, color: T.dim, marginTop: 4 }}>Click + New to create one</div>
+            </div>
+          ) : (
+            FM_AXIS_GROUPS.map(group => {
+              const groupFiles = displayedFiles.filter(f =>
+                searchResults
+                  ? f.axis === group.id || (group.id === "compliance" && f.fileType === "COMPLIANCE")
+                  : f.axis === group.id || (group.id === "compliance" && f.fileType === "COMPLIANCE")
+              );
+              if (groupFiles.length === 0) return null;
+              return (
+                <div key={group.id}>
+                  <div style={{ padding: "6px 12px 3px", fontSize: 10, color: group.color, fontFamily: T.mono, textTransform: "uppercase", letterSpacing: "0.1em", background: `${group.color}08`, display: "flex", gap: 5, alignItems: "center" }}>
+                    <span>{group.icon}</span> {group.label}
+                  </div>
+                  {groupFiles.map(file => {
+                    const expDays = getExpiryDays(file.expiresAt);
+                    const isSelected = selectedFile?.id === file.id;
+                    const ftype = FM_FILE_TYPES.find(t => t.type === file.fileType) || FM_FILE_TYPES[5];
+                    return (
+                      <div key={file.id} onClick={() => handleSelectFile(file)}
+                        style={{ padding: "8px 12px", cursor: "pointer", background: isSelected ? `${T.orange}12` : "none", borderLeft: `2px solid ${isSelected ? T.orange : "transparent"}`, transition: "all 0.15s" }}
+                        onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = `${T.border}40`; }}
+                        onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = "none"; }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 4 }}>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+                            <span style={{ fontSize: 13 }}>{ftype.icon}</span>
+                            <span style={{ fontSize: 12, color: isSelected ? T.orange : T.text, fontFamily: T.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 130 }}>{file.filename}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: getStatusColor(file.status), display: "inline-block", flexShrink: 0 }} />
+                            <button onClick={e => { e.stopPropagation(); handleDelete(file); }}
+                              style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 10, padding: "0 2px", opacity: 0.5 }}
+                              onMouseEnter={e => { e.currentTarget.style.color = T.red; e.currentTarget.style.opacity = "1"; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = T.dim; e.currentTarget.style.opacity = "0.5"; }}
+                              title="Archive file"
+                            >✕</button>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginTop: 3, alignItems: "center" }}>
+                          <span style={{ fontSize: 9, fontFamily: T.mono, color: ftype.color, opacity: 0.8 }}>{file.fileType}</span>
+                          {file.owner && <span style={{ fontSize: 9, color: T.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>· {file.owner}</span>}
+                        </div>
+                        {expDays !== null && (
+                          <div style={{ marginTop: 3, fontSize: 9, fontFamily: T.mono, color: expDays <= 14 ? T.red : expDays <= 30 ? T.amber : T.dim }}>
+                            ⏱ {expDays > 0 ? `expires in ${expDays}d` : `expired ${Math.abs(expDays)}d ago`}
+                          </div>
+                        )}
+                        {searchResults && file.snippet && (
+                          <div style={{ marginTop: 4, fontSize: 10, color: T.dim, fontFamily: T.mono, background: T.bg, borderRadius: 4, padding: "3px 6px", whiteSpace: "pre-wrap", overflow: "hidden", maxHeight: 40 }}>
+                            …{file.snippet}…
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ── CENTRE EDITOR ── */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {selectedFile ? (
+          <>
+            {/* File toolbar */}
+            <div style={{ padding: "8px 16px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontFamily: T.mono, fontWeight: 700, fontSize: 13, color: T.text }}>{selectedFile.filename}</span>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: getStatusColor(selectedFile.status) }} />
+              <span style={{ fontSize: 10, color: getStatusColor(selectedFile.status), fontFamily: T.mono, fontWeight: 700 }}>{getStatusLabel(selectedFile.status)}</span>
+              {isDirty && <span style={{ fontSize: 10, color: T.amber, fontFamily: T.mono }}>● unsaved changes</span>}
+              {saveMsg && <span style={{ fontSize: 10, color: T.green, fontFamily: T.mono }}>{saveMsg}</span>}
+              <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button onClick={() => setPreviewMode(p => !p)} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${previewMode ? T.purple : T.border}`, background: previewMode ? `${T.purple}20` : "none", color: previewMode ? T.purple : T.dim, fontSize: 11, cursor: "pointer" }}>
+                  {previewMode ? "Edit" : "Preview"}
+                </button>
+                <button onClick={() => handleSave("Updated")} disabled={!isDirty || isSaving} style={{
+                  padding: "4px 12px", borderRadius: 5, border: `1px solid ${isDirty ? T.blue + "80" : T.border}`,
+                  background: isDirty ? `${T.blue}20` : "none", color: isDirty ? T.blue : T.dim,
+                  fontSize: 11, cursor: isDirty ? "pointer" : "default", fontWeight: 700,
+                }}>
+                  {isSaving ? "Saving…" : "Save"}
+                </button>
+                <button onClick={handleHistory} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer" }}>
+                  History
+                </button>
+                <button onClick={handleDiff} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer" }}>
+                  Diff
+                </button>
+                <button
+                  onClick={() => setShowSignoffModal(true)}
+                  disabled={selectedFile.status === "live"}
+                  style={{
+                    padding: "4px 12px", borderRadius: 5,
+                    border: `1px solid ${selectedFile.status === "live" ? T.green + "60" : T.green + "80"}`,
+                    background: selectedFile.status === "live" ? `${T.green}12` : `${T.green}20`,
+                    color: selectedFile.status === "live" ? T.green : T.green,
+                    fontSize: 11, cursor: selectedFile.status === "live" ? "default" : "pointer", fontWeight: 700,
+                  }}>
+                  {selectedFile.status === "live" ? "✓ Signed" : "Sign Off"}
+                </button>
+              </div>
+            </div>
+
+            {/* Schema validation bar */}
+            <div style={{ padding: "5px 16px", background: "#04060a", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 14, alignItems: "center" }}>
+              {[
+                { label: "MUST", count: selectedFile.mustCount || 0, color: T.green },
+                { label: "MUST NOT", count: selectedFile.mustNotCount || 0, color: T.red },
+                { label: "MAY", count: selectedFile.mayCount || 0, color: T.amber },
+                { label: "Words", count: selectedFile.wordCount || 0, color: T.dim },
+              ].map(s => (
+                <span key={s.label} style={{ fontSize: 10, fontFamily: T.mono, color: s.color }}>
+                  {s.count} {s.label}
+                </span>
+              ))}
+              <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginLeft: "auto" }}>
+                {selectedFile.owner ? `owner: ${selectedFile.owner}` : ""}{selectedFile.nistControl ? ` · ${selectedFile.nistControl}` : ""}
+              </span>
+              {selectedFile.updatedAt && (
+                <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>
+                  updated: {new Date(selectedFile.updatedAt).toLocaleDateString("en-GB")}
+                </span>
+              )}
+            </div>
+
+            {/* Editor / Preview */}
+            <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+              {previewMode ? (
+                <div style={{ padding: 20, overflowY: "auto", height: "100%", background: T.bg }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(editorContent) }}
+                />
+              ) : (
+                <textarea
+                  ref={editorRef}
+                  value={editorContent}
+                  onChange={handleEditorChange}
+                  spellCheck={false}
+                  style={{
+                    width: "100%", height: "100%", background: "#050608",
+                    color: "#e2e8f0", fontFamily: T.mono, fontSize: 13,
+                    lineHeight: 1.7, border: "none", outline: "none",
+                    padding: "16px 20px", resize: "none",
+                    whiteSpace: "pre-wrap",
+                  }}
+                />
+              )}
+            </div>
+
+            {/* Download bar */}
+            <div style={{ padding: "6px 16px", background: T.card, borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, alignItems: "center" }}>
+              <button onClick={() => {
+                const blob = new Blob([editorContent], { type: "text/markdown" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a"); a.href = url; a.download = selectedFile.filename; a.click();
+                URL.revokeObjectURL(url);
+              }} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer" }}>
+                ↓ Download .md
+              </button>
+              <button onClick={() => navigator.clipboard.writeText(editorContent)} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer" }}>
+                Copy
+              </button>
+              <button onClick={() => setShowReleaseModal(true)} style={{
+                marginLeft: "auto", padding: "4px 12px", borderRadius: 5,
+                border: `1px solid ${T.purple}40`, background: `${T.purple}15`, color: T.purple,
+                fontSize: 11, cursor: "pointer", fontWeight: 700,
+              }}>
+                Create Release
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: T.dim, padding: 40 }}>
+            <div style={{ fontSize: 48, opacity: 0.3 }}>📁</div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: T.muted }}>Select a file to edit</div>
+            <div style={{ fontSize: 13, color: T.dim, textAlign: "center", maxWidth: 320 }}>
+              Choose a file from the sidebar, or click + New to create your first governance document.
+            </div>
+            <button onClick={() => setShowNewFileModal(true)} style={{
+              marginTop: 8, padding: "8px 20px", borderRadius: 8,
+              background: T.orange, border: "none", color: "#fff",
+              fontSize: 13, fontWeight: 700, cursor: "pointer",
+            }}>
+              + New Governance File
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── RIGHT PANEL ── */}
+      <div style={{ width: 300, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.surface, flexShrink: 0 }}>
+        {/* Panel tabs */}
+        <div style={{ display: "flex", borderBottom: `1px solid ${T.border}` }}>
+          {[{ id: "agent", label: "FM Agent" }, { id: "history", label: "History" }, { id: "diff", label: "Diff" }].map(p => (
+            <button key={p.id} onClick={() => {
+              setRightPanel(p.id);
+              if (p.id === "history" && selectedFile) handleHistory();
+              if (p.id === "diff" && selectedFile) handleDiff();
+            }} style={{
+              flex: 1, padding: "9px 6px", background: "none", border: "none",
+              borderBottom: `2px solid ${rightPanel === p.id ? T.orange : "transparent"}`,
+              color: rightPanel === p.id ? T.orange : T.dim,
+              fontSize: 11, cursor: "pointer", fontFamily: T.sans, fontWeight: rightPanel === p.id ? 700 : 400,
+            }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+          {rightPanel === "agent" && (
+            <>
+              {/* NIST Coverage Matrix */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>NIST Coverage</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {nistTotal.map(ctrl => {
+                    const covered = nistCovered.includes(ctrl);
+                    return (
+                      <span key={ctrl} style={{
+                        padding: "3px 7px", borderRadius: 4, fontSize: 10, fontFamily: T.mono, fontWeight: 700,
+                        background: covered ? `${T.green}20` : `${T.border}50`,
+                        color: covered ? T.green : T.dim,
+                        border: `1px solid ${covered ? T.green + "40" : T.border}`,
+                      }}>{ctrl} {covered ? "✓" : "–"}</span>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 10, color: T.dim, fontFamily: T.mono }}>
+                  {nistCovered.length}/{nistTotal.length} controls covered
+                </div>
+              </div>
+
+              {/* Expiry Monitor */}
+              {files.some(f => f.expiresAt) && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>Expiry Monitor</div>
+                  {files.filter(f => f.expiresAt).map(f => {
+                    const d = getExpiryDays(f.expiresAt);
+                    return (
+                      <div key={f.id} onClick={() => handleSelectFile(f)} style={{ cursor: "pointer", padding: "6px 8px", borderRadius: 6, background: T.bg, border: `1px solid ${d !== null && d <= 14 ? T.red + "40" : T.border}`, marginBottom: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 10, fontFamily: T.mono, color: T.text }}>{f.filename}</span>
+                        <span style={{ fontSize: 9, fontFamily: T.mono, color: d !== null && d <= 14 ? T.red : d !== null && d <= 30 ? T.amber : T.dim }}>
+                          {d !== null ? (d > 0 ? `${d}d` : `${Math.abs(d)}d ago`) : "–"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Unsigned Files */}
+              {unsignedCount > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>Unsigned Files ({unsignedCount})</div>
+                  {files.filter(f => f.status !== "live").slice(0, 5).map(f => (
+                    <div key={f.id} onClick={() => handleSelectFile(f)} style={{ cursor: "pointer", padding: "5px 8px", borderRadius: 5, background: T.bg, border: `1px solid ${T.border}`, marginBottom: 3, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 10, fontFamily: T.mono, color: T.muted }}>{f.filename}</span>
+                      <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono }}>DRAFT</span>
+                    </div>
+                  ))}
+                  {unsignedCount > 5 && <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, paddingLeft: 4 }}>+ {unsignedCount - 5} more</div>}
+                </div>
+              )}
+
+              {/* AI Suggest */}
+              {selectedFile && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.purple, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>AI Suggestions</div>
+                  <button onClick={handleAISuggest} disabled={aiLoading} style={{
+                    width: "100%", padding: "8px 14px", borderRadius: 6,
+                    background: aiLoading ? `${T.purple}15` : `${T.purple}25`,
+                    border: `1px solid ${T.purple}50`, color: T.purple,
+                    fontSize: 12, fontWeight: 700, cursor: aiLoading ? "default" : "pointer",
+                  }}>
+                    {aiLoading ? "Analysing…" : "✦ Suggest Improvements"}
+                  </button>
+                  {aiSuggestion && !aiSuggestion.error && (
+                    <div style={{ marginTop: 10, animation: "slide-up 0.3s ease" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>Score</span>
+                        <span style={{ fontFamily: T.mono, fontWeight: 800, fontSize: 18, color: aiSuggestion.overallScore >= 80 ? T.green : aiSuggestion.overallScore >= 60 ? T.amber : T.red }}>
+                          {aiSuggestion.overallScore}/100
+                        </span>
+                      </div>
+                      {aiSuggestion.summary && (
+                        <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.5, marginBottom: 10, padding: "8px 10px", background: T.bg, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                          {aiSuggestion.summary}
+                        </div>
+                      )}
+                      {aiSuggestion.improvements?.slice(0, 3).map((imp, i) => (
+                        <div key={i} style={{ marginBottom: 8, padding: "8px 10px", borderRadius: 6, background: T.bg, border: `1px solid ${imp.priority === "HIGH" ? T.red + "40" : imp.priority === "MEDIUM" ? T.amber + "40" : T.border}` }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: imp.priority === "HIGH" ? T.red : imp.priority === "MEDIUM" ? T.amber : T.dim }}>{imp.priority}</span>
+                            <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{imp.issue}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.4 }}>{imp.suggestion}</div>
+                        </div>
+                      ))}
+                      {aiSuggestion.nistGaps?.length > 0 && (
+                        <div style={{ fontSize: 10, color: T.amber, fontFamily: T.mono, padding: "6px 10px", background: `${T.amber}08`, borderRadius: 5, border: `1px solid ${T.amber}30` }}>
+                          NIST gaps: {aiSuggestion.nistGaps.slice(0, 2).join(", ")}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {aiSuggestion?.error && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: T.red, fontFamily: T.mono, padding: "6px 8px", background: `${T.red}10`, borderRadius: 5 }}>
+                      ⚠ {aiSuggestion.error}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!selectedFile && (
+                <div style={{ textAlign: "center", paddingTop: 32, color: T.dim }}>
+                  <div style={{ fontSize: 24, marginBottom: 8, opacity: 0.4 }}>🤖</div>
+                  <div style={{ fontSize: 12 }}>Select a file to see AI suggestions</div>
+                </div>
+              )}
+            </>
+          )}
+
+          {rightPanel === "history" && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.blue, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Version History</div>
+              {history.length === 0 ? (
+                <div style={{ color: T.dim, fontSize: 12, textAlign: "center", paddingTop: 20 }}>No history yet</div>
+              ) : (
+                history.map((v, i) => (
+                  <div key={v.id} style={{ padding: "8px 10px", borderRadius: 6, background: i === 0 ? `${T.blue}10` : T.bg, border: `1px solid ${i === 0 ? T.blue + "40" : T.border}`, marginBottom: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ fontFamily: T.mono, fontWeight: 800, fontSize: 11, color: i === 0 ? T.blue : T.muted }}>v{v.versionNumber}</span>
+                      <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>{new Date(v.createdAt).toLocaleDateString("en-GB")}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: T.dim }}>{v.commitMessage}</div>
+                    <div style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, marginTop: 2 }}>by {v.author}</div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                      {v.mustCount > 0 && <span style={{ fontSize: 9, color: T.green, fontFamily: T.mono }}>{v.mustCount} MUST</span>}
+                      {v.mustNotCount > 0 && <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono }}>{v.mustNotCount} MUST NOT</span>}
+                      {v.mayCount > 0 && <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono }}>{v.mayCount} MAY</span>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </>
+          )}
+
+          {rightPanel === "diff" && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.teal, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Version Diff</div>
+              {diffLoading ? (
+                <div style={{ color: T.dim, fontSize: 12, textAlign: "center", paddingTop: 20 }}>Loading…</div>
+              ) : !diffData || diffData.diff?.length === 0 ? (
+                <div style={{ color: T.dim, fontSize: 12, textAlign: "center", paddingTop: 20 }}>Only one version — no diff yet</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginBottom: 8 }}>
+                    v{diffData.from?.versionNumber} → v{diffData.to?.versionNumber}
+                  </div>
+                  <div style={{ background: T.bg, borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden", maxHeight: 480, overflowY: "auto" }}>
+                    {diffData.diff.filter(d => d.type !== "same").map((d, i) => (
+                      <div key={i} style={{
+                        padding: "2px 8px", fontFamily: T.mono, fontSize: 10, lineHeight: 1.5,
+                        background: d.type === "added" ? "#0d2b1a" : "#2b0d0f",
+                        color: d.type === "added" ? "#4ade80" : "#f87171",
+                        borderLeft: `2px solid ${d.type === "added" ? T.green : T.red}`,
+                      }}>
+                        {d.type === "added" ? "+" : "-"} {d.line}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── NEW FILE MODAL ── */}
+      {showNewFileModal && (
+        <NewFileModal
+          config={config}
+          companyName={companyName}
+          onSave={handleNewFileSave}
+          onClose={() => setShowNewFileModal(false)}
+        />
+      )}
+
+      {/* ── SIGN OFF MODAL ── */}
+      {showSignoffModal && selectedFile && (
+        <SignoffModal
+          file={selectedFile}
+          onConfirm={handleSignoff}
+          onClose={() => setShowSignoffModal(false)}
+        />
+      )}
+
+      {/* ── RELEASE MODAL ── */}
+      {showReleaseModal && (
+        <ReleaseModal
+          files={files}
+          companyName={companyName}
+          config={config}
+          releaseNotes={releaseNotes}
+          releaseLoading={releaseLoading}
+          onGenerateNotes={handleGenerateReleaseNotes}
+          onClose={() => { setShowReleaseModal(false); setReleaseNotes(""); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// NEW FILE MODAL
+// ─────────────────────────────────────────────
+function NewFileModal({ config, companyName, onSave, onClose }) {
+  const [step, setStep] = useState(0);
+  const [fileType, setFileType] = useState(null);
+  const [axis, setAxis] = useState("vertical");
+  const [stage, setStage] = useState("");
+  const [filename, setFilename] = useState("");
+  const [preview, setPreview] = useState("");
+
+  const steps = ["Type", "Placement", "Identity"];
+
+  useEffect(() => {
+    if (fileType) {
+      const tmpl = FM_FILE_TEMPLATES[fileType] || FM_FILE_TEMPLATES.CUSTOM;
+      setPreview(tmpl(config, companyName));
+    }
+  }, [fileType, config, companyName]);
+
+  const handleCreate = () => {
+    const tmpl = FM_FILE_TEMPLATES[fileType] || FM_FILE_TEMPLATES.CUSTOM;
+    const content = tmpl(config, companyName);
+    const slug = filename || (companyName.toLowerCase().replace(/\s+/g, "-") + "-" + fileType.toLowerCase() + ".md");
+    onSave({ filename: slug, fileType, axis, stage: stage || null, content });
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.borderHi}`, borderRadius: 14, width: 580, maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", animation: "wizard-in 0.3s ease" }}>
+        {/* Header */}
+        <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 17, letterSpacing: "-0.03em" }}>+ New Governance File</div>
+            <div style={{ fontSize: 11, color: T.dim, marginTop: 3, fontFamily: T.mono }}>Step {step + 1} of {steps.length}: {steps[step]}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.dim, fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
+
+        {/* Steps */}
+        <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+          {step === 0 && (
+            <div>
+              <div style={{ fontSize: 13, color: T.dim, marginBottom: 16 }}>Choose the type of governance file to create:</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {FM_FILE_TYPES.map(ft => (
+                  <button key={ft.type} onClick={() => setFileType(ft.type)} style={{
+                    padding: "14px 16px", borderRadius: 8, textAlign: "left",
+                    border: `2px solid ${fileType === ft.type ? ft.color : T.border}`,
+                    background: fileType === ft.type ? `${ft.color}15` : T.bg,
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 16 }}>{ft.icon}</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: fileType === ft.type ? ft.color : T.text }}>{ft.label}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.4 }}>{ft.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {step === 1 && (
+            <div>
+              <div style={{ fontSize: 13, color: T.dim, marginBottom: 16 }}>Where does this file live in the governance map?</div>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, fontWeight: 600 }}>Axis</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {FM_AXIS_GROUPS.map(g => (
+                    <button key={g.id} onClick={() => setAxis(g.id)} style={{
+                      flex: 1, padding: "10px 12px", borderRadius: 7,
+                      border: `2px solid ${axis === g.id ? g.color : T.border}`,
+                      background: axis === g.id ? `${g.color}15` : T.bg,
+                      color: axis === g.id ? g.color : T.dim, cursor: "pointer", fontSize: 12, fontWeight: 600,
+                    }}>
+                      {g.icon} {g.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {axis === "vertical" && config?.journeyStages && (
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, fontWeight: 600 }}>Journey Stage</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {config.journeyStages.map(s => (
+                      <button key={s.id} onClick={() => setStage(s.id)} style={{
+                        padding: "6px 12px", borderRadius: 6,
+                        border: `1px solid ${stage === s.id ? s.color : T.border}`,
+                        background: stage === s.id ? `${s.color}20` : T.bg,
+                        color: stage === s.id ? s.color : T.dim, cursor: "pointer", fontSize: 11,
+                      }}>
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {axis === "horizontal" && config?.sharedServices && (
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, fontWeight: 600 }}>Shared Service</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {config.sharedServices.map(s => (
+                      <button key={s.id} onClick={() => setStage(s.id)} style={{
+                        padding: "6px 12px", borderRadius: 6,
+                        border: `1px solid ${stage === s.id ? T.green : T.border}`,
+                        background: stage === s.id ? `${T.green}20` : T.bg,
+                        color: stage === s.id ? T.green : T.dim, cursor: "pointer", fontSize: 11,
+                      }}>
+                        {s.icon} {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === 2 && (
+            <div>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Filename</div>
+                <input value={filename} onChange={e => setFilename(e.target.value)}
+                  placeholder={`${companyName.toLowerCase().replace(/\s+/g, "-")}-${(fileType || "").toLowerCase()}.md`}
+                  style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, color: T.text, fontFamily: T.mono, outline: "none" }}
+                />
+              </div>
+              {fileType && (
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Template Preview</div>
+                  <pre style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, fontSize: 10, color: "#7dd3fc", fontFamily: T.mono, maxHeight: 280, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                    {preview}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
+          <button onClick={() => step > 0 ? setStep(s => s - 1) : onClose()} style={{ padding: "7px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 12, cursor: "pointer" }}>
+            {step === 0 ? "Cancel" : "Back"}
+          </button>
+          {step < steps.length - 1 ? (
+            <button onClick={() => setStep(s => s + 1)} disabled={step === 0 && !fileType} style={{
+              padding: "7px 20px", borderRadius: 6, background: fileType || step > 0 ? T.orange : T.border,
+              border: "none", color: "#fff", fontSize: 12, fontWeight: 700,
+              cursor: (step === 0 && !fileType) ? "default" : "pointer", opacity: step === 0 && !fileType ? 0.5 : 1,
+            }}>
+              Next →
+            </button>
+          ) : (
+            <button onClick={handleCreate} style={{
+              padding: "7px 20px", borderRadius: 6, background: T.green,
+              border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}>
+              Create File
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SIGN OFF MODAL
+// ─────────────────────────────────────────────
+function SignoffModal({ file, onConfirm, onClose }) {
+  const [signedBy, setSignedBy] = useState("");
+  const [signedRole, setSignedRole] = useState("");
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.green}50`, borderRadius: 14, width: 440, padding: 28, animation: "wizard-in 0.3s ease" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div style={{ fontWeight: 900, fontSize: 16, letterSpacing: "-0.03em" }}>Sign Off: {file.filename}</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.dim, fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ background: `${T.green}10`, border: `1px solid ${T.green}40`, borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 12, color: T.green, lineHeight: 1.5 }}>
+          Signing off this file will promote it from DRAFT to LIVE status. It will appear in the governance baseline and count towards compliance coverage.
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Your Name</div>
+          <input value={signedBy} onChange={e => setSignedBy(e.target.value)} placeholder="e.g. Alex Johnson"
+            style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, color: T.text, fontFamily: T.sans, outline: "none" }}
+          />
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Your Role</div>
+          <input value={signedRole} onChange={e => setSignedRole(e.target.value)} placeholder="e.g. Chief Compliance Officer"
+            style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, color: T.text, fontFamily: T.sans, outline: "none" }}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+          <button onClick={() => onConfirm({ signedBy: signedBy || "User", signedRole: signedRole || "Owner" })} disabled={!signedBy} style={{
+            padding: "7px 20px", borderRadius: 6, background: signedBy ? T.green : T.border,
+            border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: signedBy ? "pointer" : "default",
+          }}>
+            ✓ Sign Off & Go Live
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// RELEASE MODAL
+// ─────────────────────────────────────────────
+function ReleaseModal({ files, companyName, config, releaseNotes, releaseLoading, onGenerateNotes, onClose }) {
+  const liveFiles = files.filter(f => f.status === "live");
+  const draftFiles = files.filter(f => f.status === "draft");
+  const [releaseName, setReleaseName] = useState(`${companyName} Governance Baseline v${new Date().toISOString().slice(0, 10)}`);
+
+  const handleDownload = () => {
+    const content = `# ${releaseName}\n\n**Date:** ${new Date().toISOString().slice(0, 10)}\n**Company:** ${companyName}\n**Industry:** ${config?.label}\n\n## Release Notes\n\n${releaseNotes || "No release notes generated."}\n\n## Live Files (${liveFiles.length})\n\n${liveFiles.map(f => `- ${f.filename} (${f.owner || "TBC"})`).join("\n")}\n\n## Pending Files (${draftFiles.length})\n\n${draftFiles.map(f => `- ${f.filename} [DRAFT]`).join("\n")}\n`;
+    const blob = new Blob([content], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "governance-release-notes.md"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.purple}50`, borderRadius: 14, width: 560, maxHeight: "82vh", overflow: "hidden", display: "flex", flexDirection: "column", animation: "wizard-in 0.3s ease" }}>
+        <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 900, fontSize: 16, letterSpacing: "-0.03em" }}>Create Governance Release</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.dim, fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Release Name</div>
+            <input value={releaseName} onChange={e => setReleaseName(e.target.value)}
+              style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 12, color: T.text, fontFamily: T.sans, outline: "none" }}
+            />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <div style={{ background: `${T.green}10`, border: `1px solid ${T.green}30`, borderRadius: 8, padding: "12px 16px", textAlign: "center" }}>
+              <div style={{ fontFamily: T.mono, fontWeight: 900, fontSize: 24, color: T.green }}>{liveFiles.length}</div>
+              <div style={{ fontSize: 11, color: T.green }}>LIVE files</div>
+            </div>
+            <div style={{ background: `${T.amber}10`, border: `1px solid ${T.amber}30`, borderRadius: 8, padding: "12px 16px", textAlign: "center" }}>
+              <div style={{ fontFamily: T.mono, fontWeight: 900, fontSize: 24, color: T.amber }}>{draftFiles.length}</div>
+              <div style={{ fontSize: 11, color: T.amber }}>DRAFT (excluded)</div>
+            </div>
+          </div>
+          {liveFiles.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, fontWeight: 600 }}>Included Files</div>
+              <div style={{ background: T.bg, borderRadius: 6, border: `1px solid ${T.border}`, padding: 10, maxHeight: 120, overflowY: "auto" }}>
+                {liveFiles.map(f => (
+                  <div key={f.id} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderBottom: `1px solid ${T.border}`, fontSize: 11 }}>
+                    <span style={{ fontFamily: T.mono, color: T.text }}>{f.filename}</span>
+                    <span style={{ color: T.dim }}>{f.owner || "TBC"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: T.muted, fontWeight: 600 }}>Release Notes</span>
+              <button onClick={onGenerateNotes} disabled={releaseLoading} style={{
+                padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.purple}50`,
+                background: `${T.purple}20`, color: T.purple, fontSize: 11, cursor: "pointer",
+              }}>
+                {releaseLoading ? "Generating…" : "✦ AI Generate"}
+              </button>
+            </div>
+            <textarea value={releaseNotes} readOnly rows={5}
+              placeholder="Click 'AI Generate' to auto-generate release notes, or write your own…"
+              style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 11, color: T.muted, fontFamily: T.mono, outline: "none", resize: "vertical" }}
+            />
+          </div>
+        </div>
+        <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+          <button onClick={handleDownload} style={{
+            padding: "7px 20px", borderRadius: 6, background: T.purple,
+            border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer",
+          }}>
+            ↓ Download Release
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3602,6 +4947,7 @@ export default function VdaOS() {
   const [isSaved, setIsSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [c2mdCache, setC2mdCache] = useState({}); // persists across tab switches
+  const fmNavigateRef = useRef(null); // ref for FileManagerTab's file navigation fn
 
   const addLog = useCallback(entry => {
     setLog(p => [...p, entry]);
@@ -3666,11 +5012,12 @@ export default function VdaOS() {
   const config = setup ? { ...INDUSTRY_CONFIGS[setup.industry], id: setup.industry } : null;
 
   const tabs = setup ? [
-    { id: "journey",   label: "Journey Map",     icon: "🗺" },
-    { id: "c2md",      label: "C2MD Studio",      icon: "🔬" },
-    { id: "exception", label: "Exception Engine", icon: "⚡" },
-    { id: "witness",   label: "Witness Agent" + (log.length ? " (" + log.length + ")" : ""), icon: "🕵️" },
-    { id: "a2md",      label: "A2MD Normaliser",  icon: "⚙️" },
+    { id: "journey",     label: "Journey Map",     icon: "🗺" },
+    { id: "c2md",        label: "C2MD Studio",      icon: "🔬" },
+    { id: "exception",   label: "Exception Engine", icon: "⚡" },
+    { id: "witness",     label: "Witness Agent" + (log.length ? " (" + log.length + ")" : ""), icon: "🕵️" },
+    { id: "a2md",        label: "A2MD Normaliser",  icon: "⚙️" },
+    { id: "filemanager", label: "File Manager",     icon: "📁" },
   ] : [];
 
   return (
@@ -3768,11 +5115,23 @@ export default function VdaOS() {
           </div>
 
           {/* Content */}
-          {tab === "journey"   && <JourneyMapTab config={config} companyName={setup.companyName} />}
-          {tab === "c2md"      && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} />}
-          {tab === "exception" && <ExceptionEngineTab config={config} companyName={setup.companyName} onLogEntry={addLog} />}
-          {tab === "witness"   && <WitnessAgentTab log={log} config={config} companyName={setup.companyName} isSeeded={logIsSeeded} />}
-          {tab === "a2md"      && <A2MDNormaliserTab config={config} companyName={setup.companyName} onLogEntry={addLog} setTabFn={setTab} />}
+          {tab === "journey"     && <JourneyMapTab config={config} companyName={setup.companyName} />}
+          {tab === "c2md"        && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} onSaveToFM={(content, filename, fileType) => {
+            const companyId = setup.id;
+            if (!companyId) return;
+            fetch("/api/fm/file", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, filename, fileType: fileType || "COMPLIANCE", axis: "compliance", content, status: "draft" }) })
+              .then(() => { addLog({ id: Date.now(), timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }), agent: "C2MD Studio", decision: "PASS", fileReferenced: filename, clauseApplied: `C2MD output saved to File Manager as ${filename}`, actionProposed: `File saved · Status: DRAFT · Type: ${fileType || "COMPLIANCE"}`, exceptionApplied: false, escalationTarget: null, reasoning: "C2MD Studio exported file to governance File Manager." }); })
+              .catch(() => {});
+          }} />}
+          {tab === "exception"   && <ExceptionEngineTab config={config} companyName={setup.companyName} onLogEntry={addLog} />}
+          {tab === "witness"     && <WitnessAgentTab log={log} config={config} companyName={setup.companyName} isSeeded={logIsSeeded} />}
+          {tab === "a2md"        && <A2MDNormaliserTab config={config} companyName={setup.companyName} onLogEntry={addLog} setTabFn={setTab} companyId={setup.id} onSaveToFM={(content, filename) => {
+            const companyId = setup.id;
+            if (!companyId) return Promise.resolve(null);
+            return fetch("/api/fm/file", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, filename, fileType: "AGENTS", axis: "vertical", content, status: "draft" }) })
+              .then(r => r.json());
+          }} />}
+          {tab === "filemanager" && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
         </>
       )}
     </div>
