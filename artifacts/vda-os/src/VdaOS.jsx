@@ -2324,6 +2324,7 @@ You will respond with ONLY a JSON object, no preamble, no markdown fences:
   "sourceFormat": "detected format of the input file"
 }`;
 
+    const truncatedInput = inputMd.length > 10000 ? inputMd.slice(0, 10000) + "\n\n[... truncated for analysis — full file will be used during normalisation ...]" : inputMd;
     const userMsg = `Company: ${companyName}
 Industry: ${config.label}
 Source Format Hint: ${inputSource}
@@ -2331,7 +2332,7 @@ Journey Stages available: ${config.journeyStages.map(s => s.id + ": " + s.label)
 Shared Services available: ${(config.sharedServices || []).map(s => s.id + ": " + s.label).join(", ")}
 
 INPUT AGENT FILE:
-${inputMd}`;
+${truncatedInput}`;
 
     try {
       const resp = await fetch("/api/ai/messages", {
@@ -2339,16 +2340,42 @@ ${inputMd}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 2000,
+          max_tokens: 4000,
           system: systemPrompt,
           messages: [{ role: "user", content: userMsg }],
         }),
       });
-      if (!resp.ok) throw new Error("Gap analysis API error: " + resp.status);
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        throw new Error(`Gap analysis API error (${resp.status}): ${errText.slice(0, 200)}`);
+      }
       const data = await resp.json();
-      const raw = data.content[0].text.trim();
-      const jsonStr = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      const parsed = JSON.parse(jsonStr);
+      const contentBlock = data?.content?.[0];
+      if (!contentBlock || !contentBlock.text) {
+        throw new Error(`API returned no content. Stop reason: ${data?.stop_reason || "unknown"}. This may indicate the model hit a token limit.`);
+      }
+      const raw = contentBlock.text.trim();
+      if (!raw) throw new Error("API returned an empty response — please try again.");
+
+      // Strip markdown fences if present (```json ... ```)
+      const jsonStr = raw
+        .replace(/^```json[\r\n]*/i, "")
+        .replace(/^```[\r\n]*/i, "")
+        .replace(/[\r\n]*```\s*$/i, "")
+        .trim();
+
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        // Try to extract JSON from the middle of the response (model added preamble/postamble)
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error(`Could not parse AI response as JSON. Raw response starts with: "${raw.slice(0, 120)}"`);
+        }
+      }
 
       setDetectedGaps(parsed.gaps || []);
       setGapScore(parsed.gapScore ?? null);
