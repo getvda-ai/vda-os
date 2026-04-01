@@ -5160,19 +5160,20 @@ function Directory({ onNew, onLoad }) {
   const [companies, setCompanies] = useState(null); // null = loading
   const [deleting, setDeleting] = useState(null);
   const [hovered, setHovered] = useState(null);
+  const [seeding, setSeeding] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/companies");
-        if (!res.ok) throw new Error("Failed to load");
-        const entries = await res.json();
-        setCompanies(entries);
-      } catch {
-        setCompanies([]);
-      }
-    })();
-  }, []);
+  const loadCompanies = async () => {
+    try {
+      const res = await fetch("/api/companies");
+      if (!res.ok) throw new Error("Failed to load");
+      const entries = await res.json();
+      setCompanies(entries);
+    } catch {
+      setCompanies([]);
+    }
+  };
+
+  useEffect(() => { loadCompanies(); }, []);
 
   const deleteCompany = async (id, e) => {
     e.stopPropagation();
@@ -5181,6 +5182,27 @@ function Directory({ onNew, onLoad }) {
     setCompanies(p => p.filter(c => c.id !== id));
     setDeleting(null);
   };
+
+  const loadDemoHotels = async () => {
+    setSeeding(true);
+    try {
+      // Delete any stub entries (those with no apaleoPropertyId)
+      const stubs = (companies || []).filter(c => !c.apaleoPropertyId);
+      await Promise.all(stubs.map(c => fetch(`/api/companies/${c.id}`, { method: "DELETE" }).catch(() => {})));
+      // Seed the 5 citizenM properties
+      await fetch("/api/admin/seed-companies", { method: "POST" });
+      // Refresh the list
+      await loadCompanies();
+    } catch (e) {
+      console.error("Seed failed", e);
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  // Show "Load Demo Hotels" button when directory is empty or has only stub entries (no apaleoPropertyId)
+  const hasRealProperties = (companies || []).some(c => c.apaleoPropertyId);
+  const showDemoButton = companies !== null && !hasRealProperties;
 
   const industryConfig = (id) => INDUSTRY_CONFIGS[id] || {};
 
@@ -5233,20 +5255,36 @@ function Directory({ onNew, onLoad }) {
           </div>
         )}
 
-        {/* Empty */}
-        {companies?.length === 0 && (
+        {/* Empty / stub-only state — show Load Demo Hotels */}
+        {showDemoButton && (
           <div style={{ textAlign: "center", padding: "80px 40px", background: T.card, border: `2px dashed ${T.border}`, borderRadius: 16 }}>
             <div style={{ fontSize: 56, marginBottom: 16 }}>🏨</div>
-            <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, marginBottom: 10 }}>No properties configured yet</h2>
-            <p style={{ fontSize: 15, color: T.muted, marginBottom: 24, maxWidth: 400, margin: "0 auto 24px" }}>
-              Add your first Apaleo property to get started. Enter the property website and the VDA-MK framework will be configured for the full Apaleo guest lifecycle.
+            <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, marginBottom: 10 }}>
+              {companies?.length === 0 ? "No properties configured yet" : "Demo properties not loaded yet"}
+            </h2>
+            <p style={{ fontSize: 15, color: T.muted, marginBottom: 28, maxWidth: 480, margin: "0 auto 28px" }}>
+              Load the five citizenM sandbox hotels — Berlin, London, Munich, Paris, and Vienna — each pre-wired to Apaleo and ready for live agent demos. Or add a custom property via the wizard.
             </p>
-            <button onClick={onNew} style={{
-              background: T.orange, border: "none", borderRadius: 10,
-              padding: "12px 28px", fontSize: 15, color: "#fff",
-              fontFamily: T.sans, fontWeight: 800, cursor: "pointer",
-              boxShadow: `0 0 28px ${T.orange}50`,
-            }}>Add First Property →</button>
+            <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+              <button
+                onClick={loadDemoHotels}
+                disabled={seeding}
+                style={{
+                  background: seeding ? T.dim : T.orange, border: "none", borderRadius: 10,
+                  padding: "12px 28px", fontSize: 15, color: "#fff",
+                  fontFamily: T.sans, fontWeight: 800, cursor: seeding ? "default" : "pointer",
+                  boxShadow: seeding ? "none" : `0 0 28px ${T.orange}50`,
+                  transition: "all 0.18s",
+                }}
+              >
+                {seeding ? "Loading demo hotels…" : "Load Demo Hotels →"}
+              </button>
+              <button onClick={onNew} style={{
+                background: "none", border: `1px solid ${T.border}`, borderRadius: 10,
+                padding: "12px 28px", fontSize: 15, color: T.muted,
+                fontFamily: T.sans, fontWeight: 700, cursor: "pointer",
+              }}>Add Custom Property</button>
+            </div>
           </div>
         )}
 
@@ -5299,8 +5337,17 @@ function Directory({ onNew, onLoad }) {
                         {co.companyName?.slice(0, 2).toUpperCase() || "??"}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 17, color: T.text, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {co.companyName}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                          <div style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 17, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
+                            {co.companyName}
+                          </div>
+                          {co.apaleoPropertyId && (
+                            <span style={{
+                              fontFamily: T.mono, fontSize: 10, fontWeight: 700, color: T.orange,
+                              background: `${T.orange}18`, border: `1px solid ${T.orange}40`,
+                              borderRadius: 4, padding: "2px 6px", flexShrink: 0, letterSpacing: "0.06em",
+                            }}>{co.apaleoPropertyId}</span>
+                          )}
                         </div>
                         <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{co.websiteUrl}</div>
                       </div>

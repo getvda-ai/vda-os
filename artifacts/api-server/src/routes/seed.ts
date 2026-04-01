@@ -1,15 +1,15 @@
 /**
  * Demo Data Seeder
- * POST /api/admin/seed-demo-data
+ * POST /api/admin/seed-demo-data   – creates Apaleo sandbox reservations
+ * POST /api/admin/seed-companies   – seeds 5 citizenM hotel entries + governance files
  *
- * Creates Definite + InHouse reservations across BER, LND, MUC, PAR, VIE
- * so agent demo journeys have live data to act on.
- *
- * Safe to call multiple times — checks existing counts first.
+ * Safe to call multiple times — idempotent checks throughout.
  */
 
 import { Router, type IRouter } from "express";
 import { apaleoFetch } from "../lib/apaleo.js";
+import { db, companies, governanceFiles } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -373,6 +373,411 @@ router.get("/admin/seed-status", async (req, res) => {
   };
 
   res.json({ demoReady, counts, scopeLimitations });
+});
+
+// ─── Seed Companies ───────────────────────────────────────────────────────────
+// POST /api/admin/seed-companies
+// Idempotently creates 5 citizenM hotel entries (BER/LND/MUC/PAR/VIE) with
+// governance files pre-seeded so all 7 demo agents have policy to evaluate against.
+
+function countClauses(content: string) {
+  const mustCount = (content.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
+  const mustNotCount = (content.match(/\bMUST NOT\b/g) || []).length;
+  const mayCount = (content.match(/\bMAY\b/g) || []).length;
+  const wordCount = content.split(/\s+/).filter(Boolean).length;
+  return { mustCount, mustNotCount, mayCount, wordCount };
+}
+
+const CITIZENM_PROPERTIES = [
+  {
+    apaleoPropertyId: "BER",
+    companyName: "citizenM Berlin Checkpoint Charlie",
+    websiteUrl: "https://www.citizenm.com/hotels/europe/berlin/berlin-checkpoint-charlie-hotel",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Berlin Checkpoint Charlie is located at the historic heart of Berlin, steps from the iconic crossing point. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English-first staff communication, German signage. Role titles: citizenM Ambassador (front desk), Revenue Manager, Operations Director. citizenM calls their rooms 'rooms' (not suites). The brand tone is warm, irreverent, and tech-forward. Check-in is kiosk-first and guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio settlement, and checkout.",
+  },
+  {
+    apaleoPropertyId: "LND",
+    companyName: "citizenM London Bankside",
+    websiteUrl: "https://www.citizenm.com/hotels/europe/london/london-bankside-hotel",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM London Bankside is located on the South Bank, steps from Tate Modern and the Globe Theatre. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English. Role titles: citizenM Ambassador (front desk), Revenue Manager, Operations Director. citizenM calls their rooms 'rooms'. The brand tone is warm, irreverent, and tech-forward. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio settlement, and checkout.",
+  },
+  {
+    apaleoPropertyId: "MUC",
+    companyName: "citizenM Munich",
+    websiteUrl: "https://www.citizenm.com/hotels/europe/munich/munich-hotel",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Munich is located near the main train station, offering quick access to the city centre and trade fair grounds. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. citizenM calls their rooms 'rooms'. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio settlement, and checkout.",
+  },
+  {
+    apaleoPropertyId: "PAR",
+    companyName: "citizenM Paris Gare de Lyon",
+    websiteUrl: "https://www.citizenm.com/hotels/europe/paris/paris-gare-de-lyon-hotel",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Paris Gare de Lyon is located steps from the iconic station connecting Paris to Lyon, Marseille, and beyond. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English and French. Role titles: citizenM Ambassador (Ambassadeur), Revenue Manager, Directeur des opérations. citizenM calls their rooms 'rooms'. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio settlement, and checkout.",
+  },
+  {
+    apaleoPropertyId: "VIE",
+    companyName: "citizenM Vienna",
+    websiteUrl: "https://www.citizenm.com/hotels/europe/vienna/vienna-hotel",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Vienna is located in the heart of the Austrian capital, close to Stephansdom and the Ringstrasse. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. citizenM calls their rooms 'rooms'. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio settlement, and checkout.",
+  },
+];
+
+function buildGovernanceFiles(companyId: number, companyName: string) {
+  const files = [
+    {
+      filename: "rate-override-policy.md",
+      filepath: "governance/rate-override-policy.md",
+      fileType: "AGENTS",
+      axis: "vertical",
+      stage: "discover",
+      journeyStage: "discover",
+      owner: "Revenue Manager",
+      domain: "Revenue Management",
+      agentId: "rate-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AC-2",
+      content: `---
+file_type: AGENTS
+agent_id: rate-agent
+domain: Revenue Management
+owner: Revenue Manager
+axis: vertical
+journey_stage: discover
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AC-2
+apaleo_api: Rate Plan API
+---
+
+## Agent Scope
+
+The Rate Agent governs all automated rate plan decisions for ${companyName} via the Apaleo Rate Plan API.
+
+## Permitted Actions
+
+MUST verify account tier in Apaleo before applying any rate plan override.
+MUST log every rate decision to the Witness Agent audit trail before execution.
+MUST NOT apply a discount below BAR without a valid exception overlay.
+MUST NOT process rate overrides that exceed the Revenue Manager authority ceiling of 18%.
+MAY apply standard BAR rates without human approval for direct bookings.
+MAY apply up to 5% early-bird discount automatically for bookings >30 days out.
+
+## Rate Override Authority
+
+MUST escalate to Revenue Manager when: discount request is between 10% and 18% below BAR.
+MUST escalate to VP Revenue when: discount request exceeds 18% below BAR.
+MUST escalate to VP Revenue when: account is not classified as Tier 1 in Apaleo.
+
+## Exception Overlays
+
+MAY apply the \`key-account-rate-exception.md\` overlay for verified Tier 1 accounts (up to 18% discount at Revenue Manager authority).
+MUST NOT apply exception overlay without valid account tier verification in Apaleo.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AC-2, AU-2
+Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+`,
+    },
+    {
+      filename: "folio-settlement-policy.md",
+      filepath: "governance/folio-settlement-policy.md",
+      fileType: "COMPLIANCE",
+      axis: "horizontal",
+      stage: "checkout",
+      journeyStage: "checkout",
+      owner: "Operations Director",
+      domain: "Folio Management",
+      agentId: "folio-settlement-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: COMPLIANCE
+agent_id: folio-settlement-agent
+domain: Folio Management
+owner: Operations Director
+axis: horizontal
+journey_stage: checkout
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AU-2
+apaleo_api: Folio API
+---
+
+## Scope
+
+This policy governs all folio settlement actions performed by the Folio Settlement Agent via the Apaleo Folio API at ${companyName}.
+
+## Mandatory Rules
+
+MUST NOT post folio charges without a matching, confirmed reservation ID in Apaleo Reservations API.
+MUST NOT settle a folio where the reservation status is not IN_HOUSE or CHECKED_OUT in Apaleo.
+MUST confirm folio balance is zero or a valid payment method is on file before checkout.
+MUST log every folio action to the Witness Agent audit trail with Apaleo folio reference.
+MUST NOT process refunds — route all refund requests to a human Folio Agent.
+MUST escalate folios with disputes or unresolved charges to Operations Director before settlement.
+
+## Late Checkout Fee Policy
+
+MAY waive late checkout fee up to 14:00 for verified Gold or Platinum loyalty tier guests.
+MUST confirm loyalty tier in Apaleo guest profile before applying waiver.
+MUST NOT waive late checkout fee beyond 14:00 without Front Office Manager approval.
+
+## Overdue Folio Escalation
+
+MUST escalate folio invoices unpaid beyond 30-day payment terms to Credit Control.
+MUST send minimum two automated reminders before escalation.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AU-2, AC-2
+Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+PCI DSS: MUST NOT store raw card data in folio records or agent logs.
+`,
+    },
+    {
+      filename: "check-in-agent.md",
+      filepath: "governance/check-in-agent.md",
+      fileType: "AGENTS",
+      axis: "vertical",
+      stage: "checkin",
+      journeyStage: "checkin",
+      owner: "Front Office Manager",
+      domain: "Check-In",
+      agentId: "check-in-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AC-2",
+      content: `---
+file_type: AGENTS
+agent_id: check-in-agent
+domain: Check-In
+owner: Front Office Manager
+axis: vertical
+journey_stage: checkin
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AC-2
+apaleo_api: Reservations API, Unit Management API
+---
+
+## Agent Scope
+
+The Check-In Agent automates the digital check-in workflow for arriving guests at ${companyName} using the Apaleo Property Management API.
+
+## Permitted Actions
+
+MUST verify reservation status in Apaleo Reservations API before assigning a property unit.
+MUST confirm folio balance is settled or a valid payment method is on file before check-in.
+MUST assign a unit using Apaleo Unit Management API — prioritise room-type match to reservation.
+MUST update Apaleo reservation status to IN_HOUSE upon successful check-in.
+MUST log every check-in decision to the Witness Agent audit trail with Apaleo reservation reference.
+MUST NOT check in a guest whose reservation status is CANCELLED or NO_SHOW in Apaleo.
+MUST NOT override a unit assignment without a Front Office Manager supervisor token.
+
+## Loyalty Upgrades
+
+MAY apply room-type upgrade for verified Gold or Platinum loyalty tier guests when an equivalent unit is available.
+MUST confirm loyalty tier in Apaleo guest profile before applying any upgrade.
+MUST NOT apply upgrade if the higher unit type is fully committed for the night.
+
+## Escalation Path
+
+MUST escalate to Front Office Manager when:
+- Reservation has a block, dispute, or open folio balance > €500.
+- Guest identity cannot be verified.
+- No units of the reserved type are available.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AC-2, AU-2
+Frameworks: PCI DSS, GDPR/CCPA
+GDPR: MUST NOT retain guest PII beyond the required retention window.
+PCI DSS: MUST NOT log raw card data during check-in.
+`,
+    },
+    {
+      filename: "availability-agent.md",
+      filepath: "governance/availability-agent.md",
+      fileType: "AGENTS",
+      axis: "vertical",
+      stage: "discover",
+      journeyStage: "discover",
+      owner: "Revenue Manager",
+      domain: "Availability & Inventory",
+      agentId: "availability-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AC-2",
+      content: `---
+file_type: AGENTS
+agent_id: availability-agent
+domain: Availability & Inventory
+owner: Revenue Manager
+axis: vertical
+journey_stage: discover
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AC-2
+apaleo_api: Availability API, Rate Plan API
+---
+
+## Agent Scope
+
+The Availability Agent governs real-time inventory and availability decisions for ${companyName} via the Apaleo Availability and Rate Plan APIs.
+
+## Permitted Actions
+
+MUST query Apaleo Availability API for live unit inventory before confirming any reservation.
+MUST NOT confirm a reservation for a unit type with zero availability in Apaleo.
+MUST log every availability decision to the Witness Agent audit trail before execution.
+MUST NOT alter inventory blocks without Revenue Manager approval.
+MAY apply standard availability rules without human approval for direct bookings.
+MAY hold inventory for group bookings up to 24 hours pending deposit confirmation.
+
+## Inventory Management
+
+MUST NOT release a group booking hold without confirmed deposit or signed group agreement.
+MUST escalate to Revenue Manager when inventory drops below minimum availability threshold.
+MAY apply overbooking policy up to the approved overbooking percentage set by Revenue Manager.
+
+## Post-Stay Invoice Dispatch
+
+MUST generate folio invoice within 24 hours of checkout and dispatch to confirmed billing address.
+MUST reference the Apaleo Folio API data when generating post-stay invoices.
+MUST NOT dispatch invoice to an unverified billing address.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AC-2, AU-2
+Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+`,
+    },
+  ];
+
+  return files.map(f => {
+    const clauses = countClauses(f.content);
+    return {
+      companyId,
+      filename: f.filename,
+      filepath: f.filepath,
+      fileType: f.fileType,
+      axis: f.axis,
+      stage: f.stage ?? null,
+      content: f.content,
+      status: "live" as const,
+      owner: f.owner ?? null,
+      domain: f.domain ?? null,
+      agentId: f.agentId ?? null,
+      journeyStage: f.journeyStage ?? null,
+      normalisationLevel: f.normalisationLevel ?? null,
+      vendor: f.vendor ?? null,
+      baseline: f.baseline ?? null,
+      nistControl: f.nistControl ?? null,
+      mustCount: clauses.mustCount,
+      mustNotCount: clauses.mustNotCount,
+      mayCount: clauses.mayCount,
+      wordCount: clauses.wordCount,
+    };
+  });
+}
+
+router.post("/admin/seed-companies", async (_req, res) => {
+  const log: string[] = [];
+  const created: { apaleoPropertyId: string; companyName: string; companyId: number; filesSeeded: number }[] = [];
+  const existing: { apaleoPropertyId: string; companyName: string; companyId: number }[] = [];
+
+  for (const prop of CITIZENM_PROPERTIES) {
+    try {
+      // Check if company already exists by apaleoPropertyId
+      const existingRows = await db
+        .select({ id: companies.id, companyName: companies.companyName })
+        .from(companies)
+        .where(eq(companies.apaleoPropertyId, prop.apaleoPropertyId));
+
+      let companyId: number;
+
+      if (existingRows.length > 0) {
+        companyId = existingRows[0].id;
+        // Update name/URL/brandContext in case it's stale (e.g. old stub entry)
+        await db
+          .update(companies)
+          .set({
+            companyName: prop.companyName,
+            websiteUrl: prop.websiteUrl,
+            brandContext: prop.brandContext,
+            filesCount: 4,
+          })
+          .where(eq(companies.id, companyId));
+        existing.push({ apaleoPropertyId: prop.apaleoPropertyId, companyName: prop.companyName, companyId });
+        log.push(`${prop.apaleoPropertyId}: company already exists (id=${companyId}), updated name & files…`);
+      } else {
+        const [inserted] = await db
+          .insert(companies)
+          .values({
+            companyName: prop.companyName,
+            websiteUrl: prop.websiteUrl,
+            industry: "hospitality",
+            brandContext: prop.brandContext,
+            filesCount: 4,
+            savedAt: Date.now(),
+            uploadedFiles: null,
+            apaleoPropertyId: prop.apaleoPropertyId,
+          })
+          .returning({ id: companies.id });
+
+        companyId = inserted.id;
+        log.push(`${prop.apaleoPropertyId}: created company "${prop.companyName}" (id=${companyId})`);
+      }
+
+      // Seed governance files — idempotent per filename
+      const fileDefs = buildGovernanceFiles(companyId, prop.companyName);
+      let filesInserted = 0;
+
+      for (const fileDef of fileDefs) {
+        const existingFile = await db
+          .select({ id: governanceFiles.id })
+          .from(governanceFiles)
+          .where(and(
+            eq(governanceFiles.companyId, companyId),
+            eq(governanceFiles.filename, fileDef.filename)
+          ));
+
+        if (existingFile.length === 0) {
+          await db.insert(governanceFiles).values(fileDef);
+          filesInserted++;
+        }
+      }
+
+      if (existingRows.length > 0) {
+        existing[existing.length - 1] = { ...existing[existing.length - 1] };
+        log.push(`${prop.apaleoPropertyId}: ${filesInserted} new governance files seeded`);
+      } else {
+        created.push({ apaleoPropertyId: prop.apaleoPropertyId, companyName: prop.companyName, companyId, filesSeeded: filesInserted });
+        log.push(`${prop.apaleoPropertyId}: ${filesInserted} governance files seeded`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.push(`${prop.apaleoPropertyId}: ERROR — ${msg}`);
+    }
+  }
+
+  // Return all 5 company records for the frontend to use
+  const allRows = await db
+    .select()
+    .from(companies)
+    .where(eq(companies.industry, "hospitality"));
+
+  res.json({ success: true, created, existing, log, companies: allRows });
 });
 
 export default router;
