@@ -1053,6 +1053,7 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
   const mustNotRules = [
     `MUST NOT operate without a current, approved governance file in the VDA-MK repository`,
     `MUST NOT execute actions when an exception is required but no exception overlay is active`,
+    `MUST NOT process personal data beyond the stated lawful basis under GDPR Article 6`,
     `MUST NOT bypass human oversight where required by EU AI Act Article 14`,
     isPayment    ? `MUST NOT process transactions above threshold without appropriate authority sign-off` : null,
     isAccess     ? `MUST NOT provision production access before the confirmed start date` : null,
