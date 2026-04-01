@@ -26,6 +26,7 @@ router.post("/companies", async (req, res) => {
       filesCount,
       savedAt,
       uploadedFiles,
+      apaleoPropertyId,
     } = req.body;
 
     if (!companyName || !industry) {
@@ -42,6 +43,7 @@ router.post("/companies", async (req, res) => {
         filesCount: filesCount || 0,
         savedAt: savedAt || Date.now(),
         uploadedFiles: uploadedFiles || null,
+        apaleoPropertyId: apaleoPropertyId || null,
       })
       .returning();
 

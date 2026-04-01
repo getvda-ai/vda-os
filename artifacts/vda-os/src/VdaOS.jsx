@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useApaleoStats, useApaleoReservations } from "./hooks/use-apaleo";
 
 // ─────────────────────────────────────────────
 // DESIGN TOKENS — identical to citizenM version
@@ -260,6 +261,7 @@ function SetupWizard({ onComplete }) {
   const [step, setStep] = useState(1); // 1=welcome, 2=company, 3=files, 4=ingest, 5=ready
   const [companyName, setCompanyName] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [apaleoPropertyId, setApaleoPropertyId] = useState("");
   const industry = "hospitality"; // Locked to Apaleo hospitality
   const [brandContext, setBrandContext] = useState("");
   const [ingesting, setIngesting] = useState(false);
@@ -463,9 +465,14 @@ function SetupWizard({ onComplete }) {
                 style={{ ...inputStyle, marginBottom: 20 }} />
               <label style={{ fontSize: 11, color: T.muted, fontFamily: T.mono, letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 8 }}>Property Website</label>
               <input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="e.g. https://grandhotel.com"
+                style={{ ...inputStyle, marginBottom: 20 }} />
+              <label style={{ fontSize: 11, color: T.muted, fontFamily: T.mono, letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 8 }}>
+                Apaleo Property ID <span style={{ color: T.dim, fontWeight: 400, textTransform: "none" }}>(optional — connects live sandbox data)</span>
+              </label>
+              <input value={apaleoPropertyId} onChange={e => setApaleoPropertyId(e.target.value.toUpperCase())} placeholder="e.g. BER, MUC, AMS"
                 style={inputStyle} />
               <div style={{ fontSize: 11, color: T.dim, marginTop: 8, fontFamily: T.mono }}>
-                Dutch, German, French and other languages supported · Public pages only
+                Found in your Apaleo sandbox → Properties. Enables live occupancy, reservations and folio data in the Hub.
               </div>
               <div style={{ display: "flex", gap: 12, marginTop: 28 }}>
                 <button onClick={() => setStep(1)} style={{
@@ -785,7 +792,7 @@ function SetupWizard({ onComplete }) {
                   </div>
                 ))}
               </div>
-              <button onClick={() => onComplete({ companyName, websiteUrl, industry, brandContext })} style={{
+              <button onClick={() => onComplete({ companyName, websiteUrl, industry, brandContext, apaleoPropertyId: apaleoPropertyId.trim() || null })} style={{
                 width: "100%", padding: "14px",
                 background: T.orange, border: "none", borderRadius: 10,
                 color: "#fff", fontSize: 15, fontFamily: T.sans, fontWeight: 800,
@@ -1677,10 +1684,18 @@ function JourneyTour({ steps, onDismiss, config }) {
   );
 }
 
-function JourneyMapTab({ config, companyName }) {
+function JourneyMapTab({ config, companyName, propertyId, apaleoStats }) {
   const [hovered, setHovered] = useState(null);
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [tourActive, setTourActive] = useState(true); // on by default
+
+  const stageStats = apaleoStats ? {
+    discover: null,
+    checkin: apaleoStats.arrivalsToday,
+    instay: apaleoStats.inHouseCount,
+    checkout: apaleoStats.departuresToday,
+    poststay: null,
+  } : {};
 
   const openAgent = (name, domain, owner, color) => setSelectedAgent({ name, domain, owner, color });
 
@@ -1761,9 +1776,16 @@ function JourneyMapTab({ config, companyName }) {
         {config.journeyStages.map(s => (
           <div key={s.id} onMouseEnter={() => setHovered(s.id)} onMouseLeave={() => setHovered(null)}
             style={{ background: hovered === s.id ? `${s.color}12` : T.card, border: `2px solid ${hovered === s.id ? s.color : T.border}`, borderRadius: 12, padding: 18, transition: "all 0.2s" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, alignItems: "flex-start" }}>
               <span style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 16, color: s.color }}>{s.label}</span>
-              <Tag color={s.color}>{s.domain}</Tag>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {stageStats[s.id] != null && (
+                  <span style={{ background: `${s.color}18`, border: `1px solid ${s.color}40`, color: s.color, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontFamily: T.mono, fontWeight: 700 }}>
+                    {stageStats[s.id]} live
+                  </span>
+                )}
+                <Tag color={s.color}>{s.domain}</Tag>
+              </div>
             </div>
             <div style={{ fontSize: 12, color: T.dim, marginBottom: 12 }}>Accountable: <span style={{ color: T.muted }}>{s.owner}</span></div>
             <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
@@ -5353,6 +5375,9 @@ export default function VdaOS() {
   const [c2mdCache, setC2mdCache] = useState({}); // persists across tab switches
   const fmNavigateRef = useRef(null); // ref for FileManagerTab's file navigation fn
 
+  const apaleoPropertyId = setup?.apaleoPropertyId || null;
+  const { stats: apaleoStats, loading: statsLoading } = useApaleoStats(screen === "hub" ? apaleoPropertyId : null);
+
   const addLog = useCallback(entry => {
     setLog(p => [...p, entry]);
     setLogIsSeeded(false);
@@ -5633,6 +5658,7 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
           filesCount: data.uploadedFiles?.length || 0,
           savedAt: Date.now(),
           uploadedFiles: null,
+          apaleoPropertyId: data.apaleoPropertyId || null,
         }),
       });
       if (res.ok) {
@@ -5678,6 +5704,7 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
           filesCount: setup.uploadedFiles?.length || 0,
           savedAt: Date.now(),
           uploadedFiles: null,
+          apaleoPropertyId: setup.apaleoPropertyId || null,
         }),
       });
       if (!res.ok) throw new Error("Save failed");
@@ -5784,6 +5811,34 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
             </div>
           </div>
 
+          {/* Live Apaleo Stats Bar */}
+          {apaleoPropertyId && (
+            <div style={{ background: "#060709", borderBottom: `1px solid ${T.border}`, padding: "0 28px", display: "flex", alignItems: "center", gap: 24, height: 38, overflowX: "auto" }}>
+              <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.1em", textTransform: "uppercase", flexShrink: 0 }}>
+                🏨 {apaleoPropertyId} · Live
+              </span>
+              <div style={{ width: 1, height: 18, background: T.border, flexShrink: 0 }} />
+              {statsLoading && !apaleoStats && (
+                <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Loading Apaleo data…</span>
+              )}
+              {apaleoStats && [
+                { label: "Arrivals Today", value: apaleoStats.arrivalsToday, color: T.green, icon: "↓" },
+                { label: "Departures", value: apaleoStats.departuresToday, color: T.blue, icon: "↑" },
+                { label: "In-House", value: apaleoStats.inHouseCount, color: T.orange, icon: "⬛" },
+                { label: "Open Folios", value: apaleoStats.openFolios, color: T.amber, icon: "📋" },
+                { label: "Maintenance", value: apaleoStats.pendingMaintenance, color: T.red, icon: "🔧" },
+              ].map(s => (
+                <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <span style={{ fontSize: 14, fontFamily: T.mono, fontWeight: 900, color: s.color }}>{s.value}</span>
+                  <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{s.label}</span>
+                </div>
+              ))}
+              {!apaleoStats && !statsLoading && (
+                <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>No data — check Property ID or sandbox credentials</span>
+              )}
+            </div>
+          )}
+
           {/* Nav */}
           <div style={{ background: "#08090c", borderBottom: `1px solid ${T.border}`, padding: "0 28px", display: "flex", gap: 0, alignItems: "stretch" }}>
             {tabs.map(t => (
@@ -5804,7 +5859,7 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
           </div>
 
           {/* Content */}
-          {tab === "journey"     && <JourneyMapTab config={config} companyName={setup.companyName} />}
+          {tab === "journey"     && <JourneyMapTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} apaleoStats={apaleoStats} />}
           {tab === "c2md"        && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} onSaveToFM={(content, filename, fileType) => {
             const companyId = setup.id;
             if (!companyId) return;

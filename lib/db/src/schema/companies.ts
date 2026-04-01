@@ -11,6 +11,7 @@ export const companies = pgTable("companies", {
   filesCount: integer("files_count").default(0),
   savedAt: bigint("saved_at", { mode: "number" }),
   uploadedFiles: jsonb("uploaded_files"),
+  apaleoPropertyId: text("apaleo_property_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

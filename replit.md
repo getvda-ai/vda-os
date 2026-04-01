@@ -39,25 +39,49 @@ artifacts-monorepo/
 
 ## Applications
 
-### `artifacts/vda-os` — Value Driven AI Operating System
+### `artifacts/vda-os` — VDA-MK for Apaleo
 
-React + Vite frontend for the VDA-MD Framework. A governance AI operating system that:
-- Configures industry-specific AI governance frameworks (Hospitality, Financial, Healthcare, Retail, Professional Services, Manufacturing)
-- Ingests brand context from company websites and uploaded documents
-- Generates NIST SP 800-53 compliant governance Markdown files via Claude AI (C2MD Translation Engine)
-- Runs exception overlay engine comparing baseline vs exception governance decisions
-- Maintains a Witness Agent audit trail (SOC 2, GDPR, EU AI Act, ISO 42001 compliant)
+React + Vite frontend. Hospitality-only AI governance operating system for Apaleo-powered properties:
+- **Locked to hospitality**: multi-industry configs stripped, Apaleo guest lifecycle hardcoded (Discover & Book → Check-In → In-Stay → Checkout → Post-Stay)
+- **Apaleo Property ID field** in setup wizard — connects live sandbox data
+- **Live stats bar** in Hub header: Arrivals Today, Departures, In-House, Open Folios, Maintenance
+- **Journey stage live badges**: real-time counts from Apaleo API on each stage card
+- **Brand context ingestion** from property website via `/api/ingest/website`
+- **C2MD Translation Engine**: generates NIST SP 800-53 governance Markdown via Claude AI
+- **Exception overlay engine**: baseline vs exception governance policy decisions
+- **Witness Agent** audit trail (SOC 2, GDPR, EU AI Act, ISO 42001 compliant)
 
 Entry: `src/VdaOS.jsx` — full self-contained component
-App: `src/App.tsx` — thin wrapper that renders VdaOS
+Hooks: `src/hooks/use-apaleo.ts` — `useApaleoStats`, `useApaleoReservations`, `useApaleoProperties`, `useApaleoProperty`
 
 All AI API calls go to `/api/ai/messages` (backend proxy), NOT directly to Anthropic.
+All Apaleo data calls go to `/api/apaleo/*` (backend proxy), NOT directly to Apaleo.
 
 ### `artifacts/api-server` — Express API Server
 
 - `/api/healthz` — health check
 - `/api/ai/messages` — Anthropic API proxy (uses Replit AI Integration, no user key needed)
   - Automatically maps model names (e.g. `claude-sonnet-4-20250514` → `claude-sonnet-4-6`)
+- **Apaleo API Proxy** (`src/routes/apaleo.ts`) — all calls authenticated via server-side OAuth
+  - `GET /api/apaleo/properties` — list all properties
+  - `GET /api/apaleo/properties/:id` — single property
+  - `GET /api/apaleo/properties/:id/stats` — aggregated dashboard stats (arrivals, departures, in-house, folios, maintenance)
+  - `GET /api/apaleo/reservations` — list with filters (propertyId, status, dateFrom, dateTo, page)
+  - `GET /api/apaleo/reservations/:id` — single reservation with full expand
+  - `GET /api/apaleo/folios` — folios (propertyId, reservationId, status)
+  - `GET /api/apaleo/folios/:id` — single folio
+  - `GET /api/apaleo/unit-groups` — room categories
+  - `GET /api/apaleo/rate-plans` — rate plans
+  - `GET /api/apaleo/maintenances` — maintenance tasks
+  - `GET /api/apaleo/units` — room inventory (with condition filter)
+  - `GET /api/apaleo/availability/unit-groups` — availability by unit group
+
+**Apaleo OAuth** (`src/lib/apaleo.ts`):
+- `client_credentials` flow against `https://identity.apaleo.com/connect/token`
+- Token cached in memory with 5-min buffer before expiry
+- Secrets: `APALEO_CLIENT_ID`, `APALEO_CLIENT_SECRET` (Replit env secrets)
+- Scopes: omit `scope` param → server returns all scopes registered on the app
+  (Confirmed: `reservations.read`, `folios.read`, `availability.read`, `rates.read`, `reports.read`, `maintenances.read`, etc.)
 
 ## AI Integration
 
@@ -98,6 +122,7 @@ Database layer using Drizzle ORM with PostgreSQL.
 - `files_count` — count of uploaded documents
 - `saved_at` — user save timestamp (bigint)
 - `uploaded_files` — JSONB (currently null, reserved)
+- `apaleo_property_id` — optional Apaleo property code (e.g. "BER") for live sandbox data
 - `created_at`, `updated_at` — auto-managed timestamps
 
 Run `pnpm --filter @workspace/db run push` to sync schema changes to the database.
