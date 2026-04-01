@@ -11,6 +11,9 @@ export interface McpToolCallResult {
   isError?: boolean;
 }
 
+// Auth is intentionally delegated to the /api/mcp transparent proxy
+// (mcp-proxy.ts), which injects the Apaleo bearer token.
+// This module calls the local proxy — no auth header is added here.
 const PORT = process.env.PORT ?? "8080";
 const APALEO_MCP_URL = `http://localhost:${PORT}/api/mcp`;
 const MCP_TOOLS_CACHE_TTL_MS = 5 * 60_000;
@@ -72,6 +75,11 @@ async function mcpPost(body: object): Promise<unknown> {
 
 async function parseSSEResponse(resp: Response): Promise<unknown> {
   const text = await resp.text();
+  // Collect all parseable result events; prefer the last one (most terminal)
+  // so multi-event SSE sequences resolve correctly.
+  let lastResult: unknown = null;
+  let firstError: Error | null = null;
+
   for (const line of text.split("\n")) {
     if (!line.startsWith("data: ")) continue;
     const data = line.slice(6).trim();
@@ -84,14 +92,24 @@ async function parseSSEResponse(resp: Response): Promise<unknown> {
         content?: unknown;
         [k: string]: unknown;
       };
-      if (parsed.error) throw new Error(`MCP error: ${JSON.stringify(parsed.error)}`);
-      if (parsed.result !== undefined) return parsed.result;
-      if (parsed.tools !== undefined || parsed.content !== undefined) return parsed;
+      if (parsed.error) {
+        // Capture first error but continue scanning (a later event may succeed)
+        firstError = firstError ?? new Error(`MCP error: ${JSON.stringify(parsed.error)}`);
+        continue;
+      }
+      if (parsed.result !== undefined) {
+        lastResult = parsed.result;
+      } else if (parsed.tools !== undefined || parsed.content !== undefined) {
+        lastResult = parsed;
+      }
     } catch (e) {
       if (e instanceof SyntaxError) continue;
       throw e;
     }
   }
+
+  if (lastResult !== null) return lastResult;
+  if (firstError) throw firstError;
   return null;
 }
 
