@@ -811,6 +811,7 @@ GDPR: MUST NOT store guest PII beyond the required retention window.
 
 router.post("/admin/seed-companies", async (_req, res) => {
   const log: string[] = [];
+  const errors: string[] = [];
   const created: { apaleoPropertyId: string; companyName: string; companyId: number; filesSeeded: number }[] = [];
   const existing: { apaleoPropertyId: string; companyName: string; companyId: number }[] = [];
 
@@ -910,6 +911,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       log.push(`${prop.apaleoPropertyId}: ERROR — ${msg}`);
+      errors.push(`${prop.apaleoPropertyId}: ${msg}`);
     }
   }
 
@@ -921,7 +923,8 @@ router.post("/admin/seed-companies", async (_req, res) => {
     .where(inArray(companies.apaleoPropertyId, propertyIds))
     .orderBy(companies.id);
 
-  res.json({ success: true, created, existing, log, companies: seededRows });
+  const success = errors.length === 0 && seededRows.length === CITIZENM_PROPERTIES.length;
+  res.json({ success, created, existing, errors: errors.length > 0 ? errors : undefined, log, companies: seededRows });
 });
 
 export default router;

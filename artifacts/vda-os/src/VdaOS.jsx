@@ -5188,13 +5188,30 @@ function Directory({ onNew, onLoad }) {
     try {
       // Delete any stub entries (those with no apaleoPropertyId)
       const stubs = (companies || []).filter(c => !c.apaleoPropertyId);
-      await Promise.all(stubs.map(c => fetch(`/api/companies/${c.id}`, { method: "DELETE" }).catch(() => {})));
+      const deleteResults = await Promise.allSettled(
+        stubs.map(c => fetch(`/api/companies/${c.id}`, { method: "DELETE" }))
+      );
+      const deleteFailures = deleteResults.filter(r => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok));
+      if (deleteFailures.length > 0) {
+        console.warn("Some stub companies could not be deleted:", deleteFailures.length);
+      }
       // Seed the 5 citizenM properties
-      await fetch("/api/admin/seed-companies", { method: "POST" });
+      const seedRes = await fetch("/api/admin/seed-companies", { method: "POST" });
+      if (!seedRes.ok) {
+        console.error("Seed request failed with status:", seedRes.status);
+        alert("Failed to load demo hotels — server error. Please try again.");
+        return;
+      }
+      const seedData = await seedRes.json();
+      if (!seedData.success) {
+        console.error("Seed reported failure:", seedData);
+        alert("Demo hotel load completed with errors. Some properties may be missing.");
+      }
       // Refresh the list
       await loadCompanies();
     } catch (e) {
       console.error("Seed failed", e);
+      alert("Failed to load demo hotels — network error. Please try again.");
     } finally {
       setSeeding(false);
     }
