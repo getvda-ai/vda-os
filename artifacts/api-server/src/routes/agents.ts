@@ -61,18 +61,30 @@ async function apaleoRequest<T>(
 }
 
 // ─── Apaleo MCP Tool Name Map (PascalCase as per Apaleo MCP v3.1.1) ──────────
+// Scopes required per tool (for reference — enforced via Apaleo OAuth):
+//   Read tools  → availability.read, rates.read, rateplans.read-corporate,
+//                 reservations.read, folios.read, profile:read,
+//                 payment-accounts.read, invoices.read, reports.read, offers.read
+//   Write tools → distribution:reservations.manage, payment:transactions.manage
 
 const MCP_TOOLS = {
-  GetAvailableUnitGroups: "GetAvailableUnitGroups",
-  ListRatePlans: "ListRatePlans",
-  GetReservation: "GetReservation",
-  CreateBooking: "CreateBooking",
-  AmendReservation: "AmendReservation",
-  CheckIn: "CheckIn",
-  CheckOut: "CheckOut",
-  GetFolio: "GetFolio",
-  ListFolios: "ListFolios",
-  CreateFolioCharge: "CreateFolioCharge",
+  // ─── Read tools (safe in policy eval loop) ────────────────────────────────
+  GetAvailableUnitGroups: "GetAvailableUnitGroups",   // availability.read
+  ListRatePlans: "ListRatePlans",                     // rateplans.read-corporate, rates.read
+  GetReservation: "GetReservation",                   // reservations.read
+  GetFolio: "GetFolio",                               // folios.read
+  ListFolios: "ListFolios",                           // folios.read
+  GetGuestProfile: "GetGuestProfile",                 // profile:read
+  ListPaymentAccounts: "ListPaymentAccounts",         // payment-accounts.read
+  ListInvoices: "ListInvoices",                       // invoices.read
+  GetReport: "GetReport",                             // reports.read
+  ListOffers: "ListOffers",                           // offers.read
+  // ─── Write tools (executed ONLY after explicit PASS decision) ─────────────
+  CreateBooking: "CreateBooking",                     // distribution:reservations.manage
+  AmendReservation: "AmendReservation",               // distribution:reservations.manage
+  CheckIn: "CheckIn",                                 // distribution:reservations.manage
+  CheckOut: "CheckOut",                               // distribution:reservations.manage
+  CreateFolioCharge: "CreateFolioCharge",             // payment:transactions.manage
 } as const;
 
 // ─── MCP-first executor ───────────────────────────────────────────────────────
@@ -107,191 +119,506 @@ async function mcpOrRest<T>(
   return { result, usedMcp: false };
 }
 
-// ─── Policy Documents ────────────────────────────────────────────────────────
+// ─── Policy Documents (VDA-MK Framework — Hospitality Profile) ───────────────
+// Industry: hospitality | NIST controls: AC-2, AU-2, SA-4, IR-4
+// Frameworks: PCI DSS, ISO 22301
+// Each policy is a governance-as-markdown file with mandatory MUST/MUST NOT/MAY
+// clauses, explicit Apaleo API scopes, NIST control references, and escalation paths.
 
 const POLICIES: Record<string, string> = {
   availability: `---
+title: "Availability Agent Policy"
+type: AGENTS
 control_id: availability-policy
 domain: Revenue
 owner: Head of Revenue
+axis: vertical
+stage: Pre-Arrival
+agent_id: agent-availability-001
+nist_control: AC-2
+baseline: true
+api_scopes:
+  read:
+    - availability.read
+    - rateplans.read-corporate
+    - rates.read
+    - offers.read
+  write: []
 ---
-## Availability Agent Policy
 
-### Agent Rules
-- MUST query live Apaleo sandbox for unit group availability before making any response
-- MUST include rate plan options with each available unit group
-- MUST flag if requested dates have zero availability — FAIL immediately
-- MUST NOT fabricate availability data — all decisions must reference real Apaleo API responses
-- SHOULD include total available unit count and property name in response
-- MAY suggest alternative dates if availability is low
+## Purpose
+Queries live Apaleo availability and rate plan data to determine whether unit groups
+are bookable for requested date ranges, and surfaces active offers to revenue managers.
 
-### Decision Criteria
-- PASS: Units available for the full requested date range with at least one rate plan
-- FAIL: No units available or date range is invalid
-- ESCALATE: Availability below 10% of total unit count — Revenue Manager review required`,
+## Responsibilities
+The agent MUST query live Apaleo unit group availability via the GetAvailableUnitGroups
+MCP tool before making any availability decision — fabricated data is a FAIL.
+The agent MUST retrieve current rate plans via ListRatePlans and active offers via
+ListOffers before responding, to ensure rate context is accurate.
+The agent MUST flag zero availability immediately as FAIL with the reason logged to the
+Witness Stream including property ID, dates, and adult count.
+The agent MUST NOT fabricate or estimate availability — all decisions MUST reference
+real-time Apaleo API responses (NIST AC-2: access to data limited to authorised sources).
+The agent MUST NOT bypass the availability check even if rate plan data is already cached.
+The agent MAY suggest alternative dates if availability is low (below 10% of unit count).
+The agent MAY surface active promotional offers alongside rate plan data.
+
+## Decision Criteria
+- PASS: Units available for the full requested date range with at least one active rate plan
+- FAIL: Zero units available, invalid date range, or arrival date in the past
+- ESCALATE: Availability below 10% of total unit count — Revenue Manager review required
+
+## Escalation Path
+Low-availability escalations route to the Head of Revenue.
+System failures or MCP connectivity issues route to the Operations Director.
+
+## Compliance Baseline
+- NIST AC-2: Data access restricted to availability.read, rateplans.read-corporate,
+  rates.read, offers.read OAuth scopes — no write access granted to this agent
+- NIST AU-2: Every availability decision logged to Witness Stream with full context
+- NIST SA-4: MCP integration governed by Apaleo mcp:tools scope; fallback to REST API
+- NIST IR-4: REST fallback active if MCP unavailable — no single point of failure
+- PCI DSS 7.1: Least-privilege access — read-only scopes only, no payment data access
+- ISO 22301: Business continuity maintained via REST fallback path`,
 
   rate: `---
+title: "Rate Agent — Rate Override Policy"
+type: AGENTS
 control_id: rate-override-policy
 domain: Revenue
 owner: Head of Revenue
+axis: vertical
+stage: Pre-Arrival
+agent_id: agent-rate-001
+nist_control: AC-2
+baseline: true
+api_scopes:
+  read:
+    - rateplans.read-corporate
+    - rates.read
+    - reports.read
+  write: []
 ---
-## Rate Agent — Rate Override Policy
 
-### Standard Rate Authority
-- Agents MAY apply BAR (Best Available Rate) without additional approval
-- Agents MAY apply contracted corporate rates for verified accounts
-- Discount up to 10% below BAR: Agent authority — log and proceed (PASS)
+## Purpose
+Evaluates rate override requests against the Best Available Rate (BAR) for the
+requested property and date range, enforcing discount thresholds and escalating
+decisions beyond agent authority.
 
-### Override Thresholds (ESCALATE)
+## Responsibilities
+The agent MUST retrieve current rate plans from Apaleo via ListRatePlans before
+evaluating any rate request — no rate decision may be made without live data.
+The agent MUST pull revenue report data via GetReport to benchmark the requested rate
+against current period performance.
+The agent MUST compare the requested rate against the live BAR and calculate the
+discount percentage before applying any policy clause.
+The agent MUST log the override reason, requestor role, governing clause, and
+discount percentage for every rate decision to the Witness Stream (NIST AU-2).
+The agent MUST NOT apply rates below the property floor rate under any circumstance — FAIL.
+The agent MUST NOT approve discounts greater than 10% below BAR without escalation.
+The agent MAY apply BAR or contracted corporate rates without additional approval.
+The agent MAY apply discounts up to 10% below BAR — agent authority, log and PASS.
+
+## Override Thresholds
+- Discount ≤10% below BAR: Agent authority → PASS with log
 - Discount 11–25% below BAR: Revenue Manager approval required → ESCALATE
-- Discount >25% below BAR: Director of Revenue sign-off → ESCALATE
-- Any complimentary room (100% discount): General Manager approval → ESCALATE
+- Discount >25% below BAR: Director of Revenue sign-off required → ESCALATE
+- Any complimentary room (100% discount): General Manager approval only → ESCALATE
 
-### Agent Rules
-- MUST retrieve current rate plans from Apaleo before evaluating any request
-- MUST compare requested rate against BAR for the date range
-- MUST NOT apply rates below the property floor rate under any circumstance — FAIL
-- MUST log override reason, requestor, and governing clause for every rate decision`,
+## Escalation Path
+Discounts 11–25%: Revenue Manager.
+Discounts >25%: Director of Revenue.
+Complimentary: General Manager.
+
+## Compliance Baseline
+- NIST AC-2: Rate data access restricted to rateplans.read-corporate, rates.read,
+  reports.read scopes — no write access granted to this agent
+- NIST AU-2: All rate decisions and override reasoning logged to Witness Stream
+- NIST SA-4: MCP integration verified before each request; REST fallback maintained
+- NIST IR-4: System continues operating via REST if MCP unavailable
+- PCI DSS 7.1: Least-privilege read-only access — no payment or folio data touched
+- ISO 22301: Dual-path (MCP + REST) ensures continuity during integration outages`,
 
   reservation: `---
-control_id: check-in-agent-policy
+title: "Reservation Bot Policy"
+type: AGENTS
+control_id: reservation-bot-policy
 domain: Operations
 owner: Operations Director
+axis: vertical
+stage: Reservation
+agent_id: agent-reservation-bot-001
+nist_control: AC-2
+baseline: true
+api_scopes:
+  read:
+    - availability.read
+    - rateplans.read-corporate
+    - rates.read
+    - reservations.read
+    - profile:read
+  write:
+    - distribution:reservations.manage
 ---
-## Reservation Bot Policy
 
-### Booking Rules
-- MUST verify unit group availability before creating any reservation
-- MUST confirm valid rate plan is attached before committing booking
-- MUST capture guest name and at least one contact method (email or phone)
-- MUST NOT create reservations for past arrival dates — FAIL
-- MUST NOT double-book: verify no conflicting reservations for the same unit
+## Purpose
+Creates and modifies Apaleo reservations under governance control, ensuring availability,
+valid rate plans, and guest identity are verified before any booking is committed.
 
-### Modification Rules
-- MAY modify reservation dates if new dates have availability — PASS with log
-- MAY update guest details without additional approval
-- MUST NOT reduce the reservation value below the floor rate
-- Modifications affecting >3 nights: flag for Revenue Manager review
+## Responsibilities
+The agent MUST verify unit group availability via GetAvailableUnitGroups before creating
+any reservation — creating on zero-availability is a hard FAIL.
+The agent MUST confirm a valid rate plan via ListRatePlans is attached before committing
+any booking.
+The agent MUST verify guest identity via GetGuestProfile before creating or modifying a
+reservation, and log the profile reference in the Witness Stream.
+The agent MUST capture guest name and at least one contact method (email or phone).
+The agent MUST NOT create reservations with past arrival dates — FAIL immediately.
+The agent MUST NOT double-book: the agent MUST check existing reservations for the
+same unit group before committing a new booking.
+The agent MUST NOT execute CreateBooking or AmendReservation until the policy
+evaluation decision is explicitly PASS.
+The agent MAY modify reservation dates if new dates have confirmed availability — PASS with log.
+The agent MAY update guest contact details without additional approval.
 
-### Agent Rules
-- MUST log every create/modify/retrieve action to Witness Stream
-- MUST include reservation ID, guest name, dates, and rate in every log entry
-- Decision MUST be PASS before any create or modify action is executed`,
+## Modification Rules
+- Modifications affecting more than 3 nights: flag for Revenue Manager review → ESCALATE
+- Rate reductions below floor rate: FAIL — do not modify
+
+## Escalation Path
+Double-booking risk or rate disputes: Revenue Manager.
+Identity verification failures: Operations Director.
+
+## Compliance Baseline
+- NIST AC-2: Write access (distribution:reservations.manage) exercised only after PASS;
+  read scopes availability.read, rateplans.read-corporate, rates.read, reservations.read,
+  profile:read are used in evaluation
+- NIST AU-2: Every create/modify/retrieve action logged to Witness Stream with
+  reservation ID, guest name, dates, and rate
+- NIST SA-4: MCP tools used for all data retrieval; REST fallback maintained
+- NIST IR-4: Agent falls back to REST API if MCP session unavailable
+- PCI DSS 7.1: Guest profile access restricted to profile:read — no payment data stored
+- ISO 22301: Dual-path execution ensures reservation capability during MCP outages`,
 
   checkin: `---
+title: "Check-In Agent Policy"
+type: AGENTS
 control_id: check-in-policy
 domain: Operations
 owner: Operations Director
+axis: vertical
+stage: Check-In
+agent_id: agent-checkin-001
+nist_control: AC-2
+baseline: true
+api_scopes:
+  read:
+    - reservations.read
+    - folios.read
+    - profile:read
+    - payment-accounts.read
+  write:
+    - distribution:reservations.manage
 ---
-## Check-In Agent Policy
 
-### Pre-Check-In Validation Gate (ALL must pass for PASS decision)
-1. Reservation status must be "Definite" or "Tentative" — FAIL if InHouse/CheckedOut
-2. Guest identity must be verified (name match to reservation) — FAIL if mismatch
-3. Folio must exist and be in "Open" status — ESCALATE if missing
-4. Valid payment method confirmed or folio balance covered — ESCALATE if absent
-5. Arrival date must be today or in the past — FAIL if future
+## Purpose
+Validates all pre-check-in conditions against live Apaleo data and executes the
+check-in API action only when all five governance gates are satisfied.
 
-### Check-In Execution
-- PASS: All 5 validation checks green → system executes check-in API to set InHouse
-- FAIL: Any hard gate failed → do not execute check-in, log reason with reservation ID
-- ESCALATE: Folio or payment issues → Front Office Manager review, do not execute
+## Responsibilities
+The agent MUST retrieve the full reservation record via GetReservation and verify
+status, guest name, and arrival date before proceeding.
+The agent MUST verify guest identity via GetGuestProfile (profile:read scope) —
+name mismatch between profile and reservation is a hard FAIL (Gate 2).
+The agent MUST retrieve open folios via ListFolios and confirm at least one folio
+exists in Open status — missing folio is ESCALATE (Gate 3).
+The agent MUST verify a valid payment method via ListPaymentAccounts (payment-accounts.read
+scope) or confirm folio balance is covered — absent payment is ESCALATE (Gate 4).
+The agent MUST NOT execute the check-in API write until all five gates have been
+evaluated and the policy decision is PASS.
+The agent MUST NOT check in guests whose arrival date is in the future (Gate 5) — FAIL.
+The agent MAY proceed with check-in if Gates 1–5 all return green.
+The agent MAY override Gate 4 (payment) only with Front Office Manager explicit approval
+logged in the Witness Stream.
 
-### Agent Rules
-- Policy evaluation MUST complete before any API write is attempted
-- On PASS only: check-in API is called; on FAIL or ESCALATE: API is NOT called
-- MUST log check-in decision with guest name, reservation ID, and folio reference`,
+## Pre-Check-In Validation Gates (ALL required for PASS)
+1. Reservation status MUST be "Definite" or "Tentative" — FAIL if InHouse or CheckedOut
+2. Guest identity MUST match profile record (profile:read) — FAIL if mismatch
+3. Open folio MUST exist — ESCALATE to Front Office Manager if absent
+4. Valid payment method MUST be confirmed (payment-accounts.read) — ESCALATE if absent
+5. Arrival date MUST be today or in the past — FAIL if future date
+
+## Escalation Path
+Gate 3/4 failures: Front Office Manager.
+Identity failures: Operations Director.
+
+## Compliance Baseline
+- NIST AC-2: Write (distribution:reservations.manage) executed only on PASS;
+  read scopes reservations.read, folios.read, profile:read, payment-accounts.read
+  used exclusively in evaluation phase
+- NIST AU-2: Check-in decision logged to Witness Stream with guest name,
+  reservation ID, folio reference, and all five gate outcomes
+- NIST SA-4: MCP tools used for live data retrieval; REST fallback active
+- NIST IR-4: System-level fallback to REST API if MCP session unavailable
+- PCI DSS 7.2: Payment account verification via payment-accounts.read — no raw
+  card data stored or processed by this agent
+- ISO 22301: Five-gate validation ensures no check-in proceeds under unresolved conditions`,
 
   folio_charge: `---
+title: "Folio Charge Agent Policy"
+type: AGENTS
 control_id: folio-charge-policy
-domain: Operations / Finance
+domain: Finance
 owner: Finance Director
+axis: vertical
+stage: In-Stay
+agent_id: agent-folio-charge-001
+nist_control: AU-2
+baseline: true
+api_scopes:
+  read:
+    - folios.read
+    - payment-accounts.read
+    - invoices.read
+  write:
+    - payment:transactions.manage
 ---
-## Folio Charge Agent Policy
 
-### Charge Posting Rules
-- MUST verify folio exists and is in Open status before posting any charge
-- MUST include service type classification for every charge
-- Charges ≤€500: Agent MAY post — PASS, log charge details
-- Charges €500–€2,000: Revenue Manager review required — ESCALATE before posting
-- Charges >€2,000: Finance Director approval — ESCALATE, do not post
-- MUST NOT post duplicate charges for same service/date — FAIL
+## Purpose
+Posts charges to guest folios in Apaleo under financial governance controls,
+verifying folio status, payment method, and duplicate-charge prevention before
+any write action is executed.
 
-### Agent Rules
-- Decision MUST be PASS before posting charge to Apaleo folio
-- On PASS: charge is posted via POST /finance/v1/folios/{id}/charges
-- On ESCALATE or FAIL: charge is NOT posted, log reason`,
+## Responsibilities
+The agent MUST verify the folio exists and is in Open status via GetFolio before
+posting any charge — posting to a closed folio is a hard FAIL.
+The agent MUST verify an active payment account via ListPaymentAccounts before
+authorising charges — absent payment method is ESCALATE.
+The agent MUST check existing invoices via ListInvoices to prevent duplicate charge
+posting for the same service on the same date.
+The agent MUST include a service type classification for every charge posted.
+The agent MUST NOT post duplicate charges for the same service and date — FAIL.
+The agent MUST NOT post charges exceeding €2,000 without Finance Director approval — ESCALATE.
+The agent MUST NOT execute CreateFolioCharge until the policy decision is explicitly PASS.
+The agent MAY post charges of €500 or less autonomously — PASS with full charge log.
+
+## Charge Threshold Rules
+- Charges ≤€500: Agent authority → PASS, log charge details
+- Charges €500–€2,000: Revenue Manager review required → ESCALATE before posting
+- Charges >€2,000: Finance Director approval required → ESCALATE, do not post
+
+## Escalation Path
+Charges €500–€2,000: Revenue Manager.
+Charges >€2,000: Finance Director.
+Payment account absent: Finance Director.
+
+## Compliance Baseline
+- NIST AC-2: Write (payment:transactions.manage) executed only after PASS;
+  read scopes folios.read, payment-accounts.read, invoices.read used in evaluation
+- NIST AU-2: Every charge posting logged to Witness Stream with folio ID,
+  service type, amount, and governing threshold clause
+- NIST SA-4: MCP tools used for folio and payment verification; REST fallback active
+- NIST IR-4: REST fallback path maintained for all read and write operations
+- PCI DSS 6.4: Service type classification mandatory on all charges — no unclassified
+  transactions permitted
+- ISO 22301: Duplicate-charge prevention via ListInvoices check before every post`,
 
   folio: `---
-control_id: folio-settlement-policy
-domain: Operations / Finance
+title: "Folio Agent Policy"
+type: AGENTS
+control_id: folio-review-policy
+domain: Finance
 owner: Finance Director
+axis: vertical
+stage: In-Stay
+agent_id: agent-folio-001
+nist_control: AU-2
+baseline: true
+api_scopes:
+  read:
+    - folios.read
+    - invoices.read
+    - payments.read
+    - accounting.read
+  write: []
 ---
-## Folio Agent Policy
 
-### Charge Review Rules
-- Charges ≤€500: Agent may summarise and flag without escalation (PASS)
-- Charges €500–€2,000: Flag for supervisor review — ESCALATE
-- Charges >€2,000: Automatic escalation to Finance Director — ESCALATE
-- Disputed charges (guest contested): Always ESCALATE to Front Office Manager
+## Purpose
+Performs read-only analysis of guest folios, identifying charge anomalies,
+unclassified items, duplicate entries, and balance overruns — and escalates
+findings per financial governance thresholds.
 
-### Exception Flags
-- MUST flag any charge with no service type classification
-- MUST flag any charge appearing more than once for the same service/date
-- MUST flag total folio balance exceeding pre-authorisation amount
+## Responsibilities
+The agent MUST retrieve the full folio from Apaleo via GetFolio and ListFolios
+before any analysis — no decision may be based on partial or cached data.
+The agent MUST cross-reference charges against invoice records via ListInvoices
+to identify unmatched or duplicate charge entries.
+The agent MUST flag any charge with no service type classification.
+The agent MUST flag any charge appearing more than once for the same service and date.
+The agent MUST flag total folio balance exceeding the pre-authorisation amount.
+The agent MUST log a folio summary to the Witness Stream including total balance,
+charge count, and all flags raised (NIST AU-2).
+The agent MUST NOT modify folio charges under any circumstance — this is a strictly
+read-only agent; any write attempt is a policy violation — FAIL.
+The agent MAY summarise and pass folios with charges ≤€500 with no anomalies.
+The agent MAY retrieve payment history via the payments.read scope to validate
+charge legitimacy during analysis.
 
-### Agent Rules
-- MUST retrieve full folio from Apaleo before analysis
-- MUST NOT modify folio charges — read-only analysis and flagging only
-- MUST log folio summary with total balance, charge count, and any flags raised`,
+## Charge Review Thresholds
+- Charges ≤€500, no anomalies: PASS — summarise and log
+- Charges €500–€2,000 or any anomaly: ESCALATE to supervisor
+- Charges >€2,000 or folio dispute: ESCALATE to Finance Director
+
+## Escalation Path
+Supervisor escalations: Front Office Manager.
+Finance escalations: Finance Director.
+Disputed charges: Always escalate to Front Office Manager.
+
+## Compliance Baseline
+- NIST AC-2: Strictly read-only — scopes folios.read, invoices.read, payments.read,
+  accounting.read; no write scopes granted; modification attempts are policy violations
+- NIST AU-2: Folio analysis summary with all flags logged to Witness Stream on every run
+- NIST SA-4: MCP tools provide live folio data; REST fallback active
+- NIST IR-4: REST API fallback prevents service interruption if MCP unavailable
+- PCI DSS 7.1: Read-only least-privilege access; no card data accessed or stored
+- ISO 22301: Analysis can complete via REST path if MCP session expires`,
 
   checkout: `---
+title: "Checkout Agent Policy"
+type: AGENTS
 control_id: checkout-policy
 domain: Operations
 owner: Operations Director
+axis: vertical
+stage: Departure
+agent_id: agent-checkout-001
+nist_control: AC-2
+baseline: true
+api_scopes:
+  read:
+    - reservations.read
+    - folios.read
+    - invoices.read
+    - payments.read
+  write:
+    - distribution:reservations.manage
 ---
-## Checkout Agent Policy
 
-### Late Checkout Policy
-- Standard checkout: 11:00 local time
-- Late checkout until 14:00: MAY waive fee for Gold/Platinum loyalty tier — log with exception_applied: true
-- Late checkout 14:00–18:00: 50% of one night rate — PASS, agent may apply
-- Late checkout after 18:00: Full night rate — PASS, agent may apply
+## Purpose
+Validates folio settlement, invoice status, and reservation state before executing
+the Apaleo checkout write action, enforcing late-checkout fee policy and ensuring
+zero outstanding balance.
+
+## Responsibilities
+The agent MUST retrieve the full reservation via GetReservation and confirm InHouse
+status — FAIL immediately if reservation is not InHouse.
+The agent MUST retrieve all folios via ListFolios and verify zero outstanding balance
+or confirmed payment method before proceeding.
+The agent MUST check invoice status via ListInvoices to confirm no open disputed
+charges exist on the account.
+The agent MUST NOT execute the CheckOut API write until the policy decision is PASS.
+The agent MUST NOT check out a reservation with unresolved disputed charges — ESCALATE.
+The agent MUST NOT check out a reservation with an outstanding folio balance and no
+confirmed payment method — ESCALATE.
+The agent MAY waive the late-checkout fee for Gold/Platinum loyalty tier guests until
+14:00, logging exception_applied: true to the Witness Stream.
+The agent MAY apply a 50% late-checkout surcharge (14:00–18:00) autonomously — PASS.
+
+## Late Checkout Fee Schedule
+- By 11:00 (standard): No fee → PASS
+- 11:00–14:00 (Gold/Platinum): Fee waived — exception_applied: true → PASS with log
+- 14:00–18:00: 50% of one night rate → PASS, agent may apply
+- After 18:00: Full night rate → PASS, agent may apply
 - Complimentary late checkout: General Manager approval only → ESCALATE
 
-### Folio Settlement Gate (ALL must pass for PASS decision)
-- Folio outstanding balance MUST be zero or valid payment method confirmed — ESCALATE if not
-- No outstanding disputed charges — ESCALATE if present
-- Reservation MUST be InHouse status — FAIL if not
+## Folio Settlement Gate (ALL required for PASS)
+- Folio outstanding balance MUST be zero or valid payment method confirmed
+- No outstanding disputed charges on any folio or linked invoice
+- Reservation MUST be InHouse status
 
-### Agent Rules
-- Policy evaluation MUST complete before any API write is attempted
-- On PASS only: checkout API is called (PUT /reservations/{id}/checkout)
-- On FAIL or ESCALATE: checkout API is NOT called
-- MUST log decision with reservation ID, guest name, departure time, and folio status`,
+## Escalation Path
+Disputed charges or unresolved balance: Front Office Manager.
+Complimentary late checkout: General Manager.
+
+## Compliance Baseline
+- NIST AC-2: Write (distribution:reservations.manage) executed only on PASS;
+  read scopes reservations.read, folios.read, invoices.read, payments.read used in eval
+- NIST AU-2: Checkout decision logged with reservation ID, guest name, departure
+  time, folio status, and any late-checkout exception
+- NIST SA-4: MCP tools used for live reservation and folio retrieval; REST fallback active
+- NIST IR-4: Dual-path execution maintained for all operations
+- PCI DSS 7.2: Payment method verification via folios.read and payments.read before
+  checkout — no raw card data stored by this agent
+- ISO 22301: Settlement gate prevents checkout under unresolved financial conditions`,
 
   revenue: `---
+title: "Revenue Reconciliation Agent Policy"
+type: AGENTS
 control_id: revenue-reconciliation-policy
 domain: Finance
 owner: CFO / Revenue Director
+axis: horizontal
+stage: Reconciliation
+agent_id: agent-revenue-001
+nist_control: AU-2
+baseline: true
+api_scopes:
+  read:
+    - reports.read
+    - rates.read
+    - rateplans.read-corporate
+    - folios.read
+    - invoices.read
+    - accounting.read
+  write: []
 ---
-## Revenue Reconciliation Agent Policy
 
-### Reconciliation Rules
-- Run daily comparison: actual revenue vs rate plan expectations per unit group
-- Variance ≤5%: PASS — normal operational variance
-- Variance 5–15%: Flag for Revenue Manager review — ESCALATE
-- Variance >15%: Immediate Finance Director notification — ESCALATE
+## Purpose
+Performs daily revenue reconciliation by comparing actual revenue data from Apaleo
+reports against rate plan expectations per unit group, flagging variances to the
+appropriate financial authority.
 
-### Discrepancy Types
+## Responsibilities
+The agent MUST pull live revenue report data via GetReport (reports.read scope) for
+the specified property and date before performing any reconciliation.
+The agent MUST retrieve current rate plan expectations via ListRatePlans and cross-
+reference each reservation's actual rate against its contracted rate plan.
+The agent MUST cross-reference folio records via ListFolios and invoice data via
+ListInvoices to identify unmatched folios (no linked reservation).
+The agent MUST compare actual vs expected revenue and calculate the variance percentage
+for each unit group.
+The agent MUST log a full reconciliation summary to the Witness Stream including
+variance percentage, discrepancy types, and all flagged reservation IDs (NIST AU-2).
+The agent MUST NOT modify any financial records — this is a strictly read-only agent.
+The agent MUST NOT issue reconciliation decisions based on cached or estimated data —
+live API data is mandatory for every run.
+The agent MAY pass reconciliation with variance ≤5% as normal operational variance.
+The agent MAY summarise discrepancy patterns to aid Revenue Manager review.
+
+## Variance Thresholds
+- Variance ≤5%: Normal operational variance → PASS
+- Variance 5–15%: Revenue Manager review required → ESCALATE
+- Variance >15%: Immediate Finance Director notification → ESCALATE
+
+## Discrepancy Types
 - Underpayment vs contracted rate: Flag with reservation ID → ESCALATE
 - Overbilling vs rate plan: Flag immediately → ESCALATE
-- Unmatched folios (no reservation): Flag for Finance audit → ESCALATE
+- Unmatched folios (no linked reservation): Flag for Finance audit → ESCALATE
 
-### Agent Rules
-- MUST pull daily revenue report from Apaleo for the specified property and date
-- MUST compare each reservation's actual rate against its rate plan expectation
-- MUST NOT modify any financial records — read-only analysis only`,
+## Escalation Path
+Variance 5–15%: Revenue Manager.
+Variance >15%: Finance Director.
+Unmatched folios: CFO / Finance audit.
+
+## Compliance Baseline
+- NIST AC-2: Strictly read-only — scopes reports.read, rates.read, rateplans.read-corporate,
+  folios.read, invoices.read, accounting.read; no write access granted
+- NIST AU-2: Full reconciliation log written to Witness Stream on every run including
+  variance %, discrepancy flags, and all affected reservation IDs
+- NIST SA-4: MCP tools used for live report and rate data; REST fallback active
+- NIST IR-4: REST fallback path maintained — reconciliation can complete without MCP
+- PCI DSS 10.2: Audit trail covers all reconciliation decisions and variance flags
+- ISO 22301: Daily reconciliation schedule maintained via REST if MCP unavailable`,
 };
 
 // ─── Agent Decision Type ──────────────────────────────────────────────────────
@@ -552,8 +879,8 @@ router.post("/agents/availability", async (req, res) => {
     const { decision, toolCallsMade, usedMcp } = await evaluateWithPolicyAndMcp(
       "Availability Agent",
       "availability",
-      `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults. Fetch live availability and rate plan data from Apaleo.`,
-      [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans]
+      `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults. Fetch live availability via GetAvailableUnitGroups, rate plans via ListRatePlans, and active offers via ListOffers from Apaleo.`,
+      [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListOffers]
     );
 
     const apaleoData: Record<string, unknown> = {
@@ -603,8 +930,8 @@ router.post("/agents/rate", async (req, res) => {
     const { decision, toolCallsMade, usedMcp } = await evaluateWithPolicyAndMcp(
       "Rate Agent",
       "rate",
-      `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans from Apaleo using the ListRatePlans tool and apply rate-override policy.`,
-      [MCP_TOOLS.ListRatePlans]
+      `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans via ListRatePlans and revenue report via GetReport from Apaleo, then apply rate-override policy.`,
+      [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport]
     );
 
     const apaleoData: Record<string, unknown> = {
@@ -736,8 +1063,8 @@ router.post("/agents/reservation", async (req, res) => {
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
     const mcpTools = action === "create"
-      ? [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans]
-      : [MCP_TOOLS.GetReservation];
+      ? [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetGuestProfile]
+      : [MCP_TOOLS.GetReservation, MCP_TOOLS.GetGuestProfile];
 
     const taskCtx = [
       `Execute reservation action "${action}" for property ${propertyId}.`,
@@ -897,8 +1224,8 @@ router.post("/agents/checkin", async (req, res) => {
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
       "Check-In Agent", "checkin",
-      `Validate and process check-in for ${guestName ?? "guest"} at property ${propertyId}. ${resolvedReservationId ? `Use the GetReservation and ListFolios MCP tools to verify reservation ${resolvedReservationId} and its folio.` : "Find today's arriving reservations."} Run all 5 validation gates per check-in policy before making your decision.`,
-      [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios]
+      `Validate and process check-in for ${guestName ?? "guest"} at property ${propertyId}. ${resolvedReservationId ? `Use GetReservation to verify reservation ${resolvedReservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "Find today's arriving reservations."} Run all 5 validation gates per check-in policy before making your decision.`,
+      [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts]
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -973,7 +1300,7 @@ router.post("/agents/folio", async (req, res) => {
       "Folio Agent",
       "folio",
       taskDesc,
-      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios]
+      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
     );
 
     const apaleoData: Record<string, unknown> = {
@@ -1062,8 +1389,8 @@ router.post("/agents/folio-charge", async (req, res) => {
     // ── Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
       "Folio Agent", "folio_charge",
-      `Post charge €${chargeAmount} ${currency} (${serviceType}: ${chargeName ?? "unnamed"}) to folio ${resolvedFolioId ?? "none"} at property ${propertyId}. ${resolvedFolioId ? `Use GetFolio MCP tool to fetch folio ${resolvedFolioId} and verify it is Open, check for duplicate charges, and apply folio-charge-policy thresholds.` : "No folio resolved — apply FAIL decision."}`,
-      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios]
+      `Post charge €${chargeAmount} ${currency} (${serviceType}: ${chargeName ?? "unnamed"}) to folio ${resolvedFolioId ?? "none"} at property ${propertyId}. ${resolvedFolioId ? `Use GetFolio to verify folio ${resolvedFolioId} is Open, ListPaymentAccounts to confirm payment method, ListInvoices to check for duplicate charges, then apply folio-charge-policy thresholds.` : "No folio resolved — apply FAIL decision."}`,
+      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices]
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1192,8 +1519,8 @@ router.post("/agents/checkout", async (req, res) => {
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
       "Checkout Agent", "checkout",
-      `Process checkout for ${guestName ?? "guest"} (${loyaltyTier ?? "Standard"} tier) at property ${propertyId}. ${reservationId ? `Use GetReservation and ListFolios MCP tools to verify reservation ${reservationId}, confirm InHouse status, and check folio settlement.` : `Find today's departing InHouse reservations at property ${propertyId}.`} Late checkout requested: ${lateCheckout ?? "No"}. Apply all checkout-policy.md gates.`,
-      [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios]
+      `Process checkout for ${guestName ?? "guest"} (${loyaltyTier ?? "Standard"} tier) at property ${propertyId}. ${reservationId ? `Use GetReservation to verify InHouse status for reservation ${reservationId}, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges.` : `Find today's departing InHouse reservations at property ${propertyId}.`} Late checkout requested: ${lateCheckout ?? "No"}. Apply all checkout-policy.md gates.`,
+      [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1292,8 +1619,8 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
 
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
       "Revenue Reconciliation Agent", "revenue",
-      `Reconcile daily revenue for property ${propertyId} on ${targetDate}. ${reservations.length} reservations fetched via REST with total ${totalRevenue} ${currency}. Use MCP tools to cross-verify revenue data from Apaleo and apply revenue-reconciliation-policy variance thresholds.`,
-      [MCP_TOOLS.ListRatePlans]
+      `Reconcile daily revenue for property ${propertyId} on ${targetDate}. ${reservations.length} reservations fetched via REST with total ${totalRevenue} ${currency}. Use GetReport to pull live revenue report, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charge records. Apply revenue-reconciliation-policy variance thresholds.`,
+      [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1383,8 +1710,8 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const { decision, usedMcp: availUsedMcp, toolCallsMade: availToolCalls } = await evaluateWithPolicyAndMcp(
         "Availability Agent", "availability",
-        `Check live unit availability for property ${propertyId} from ${today} to ${tomorrow} for 2 adults. Use GetAvailableUnitGroups and ListRatePlans MCP tools to fetch real Apaleo data, then apply availability-policy.md decision criteria.`,
-        [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans]
+        `Check live unit availability for property ${propertyId} from ${today} to ${tomorrow} for 2 adults. Use GetAvailableUnitGroups, ListRatePlans, and ListOffers MCP tools to fetch real Apaleo data, then apply availability-policy.md decision criteria.`,
+        [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListOffers]
       );
 
       const wid = await writeWitnessEntry({
@@ -1401,8 +1728,8 @@ router.post("/agents/scenario/run", async (req, res) => {
       const bar = 180; const requested = 162; const discountPct = 10;
       const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls } = await evaluateWithPolicyAndMcp(
         "Rate Agent", "rate",
-        `Evaluate a 10% discount rate request: BAR €${bar}, requested €${requested} for property ${propertyId}. ${ids.ratePlanId ? `Rate plan ID: ${ids.ratePlanId}.` : ""} Use ListRatePlans MCP tool to verify current Apaleo rate plans, then apply rate-override-policy thresholds.`,
-        [MCP_TOOLS.ListRatePlans]
+        `Evaluate a 10% discount rate request: BAR €${bar}, requested €${requested} for property ${propertyId}. ${ids.ratePlanId ? `Rate plan ID: ${ids.ratePlanId}.` : ""} Use ListRatePlans and GetReport MCP tools to verify current Apaleo rate plans and revenue data, then apply rate-override-policy thresholds.`,
+        [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport]
       );
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
@@ -1434,8 +1761,8 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const { decision, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls } = await evaluateWithPolicyAndMcp(
         "Reservation Bot", "reservation",
-        `Create a reservation for Demo Guest at property ${propertyId} arriving ${today}, departing ${tomorrow}. ${ids.unitGroupId ? `Unit group: ${ids.unitGroupId}.` : ""} ${ids.ratePlanId ? `Rate plan: ${ids.ratePlanId}.` : ""} Use GetAvailableUnitGroups and ListRatePlans MCP tools to verify live availability, then apply reservation-policy rules.`,
-        [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans]
+        `Create a reservation for Demo Guest at property ${propertyId} arriving ${today}, departing ${tomorrow}. ${ids.unitGroupId ? `Unit group: ${ids.unitGroupId}.` : ""} ${ids.ratePlanId ? `Rate plan: ${ids.ratePlanId}.` : ""} Use GetAvailableUnitGroups, ListRatePlans, and GetGuestProfile MCP tools to verify live availability and guest identity, then apply reservation-policy rules.`,
+        [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetGuestProfile]
       );
 
       // Execute only on PASS
@@ -1521,8 +1848,8 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls } = await evaluateWithPolicyAndMcp(
         "Check-In Agent", "checkin",
-        `Check-in Demo Guest at property ${propertyId}. ${reservationId ? `Use GetReservation and ListFolios MCP tools to verify reservation ${reservationId} live in Apaleo.` : "No reservation ID resolved — issue FAIL."} Validate all 5 check-in gates per check-in-policy.md.`,
-        [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios]
+        `Check-in Demo Guest at property ${propertyId}. ${reservationId ? `Use GetReservation to verify reservation ${reservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "No reservation ID resolved — issue FAIL."} Validate all 5 check-in gates per check-in-policy.md.`,
+        [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts]
       );
 
       if (ciDecision.decision === "PASS" && reservationId) {
@@ -1568,8 +1895,8 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls } = await evaluateWithPolicyAndMcp(
         "Folio Agent", "folio_charge",
-        `Post a room charge of €240 EUR (RoomRevenue: Demo Room Charge) to folio ${folioId ?? "none"} at property ${propertyId}. ${folioId ? `Use GetFolio MCP tool to verify folio ${folioId} is Open and check for duplicate charges.` : "No folio ID resolved — apply FAIL."} Apply folio-charge-policy thresholds.`,
-        [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios]
+        `Post a room charge of €240 EUR (RoomRevenue: Demo Room Charge) to folio ${folioId ?? "none"} at property ${propertyId}. ${folioId ? `Use GetFolio to verify folio ${folioId} is Open, ListPaymentAccounts to confirm payment method, and ListInvoices to check for duplicate charges.` : "No folio ID resolved — apply FAIL."} Apply folio-charge-policy thresholds.`,
+        [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices]
       );
 
       if (fcDecision.decision === "PASS" && folioId) {
@@ -1631,8 +1958,8 @@ router.post("/agents/scenario/run", async (req, res) => {
 
         const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls } = await evaluateWithPolicyAndMcp(
           "Checkout Agent", "checkout",
-          `Checkout Demo Guest (Gold loyalty tier, late checkout until 13:00) at property ${propertyId}. Use GetReservation and ListFolios MCP tools to verify reservation ${reservationId} is InHouse and folio is settled. Apply checkout-policy.md gates and loyalty exception rules.`,
-          [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios]
+          `Checkout Demo Guest (Gold loyalty tier, late checkout until 13:00) at property ${propertyId}. Use GetReservation to verify reservation ${reservationId} is InHouse, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges. Apply checkout-policy.md gates and loyalty exception rules.`,
+          [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
         );
 
         if (coDecision.decision === "PASS") {
@@ -1685,8 +2012,8 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls } = await evaluateWithPolicyAndMcp(
         "Revenue Reconciliation Agent", "revenue",
-        `End-of-scenario revenue reconciliation for property ${propertyId} on ${today}. ${reservations.count} reservations (total ${total} ${currency}) retrieved via REST. Use ListRatePlans MCP tool to cross-verify rate plan expectations against actual revenue, then apply revenue-reconciliation-policy variance thresholds.`,
-        [MCP_TOOLS.ListRatePlans]
+        `End-of-scenario revenue reconciliation for property ${propertyId} on ${today}. ${reservations.count} reservations (total ${total} ${currency}) retrieved via REST. Use GetReport to pull live revenue data, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charges. Apply revenue-reconciliation-policy variance thresholds.`,
+        [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
       );
 
       const wid = await writeWitnessEntry({
