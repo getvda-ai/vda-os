@@ -5361,6 +5361,489 @@ function Directory({ onNew, onLoad }) {
 }
 
 // ─────────────────────────────────────────────
+// LIVE DEMO DASHBOARD TAB
+// ─────────────────────────────────────────────
+const AGENT_DEFS = [
+  { id: "availability",  name: "Availability Agent",       icon: "🔍", policy: "availability-policy.md",          endpoint: "/api/agents/availability" },
+  { id: "rate",          name: "Rate Agent",                icon: "💰", policy: "rate-override-policy.md",         endpoint: "/api/agents/rate" },
+  { id: "reservation",   name: "Reservation Bot",           icon: "📋", policy: "check-in-agent.md",               endpoint: "/api/agents/reservation",
+    params: [
+      { key: "action", label: "Action", type: "select", options: ["retrieve", "create", "modify"], default: "retrieve" },
+      { key: "reservationId", label: "Reservation ID", type: "text", placeholder: "Leave blank to list recent" },
+      { key: "modifyFields", label: "Modify Fields (JSON)", type: "text", placeholder: '{"departure":"2026-04-05"}' },
+    ],
+  },
+  { id: "checkin",       name: "Check-In Agent",            icon: "✅", policy: "check-in-policy.md",              endpoint: "/api/agents/checkin" },
+  { id: "folio-charge",  name: "Folio Charge Agent",        icon: "💳", policy: "folio-charge-policy.md",          endpoint: "/api/agents/folio-charge",
+    params: [
+      { key: "chargeAmount", label: "Charge Amount (€)", type: "number", default: 240 },
+      { key: "serviceType",  label: "Service Type", type: "select", options: ["RoomRevenue", "FoodAndBeverage", "Spa", "Parking", "Other"], default: "RoomRevenue" },
+      { key: "chargeName",   label: "Charge Name", type: "text", default: "Demo Room Charge" },
+    ],
+  },
+  { id: "folio",         name: "Folio Agent",               icon: "🧾", policy: "folio-settlement-policy.md",      endpoint: "/api/agents/folio" },
+  { id: "checkout",      name: "Checkout Agent",            icon: "🚪", policy: "checkout-policy.md",              endpoint: "/api/agents/checkout",
+    params: [
+      { key: "loyaltyTier",  label: "Loyalty Tier", type: "select", options: ["Standard", "Silver", "Gold", "Platinum"], default: "Gold" },
+      { key: "lateCheckout", label: "Late Checkout Until", type: "text", placeholder: "e.g. 13:00" },
+    ],
+  },
+  { id: "revenue",       name: "Revenue Reconciliation",    icon: "📊", policy: "revenue-reconciliation-policy.md", endpoint: "/api/agents/revenue" },
+];
+
+function AgentStatusCard({ agent, status, lastEntry, running }) {
+  const decisionColor = {
+    PASS: T.green, FAIL: T.red, ESCALATE: T.amber,
+  }[lastEntry?.decision] || T.dim;
+
+  return (
+    <div style={{
+      background: running ? `${T.orange}08` : T.card,
+      border: `1px solid ${running ? T.orange + "50" : lastEntry ? decisionColor + "30" : T.border}`,
+      borderRadius: 10, padding: "14px 16px",
+      display: "flex", flexDirection: "column", gap: 8,
+      transition: "all 0.3s",
+      animation: running ? "glow-pulse 1.5s ease infinite" : "none",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 18 }}>{agent.icon}</span>
+          <span style={{ fontWeight: 700, fontSize: 13, fontFamily: T.sans }}>{agent.name}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {running && (
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.orange, display: "inline-block", animation: "pulse-ring 1s ease infinite" }} />
+          )}
+          <span style={{
+            fontSize: 10, fontFamily: T.mono, fontWeight: 800,
+            color: running ? T.orange : lastEntry ? decisionColor : T.dim,
+            textTransform: "uppercase", letterSpacing: "0.08em",
+          }}>
+            {running ? "RUNNING" : lastEntry ? lastEntry.decision : "IDLE"}
+          </span>
+        </div>
+      </div>
+      <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{agent.policy}</div>
+      {lastEntry && !running && (
+        <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+          <div style={{ color: decisionColor, fontWeight: 600, marginBottom: 4, fontFamily: T.mono, fontSize: 10 }}>
+            {lastEntry.clauseApplied?.slice(0, 80)}{lastEntry.clauseApplied?.length > 80 ? "…" : ""}
+          </div>
+          <div style={{ color: T.dim, fontSize: 10 }}>
+            {lastEntry.reasoning?.slice(0, 100)}{lastEntry.reasoning?.length > 100 ? "…" : ""}
+          </div>
+        </div>
+      )}
+      {!lastEntry && !running && (
+        <div style={{ fontSize: 10, color: T.dim + "80", fontFamily: T.mono, fontStyle: "italic" }}>
+          No decisions yet — run scenario or trigger individually
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveWitnessStream({ entries }) {
+  const listRef = useRef(null);
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [entries]);
+
+  if (entries.length === 0) {
+    return (
+      <div style={{ padding: "32px 20px", textAlign: "center", color: T.dim, fontFamily: T.mono, fontSize: 12 }}>
+        Witness Stream is empty — trigger an agent or run the full scenario
+      </div>
+    );
+  }
+
+  return (
+    <div ref={listRef} style={{ overflowY: "auto", maxHeight: 340, display: "flex", flexDirection: "column", gap: 6, padding: "12px 16px" }}>
+      {entries.map((e, i) => {
+        const decColor = { PASS: T.green, FAIL: T.red, ESCALATE: T.amber }[e.decision] || T.dim;
+        return (
+          <div key={e.id || i} style={{
+            background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${decColor}`,
+            borderRadius: 6, padding: "10px 12px", animation: "slide-up 0.3s ease",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <DecisionBadge decision={e.decision} />
+              <span style={{ fontWeight: 700, fontSize: 12, fontFamily: T.sans }}>{e.agent}</span>
+              <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginLeft: "auto" }}>
+                {e.createdAt ? new Date(e.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : e.timestamp || ""}
+              </span>
+            </div>
+            <div style={{ fontSize: 10, color: decColor, fontFamily: T.mono, marginBottom: 3 }}>
+              {e.fileReferenced} · {e.clauseApplied?.slice(0, 70)}{e.clauseApplied?.length > 70 ? "…" : ""}
+            </div>
+            <div style={{ fontSize: 11, color: T.dim }}>{e.reasoning?.slice(0, 140)}{e.reasoning?.length > 140 ? "…" : ""}</div>
+            {e.exceptionApplied && (
+              <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 700, marginTop: 4, display: "inline-block" }}>⚡ EXCEPTION APPLIED</span>
+            )}
+            {e.escalationTarget && (
+              <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 700, marginTop: 4, display: "inline-block", marginLeft: 8 }}>↑ ESCALATE → {e.escalationTarget}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry }) {
+  const [agentStatuses, setAgentStatuses] = useState({});
+  const [agentLastEntries, setAgentLastEntries] = useState({});
+  const [runningAgents, setRunningAgents] = useState(new Set());
+  const [streamEntries, setStreamEntries] = useState([]);
+  const [scenarioRunning, setScenarioRunning] = useState(false);
+  const [scenarioStep, setScenarioStep] = useState(null);
+  const [scenarioComplete, setScenarioComplete] = useState(false);
+  const [dbEntries, setDbEntries] = useState([]);
+  const [loadingDbEntries, setLoadingDbEntries] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState(null);
+  const [agentParams, setAgentParams] = useState({
+    availability:  { arrival: new Date().toISOString().split("T")[0], departure: new Date(Date.now() + 86400000).toISOString().split("T")[0], adults: "2" },
+    rate:          { requestedRate: "162", barRate: "180" },
+    reservation:   { action: "retrieve", guestName: "Demo Guest" },
+    checkin:       { guestName: "Demo Guest" },
+    "folio-charge": { chargeAmount: 240, serviceType: "RoomRevenue", chargeName: "Demo Room Charge" },
+    folio:         {},
+    checkout:      { guestName: "Demo Guest", loyaltyTier: "Gold", lateCheckout: "13:00" },
+    revenue:       { date: new Date().toISOString().split("T")[0] },
+  });
+
+  const hasCredentials = !!propertyId;
+  const hasCompany = !!companyId;
+
+  const fetchDbEntries = useCallback(async () => {
+    if (!companyId) return;
+    setLoadingDbEntries(true);
+    try {
+      const r = await fetch(`/api/agents/witness?companyId=${companyId}&limit=50`);
+      if (r.ok) {
+        const data = await r.json();
+        setDbEntries(data);
+      }
+    } catch (e) { /* ignore */ }
+    setLoadingDbEntries(false);
+  }, [companyId]);
+
+  useEffect(() => { fetchDbEntries(); }, [fetchDbEntries]);
+
+  const addStreamEntry = useCallback((entry) => {
+    setStreamEntries(prev => [entry, ...prev].slice(0, 100));
+    const agentDef = AGENT_DEFS.find(a => a.name === entry.agent);
+    if (agentDef) {
+      setAgentLastEntries(prev => ({ ...prev, [agentDef.id]: entry }));
+    }
+    if (onLogEntry) {
+      onLogEntry({
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        agent: entry.agent,
+        decision: entry.decision,
+        fileReferenced: entry.fileReferenced || "",
+        clauseApplied: entry.clauseApplied || "",
+        actionProposed: entry.actionProposed || "",
+        exceptionApplied: entry.exceptionApplied || false,
+        escalationTarget: entry.escalationTarget || null,
+        reasoning: entry.reasoning || "",
+      });
+    }
+  }, [onLogEntry]);
+
+  const runSingleAgent = useCallback(async (agentId) => {
+    if (!hasCredentials || !hasCompany) return;
+    const agent = AGENT_DEFS.find(a => a.id === agentId);
+    if (!agent) return;
+    setRunningAgents(prev => new Set([...prev, agentId]));
+    try {
+      const params = agentParams[agentId] || {};
+      const body = { propertyId, companyId, ...params };
+      const r = await fetch(agent.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        addStreamEntry({ ...data, agent: agent.name, fileReferenced: agent.policy, createdAt: new Date().toISOString() });
+        fetchDbEntries();
+      }
+    } catch (e) { /* ignore */ }
+    setRunningAgents(prev => { const n = new Set(prev); n.delete(agentId); return n; });
+  }, [hasCredentials, hasCompany, propertyId, companyId, agentParams, addStreamEntry, fetchDbEntries]);
+
+  const runFullScenario = useCallback(async () => {
+    if (!hasCredentials || !hasCompany || scenarioRunning) return;
+    setScenarioRunning(true);
+    setScenarioComplete(false);
+    setScenarioStep("Starting end-to-end guest journey…");
+    setStreamEntries([]);
+    setAgentLastEntries({});
+
+    try {
+      const AGENTS_IN_ORDER = AGENT_DEFS.map(a => a.id);
+      for (const id of AGENTS_IN_ORDER) {
+        setRunningAgents(new Set([id]));
+      }
+      setRunningAgents(new Set(["availability"]));
+      setScenarioStep("Step 1/7 — Availability Agent: checking live inventory…");
+
+      const r = await fetch("/api/agents/scenario/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ propertyId, companyId }),
+      });
+
+      if (r.ok) {
+        const data = await r.json();
+        setRunningAgents(new Set());
+        for (const step of (data.steps || [])) {
+          const agentDef = AGENT_DEFS.find(a => a.name === step.agent);
+          const entry = {
+            ...step,
+            fileReferenced: agentDef?.policy || "",
+            createdAt: new Date().toISOString(),
+          };
+          setStreamEntries(prev => [...prev, entry]);
+          if (agentDef) setAgentLastEntries(prev => ({ ...prev, [agentDef.id]: entry }));
+          if (onLogEntry) {
+            onLogEntry({
+              id: Date.now() + Math.random(),
+              timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+              agent: step.agent, decision: step.decision,
+              fileReferenced: agentDef?.policy || "",
+              clauseApplied: step.clauseApplied || "",
+              actionProposed: step.actionProposed || "",
+              exceptionApplied: step.exceptionApplied || false,
+              escalationTarget: step.escalationTarget || null,
+              reasoning: step.reasoning || "",
+            });
+          }
+        }
+        setScenarioStep(`Scenario complete — ${data.steps?.length || 0} agent decisions logged`);
+        setScenarioComplete(true);
+        fetchDbEntries();
+      }
+    } catch (e) {
+      setScenarioStep("Scenario failed — check API credentials");
+    }
+    setRunningAgents(new Set());
+    setScenarioRunning(false);
+  }, [hasCredentials, hasCompany, propertyId, companyId, scenarioRunning, onLogEntry, fetchDbEntries]);
+
+  const allEntries = [...streamEntries, ...dbEntries.filter(d => !streamEntries.find(s => s.id === d.id))].sort((a, b) => {
+    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return tb - ta;
+  });
+
+  return (
+    <div style={{ padding: "28px 28px 40px", display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+        <div>
+          <div style={{ fontWeight: 900, fontSize: 22, letterSpacing: "-0.04em", marginBottom: 6 }}>
+            Live Apaleo Agent Suite
+          </div>
+          <div style={{ fontSize: 13, color: T.dim }}>
+            8 AI agents running against live Apaleo sandbox data · policy evaluated before every write · every decision logged to the Witness Stream
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
+          {propertyId && (
+            <div style={{ background: `${T.green}15`, border: `1px solid ${T.green}40`, borderRadius: 8, padding: "6px 14px", fontSize: 11, color: T.green, fontFamily: T.mono }}>
+              🏨 {propertyId} · Live
+            </div>
+          )}
+          {!propertyId && (
+            <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 8, padding: "6px 14px", fontSize: 11, color: T.amber, fontFamily: T.mono }}>
+              ⚠ No property ID — configure in setup
+            </div>
+          )}
+          <button
+            onClick={runFullScenario}
+            disabled={!hasCredentials || !hasCompany || scenarioRunning}
+            style={{
+              background: scenarioRunning ? `${T.orange}20` : hasCredentials && hasCompany ? T.orange : T.border,
+              border: `1px solid ${scenarioRunning ? T.orange : hasCredentials && hasCompany ? T.orange : T.border}`,
+              borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 900,
+              color: scenarioRunning ? T.orange : "#fff",
+              fontFamily: T.sans, cursor: hasCredentials && hasCompany && !scenarioRunning ? "pointer" : "default",
+              display: "flex", alignItems: "center", gap: 8,
+              animation: scenarioRunning ? "glow-pulse 1.5s ease infinite" : "none",
+              transition: "all 0.2s",
+            }}
+          >
+            {scenarioRunning ? (
+              <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Running…</>
+            ) : (
+              <><span>▶</span> Run Full Scenario</>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Scenario Progress */}
+      {(scenarioRunning || scenarioComplete) && (
+        <div style={{
+          background: scenarioComplete ? `${T.green}10` : `${T.orange}10`,
+          border: `1px solid ${scenarioComplete ? T.green + "40" : T.orange + "40"}`,
+          borderRadius: 8, padding: "12px 16px",
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <span style={{ fontSize: 16 }}>{scenarioComplete ? "✅" : "⟳"}</span>
+          <span style={{ fontSize: 13, color: scenarioComplete ? T.green : T.orange, fontFamily: T.mono }}>
+            {scenarioStep}
+          </span>
+          {scenarioComplete && (
+            <button onClick={() => { setScenarioComplete(false); setScenarioStep(null); }} style={{
+              marginLeft: "auto", background: "none", border: `1px solid ${T.border}`,
+              borderRadius: 6, padding: "4px 10px", fontSize: 11, color: T.dim, cursor: "pointer", fontFamily: T.mono,
+            }}>dismiss</button>
+          )}
+        </div>
+      )}
+
+      {/* Agent Grid */}
+      <div>
+        <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
+          Agent Status · {AGENT_DEFS.length} agents
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+          {AGENT_DEFS.map(agent => (
+            <div key={agent.id} style={{ cursor: "pointer" }} onClick={() => setSelectedAgent(selectedAgent === agent.id ? null : agent.id)}>
+              <AgentStatusCard
+                agent={agent}
+                status={agentStatuses[agent.id] || "idle"}
+                lastEntry={agentLastEntries[agent.id]}
+                running={runningAgents.has(agent.id)}
+              />
+              {selectedAgent === agent.id && (
+                <div style={{
+                  background: T.surface, border: `1px solid ${T.border}`, borderRadius: "0 0 10px 10px",
+                  padding: "12px 16px", marginTop: -1,
+                }} onClick={e => e.stopPropagation()}>
+                  <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 10 }}>Run {agent.name} against live Apaleo data:</div>
+                  {agent.id === "availability" && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      <input value={agentParams.availability.arrival} onChange={e => setAgentParams(p => ({ ...p, availability: { ...p.availability, arrival: e.target.value } }))}
+                        placeholder="Arrival (YYYY-MM-DD)" style={{ flex: 1, minWidth: 130, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                      <input value={agentParams.availability.departure} onChange={e => setAgentParams(p => ({ ...p, availability: { ...p.availability, departure: e.target.value } }))}
+                        placeholder="Departure (YYYY-MM-DD)" style={{ flex: 1, minWidth: 130, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                    </div>
+                  )}
+                  {agent.id === "rate" && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      <input value={agentParams.rate.barRate} onChange={e => setAgentParams(p => ({ ...p, rate: { ...p.rate, barRate: e.target.value } }))}
+                        placeholder="BAR (€)" style={{ flex: 1, minWidth: 100, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                      <input value={agentParams.rate.requestedRate} onChange={e => setAgentParams(p => ({ ...p, rate: { ...p.rate, requestedRate: e.target.value } }))}
+                        placeholder="Requested rate (€)" style={{ flex: 1, minWidth: 100, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                    </div>
+                  )}
+                  {agent.id === "reservation" && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      <select value={agentParams.reservation.action || "retrieve"} onChange={e => setAgentParams(p => ({ ...p, reservation: { ...p.reservation, action: e.target.value } }))}
+                        style={{ flex: 1, minWidth: 120, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
+                        <option value="retrieve">retrieve</option>
+                        <option value="create">create</option>
+                        <option value="modify">modify</option>
+                      </select>
+                      <input value={agentParams.reservation.reservationId || ""} onChange={e => setAgentParams(p => ({ ...p, reservation: { ...p.reservation, reservationId: e.target.value } }))}
+                        placeholder="Reservation ID (optional)" style={{ flex: 2, minWidth: 160, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                    </div>
+                  )}
+                  {agent.id === "folio-charge" && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      <input type="number" value={agentParams["folio-charge"]?.chargeAmount || 240} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], chargeAmount: Number(e.target.value) } }))}
+                        placeholder="Amount (€)" style={{ flex: 1, minWidth: 100, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                      <select value={agentParams["folio-charge"]?.serviceType || "RoomRevenue"} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], serviceType: e.target.value } }))}
+                        style={{ flex: 1, minWidth: 130, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
+                        <option value="RoomRevenue">RoomRevenue</option>
+                        <option value="FoodAndBeverage">FoodAndBeverage</option>
+                        <option value="Spa">Spa</option>
+                        <option value="Parking">Parking</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      <input value={agentParams["folio-charge"]?.chargeName || "Demo Room Charge"} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], chargeName: e.target.value } }))}
+                        placeholder="Charge name" style={{ flex: 2, minWidth: 160, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                    </div>
+                  )}
+                  {agent.id === "checkout" && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      <select value={agentParams.checkout.loyaltyTier || "Gold"} onChange={e => setAgentParams(p => ({ ...p, checkout: { ...p.checkout, loyaltyTier: e.target.value } }))}
+                        style={{ flex: 1, minWidth: 120, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
+                        <option value="Standard">Standard</option>
+                        <option value="Silver">Silver</option>
+                        <option value="Gold">Gold</option>
+                        <option value="Platinum">Platinum</option>
+                      </select>
+                      <input value={agentParams.checkout.lateCheckout || ""} onChange={e => setAgentParams(p => ({ ...p, checkout: { ...p.checkout, lateCheckout: e.target.value } }))}
+                        placeholder="Late checkout time (e.g. 13:00)" style={{ flex: 2, minWidth: 140, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                    </div>
+                  )}
+                  <button
+                    onClick={() => runSingleAgent(agent.id)}
+                    disabled={!hasCredentials || !hasCompany || runningAgents.has(agent.id)}
+                    style={{
+                      background: T.orange, border: "none", borderRadius: 6, padding: "7px 16px",
+                      fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: T.sans,
+                      cursor: hasCredentials && hasCompany ? "pointer" : "default", opacity: hasCredentials && hasCompany ? 1 : 0.5,
+                    }}
+                  >
+                    {runningAgents.has(agent.id) ? "Running…" : `▶ Run ${agent.name}`}
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Witness Stream */}
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+        <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 15 }}>🕵️</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>Live Witness Stream</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: allEntries.length > 0 ? T.green : T.dim, display: "inline-block", animation: allEntries.length > 0 ? "pulse-ring 2s ease infinite" : "none" }} />
+            <span style={{ fontSize: 11, color: allEntries.length > 0 ? T.green : T.dim, fontFamily: T.mono }}>{allEntries.length} decisions</span>
+          </div>
+          <button onClick={fetchDbEntries} disabled={loadingDbEntries} style={{
+            marginLeft: "auto", background: "none", border: `1px solid ${T.border}`,
+            borderRadius: 6, padding: "4px 10px", fontSize: 11, color: T.dim, cursor: "pointer", fontFamily: T.mono,
+          }}>
+            {loadingDbEntries ? "…" : "↺ Refresh"}
+          </button>
+        </div>
+        <LiveWitnessStream entries={allEntries} />
+      </div>
+
+      {/* Scenario Steps Legend */}
+      {streamEntries.length > 0 && (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 18px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>Scenario Steps Completed</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {streamEntries.map((e, i) => {
+              const dc = { PASS: T.green, FAIL: T.red, ESCALATE: T.amber }[e.decision] || T.dim;
+              return (
+                <div key={i} style={{
+                  background: `${dc}15`, border: `1px solid ${dc}40`, borderRadius: 6,
+                  padding: "5px 12px", fontSize: 11, color: dc, fontFamily: T.mono, fontWeight: 700,
+                }}>
+                  {i + 1}. {e.agent} → {e.decision}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // ROOT APP
 // ─────────────────────────────────────────────
 export default function VdaOS() {
@@ -5729,6 +6212,7 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
 
   const tabs = setup ? [
     { id: "journey",     label: "Journey Map",     icon: "🗺" },
+    { id: "demo",        label: "Live Demo",        icon: "🚀" },
     { id: "c2md",        label: "C2MD Studio",      icon: "🔬" },
     { id: "exception",   label: "Exception Engine", icon: "⚡" },
     { id: "witness",     label: "Witness Agent" + (log.length ? " (" + log.length + ")" : ""), icon: "🕵️" },
@@ -5860,6 +6344,7 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
 
           {/* Content */}
           {tab === "journey"     && <JourneyMapTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} apaleoStats={apaleoStats} />}
+          {tab === "demo"        && <LiveDemoTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} companyId={setup.id} onLogEntry={addLog} />}
           {tab === "c2md"        && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} onSaveToFM={(content, filename, fileType) => {
             const companyId = setup.id;
             if (!companyId) return;

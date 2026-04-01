@@ -103,6 +103,16 @@ All Apaleo data calls go to `/api/apaleo/*` (backend proxy), NOT directly to Apa
   - `GET /api/apaleo/maintenances` — maintenance tasks
   - `GET /api/apaleo/units` — room inventory (with condition filter)
   - `GET /api/apaleo/availability/unit-groups` — availability by unit group
+- **VDA-MK Agent Suite** (`src/routes/agents.ts`) — 7 AI agents + Witness Stream persistence
+  - `POST /api/agents/availability` — Availability Agent (live unit group availability query)
+  - `POST /api/agents/rate` — Rate Agent (BAR vs requested rate, policy-governed override logic)
+  - `POST /api/agents/reservation` — Reservation Bot (create/retrieve/modify reservations)
+  - `POST /api/agents/checkin` — Check-In Agent (5-check validation, folio/ID verification)
+  - `POST /api/agents/folio` — Folio Agent (charge analysis, threshold flagging)
+  - `POST /api/agents/checkout` — Checkout Agent (folio settlement, loyalty late checkout)
+  - `POST /api/agents/revenue` — Revenue Reconciliation Agent (daily variance analysis)
+  - `GET /api/agents/witness?companyId=N` — retrieve persisted Witness Stream entries
+  - `POST /api/agents/scenario/run` — Run Full Scenario (7-step end-to-end guest journey)
 
 **Apaleo OAuth** (`src/lib/apaleo.ts`):
 - `client_credentials` flow against `https://identity.apaleo.com/connect/token`
@@ -143,7 +153,9 @@ Pre-configured Anthropic SDK client using Replit AI Integration env vars.
 
 Database layer using Drizzle ORM with PostgreSQL.
 
-**Schema:** `companies` table
+**Schema:**
+
+`companies` table:
 - `id` — serial primary key
 - `company_name`, `website_url`, `industry` — company identity
 - `brand_context` — ingested brand text (up to 8000 chars)
@@ -152,6 +164,21 @@ Database layer using Drizzle ORM with PostgreSQL.
 - `uploaded_files` — JSONB (currently null, reserved)
 - `apaleo_property_id` — optional Apaleo property code (e.g. "BER") for live sandbox data
 - `created_at`, `updated_at` — auto-managed timestamps
+
+`witness_entries` table (Task 3 — agent audit trail):
+- `id` — serial primary key
+- `company_id` — FK to companies
+- `agent` — agent name (e.g. "Availability Agent")
+- `decision` — PASS / FAIL / ESCALATE
+- `file_referenced` — governing policy file
+- `clause_applied` — specific policy clause
+- `action_proposed` — what the agent proposed to do
+- `exception_applied` — boolean flag
+- `escalation_target` — role to escalate to (nullable)
+- `reasoning` — 1-3 sentence AI explanation
+- `apaleo_data` — JSONB raw Apaleo API data used
+- `scenario_run_id` — groups entries from a single scenario run
+- `created_at` — auto-managed timestamp
 
 Run `pnpm --filter @workspace/db run push` to sync schema changes to the database.
 
