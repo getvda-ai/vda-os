@@ -1,5 +1,4 @@
 import { logger } from "./logger.js";
-import { getApaleoToken } from "./apaleo-auth.js";
 
 export interface McpToolDefinition {
   name: string;
@@ -12,7 +11,8 @@ export interface McpToolCallResult {
   isError?: boolean;
 }
 
-const APALEO_MCP_URL = "https://mcp.apaleo.com/mcp";
+const PORT = process.env.PORT ?? "8080";
+const APALEO_MCP_URL = `http://localhost:${PORT}/api/mcp`;
 const MCP_TOOLS_CACHE_TTL_MS = 5 * 60_000;
 
 let mcpSessionId: string | null = null;
@@ -25,10 +25,7 @@ export function isMcpConfigured(): boolean {
 }
 
 async function mcpPost(body: object): Promise<unknown> {
-  const token = await getApaleoToken();
-
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
   };

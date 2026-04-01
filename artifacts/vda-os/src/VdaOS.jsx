@@ -5482,6 +5482,11 @@ function LiveWitnessStream({ entries }) {
             <div style={{ fontSize: 10, color: decColor, fontFamily: T.mono, marginBottom: 3 }}>
               {e.fileReferenced} · {e.clauseApplied?.slice(0, 70)}{e.clauseApplied?.length > 70 ? "…" : ""}
             </div>
+            {e.apaleoData?.usedMcp && (
+              <div style={{ fontSize: 10, color: "#6366f1", fontFamily: T.mono, marginBottom: 3 }}>
+                via Apaleo MCP{typeof e.apaleoData.toolCallsMade === "number" ? ` · ${e.apaleoData.toolCallsMade} tool call${e.apaleoData.toolCallsMade !== 1 ? "s" : ""}` : ""}
+              </div>
+            )}
             <div style={{ fontSize: 11, color: T.dim }}>{e.reasoning?.slice(0, 140)}{e.reasoning?.length > 140 ? "…" : ""}</div>
             <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
               {e.apaleoData?.usedMcp && (
