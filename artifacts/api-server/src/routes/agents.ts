@@ -968,7 +968,7 @@ router.post("/agents/availability", async (req, res) => {
       return res.status(400).json({ error: "propertyId, arrival, departure, companyId required" });
     }
 
-    const { decision, toolCallsMade, usedMcp } = await evaluateWithPolicyAndMcp(
+    const { decision, toolCallsMade, usedMcp, filesLoaded: availFilesLoaded } = await evaluateWithPolicyAndMcp(
       "Availability Agent",
       "availability",
       `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults. Fetch live availability via GetAvailableUnitGroups, rate plans via ListRatePlans, and active offers via ListOffers from Apaleo.`,
@@ -985,14 +985,14 @@ router.post("/agents/availability", async (req, res) => {
       companyId: Number(companyId),
       agent: "Availability Agent",
       decision,
-      fileReferenced: "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
+      fileReferenced: availFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? availFilesLoaded[0] ?? "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
 
     res.json({
       ...decision, witnessEntryId: witnessId,
-      propertyId, arrival, departure, usedMcp, toolCallsMade,
+      propertyId, arrival, departure, usedMcp, toolCallsMade, filesLoaded: availFilesLoaded,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -1168,7 +1168,7 @@ router.post("/agents/reservation", async (req, res) => {
       `Use MCP tools to verify live Apaleo data, then apply reservation policy and issue governance decision.`,
     ].filter(Boolean).join(" ");
 
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: resvFilesLoaded } = await evaluateWithPolicyAndMcp(
       "Reservation Bot", "reservation", taskCtx, mcpTools, Number(companyId)
     );
     apaleoData.usedMcp = evalUsedMcp;
@@ -1229,7 +1229,7 @@ router.post("/agents/reservation", async (req, res) => {
       companyId: Number(companyId),
       agent: "Reservation Bot",
       decision,
-      fileReferenced: "Hospitality-Operations-Stay-checkin-agent.SOP.md",
+      fileReferenced: resvFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? resvFilesLoaded[0] ?? "Hospitality-Revenue-Book-reservation-bot.SOP.md",
       apaleoData,
       scenarioRunId,
     });
@@ -1238,7 +1238,7 @@ router.post("/agents/reservation", async (req, res) => {
       ...decision, witnessEntryId: witnessId,
       propertyId, action,
       reservationId: executedReservationId,
-      writeExecuted, writeError,
+      writeExecuted, writeError, filesLoaded: resvFilesLoaded,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -1316,7 +1316,7 @@ router.post("/agents/checkin", async (req, res) => {
     }
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkinFilesLoaded } = await evaluateWithPolicyAndMcp(
       "Check-In Agent", "checkin",
       `Validate and process check-in for ${guestName ?? "guest"} at property ${propertyId}. ${resolvedReservationId ? `Use GetReservation to verify reservation ${resolvedReservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "Find today's arriving reservations."} Run all 5 validation gates per check-in policy before making your decision.`,
       [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts],
@@ -1353,14 +1353,14 @@ router.post("/agents/checkin", async (req, res) => {
       companyId: Number(companyId),
       agent: "Check-In Agent",
       decision,
-      fileReferenced: "Hospitality-Operations-Stay-checkin-agent.SOP.md",
+      fileReferenced: checkinFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? checkinFilesLoaded[0] ?? "Hospitality-Operations-Stay-checkin-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
 
     res.json({
       ...decision, witnessEntryId: witnessId,
-      propertyId, reservationId: resolvedReservationId, guestName, checkinExecuted, checkinError,
+      propertyId, reservationId: resolvedReservationId, guestName, checkinExecuted, checkinError, filesLoaded: checkinFilesLoaded,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -1391,7 +1391,7 @@ router.post("/agents/folio", async (req, res) => {
       "Apply folio-settlement-policy.md thresholds and issue a governance decision.",
     ].filter(Boolean).join(" ");
 
-    const { decision, toolCallsMade, usedMcp } = await evaluateWithPolicyAndMcp(
+    const { decision, toolCallsMade, usedMcp, filesLoaded: folioFilesLoaded } = await evaluateWithPolicyAndMcp(
       "Folio Agent",
       "folio",
       taskDesc,
@@ -1407,12 +1407,12 @@ router.post("/agents/folio", async (req, res) => {
       companyId: Number(companyId),
       agent: "Folio Agent",
       decision,
-      fileReferenced: "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+      fileReferenced: folioFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? folioFilesLoaded[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
 
-    res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId, usedMcp, toolCallsMade });
+    res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId, usedMcp, toolCallsMade, filesLoaded: folioFilesLoaded });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
@@ -1483,7 +1483,7 @@ router.post("/agents/folio-charge", async (req, res) => {
     }
 
     // ── Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: folioChargeFilesLoaded } = await evaluateWithPolicyAndMcp(
       "Folio Agent", "folio_charge",
       `Post charge €${chargeAmount} ${currency} (${serviceType}: ${chargeName ?? "unnamed"}) to folio ${resolvedFolioId ?? "none"} at property ${propertyId}. ${resolvedFolioId ? `Use GetFolio to verify folio ${resolvedFolioId} is Open, ListPaymentAccounts to confirm payment method, ListInvoices to check for duplicate charges, then apply folio-charge-policy thresholds.` : "No folio resolved — apply FAIL decision."}`,
       [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices],
@@ -1526,14 +1526,14 @@ router.post("/agents/folio-charge", async (req, res) => {
       companyId: Number(companyId),
       agent: "Folio Charge Agent",
       decision,
-      fileReferenced: "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+      fileReferenced: folioChargeFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? folioChargeFilesLoaded[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
 
     res.json({
       ...decision, witnessEntryId: witnessId,
-      propertyId, folioId: resolvedFolioId, chargeAmount, currency, chargePosted, chargeError,
+      propertyId, folioId: resolvedFolioId, chargeAmount, currency, chargePosted, chargeError, filesLoaded: folioChargeFilesLoaded,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -1614,7 +1614,7 @@ router.post("/agents/checkout", async (req, res) => {
     }
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkoutFilesLoaded } = await evaluateWithPolicyAndMcp(
       "Checkout Agent", "checkout",
       `Process checkout for ${guestName ?? "guest"} (${loyaltyTier ?? "Standard"} tier) at property ${propertyId}. ${reservationId ? `Use GetReservation to verify InHouse status for reservation ${reservationId}, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges.` : `Find today's departing InHouse reservations at property ${propertyId}.`} Late checkout requested: ${lateCheckout ?? "No"}. Apply all checkout-policy.md gates.`,
       [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
@@ -1647,14 +1647,14 @@ router.post("/agents/checkout", async (req, res) => {
       companyId: Number(companyId),
       agent: "Checkout Agent",
       decision,
-      fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+      fileReferenced: checkoutFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? checkoutFilesLoaded[0] ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
 
     res.json({
       ...decision, witnessEntryId: witnessId,
-      propertyId, reservationId, guestName, loyaltyTier, checkoutExecuted, checkoutError,
+      propertyId, reservationId, guestName, loyaltyTier, checkoutExecuted, checkoutError, filesLoaded: checkoutFilesLoaded,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -1715,7 +1715,7 @@ Rate plans: ${ratePlans.map((p) => p.name || p.id).slice(0, 6).join(", ")}
 Revenue report rows: ${revenueRows.length}
 Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id: r.id, status: r.status, ratePlanId: r.ratePlanId, total: r.totalGrossAmount })), null, 2)}`;
 
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: revFilesLoaded } = await evaluateWithPolicyAndMcp(
       "Revenue Reconciliation Agent", "revenue",
       `Reconcile daily revenue for property ${propertyId} on ${targetDate}. ${reservations.length} reservations fetched via REST with total ${totalRevenue} ${currency}. Use GetReport to pull live revenue report, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charge records. Apply revenue-reconciliation-policy variance thresholds.`,
       [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
@@ -1728,14 +1728,14 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
       companyId: Number(companyId),
       agent: "Revenue Reconciliation Agent",
       decision,
-      fileReferenced: "revenue-reconciliation-policy.md",
+      fileReferenced: revFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? revFilesLoaded[0] ?? "revenue-reconciliation-policy.md",
       apaleoData,
       scenarioRunId,
     });
 
     res.json({
       ...decision, witnessEntryId: witnessId,
-      propertyId, date: targetDate, totalRevenue, currency, reservationCount: reservations.length,
+      propertyId, date: targetDate, totalRevenue, currency, reservationCount: reservations.length, filesLoaded: revFilesLoaded,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -1807,7 +1807,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       ids.unitGroupId = unitGroups[0]?.unitGroupId;
       ids.ratePlanId = ratePlans[0]?.id;
 
-      const { decision, usedMcp: availUsedMcp, toolCallsMade: availToolCalls } = await evaluateWithPolicyAndMcp(
+      const { decision, usedMcp: availUsedMcp, toolCallsMade: availToolCalls, filesLoaded: availScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Availability Agent", "availability",
         `Check live unit availability for property ${propertyId} from ${today} to ${tomorrow} for 2 adults. Use GetAvailableUnitGroups, ListRatePlans, and ListOffers MCP tools to fetch real Apaleo data, then apply availability-policy.md decision criteria.`,
         [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListOffers],
@@ -1816,7 +1816,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Availability Agent", decision,
-        fileReferenced: "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
+        fileReferenced: availScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? availScenarioFiles[0] ?? "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
         apaleoData: { propertyId, arrival: today, departure: tomorrow, unitGroups: unitGroups.slice(0, 3), usedMcp: availUsedMcp, toolCallsMade: availToolCalls },
         scenarioRunId,
       });
@@ -1826,7 +1826,7 @@ router.post("/agents/scenario/run", async (req, res) => {
     // ─ Step 2: Rate Agent ─────────────────────────────────────────────────
     {
       const bar = 180; const requested = 162; const discountPct = 10;
-      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls } = await evaluateWithPolicyAndMcp(
+      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Rate Agent", "rate",
         `Evaluate a 10% discount rate request: BAR €${bar}, requested €${requested} for property ${propertyId}. ${ids.ratePlanId ? `Rate plan ID: ${ids.ratePlanId}.` : ""} Use ListRatePlans and GetReport MCP tools to verify current Apaleo rate plans and revenue data, then apply rate-override-policy thresholds.`,
         [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport],
@@ -1834,7 +1834,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       );
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
-        fileReferenced: "Hospitality-Revenue-Book-rate-agent.SOP.md",
+        fileReferenced: rateScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? rateScenarioFiles[0] ?? "Hospitality-Revenue-Book-rate-agent.SOP.md",
         apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls },
         scenarioRunId,
       });
@@ -1860,7 +1860,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         );
       }
 
-      const { decision, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls } = await evaluateWithPolicyAndMcp(
+      const { decision, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls, filesLoaded: resvScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Reservation Bot", "reservation",
         `Create a reservation for Demo Guest at property ${propertyId} arriving ${today}, departing ${tomorrow}. ${ids.unitGroupId ? `Unit group: ${ids.unitGroupId}.` : ""} ${ids.ratePlanId ? `Rate plan: ${ids.ratePlanId}.` : ""} Use GetAvailableUnitGroups, ListRatePlans, and GetGuestProfile MCP tools to verify live availability and guest identity, then apply reservation-policy rules.`,
         [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetGuestProfile],
@@ -1910,7 +1910,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Reservation Bot", decision,
-        fileReferenced: "Hospitality-Operations-Stay-checkin-agent.SOP.md",
+        fileReferenced: resvScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? resvScenarioFiles[0] ?? "Hospitality-Revenue-Book-reservation-bot.SOP.md",
         apaleoData: { createdId, writeExecuted, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls },
         scenarioRunId,
       });
@@ -1958,7 +1958,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         contextLines.push("No reservation ID — cannot validate check-in");
       }
 
-      const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls } = await evaluateWithPolicyAndMcp(
+      const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, filesLoaded: ciScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Check-In Agent", "checkin",
         `Check-in Demo Guest at property ${propertyId}. ${reservationId ? `Use GetReservation to verify reservation ${reservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "No reservation ID resolved — issue FAIL."} Validate all 5 check-in gates per check-in-policy.md.`,
         [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts],
@@ -1981,7 +1981,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Check-In Agent", decision: ciDecision,
-        fileReferenced: "Hospitality-Operations-Stay-checkin-agent.SOP.md",
+        fileReferenced: ciScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? ciScenarioFiles[0] ?? "Hospitality-Operations-Stay-checkin-agent.SOP.md",
         apaleoData: { reservationId, checkinExecuted, folioId: folioFromCheckin, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls },
         scenarioRunId,
       });
@@ -2006,7 +2006,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         contextLines.push("No folio ID resolved — charge cannot be posted");
       }
 
-      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls } = await evaluateWithPolicyAndMcp(
+      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Folio Agent", "folio_charge",
         `Post a room charge of €240 EUR (RoomRevenue: Demo Room Charge) to folio ${folioId ?? "none"} at property ${propertyId}. ${folioId ? `Use GetFolio to verify folio ${folioId} is Open, ListPaymentAccounts to confirm payment method, and ListInvoices to check for duplicate charges.` : "No folio ID resolved — apply FAIL."} Apply folio-charge-policy thresholds.`,
         [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices],
@@ -2035,7 +2035,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Folio Charge Agent", decision: fcDecision,
-        fileReferenced: "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+        fileReferenced: fcScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? fcScenarioFiles[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
         apaleoData: { folioId, chargePosted, chargeAmount: 240, currency: "EUR", usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls },
         scenarioRunId,
       });
@@ -2070,7 +2070,7 @@ router.post("/agents/scenario/run", async (req, res) => {
           `  Gate 3 — Loyalty Gold: eligible for late checkout waiver until 14:00 → exception_applied=true`
         );
 
-        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls } = await evaluateWithPolicyAndMcp(
+        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles } = await evaluateWithPolicyAndMcp(
           "Checkout Agent", "checkout",
           `Checkout Demo Guest (Gold loyalty tier, late checkout until 13:00) at property ${propertyId}. Use GetReservation to verify reservation ${reservationId} is InHouse, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges. Apply checkout-policy.md gates and loyalty exception rules.`,
           [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
@@ -2094,7 +2094,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         const coCurrency = folios[0]?.totalAmount?.currency ?? "EUR";
         const wid = await writeWitnessEntry({
           companyId: Number(companyId), agent: "Checkout Agent", decision: coDecision,
-          fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+          fileReferenced: coScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? coScenarioFiles[0] ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
           apaleoData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", totalOutstanding: coTotalOutstanding, currency: coCurrency, usedMcp: coUsedMcp, toolCallsMade: coToolCalls },
           scenarioRunId,
         });
@@ -2127,7 +2127,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       const total = reservations.reservations.reduce((s, r) => s + (r.totalGrossAmount?.amount ?? 0), 0);
       const currency = reservations.reservations[0]?.totalGrossAmount?.currency ?? "EUR";
 
-      const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls } = await evaluateWithPolicyAndMcp(
+      const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, filesLoaded: revScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Revenue Reconciliation Agent", "revenue",
         `End-of-scenario revenue reconciliation for property ${propertyId} on ${today}. ${reservations.count} reservations (total ${total} ${currency}) retrieved via REST. Use GetReport to pull live revenue data, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charges. Apply revenue-reconciliation-policy variance thresholds.`,
         [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
@@ -2136,7 +2136,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Revenue Reconciliation Agent", decision: revDecision,
-        fileReferenced: "revenue-reconciliation-policy.md",
+        fileReferenced: revScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? revScenarioFiles[0] ?? "revenue-reconciliation-policy.md",
         apaleoData: { date: today, reservationCount: reservations.count, totalRevenue: total, currency, scenarioReservationId: ids.reservationId, usedMcp: revUsedMcp, toolCallsMade: revToolCalls },
         scenarioRunId,
       });

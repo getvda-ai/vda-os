@@ -68,7 +68,7 @@ const INDUSTRY_CONFIGS = {
       { id: "access", label: "Staff Fast-Track", icon: "👤", description: "Specialist role access provisioning before start date" },
     ],
     witnessEntries: [
-      { agent: "Checkout Agent", decision: "PASS", file: "folio-settlement-policy.md", clause: "MAY waive late checkout fee for verified loyalty tier guests", exception: true },
+      { agent: "Checkout Agent", decision: "PASS", file: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md", clause: "MAY waive late checkout fee for verified loyalty tier guests", exception: true },
       { agent: "Maintenance PO Agent", decision: "FAIL", file: "procurement-authority.md", clause: "MUST NOT process PO above authority level without CFO sign-off", exception: false },
       { agent: "Onboarding Agent", decision: "ESCALATE", file: "staff-access-provisioning-baseline.md", clause: "MUST NOT provision access without manager approval in the HR system", exception: false },
     ],
@@ -5989,12 +5989,12 @@ export default function VdaOS() {
   const seedApaleoGovernanceFiles = async (companyId, companyName) => {
     const seedFiles = [
       {
-        filename: "rate-override-policy.md",
-        filepath: "governance/rate-override-policy.md",
+        filename: "Hospitality-Revenue-Book-rate-agent.AGENTS.md",
+        filepath: "governance/Hospitality-Revenue-Book-rate-agent.AGENTS.md",
         fileType: "AGENTS",
         axis: "vertical",
-        stage: "discover",
-        journeyStage: "discover",
+        stage: "Book",
+        journeyStage: "Book",
         owner: "Revenue Manager",
         domain: "Revenue Management",
         agentId: "rate-agent",
@@ -6006,9 +6006,15 @@ export default function VdaOS() {
 file_type: AGENTS
 agent_id: rate-agent
 domain: Revenue Management
+stage: Book
 owner: Revenue Manager
+authored_by: Revenue Manager
+consulted: VP Revenue, Finance Director
+informed: Operations Director, Front Office Manager
+approved_by: VP Revenue
+risk_level: HIGH
 axis: vertical
-journey_stage: discover
+journey_stage: Book
 normalisation_level: 3
 vendor: VDA-MK for Apaleo
 baseline: true
@@ -6033,11 +6039,10 @@ MAY apply up to 5% early-bird discount automatically for bookings >30 days out.
 
 MUST escalate to Revenue Manager when: discount request is between 10% and 18% below BAR.
 MUST escalate to VP Revenue when: discount request exceeds 18% below BAR.
-MUST escalate to VP Revenue when: account is not classified as Tier 1 in Apaleo.
 
 ## Exception Overlays
 
-MAY apply the \`key-account-rate-exception.md\` overlay for verified Tier 1 accounts (up to 18% discount at Revenue Manager authority).
+MAY apply EXCEPTION overlay for verified Tier 1 accounts (up to 18% discount at Revenue Manager authority).
 MUST NOT apply exception overlay without valid account tier verification in Apaleo.
 
 ## Compliance Baseline
@@ -6047,26 +6052,32 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
 `,
       },
       {
-        filename: "folio-settlement-policy.md",
-        filepath: "governance/folio-settlement-policy.md",
-        fileType: "COMPLIANCE",
+        filename: "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+        filepath: "governance/Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+        fileType: "SOP",
         axis: "horizontal",
-        stage: "checkout",
-        journeyStage: "checkout",
+        stage: "Stay",
+        journeyStage: "Stay",
         owner: "Operations Director",
-        domain: "Folio Management",
-        agentId: "folio-settlement-agent",
+        domain: "Operations",
+        agentId: "folio-charge-agent",
         normalisationLevel: 3,
         vendor: "VDA-MK for Apaleo",
         baseline: true,
         nistControl: "AU-2",
         content: `---
-file_type: COMPLIANCE
-agent_id: folio-settlement-agent
-domain: Folio Management
+file_type: SOP
+agent_id: folio-charge-agent
+domain: Operations
+stage: Stay
 owner: Operations Director
+authored_by: Operations Director
+consulted: Finance Director, Front Office Manager
+informed: Revenue Manager, General Manager
+approved_by: Finance Director
+risk_level: HIGH
 axis: horizontal
-journey_stage: checkout
+journey_stage: Stay
 normalisation_level: 3
 vendor: VDA-MK for Apaleo
 baseline: true
@@ -6076,7 +6087,7 @@ apaleo_api: Folio API
 
 ## Scope
 
-This policy governs all folio settlement actions performed by the Folio Settlement Agent via the Apaleo Folio API at ${companyName}.
+This SOP governs all folio charge actions performed by the Folio Charge Agent via the Apaleo Folio API at ${companyName}.
 
 ## Mandatory Rules
 
@@ -6093,11 +6104,6 @@ MAY waive late checkout fee up to 14:00 for verified Gold or Platinum loyalty ti
 MUST confirm loyalty tier in Apaleo guest profile before applying waiver.
 MUST NOT waive late checkout fee beyond 14:00 without Front Office Manager approval.
 
-## Overdue Folio Escalation
-
-MUST escalate folio invoices unpaid beyond 30-day payment terms to Credit Control.
-MUST send minimum two automated reminders before escalation.
-
 ## Compliance Baseline
 
 Inherits: NIST SP 800-53 AU-2, AC-2
@@ -6106,14 +6112,14 @@ PCI DSS: MUST NOT store raw card data in folio records or agent logs.
 `,
       },
       {
-        filename: "check-in-agent.md",
-        filepath: "governance/check-in-agent.md",
+        filename: "Hospitality-Operations-Stay-checkin-agent.AGENTS.md",
+        filepath: "governance/Hospitality-Operations-Stay-checkin-agent.AGENTS.md",
         fileType: "AGENTS",
         axis: "vertical",
-        stage: "checkin",
-        journeyStage: "checkin",
+        stage: "Stay",
+        journeyStage: "Stay",
         owner: "Front Office Manager",
-        domain: "Check-In",
+        domain: "Operations",
         agentId: "check-in-agent",
         normalisationLevel: 3,
         vendor: "VDA-MK for Apaleo",
@@ -6122,10 +6128,16 @@ PCI DSS: MUST NOT store raw card data in folio records or agent logs.
         content: `---
 file_type: AGENTS
 agent_id: check-in-agent
-domain: Check-In
+domain: Operations
+stage: Stay
 owner: Front Office Manager
+authored_by: Front Office Manager
+consulted: Operations Director, IT Security Officer
+informed: Revenue Manager, General Manager
+approved_by: Operations Director
+risk_level: MEDIUM
 axis: vertical
-journey_stage: checkin
+journey_stage: Stay
 normalisation_level: 3
 vendor: VDA-MK for Apaleo
 baseline: true
@@ -6153,13 +6165,6 @@ MAY apply room-type upgrade for verified Gold or Platinum loyalty tier guests wh
 MUST confirm loyalty tier in Apaleo guest profile before applying any upgrade.
 MUST NOT apply upgrade if the higher unit type is fully committed for the night.
 
-## Escalation Path
-
-MUST escalate to Front Office Manager when:
-- Reservation has a block, dispute, or open folio balance > €500.
-- Guest identity cannot be verified.
-- No units of the reserved type are available.
-
 ## Compliance Baseline
 
 Inherits: NIST SP 800-53 AC-2, AU-2
@@ -6169,14 +6174,14 @@ PCI DSS: MUST NOT log raw card data during check-in.
 `,
       },
       {
-        filename: "availability-agent.md",
-        filepath: "governance/availability-agent.md",
+        filename: "Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md",
+        filepath: "governance/Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md",
         fileType: "AGENTS",
         axis: "vertical",
-        stage: "discover",
-        journeyStage: "discover",
+        stage: "Pre-Book",
+        journeyStage: "Pre-Book",
         owner: "Revenue Manager",
-        domain: "Availability & Inventory",
+        domain: "Revenue Management",
         agentId: "availability-agent",
         normalisationLevel: 3,
         vendor: "VDA-MK for Apaleo",
@@ -6185,10 +6190,16 @@ PCI DSS: MUST NOT log raw card data during check-in.
         content: `---
 file_type: AGENTS
 agent_id: availability-agent
-domain: Availability & Inventory
+domain: Revenue Management
+stage: Pre-Book
 owner: Revenue Manager
+authored_by: Revenue Manager
+consulted: Operations Director, IT Security Officer
+informed: General Manager, Front Office Manager
+approved_by: Operations Director
+risk_level: MEDIUM
 axis: vertical
-journey_stage: discover
+journey_stage: Pre-Book
 normalisation_level: 3
 vendor: VDA-MK for Apaleo
 baseline: true
@@ -6214,12 +6225,6 @@ MAY hold inventory for group bookings up to 24 hours pending deposit confirmatio
 MUST NOT release a group booking hold without confirmed deposit or signed group agreement.
 MUST escalate to Revenue Manager when inventory drops below minimum availability threshold.
 MAY apply overbooking policy up to the approved overbooking percentage set by Revenue Manager.
-
-## Post-Stay Invoice Dispatch
-
-MUST generate folio invoice within 24 hours of checkout and dispatch to confirmed billing address.
-MUST reference the Apaleo Folio API data when generating post-stay invoices.
-MUST NOT dispatch invoice to an unverified billing address.
 
 ## Compliance Baseline
 
