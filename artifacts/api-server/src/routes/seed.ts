@@ -482,65 +482,6 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
 `,
     },
     {
-      filename: "folio-settlement-policy.md",
-      filepath: "governance/folio-settlement-policy.md",
-      fileType: "COMPLIANCE",
-      axis: "horizontal",
-      stage: "checkout",
-      journeyStage: "checkout",
-      owner: "Operations Director",
-      domain: "Folio Management",
-      agentId: "folio-settlement-agent",
-      normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
-      baseline: true,
-      nistControl: "AU-2",
-      content: `---
-file_type: COMPLIANCE
-agent_id: folio-settlement-agent
-domain: Folio Management
-owner: Operations Director
-axis: horizontal
-journey_stage: checkout
-normalisation_level: 3
-vendor: VDA-MK for Apaleo
-baseline: true
-nist_control: AU-2
-apaleo_api: Folio API
----
-
-## Scope
-
-This policy governs all folio settlement actions performed by the Folio Settlement Agent via the Apaleo Folio API at ${companyName}.
-
-## Mandatory Rules
-
-MUST NOT post folio charges without a matching, confirmed reservation ID in Apaleo Reservations API.
-MUST NOT settle a folio where the reservation status is not IN_HOUSE or CHECKED_OUT in Apaleo.
-MUST confirm folio balance is zero or a valid payment method is on file before checkout.
-MUST log every folio action to the Witness Agent audit trail with Apaleo folio reference.
-MUST NOT process refunds — route all refund requests to a human Folio Agent.
-MUST escalate folios with disputes or unresolved charges to Operations Director before settlement.
-
-## Late Checkout Fee Policy
-
-MAY waive late checkout fee up to 14:00 for verified Gold or Platinum loyalty tier guests.
-MUST confirm loyalty tier in Apaleo guest profile before applying waiver.
-MUST NOT waive late checkout fee beyond 14:00 without Front Office Manager approval.
-
-## Overdue Folio Escalation
-
-MUST escalate folio invoices unpaid beyond 30-day payment terms to Credit Control.
-MUST send minimum two automated reminders before escalation.
-
-## Compliance Baseline
-
-Inherits: NIST SP 800-53 AU-2, AC-2
-Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
-PCI DSS: MUST NOT store raw card data in folio records or agent logs.
-`,
-    },
-    {
       filename: "check-in-agent.md",
       filepath: "governance/check-in-agent.md",
       fileType: "AGENTS",
@@ -604,9 +545,127 @@ PCI DSS: MUST NOT log raw card data during check-in.
 `,
     },
     {
-      filename: "availability-agent.md",
-      filepath: "governance/availability-agent.md",
+      filename: "checkout-agent.md",
+      filepath: "governance/checkout-agent.md",
       fileType: "AGENTS",
+      axis: "vertical",
+      stage: "checkout",
+      journeyStage: "checkout",
+      owner: "Front Office Manager",
+      domain: "Checkout",
+      agentId: "checkout-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: AGENTS
+agent_id: checkout-agent
+domain: Checkout
+owner: Front Office Manager
+axis: vertical
+journey_stage: checkout
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AU-2
+apaleo_api: Reservations API, Folio API
+---
+
+## Agent Scope
+
+The Checkout Agent governs the automated checkout workflow at ${companyName} via the Apaleo Reservations and Folio APIs.
+
+## Permitted Actions
+
+MUST verify reservation status is IN_HOUSE in Apaleo before initiating checkout.
+MUST confirm all folio charges are settled and a valid payment method is on file.
+MUST update Apaleo reservation status to CHECKED_OUT upon successful checkout.
+MUST log every checkout action to the Witness Agent audit trail with Apaleo reservation reference.
+MUST NOT process checkout if folio has open disputes or unresolved charges.
+MUST NOT check out a guest whose reservation shows CANCELLED or NO_SHOW status in Apaleo.
+
+## Late Checkout
+
+MAY approve late checkout up to 12:00 without manager approval for verified loyalty guests.
+MUST escalate late checkout requests beyond 14:00 to Front Office Manager.
+MUST NOT waive late checkout fee beyond 14:00 without Front Office Manager approval.
+
+## Post-Checkout
+
+MUST trigger folio invoice dispatch within 1 hour of checkout confirmation.
+MUST NOT retain room access credentials in active state after CHECKED_OUT status is set.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AU-2, AC-2
+Frameworks: PCI DSS, GDPR/CCPA
+PCI DSS: MUST NOT retain full card data in checkout records.
+`,
+    },
+    {
+      filename: "folio-charge-policy.md",
+      filepath: "governance/folio-charge-policy.md",
+      fileType: "COMPLIANCE",
+      axis: "horizontal",
+      stage: "checkout",
+      journeyStage: "checkout",
+      owner: "Operations Director",
+      domain: "Folio Management",
+      agentId: "folio-charge-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: COMPLIANCE
+agent_id: folio-charge-agent
+domain: Folio Management
+owner: Operations Director
+axis: horizontal
+journey_stage: checkout
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AU-2
+apaleo_api: Folio API
+---
+
+## Scope
+
+This policy governs all folio charge and settlement actions performed via the Apaleo Folio API at ${companyName}.
+
+## Mandatory Rules
+
+MUST NOT post folio charges without a matching, confirmed reservation ID in Apaleo.
+MUST NOT settle a folio where the reservation status is not IN_HOUSE or CHECKED_OUT in Apaleo.
+MUST confirm folio balance is zero or a valid payment method is on file before checkout.
+MUST log every folio charge to the Witness Agent audit trail with Apaleo folio reference.
+MUST NOT process refunds — route all refund requests to a human Folio Agent.
+MUST escalate folios with disputes or unresolved charges exceeding 200 EUR to Operations Director.
+
+## Late Checkout Fee
+
+MAY waive late checkout fee up to 14:00 for verified Gold or Platinum loyalty tier guests.
+MUST confirm loyalty tier in Apaleo guest profile before applying waiver.
+MUST NOT waive late checkout fee beyond 14:00 without Front Office Manager approval.
+
+## Overdue Folio Escalation
+
+MUST escalate folio invoices unpaid beyond 30-day payment terms to Credit Control.
+MUST send minimum two automated payment reminders before escalation.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AU-2, AC-2
+Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+PCI DSS: MUST NOT store raw card data in folio records or agent logs.
+`,
+    },
+    {
+      filename: "availability-policy.md",
+      filepath: "governance/availability-policy.md",
+      fileType: "COMPLIANCE",
       axis: "vertical",
       stage: "discover",
       journeyStage: "discover",
@@ -618,7 +677,7 @@ PCI DSS: MUST NOT log raw card data during check-in.
       baseline: true,
       nistControl: "AC-2",
       content: `---
-file_type: AGENTS
+file_type: COMPLIANCE
 agent_id: availability-agent
 domain: Availability & Inventory
 owner: Revenue Manager
@@ -631,11 +690,11 @@ nist_control: AC-2
 apaleo_api: Availability API, Rate Plan API
 ---
 
-## Agent Scope
+## Scope
 
-The Availability Agent governs real-time inventory and availability decisions for ${companyName} via the Apaleo Availability and Rate Plan APIs.
+This policy governs real-time inventory and availability decisions at ${companyName} via the Apaleo Availability and Rate Plan APIs.
 
-## Permitted Actions
+## Mandatory Rules
 
 MUST query Apaleo Availability API for live unit inventory before confirming any reservation.
 MUST NOT confirm a reservation for a unit type with zero availability in Apaleo.
@@ -647,10 +706,10 @@ MAY hold inventory for group bookings up to 24 hours pending deposit confirmatio
 ## Inventory Management
 
 MUST NOT release a group booking hold without confirmed deposit or signed group agreement.
-MUST escalate to Revenue Manager when inventory drops below minimum availability threshold.
-MAY apply overbooking policy up to the approved overbooking percentage set by Revenue Manager.
+MUST escalate to Revenue Manager when inventory drops below the minimum availability threshold.
+MAY apply overbooking policy up to the percentage approved by Revenue Manager.
 
-## Post-Stay Invoice Dispatch
+## Post-Stay Invoice
 
 MUST generate folio invoice within 24 hours of checkout and dispatch to confirmed billing address.
 MUST reference the Apaleo Folio API data when generating post-stay invoices.
@@ -660,6 +719,65 @@ MUST NOT dispatch invoice to an unverified billing address.
 
 Inherits: NIST SP 800-53 AC-2, AU-2
 Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+`,
+    },
+    {
+      filename: "reservation-bot.md",
+      filepath: "governance/reservation-bot.md",
+      fileType: "AGENTS",
+      axis: "vertical",
+      stage: "book",
+      journeyStage: "book",
+      owner: "Revenue Manager",
+      domain: "Reservations",
+      agentId: "reservation-bot",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AC-2",
+      content: `---
+file_type: AGENTS
+agent_id: reservation-bot
+domain: Reservations
+owner: Revenue Manager
+axis: vertical
+journey_stage: book
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AC-2
+apaleo_api: Reservations API, Rate Plan API, Availability API
+---
+
+## Agent Scope
+
+The Reservation Bot automates new reservation creation at ${companyName} via the Apaleo Reservations, Rate Plan, and Availability APIs.
+
+## Permitted Actions
+
+MUST verify unit type availability via Apaleo Availability API before creating a reservation.
+MUST verify the rate plan exists and is active in Apaleo Rate Plan API before booking.
+MUST log every reservation creation attempt to the Witness Agent audit trail.
+MUST NOT create a reservation for a unit type with zero availability.
+MUST NOT apply a rate plan that is expired or suspended in Apaleo.
+MUST NOT override rate plan restrictions (min stay, closed to arrival) without Revenue Manager approval.
+
+## Guest Validation
+
+MUST collect and validate guest name, email, and arrival/departure dates before submission.
+MUST NOT create a duplicate reservation for the same guest, dates, and unit type without confirmation.
+MAY auto-apply loyalty rate for verified loyalty programme members.
+
+## Channel Policy
+
+MUST stamp the booking source channel on each reservation in Apaleo.
+MUST NOT create reservations via channels not authorised by Revenue Manager.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AC-2, AU-2
+Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+GDPR: MUST NOT store guest PII beyond the required retention window.
 `,
     },
   ];
@@ -715,7 +833,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
             companyName: prop.companyName,
             websiteUrl: prop.websiteUrl,
             brandContext: prop.brandContext,
-            filesCount: 4,
+            filesCount: 6,
           })
           .where(eq(companies.id, companyId));
         existing.push({ apaleoPropertyId: prop.apaleoPropertyId, companyName: prop.companyName, companyId });
@@ -728,7 +846,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
             websiteUrl: prop.websiteUrl,
             industry: "hospitality",
             brandContext: prop.brandContext,
-            filesCount: 4,
+            filesCount: 6,
             savedAt: Date.now(),
             uploadedFiles: null,
             apaleoPropertyId: prop.apaleoPropertyId,
@@ -745,7 +863,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
       let filesInserted = 0;
 
       // Restore any canonical files that were previously archived
-      const CANONICAL = ["rate-override-policy.md", "folio-settlement-policy.md", "check-in-agent.md", "availability-agent.md"];
+      const CANONICAL = ["rate-override-policy.md", "check-in-agent.md", "checkout-agent.md", "folio-charge-policy.md", "availability-policy.md", "reservation-bot.md"];
       for (const name of CANONICAL) {
         await db
           .update(governanceFiles)
@@ -755,8 +873,8 @@ router.post("/admin/seed-companies", async (_req, res) => {
             eq(governanceFiles.filename, name)
           ));
       }
-      // Archive any non-canonical files introduced by previous seed versions
-      const SUPERSEDED = ["checkout-agent.md", "folio-charge-policy.md", "availability-policy.md", "reservation-bot.md"];
+      // Archive any legacy files from prior seed versions not in the canonical set
+      const SUPERSEDED = ["folio-settlement-policy.md", "availability-agent.md"];
       for (const oldName of SUPERSEDED) {
         await db
           .update(governanceFiles)
