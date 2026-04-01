@@ -24,8 +24,7 @@ export interface ApaleoPropertyList {
 }
 
 export type ReservationStatus =
-  | "Tentative"
-  | "Definite"
+  | "Confirmed"
   | "InHouse"
   | "CheckedOut"
   | "Canceled"
