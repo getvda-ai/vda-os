@@ -2621,7 +2621,7 @@ ${inputMd}`;
 // ─────────────────────────────────────────────
 // C2MD STUDIO TAB
 // ─────────────────────────────────────────────
-function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onSaveToFM }) {
+function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onSaveToFM, companyId }) {
   const [sel, setSel] = useState(config.nistControls[0]);
   // cache and setCache come from App root — persists across tab switches
   const [status, setStatus] = useState("idle");
@@ -2630,6 +2630,42 @@ function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onS
   const streamRef = useRef(null);
   const ctrl = NIST_CONTROLS[sel];
   const result = cache[sel];
+
+  // Pre-populate cache from enriched governance files already in the File Manager.
+  // Runs once per company load. Only fills controls not already in cache.
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const listRes = await fetch(`/api/fm/files/${companyId}`);
+        if (!listRes.ok) return;
+        const files = await listRes.json();
+        const newEntries = {};
+        for (const controlId of config.nistControls) {
+          if (cache[controlId]) continue;
+          const matching = files
+            .filter(f => f.nistControl === controlId && f.status === "live")
+            .sort((a, b) => (b.wordCount || 0) - (a.wordCount || 0));
+          if (!matching.length) continue;
+          const fileRes = await fetch(`/api/fm/file/${matching[0].id}?companyId=${companyId}`);
+          if (!fileRes.ok || cancelled) continue;
+          const full = await fileRes.json();
+          if (full.content?.includes("c2md_generated: true")) {
+            newEntries[controlId] = { md: full.content, filename: full.filename, overall_confidence: 0.97, clauses: [] };
+          }
+        }
+        if (cancelled || !Object.keys(newEntries).length) return;
+        setCache(prev => ({ ...newEntries, ...prev }));
+        // Also update local display state if the currently selected control was pre-populated
+        if (newEntries[sel] && (status === "idle" || status === "error")) {
+          setDisplayedMd(newEntries[sel].md);
+          setStatus("done");
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [companyId]);
 
   const handleTranslate = async () => {
     if (result || status === "calling" || status === "streaming") return;
@@ -6428,7 +6464,7 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
           {/* Content */}
           {tab === "journey"     && <JourneyMapTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} apaleoStats={apaleoStats} />}
           {tab === "demo"        && <LiveDemoTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} companyId={setup.id} onLogEntry={addLog} />}
-          {tab === "c2md"        && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} onSaveToFM={(content, filename, fileType) => {
+          {tab === "c2md"        && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} companyId={setup.id} onSaveToFM={(content, filename, fileType) => {
             const companyId = setup.id;
             if (!companyId) return;
             fetch("/api/fm/file", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, filename, fileType: fileType || "COMPLIANCE", axis: "compliance", content, status: "draft" }) })
