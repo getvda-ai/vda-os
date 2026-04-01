@@ -644,7 +644,12 @@ const CROSS_DOMAIN_AGENT_IDS: Record<string, string[]> = {
   "checkout-agent":     ["finance-o2c-shared"],
 };
 
-async function getGovernancePolicyFromFM(companyId: number, policyKey: string): Promise<string> {
+interface GovernancePolicyResult {
+  policyText: string;
+  filesLoaded: string[];
+}
+
+async function getGovernancePolicyFromFM(companyId: number, policyKey: string): Promise<GovernancePolicyResult> {
   const agentId = POLICY_AGENT_ID_MAP[policyKey];
   if (agentId && companyId) {
     try {
@@ -681,11 +686,11 @@ async function getGovernancePolicyFromFM(companyId: number, policyKey: string): 
       const filesLoaded = allRows.map(r => r.filename);
 
       if (allRows.length > 0 && allRows.some(r => r.content && r.content.length > 200)) {
-        const combined = allRows
+        const policyText = allRows
           .map(r => `## [${r.fileType}] ${r.filename}\n\n${r.content}`)
           .join("\n\n---\n\n");
         logger.info({ companyId, policyKey, agentId, filesLoaded, crossDomain: crossDomainIds.length > 0 }, "Agent loaded multi-file policy from FM governance files");
-        return combined;
+        return { policyText, filesLoaded };
       }
     } catch (err) {
       logger.warn({ err, companyId, policyKey }, "FM policy lookup failed — using hardcoded fallback");
@@ -694,10 +699,13 @@ async function getGovernancePolicyFromFM(companyId: number, policyKey: string): 
   const fallback = POLICIES[policyKey];
   if (!fallback) {
     logger.warn({ policyKey }, "No policy found in FM or hardcoded POLICIES — agent will run without policy context");
-    return `## Policy Not Found\nNo governance file found for policy key: ${policyKey}. Escalate all decisions until a governance file is loaded.`;
+    return {
+      policyText: `## Policy Not Found\nNo governance file found for policy key: ${policyKey}. Escalate all decisions until a governance file is loaded.`,
+      filesLoaded: [],
+    };
   }
   logger.info({ companyId, policyKey }, "Agent using hardcoded fallback policy");
-  return fallback;
+  return { policyText: fallback, filesLoaded: [] };
 }
 
 // ─── Agent Decision Type ──────────────────────────────────────────────────────
@@ -751,14 +759,15 @@ async function evaluateWithPolicy(
   task: string,
   companyId: number = 0
 ): Promise<AgentDecision> {
-  const policy = await getGovernancePolicyFromFM(companyId, policyKey);
+  const { policyText, filesLoaded } = await getGovernancePolicyFromFM(companyId, policyKey);
+  void filesLoaded; // available for downstream Witness Agent — used in evaluateWithPolicyAndMcp
   const aiResponse = await callAI({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
     system: `You are the ${agentName} operating under the VDA-MK governance framework.
 Your governing policy document is:
 
-${policy}
+${policyText}
 
 You MUST respond ONLY in this exact JSON format with no extra text:
 {
@@ -798,6 +807,7 @@ interface AgenticEvalResult {
   decision: AgentDecision;
   toolCallsMade: number;
   usedMcp: boolean;
+  filesLoaded: string[];
 }
 
 async function evaluateWithPolicyAndMcp(
@@ -807,7 +817,7 @@ async function evaluateWithPolicyAndMcp(
   agentToolNames: string[],
   companyId: number = 0
 ): Promise<AgenticEvalResult> {
-  const policy = await getGovernancePolicyFromFM(companyId, policyKey);
+  const { policyText, filesLoaded } = await getGovernancePolicyFromFM(companyId, policyKey);
 
   let anthropicTools: Array<{
     name: string;
@@ -833,7 +843,7 @@ async function evaluateWithPolicyAndMcp(
   const systemPrompt = `You are the ${agentName} operating under the VDA-MK governance framework.
 Your governing policy document is:
 
-${policy}
+${policyText}
 
 ${hasReadTools ? "You MUST call the provided Apaleo MCP tools to fetch live data before issuing your governance decision. Do not skip tool calls." : ""}
 After fetching live data, respond ONLY in this exact JSON format with no extra text:
@@ -911,7 +921,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
       try {
         const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
         const decision = JSON.parse(jsonMatch ? jsonMatch[0] : textBlock.text) as AgentDecision;
-        return { decision, toolCallsMade, usedMcp: toolCallsMade > 0 };
+        return { decision, toolCallsMade, usedMcp: toolCallsMade > 0, filesLoaded };
       } catch {
         logger.warn({ agentName, text: textBlock.text.slice(0, 200) }, "Could not parse agent JSON response");
       }
@@ -930,6 +940,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
     },
     toolCallsMade,
     usedMcp: toolCallsMade > 0,
+    filesLoaded,
   };
 }
 
@@ -974,7 +985,7 @@ router.post("/agents/availability", async (req, res) => {
       companyId: Number(companyId),
       agent: "Availability Agent",
       decision,
-      fileReferenced: "availability-policy.md",
+      fileReferenced: "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
@@ -1009,7 +1020,7 @@ router.post("/agents/rate", async (req, res) => {
     const reqRate = requestedRate ?? bar;
     const discountPct = bar > 0 ? Math.round(((bar - reqRate) / bar) * 100) : 0;
 
-    const { decision, toolCallsMade, usedMcp } = await evaluateWithPolicyAndMcp(
+    const { decision, toolCallsMade, usedMcp, filesLoaded } = await evaluateWithPolicyAndMcp(
       "Rate Agent",
       "rate",
       `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans via ListRatePlans and revenue report via GetReport from Apaleo, then apply rate-override policy.`,
@@ -1025,14 +1036,14 @@ router.post("/agents/rate", async (req, res) => {
       companyId: Number(companyId),
       agent: "Rate Agent",
       decision,
-      fileReferenced: "rate-override-policy.md",
+      fileReferenced: filesLoaded[0] ?? "Hospitality-Revenue-Book-rate-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
 
     res.json({
       ...decision, witnessEntryId: witnessId,
-      propertyId, requestedRate: reqRate, barRate: bar, discountPct, usedMcp, toolCallsMade,
+      propertyId, requestedRate: reqRate, barRate: bar, discountPct, usedMcp, toolCallsMade, filesLoaded,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -1218,7 +1229,7 @@ router.post("/agents/reservation", async (req, res) => {
       companyId: Number(companyId),
       agent: "Reservation Bot",
       decision,
-      fileReferenced: "check-in-agent.md",
+      fileReferenced: "Hospitality-Operations-Stay-checkin-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
@@ -1342,7 +1353,7 @@ router.post("/agents/checkin", async (req, res) => {
       companyId: Number(companyId),
       agent: "Check-In Agent",
       decision,
-      fileReferenced: "check-in-policy.md",
+      fileReferenced: "Hospitality-Operations-Stay-checkin-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
@@ -1396,7 +1407,7 @@ router.post("/agents/folio", async (req, res) => {
       companyId: Number(companyId),
       agent: "Folio Agent",
       decision,
-      fileReferenced: "folio-settlement-policy.md",
+      fileReferenced: "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
@@ -1515,7 +1526,7 @@ router.post("/agents/folio-charge", async (req, res) => {
       companyId: Number(companyId),
       agent: "Folio Charge Agent",
       decision,
-      fileReferenced: "folio-charge-policy.md",
+      fileReferenced: "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
@@ -1636,7 +1647,7 @@ router.post("/agents/checkout", async (req, res) => {
       companyId: Number(companyId),
       agent: "Checkout Agent",
       decision,
-      fileReferenced: "checkout-policy.md",
+      fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
       apaleoData,
       scenarioRunId,
     });
@@ -1805,7 +1816,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Availability Agent", decision,
-        fileReferenced: "availability-policy.md",
+        fileReferenced: "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
         apaleoData: { propertyId, arrival: today, departure: tomorrow, unitGroups: unitGroups.slice(0, 3), usedMcp: availUsedMcp, toolCallsMade: availToolCalls },
         scenarioRunId,
       });
@@ -1823,7 +1834,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       );
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
-        fileReferenced: "rate-override-policy.md",
+        fileReferenced: "Hospitality-Revenue-Book-rate-agent.SOP.md",
         apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls },
         scenarioRunId,
       });
@@ -1899,7 +1910,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Reservation Bot", decision,
-        fileReferenced: "check-in-agent.md",
+        fileReferenced: "Hospitality-Operations-Stay-checkin-agent.SOP.md",
         apaleoData: { createdId, writeExecuted, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls },
         scenarioRunId,
       });
@@ -1970,7 +1981,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Check-In Agent", decision: ciDecision,
-        fileReferenced: "check-in-policy.md",
+        fileReferenced: "Hospitality-Operations-Stay-checkin-agent.SOP.md",
         apaleoData: { reservationId, checkinExecuted, folioId: folioFromCheckin, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls },
         scenarioRunId,
       });
@@ -2024,7 +2035,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Folio Charge Agent", decision: fcDecision,
-        fileReferenced: "folio-charge-policy.md",
+        fileReferenced: "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
         apaleoData: { folioId, chargePosted, chargeAmount: 240, currency: "EUR", usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls },
         scenarioRunId,
       });
@@ -2083,7 +2094,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         const coCurrency = folios[0]?.totalAmount?.currency ?? "EUR";
         const wid = await writeWitnessEntry({
           companyId: Number(companyId), agent: "Checkout Agent", decision: coDecision,
-          fileReferenced: "checkout-policy.md",
+          fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
           apaleoData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", totalOutstanding: coTotalOutstanding, currency: coCurrency, usedMcp: coUsedMcp, toolCallsMade: coToolCalls },
           scenarioRunId,
         });
@@ -2096,7 +2107,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         };
         const wid = await writeWitnessEntry({
           companyId: Number(companyId), agent: "Checkout Agent", decision,
-          fileReferenced: "checkout-policy.md",
+          fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
           apaleoData: { reservationId: undefined, checkoutExecuted: false },
           scenarioRunId,
         });

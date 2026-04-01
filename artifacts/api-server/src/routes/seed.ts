@@ -652,6 +652,8 @@ domain: Revenue Management
 journey_stage_axis: Book
 value_stream_axis: vertical
 authored_by: Revenue Manager
+consulted: Finance Director, Operations Director
+informed: General Manager, VP Revenue, Head of Revenue
 approved_by: General Manager
 approved_date: 2026-03-01
 expires: 2026-12-31
@@ -856,6 +858,8 @@ domain: Check-In
 journey_stage_axis: Stay
 value_stream_axis: vertical
 authored_by: Front Office Manager
+consulted: Revenue Manager, CISO, Operations Director
+informed: General Manager, Head of Security
 approved_by: Operations Director
 approved_date: 2026-03-01
 expires: 2026-12-31
@@ -897,8 +901,8 @@ MUST NOT call any tool not listed in this manifest.
     // CHECKOUT AGENT — Operations · Post-Stay
     // ──────────────────────────────────────────────────────────────────────────
     {
-      filename: "Hospitality-Operations-PostStay-checkout-agent.AGENTS.md",
-      filepath: "governance/Hospitality-Operations-PostStay-checkout-agent.AGENTS.md",
+      filename: "Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
+      filepath: "governance/Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
       fileType: "AGENTS",
       axis: "vertical",
       stage: "checkout",
@@ -973,8 +977,8 @@ This agent reads active EXCEPTION.md files in addition to this SOP. Exception ov
 `,
     },
     {
-      filename: "Hospitality-Operations-PostStay-checkout-agent.SOP.md",
-      filepath: "governance/Hospitality-Operations-PostStay-checkout-agent.SOP.md",
+      filename: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+      filepath: "governance/Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
       fileType: "SOP",
       axis: "vertical",
       stage: "checkout",
@@ -1042,8 +1046,8 @@ GDPR: MUST NOT process guest PII beyond the legal retention period post-checkout
 `,
     },
     {
-      filename: "Hospitality-Operations-PostStay-checkout-agent.SKILL.md",
-      filepath: "governance/Hospitality-Operations-PostStay-checkout-agent.SKILL.md",
+      filename: "Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
+      filepath: "governance/Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
       fileType: "SKILL",
       axis: "vertical",
       stage: "checkout",
@@ -1063,6 +1067,8 @@ domain: Checkout
 journey_stage_axis: Post-Stay
 value_stream_axis: O2C
 authored_by: Front Office Manager
+consulted: Finance Director, Operations Director
+informed: General Manager, CFO, Credit Control
 approved_by: Operations Director
 approved_date: 2026-03-01
 expires: 2026-12-31
@@ -1273,6 +1279,8 @@ domain: Folio Management
 journey_stage_axis: Stay
 value_stream_axis: O2C
 authored_by: Operations Director
+consulted: CFO, Finance Director, Front Office Manager
+informed: General Manager, CISO, Credit Control
 approved_by: CFO
 approved_date: 2026-03-01
 expires: 2026-12-31
@@ -1311,8 +1319,8 @@ MUST NOT call any tool not listed in this manifest.
     // AVAILABILITY AGENT — Revenue · Pre-Book
     // ──────────────────────────────────────────────────────────────────────────
     {
-      filename: "Hospitality-Revenue-PreBook-availability-agent.AGENTS.md",
-      filepath: "governance/Hospitality-Revenue-PreBook-availability-agent.AGENTS.md",
+      filename: "Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md",
+      filepath: "governance/Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md",
       fileType: "AGENTS",
       axis: "vertical",
       stage: "prebook",
@@ -1379,8 +1387,8 @@ Read-only authority against the Apaleo Availability and Rate Plan APIs. This age
 `,
     },
     {
-      filename: "Hospitality-Revenue-PreBook-availability-agent.SOP.md",
-      filepath: "governance/Hospitality-Revenue-PreBook-availability-agent.SOP.md",
+      filename: "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
+      filepath: "governance/Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
       fileType: "SOP",
       axis: "vertical",
       stage: "prebook",
@@ -1444,8 +1452,8 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
 `,
     },
     {
-      filename: "Hospitality-Revenue-PreBook-availability-agent.SKILL.md",
-      filepath: "governance/Hospitality-Revenue-PreBook-availability-agent.SKILL.md",
+      filename: "Hospitality-Revenue-Pre-Book-availability-agent.SKILL.md",
+      filepath: "governance/Hospitality-Revenue-Pre-Book-availability-agent.SKILL.md",
       fileType: "SKILL",
       axis: "vertical",
       stage: "prebook",
@@ -1465,6 +1473,8 @@ domain: Availability & Inventory
 journey_stage_axis: Pre-Book
 value_stream_axis: vertical
 authored_by: Revenue Manager
+consulted: Operations Director, Head of Revenue
+informed: General Manager, Front Office Manager, Finance Director
 approved_by: General Manager
 approved_date: 2026-03-01
 expires: 2026-12-31
@@ -1662,6 +1672,8 @@ domain: Reservations
 journey_stage_axis: Book
 value_stream_axis: vertical
 authored_by: Revenue Manager
+consulted: Operations Director, Finance Director, CISO
+informed: General Manager, Head of Revenue, VP Revenue
 approved_by: General Manager
 approved_date: 2026-03-01
 expires: 2026-12-31
@@ -1872,15 +1884,15 @@ router.post("/admin/seed-companies", async (_req, res) => {
         "Hospitality-Operations-Stay-checkin-agent.AGENTS.md",
         "Hospitality-Operations-Stay-checkin-agent.SOP.md",
         "Hospitality-Operations-Stay-checkin-agent.SKILL.md",
-        "Hospitality-Operations-PostStay-checkout-agent.AGENTS.md",
-        "Hospitality-Operations-PostStay-checkout-agent.SOP.md",
-        "Hospitality-Operations-PostStay-checkout-agent.SKILL.md",
+        "Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
+        "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+        "Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
         "Hospitality-Operations-Stay-folio-charge-agent.AGENTS.md",
         "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
         "Hospitality-Operations-Stay-folio-charge-agent.SKILL.md",
-        "Hospitality-Revenue-PreBook-availability-agent.AGENTS.md",
-        "Hospitality-Revenue-PreBook-availability-agent.SOP.md",
-        "Hospitality-Revenue-PreBook-availability-agent.SKILL.md",
+        "Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md",
+        "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
+        "Hospitality-Revenue-Pre-Book-availability-agent.SKILL.md",
         "Hospitality-Revenue-Book-reservation-bot.AGENTS.md",
         "Hospitality-Revenue-Book-reservation-bot.SOP.md",
         "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
@@ -1941,8 +1953,8 @@ router.post("/admin/seed-companies", async (_req, res) => {
   }
 
   // ── C2MD ENRICHMENT PASS ─────────────────────────────────────────────────────
-  // Generate brand-adapted markdown for each of the 6 governance files using
-  // Claude (6 calls, shared across all 5 citizenM hotels since they share a brand).
+  // Generate brand-adapted markdown for each of the 19 VDA-MD governance files using
+  // Claude (up to 19 calls, shared across all 5 citizenM hotels since they share a brand).
   // Idempotent: files containing C2MD_MARKER are skipped.
   const c2mdLog: string[] = [];
 
@@ -1963,15 +1975,15 @@ router.post("/admin/seed-companies", async (_req, res) => {
       "Hospitality-Operations-Stay-checkin-agent.AGENTS.md",
       "Hospitality-Operations-Stay-checkin-agent.SOP.md",
       "Hospitality-Operations-Stay-checkin-agent.SKILL.md",
-      "Hospitality-Operations-PostStay-checkout-agent.AGENTS.md",
-      "Hospitality-Operations-PostStay-checkout-agent.SOP.md",
-      "Hospitality-Operations-PostStay-checkout-agent.SKILL.md",
+      "Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
+      "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+      "Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
       "Hospitality-Operations-Stay-folio-charge-agent.AGENTS.md",
       "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       "Hospitality-Operations-Stay-folio-charge-agent.SKILL.md",
-      "Hospitality-Revenue-PreBook-availability-agent.AGENTS.md",
-      "Hospitality-Revenue-PreBook-availability-agent.SOP.md",
-      "Hospitality-Revenue-PreBook-availability-agent.SKILL.md",
+      "Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md",
+      "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
+      "Hospitality-Revenue-Pre-Book-availability-agent.SKILL.md",
       "Hospitality-Revenue-Book-reservation-bot.AGENTS.md",
       "Hospitality-Revenue-Book-reservation-bot.SOP.md",
       "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
@@ -1996,14 +2008,14 @@ router.post("/admin/seed-companies", async (_req, res) => {
     if (unenrichedFiles.length === 0) {
       c2mdLog.push("C2MD: all governance files already enriched — skipped");
     } else {
-      c2mdLog.push(`C2MD: ${unenrichedFiles.length} file(s) need enrichment — generating (6 shared calls)…`);
+      c2mdLog.push(`C2MD: ${unenrichedFiles.length} file(s) need enrichment — generating (up to 19 shared calls)…`);
 
       // Build static template content using generic "citizenM" brand (no city)
       const templateFiles = buildGovernanceFiles(0, "citizenM");
       const enrichedByFilename = new Map<string, string>();
 
-      // 6 sequential Claude calls — one per file type, shared across all hotels.
-      // Sequential to avoid API burst-rate risk and to match task requirements.
+      // Up to 19 sequential Claude calls — one per VDA-MD file (AGENTS/SOP/SKILL × 6 agents + Shared Services).
+      // Sequential to avoid API burst-rate risk and to maintain governance determinism.
       const filesToEnrich = templateFiles.filter(
         tmpl => unenrichedFiles.some(f => f.filename === tmpl.filename)
       );
