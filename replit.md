@@ -37,6 +37,34 @@ artifacts-monorepo/
 └── package.json            # Root package with hoisted devDeps
 ```
 
+## Apaleo Integration
+
+Apaleo sandbox integration via OAuth 2.0 client credentials flow. All credentials stored as secrets.
+
+**Required secrets:**
+- `APALEO_CLIENT_ID` — Apaleo OAuth client ID (set)
+- `APALEO_CLIENT_SECRET` — Apaleo OAuth client secret (set)
+- `APALEO_MCP_URL` — Apaleo MCP server URL (optional, for agent tool use)
+- `APALEO_MCP_TOKEN` — Apaleo MCP server bearer token (optional)
+
+**Apaleo API routes** (all under `/api/apaleo/`):
+- `GET /api/apaleo/status` — connectivity check, lists reachable sandbox properties
+- `GET /api/apaleo/properties` — list all properties
+- `GET /api/apaleo/reservations` — list reservations (filter: propertyId, status, from, to, dateFilter, pageSize, pageNumber)
+- `GET /api/apaleo/guests` — deduplicated guest list extracted from reservations
+- `GET /api/apaleo/folios` — financial folios (filter: reservationId, propertyId)
+- `GET /api/apaleo/rate-plans` — rate plans (filter: propertyId, unitGroupId, channelCode, isArchived)
+- `GET /api/apaleo/reports/revenue` — revenue report (filter: propertyId, from, to)
+- `GET /api/apaleo/mcp/tools` — list available MCP tools (requires APALEO_MCP_URL + APALEO_MCP_TOKEN)
+- `POST /api/apaleo/mcp/tools/:toolName` — call a specific MCP tool
+
+**Source files:**
+- `src/lib/apaleo-types.ts` — TypeScript interfaces for all Apaleo resources
+- `src/lib/apaleo-auth.ts` — OAuth token management with in-memory cache + auto-refresh
+- `src/lib/apaleo-client.ts` — Apaleo REST API fetch helpers
+- `src/lib/apaleo-mcp.ts` — MCP server connection management
+- `src/routes/apaleo.ts` — Express router for all `/api/apaleo/*` routes
+
 ## Applications
 
 ### `artifacts/vda-os` — VDA-MK for Apaleo

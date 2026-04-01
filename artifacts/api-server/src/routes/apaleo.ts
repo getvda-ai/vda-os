@@ -1,26 +1,80 @@
-import { Router } from "express";
+import { Router, type IRouter } from "express";
 import { apaleoFetch, buildQueryString } from "../lib/apaleo";
+import { getTokenExpiry } from "../lib/apaleo-auth";
+import { isMcpConfigured, listMcpTools, callMcpTool } from "../lib/apaleo-mcp";
+import { withCache } from "../lib/apaleo-cache";
+import type { ReservationStatus } from "../lib/apaleo-types";
 
-const router = Router();
+const router: IRouter = Router();
+
+const TTL = {
+  properties: 5 * 60_000,
+  reservations: 60_000,
+  guests: 60_000,
+  folios: 60_000,
+  ratePlans: 10 * 60_000,
+  revenueReport: 10 * 60_000,
+  unitGroups: 5 * 60_000,
+  units: 5 * 60_000,
+};
+
+// ─── Status ───────────────────────────────────────────────────────────────────
+
+router.get("/apaleo/status", async (req, res) => {
+  const clientId = process.env.APALEO_CLIENT_ID;
+  const clientSecret = process.env.APALEO_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    res.status(503).json({
+      connected: false,
+      error: "Missing APALEO_CLIENT_ID or APALEO_CLIENT_SECRET environment variables",
+      mcpConfigured: isMcpConfigured(),
+    });
+    return;
+  }
+
+  try {
+    const result = await apaleoFetch<{ properties: { id: string }[]; count?: number }>(
+      "/inventory/v1/properties?pageSize=100"
+    );
+    const propertyIds = (result.properties ?? []).map((p) => p.id);
+    res.json({
+      connected: true,
+      propertyCount: result.count ?? propertyIds.length,
+      propertiesReachable: propertyIds,
+      tokenExpiry: getTokenExpiry(),
+      mcpConfigured: isMcpConfigured(),
+    });
+  } catch (err: unknown) {
+    req.log.error({ err }, "Apaleo status check failed");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(503).json({ connected: false, error: message, mcpConfigured: isMcpConfigured() });
+  }
+});
 
 // ─── Properties ───────────────────────────────────────────────────────────────
 
-router.get("/apaleo/properties", async (_req, res) => {
+router.get("/apaleo/properties", async (req, res) => {
   try {
-    const data = await apaleoFetch<{ properties: ApaleoProperty[] }>("/inventory/v1/properties");
-    res.json(data.properties ?? []);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const data = await withCache("properties", TTL.properties, () =>
+      apaleoFetch<{ properties: unknown[]; count?: number }>("/inventory/v1/properties?pageSize=100")
+    );
+    res.json(data);
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to fetch Apaleo properties");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
 router.get("/apaleo/properties/:propertyId", async (req, res) => {
   try {
-    const data = await apaleoFetch<ApaleoProperty>(`/inventory/v1/properties/${req.params.propertyId}`);
+    const data = await apaleoFetch(`/inventory/v1/properties/${req.params.propertyId}`);
     res.json(data);
-  } catch (err: any) {
-    const status = err.message.includes("404") ? 404 : 500;
-    res.status(status).json({ error: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    const status = message.includes("404") ? 404 : 502;
+    res.status(status).json({ error: { message } });
   }
 });
 
@@ -32,23 +86,24 @@ router.get("/apaleo/properties/:propertyId/stats", async (req, res) => {
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString().split("T")[0];
 
   try {
-    const [arrivalsData, departuresData, inHouseData, foliosData, maintenancesData] = await Promise.allSettled([
-      apaleoFetch<{ count: number }>(
-        `/booking/v1/reservations$count${buildQueryString({ propertyId, status: "Confirmed,InHouse", arrival: today })}`
-      ),
-      apaleoFetch<{ count: number }>(
-        `/booking/v1/reservations$count${buildQueryString({ propertyId, status: "CheckedOut", departure: today })}`
-      ),
-      apaleoFetch<{ count: number }>(
-        `/booking/v1/reservations$count${buildQueryString({ propertyId, status: "InHouse" })}`
-      ),
-      apaleoFetch<{ count: number }>(
-        `/finance/v1/folios$count${buildQueryString({ propertyId, status: "Open" })}`
-      ),
-      apaleoFetch<{ count: number }>(
-        `/operations/v1/maintenances$count${buildQueryString({ propertyId })}`
-      ),
-    ]);
+    const [arrivalsData, departuresData, inHouseData, foliosData, maintenancesData] =
+      await Promise.allSettled([
+        apaleoFetch<{ count: number }>(
+          `/booking/v1/reservations$count${buildQueryString({ propertyId, status: "Confirmed,InHouse", arrival: today })}`
+        ),
+        apaleoFetch<{ count: number }>(
+          `/booking/v1/reservations$count${buildQueryString({ propertyId, status: "CheckedOut", departure: today })}`
+        ),
+        apaleoFetch<{ count: number }>(
+          `/booking/v1/reservations$count${buildQueryString({ propertyId, status: "InHouse" })}`
+        ),
+        apaleoFetch<{ count: number }>(
+          `/finance/v1/folios$count${buildQueryString({ propertyId, status: "Open" })}`
+        ),
+        apaleoFetch<{ count: number }>(
+          `/operations/v1/maintenances$count${buildQueryString({ propertyId })}`
+        ),
+      ]);
 
     const safe = (result: PromiseSettledResult<{ count: number }>) =>
       result.status === "fulfilled" ? (result.value?.count ?? 0) : 0;
@@ -63,8 +118,9 @@ router.get("/apaleo/properties/:propertyId/stats", async (req, res) => {
       pendingMaintenance: safe(maintenancesData),
       nextDay: tomorrow,
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
@@ -73,41 +129,89 @@ router.get("/apaleo/properties/:propertyId/stats", async (req, res) => {
 router.get("/apaleo/reservations", async (req, res) => {
   try {
     const {
-      propertyId, status, dateFrom, dateTo,
+      propertyId, status, dateFrom, dateTo, dateFilter, from, to,
       pageNumber = "1", pageSize = "20",
     } = req.query as Record<string, string>;
 
     const qs = buildQueryString({
-      propertyId,
+      propertyIds: propertyId,
       status,
-      dateFrom,
-      dateTo,
+      dateFilter: dateFilter || dateFrom,
+      from: from || dateTo,
+      to,
       pageNumber,
       pageSize,
       expand: "property,unitGroup,ratePlan,unit",
     });
 
-    const data = await apaleoFetch<ApaleoReservationList>(`/booking/v1/reservations${qs}`);
+    const cacheKey = `reservations:${qs}`;
+    const data = await withCache(cacheKey, TTL.reservations, () =>
+      apaleoFetch<{ reservations: unknown[]; count?: number }>(`/booking/v1/reservations${qs}`)
+    );
+
     res.json({
-      reservations: data.reservations ?? [],
-      count: data.count ?? 0,
+      reservations: (data as { reservations: unknown[] }).reservations ?? [],
+      count: (data as { count?: number }).count ?? 0,
       pageNumber: Number(pageNumber),
       pageSize: Number(pageSize),
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to fetch Apaleo reservations");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
 router.get("/apaleo/reservations/:id", async (req, res) => {
   try {
-    const data = await apaleoFetch<ApaleoReservation>(
+    const data = await apaleoFetch(
       `/booking/v1/reservations/${req.params.id}?expand=property,unitGroup,ratePlan,unit,booker,primaryGuest`
     );
     res.json(data);
-  } catch (err: any) {
-    const status = err.message.includes("404") ? 404 : 500;
-    res.status(status).json({ error: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    const status = message.includes("404") ? 404 : 502;
+    res.status(status).json({ error: { message } });
+  }
+});
+
+// ─── Guests (derived from reservations) ───────────────────────────────────────
+
+router.get("/apaleo/guests", async (req, res) => {
+  try {
+    const { propertyId, status, pageSize = "100", pageNumber = "1" } = req.query as Record<string, string>;
+
+    const qs = buildQueryString({ propertyIds: propertyId, status, pageSize, pageNumber });
+    const cacheKey = `guests:${qs}`;
+
+    const data = await withCache(cacheKey, TTL.guests, async () => {
+      const result = await apaleoFetch<{ reservations: Array<{
+        primaryGuest?: { id?: string };
+        booker?: { id?: string };
+      }>; count?: number }>(`/booking/v1/reservations${qs}`);
+
+      const seen = new Set<string>();
+      const guests: unknown[] = [];
+      for (const r of result.reservations ?? []) {
+        for (const g of [r.primaryGuest, r.booker]) {
+          if (g && (g as { id?: string }).id && !seen.has((g as { id: string }).id)) {
+            seen.add((g as { id: string }).id);
+            guests.push(g);
+          }
+        }
+      }
+      return {
+        guests,
+        count: guests.length,
+        derivedFrom: `reservations page ${pageNumber} (${result.reservations?.length ?? 0} records)`,
+      };
+    });
+
+    res.json(data);
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to fetch Apaleo guests");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
@@ -115,22 +219,34 @@ router.get("/apaleo/reservations/:id", async (req, res) => {
 
 router.get("/apaleo/folios", async (req, res) => {
   try {
-    const { propertyId, reservationId, status, pageNumber = "1", pageSize = "20" } = req.query as Record<string, string>;
+    const { propertyId, reservationId, status, pageNumber = "1", pageSize = "20" } =
+      req.query as Record<string, string>;
+
     const qs = buildQueryString({ propertyId, reservationId, status, pageNumber, pageSize });
-    const data = await apaleoFetch<ApaleoFolioList>(`/finance/v1/folios${qs}`);
-    res.json({ folios: data.folios ?? [], count: data.count ?? 0 });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const cacheKey = `folios:${qs}`;
+    const data = await withCache(cacheKey, TTL.folios, () =>
+      apaleoFetch<{ folios: unknown[]; count?: number }>(`/finance/v1/folios${qs}`)
+    );
+
+    res.json({
+      folios: (data as { folios: unknown[] }).folios ?? [],
+      count: (data as { count?: number }).count ?? 0,
+    });
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to fetch Apaleo folios");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
 router.get("/apaleo/folios/:id", async (req, res) => {
   try {
-    const data = await apaleoFetch<ApaleoFolio>(`/finance/v1/folios/${req.params.id}`);
+    const data = await apaleoFetch(`/finance/v1/folios/${req.params.id}`);
     res.json(data);
-  } catch (err: any) {
-    const status = err.message.includes("404") ? 404 : 500;
-    res.status(status).json({ error: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    const status = message.includes("404") ? 404 : 502;
+    res.status(status).json({ error: { message } });
   }
 });
 
@@ -140,10 +256,14 @@ router.get("/apaleo/unit-groups", async (req, res) => {
   try {
     const { propertyId } = req.query as Record<string, string>;
     const qs = buildQueryString({ propertyId });
-    const data = await apaleoFetch<{ unitGroups: ApaleoUnitGroup[] }>(`/inventory/v1/unit-groups${qs}`);
-    res.json(data.unitGroups ?? []);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const cacheKey = `unit-groups:${qs}`;
+    const data = await withCache(cacheKey, TTL.unitGroups, () =>
+      apaleoFetch<{ unitGroups: unknown[] }>(`/inventory/v1/unit-groups${qs}`)
+    );
+    res.json((data as { unitGroups: unknown[] }).unitGroups ?? []);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
@@ -151,12 +271,37 @@ router.get("/apaleo/unit-groups", async (req, res) => {
 
 router.get("/apaleo/rate-plans", async (req, res) => {
   try {
-    const { propertyId } = req.query as Record<string, string>;
-    const qs = buildQueryString({ propertyId });
-    const data = await apaleoFetch<{ ratePlans: ApaleoRatePlan[] }>(`/rateplan/v1/rate-plans${qs}`);
-    res.json(data.ratePlans ?? []);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const { propertyId, unitGroupId, channelCode, isArchived, pageSize = "100", pageNumber = "1" } =
+      req.query as Record<string, string>;
+
+    const qs = buildQueryString({ propertyId, unitGroupId, channelCode, isArchived, pageSize, pageNumber });
+    const cacheKey = `rate-plans:${qs}`;
+    const data = await withCache(cacheKey, TTL.ratePlans, () =>
+      apaleoFetch<{ ratePlans: unknown[]; count?: number }>(`/rateplan/v1/rate-plans${qs}`)
+    );
+    res.json(data);
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to fetch Apaleo rate plans");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
+  }
+});
+
+// ─── Revenue Report ───────────────────────────────────────────────────────────
+
+router.get("/apaleo/reports/revenue", async (req, res) => {
+  try {
+    const { propertyId, from, to } = req.query as Record<string, string>;
+    const qs = buildQueryString({ propertyId, from, to });
+    const cacheKey = `revenue-report:${qs}`;
+    const data = await withCache(cacheKey, TTL.revenueReport, () =>
+      apaleoFetch(`/reports/v1/reports/revenue${qs}`)
+    );
+    res.json(data);
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to fetch Apaleo revenue report");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
@@ -164,12 +309,16 @@ router.get("/apaleo/rate-plans", async (req, res) => {
 
 router.get("/apaleo/maintenances", async (req, res) => {
   try {
-    const { propertyId, type, status, pageNumber = "1", pageSize = "20" } = req.query as Record<string, string>;
+    const { propertyId, type, status, pageNumber = "1", pageSize = "20" } =
+      req.query as Record<string, string>;
     const qs = buildQueryString({ propertyId, type, status, pageNumber, pageSize });
-    const data = await apaleoFetch<ApaleoMaintenanceList>(`/operations/v1/maintenances${qs}`);
+    const data = await apaleoFetch<{ maintenances: unknown[]; count?: number }>(
+      `/operations/v1/maintenances${qs}`
+    );
     res.json({ maintenances: data.maintenances ?? [], count: data.count ?? 0 });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
@@ -179,10 +328,14 @@ router.get("/apaleo/units", async (req, res) => {
   try {
     const { propertyId, unitGroupId, condition } = req.query as Record<string, string>;
     const qs = buildQueryString({ propertyId, unitGroupId, condition });
-    const data = await apaleoFetch<{ units: ApaleoUnit[] }>(`/inventory/v1/units${qs}`);
-    res.json(data.units ?? []);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const cacheKey = `units:${qs}`;
+    const data = await withCache(cacheKey, TTL.units, () =>
+      apaleoFetch<{ units: unknown[] }>(`/inventory/v1/units${qs}`)
+    );
+    res.json((data as { units: unknown[] }).units ?? []);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
@@ -192,94 +345,40 @@ router.get("/apaleo/availability/unit-groups", async (req, res) => {
   try {
     const { propertyId, arrival, departure, adults } = req.query as Record<string, string>;
     const qs = buildQueryString({ propertyId, arrival, departure, adults });
-    const data = await apaleoFetch<{ unitGroups: unknown[] }>(`/availability/v1/unit-groups${qs}`);
-    res.json(data.unitGroups ?? []);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const data = await apaleoFetch<{ unitGroups: unknown[] }>(
+      `/availability/v1/unit-groups${qs}`
+    );
+    res.json((data as { unitGroups: unknown[] }).unitGroups ?? []);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
   }
 });
 
-// ─── Type Stubs ───────────────────────────────────────────────────────────────
+// ─── MCP Tools ────────────────────────────────────────────────────────────────
 
-interface ApaleoProperty {
-  id: string;
-  code: string;
-  name: { en: string; [lang: string]: string };
-  location?: { addressLine1?: string; city?: string; countryCode?: string };
-  timeZone?: string;
-  unitCount?: number;
-}
+router.get("/apaleo/mcp/tools", async (req, res) => {
+  try {
+    const tools = await listMcpTools();
+    res.json({ tools, count: tools.length });
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to list Apaleo MCP tools");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
+  }
+});
 
-interface ApaleoReservation {
-  id: string;
-  status: string;
-  arrival: string;
-  departure: string;
-  primaryGuest?: { firstName?: string; lastName?: string; email?: string };
-  booker?: { firstName?: string; lastName?: string };
-  unitGroup?: { id: string; name?: { en: string } };
-  ratePlan?: { id: string; name?: { en: string } };
-  unit?: { id: string; name?: string };
-  property?: { id: string; name?: { en: string } };
-  totalGrossAmount?: { amount: number; currency: string };
-  channelCode?: string;
-  source?: string;
-}
-
-interface ApaleoReservationList {
-  reservations: ApaleoReservation[];
-  count: number;
-}
-
-interface ApaleoFolio {
-  id: string;
-  status: string;
-  reservationId?: string;
-  charges?: { amount: { amount: number; currency: string }; serviceType?: string; name?: string }[];
-  payments?: { amount: { amount: number; currency: string }; method?: string }[];
-  balance?: { amount: number; currency: string };
-}
-
-interface ApaleoFolioList {
-  folios: ApaleoFolio[];
-  count: number;
-}
-
-interface ApaleoUnitGroup {
-  id: string;
-  name: { en: string; [lang: string]: string };
-  type?: string;
-  unitCount?: number;
-}
-
-interface ApaleoRatePlan {
-  id: string;
-  name: { en: string; [lang: string]: string };
-  isPublic?: boolean;
-  channelCode?: string;
-}
-
-interface ApaleoMaintenance {
-  id: string;
-  unitId: string;
-  type?: string;
-  description?: string;
-  from?: string;
-  to?: string;
-  isActive?: boolean;
-}
-
-interface ApaleoMaintenanceList {
-  maintenances: ApaleoMaintenance[];
-  count: number;
-}
-
-interface ApaleoUnit {
-  id: string;
-  name?: string;
-  unitGroupId?: string;
-  condition?: string;
-  status?: string;
-}
+router.post("/apaleo/mcp/tools/:toolName", async (req, res) => {
+  try {
+    const { toolName } = req.params;
+    const toolArgs = (req.body ?? {}) as Record<string, unknown>;
+    const result = await callMcpTool(toolName, toolArgs);
+    res.json(result);
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to call Apaleo MCP tool");
+    const message = err instanceof Error ? err.message : "Unknown error";
+    res.status(502).json({ error: { message } });
+  }
+});
 
 export default router;
