@@ -10,6 +10,7 @@ import { Router, type IRouter } from "express";
 import { apaleoFetch } from "../lib/apaleo.js";
 import { db, companies, governanceFiles } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
+import { callAI } from "./ai-proxy.js";
 
 const router: IRouter = Router();
 
@@ -420,6 +421,54 @@ const CITIZENM_PROPERTIES = [
     brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Vienna is in the heart of the Austrian capital, close to Stephansdom and the Ringstrasse. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
   },
 ];
+
+// Marker written into YAML frontmatter by the C2MD enrichment pass.
+// Used for idempotency — files that already contain this string are skipped.
+const C2MD_MARKER = "c2md_generated: true";
+
+/**
+ * Calls Claude to enrich a static governance file with citizenM brand voice.
+ * Uses the shared citizenM brandContext; hotel-specific companyName is injected
+ * by the caller via a simple string replace after generation.
+ */
+async function generateC2MDContent(
+  filename: string,
+  staticContent: string,
+  brandContext: string,
+): Promise<string> {
+  const brandSnippet = brandContext.slice(0, 1200);
+
+  const system = `You are the C2MD (Compliance-to-Markdown) Translation Engine for citizenM, an Apaleo-powered hospitality brand.
+
+BRAND CONTEXT:
+${brandSnippet}
+
+Rules:
+- Use "citizen" (lowercase) instead of "guest", "customer", or "user"
+- Use "citizenM Ambassador" instead of "staff" or "employee"
+- Reference Apaleo API names explicitly (Rate Plan API, Reservations API, Folio API, Unit Management API, Availability API)
+- Add exactly this line to the YAML frontmatter block: c2md_generated: true
+- Keep all other existing YAML frontmatter fields intact
+- Expand the MUST / MUST NOT / MAY rules with citizenM-specific operational context — add 2-4 more clauses where they add genuine value
+- Add a "## citizenM Operational Notes" section at the end with 2-3 brand-specific observations about this agent's role in the Apaleo stack
+- Output ONLY the enriched markdown — no preamble, no commentary, no code fences`;
+
+  const user = `Enrich this governance file for citizenM's Apaleo-powered properties.
+
+Keep the YAML frontmatter (add c2md_generated: true inside the frontmatter block), expand the MUST/MUST NOT/MAY rules with citizenM brand voice and Apaleo operational context, and add a citizenM Operational Notes section.
+
+GOVERNANCE FILE (${filename}):
+${staticContent}
+
+Return ONLY the enriched markdown.`;
+
+  return callAI({
+    model: "claude-sonnet-4-6",
+    max_tokens: 2500,
+    system,
+    messages: [{ role: "user", content: user }],
+  });
+}
 
 function buildGovernanceFiles(companyId: number, companyName: string) {
   const files = [
@@ -915,6 +964,100 @@ router.post("/admin/seed-companies", async (_req, res) => {
     }
   }
 
+  // ── C2MD ENRICHMENT PASS ─────────────────────────────────────────────────────
+  // Generate brand-adapted markdown for each of the 6 governance files using
+  // Claude (6 calls, shared across all 5 citizenM hotels since they share a brand).
+  // Idempotent: files containing C2MD_MARKER are skipped.
+  const c2mdLog: string[] = [];
+
+  try {
+    const citizenMBrandContext = CITIZENM_PROPERTIES[0].brandContext;
+    const allPropertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
+    const companyRows = await db
+      .select({ id: companies.id, apaleoPropertyId: companies.apaleoPropertyId })
+      .from(companies)
+      .where(inArray(companies.apaleoPropertyId, allPropertyIds));
+
+    const companyIds = companyRows.map(c => c.id);
+    const canonicalFilenames = [
+      "rate-override-policy.md",
+      "check-in-agent.md",
+      "checkout-agent.md",
+      "folio-charge-policy.md",
+      "availability-policy.md",
+      "reservation-bot.md",
+    ];
+
+    // Load all canonical governance files for all 5 hotels
+    const existingFiles = await db
+      .select({ id: governanceFiles.id, companyId: governanceFiles.companyId, filename: governanceFiles.filename, content: governanceFiles.content })
+      .from(governanceFiles)
+      .where(and(
+        inArray(governanceFiles.companyId, companyIds),
+        inArray(governanceFiles.filename, canonicalFilenames),
+      ));
+
+    const unenrichedFiles = existingFiles.filter(f => !f.content?.includes(C2MD_MARKER));
+
+    if (unenrichedFiles.length === 0) {
+      c2mdLog.push("C2MD: all governance files already enriched — skipped");
+    } else {
+      c2mdLog.push(`C2MD: ${unenrichedFiles.length} file(s) need enrichment — generating (6 shared calls)…`);
+
+      // Build static template content using generic "citizenM" brand (no city)
+      const templateFiles = buildGovernanceFiles(0, "citizenM");
+      const enrichedByFilename = new Map<string, string>();
+
+      // 6 parallel Claude calls — one per file type, shared across all hotels
+      const enrichResults = await Promise.allSettled(
+        templateFiles
+          .filter(tmpl => unenrichedFiles.some(f => f.filename === tmpl.filename))
+          .map(async (tmpl) => {
+            const enriched = await generateC2MDContent(tmpl.filename, tmpl.content, citizenMBrandContext);
+            return { filename: tmpl.filename, enriched };
+          })
+      );
+
+      for (const result of enrichResults) {
+        if (result.status === "fulfilled") {
+          const { filename, enriched } = result.value;
+          if (enriched && enriched.length > 400) {
+            enrichedByFilename.set(filename, enriched);
+            c2mdLog.push(`C2MD: ✓ ${filename} — ${enriched.length} chars`);
+          } else {
+            c2mdLog.push(`C2MD: ✗ ${filename} — response too short, kept static`);
+          }
+        } else {
+          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          c2mdLog.push(`C2MD: ERROR — ${msg}`);
+        }
+      }
+
+      // Write enriched content to all un-enriched file rows
+      let updatedCount = 0;
+      for (const file of unenrichedFiles) {
+        const enriched = enrichedByFilename.get(file.filename);
+        if (!enriched) continue;
+        const clauses = countClauses(enriched);
+        await db
+          .update(governanceFiles)
+          .set({
+            content: enriched,
+            mustCount: clauses.mustCount,
+            mustNotCount: clauses.mustNotCount,
+            mayCount: clauses.mayCount,
+            wordCount: clauses.wordCount,
+          })
+          .where(eq(governanceFiles.id, file.id));
+        updatedCount++;
+      }
+      c2mdLog.push(`C2MD: wrote enriched content to ${updatedCount} file(s) across ${companyIds.length} hotel(s)`);
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    c2mdLog.push(`C2MD: enrichment pass failed — ${msg}`);
+  }
+
   // Return exactly the 5 seeded citizenM property records
   const propertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
   const seededRows = await db
@@ -924,7 +1067,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
     .orderBy(companies.id);
 
   const success = errors.length === 0 && seededRows.length === CITIZENM_PROPERTIES.length;
-  res.json({ success, created, existing, errors: errors.length > 0 ? errors : undefined, log, companies: seededRows });
+  res.json({ success, created, existing, errors: errors.length > 0 ? errors : undefined, log: [...log, ...c2mdLog], companies: seededRows });
 });
 
 export default router;
