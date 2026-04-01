@@ -13,6 +13,8 @@ export const witnessEntries = pgTable("witness_entries", {
   reasoning: text("reasoning"),
   apaleoData: jsonb("apaleo_data"),
   scenarioRunId: text("scenario_run_id"),
+  filesConsulted: text("files_consulted").array(),
+  crossDomainInheritance: boolean("cross_domain_inheritance").default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

@@ -742,6 +742,8 @@ interface WitnessEntryInput {
   fileReferenced: string;
   apaleoData: Record<string, unknown>;
   scenarioRunId?: string;
+  filesConsulted?: string[];
+  crossDomainInheritance?: boolean;
 }
 
 async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
@@ -759,9 +761,20 @@ async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
       reasoning: entry.decision.reasoning,
       apaleoData: entry.apaleoData,
       scenarioRunId: entry.scenarioRunId ?? null,
+      filesConsulted: entry.filesConsulted ?? null,
+      crossDomainInheritance: entry.crossDomainInheritance ?? false,
     })
     .returning({ id: witnessEntries.id });
   return row.id;
+}
+
+// ─── Cross-Domain Inheritance Detector ────────────────────────────────────────
+
+function hasCrossDomainFiles(filesLoaded: string[]): boolean {
+  return filesLoaded.some(f => {
+    const lower = f.toLowerCase();
+    return lower.includes("shared-o2c") || lower.includes("finance-o2c");
+  });
 }
 
 // ─── AI Policy Evaluator ──────────────────────────────────────────────────────
@@ -783,10 +796,12 @@ Your governing policy document is:
 
 ${policyText}
 
+VERBATIM CLAUSE REQUIREMENT: For \`clauseApplied\`, you MUST copy the exact verbatim sentence or clause from the governance file that governed this decision. Do not summarise or paraphrase. Copy the exact text as it appears in the policy document. If an exception overlay applies, quote verbatim from the EXCEPTION file.
+
 You MUST respond ONLY in this exact JSON format with no extra text:
 {
   "decision": "PASS" | "FAIL" | "ESCALATE",
-  "clauseApplied": "<exact policy clause that governed this decision>",
+  "clauseApplied": "<verbatim sentence copied directly from the governance file>",
   "actionProposed": "<what action was taken or should be taken>",
   "exceptionApplied": true | false,
   "escalationTarget": "<role to escalate to, or null>",
@@ -869,11 +884,13 @@ Your governing policy document is:
 
 ${policyText}
 ${crossDomainBlock}${exceptionBlock}
+VERBATIM CLAUSE REQUIREMENT: For \`clauseApplied\`, you MUST copy the exact verbatim sentence or clause from the governance file that governed this decision. Do not summarise or paraphrase. Copy the exact text as it appears in the policy document. If an exception overlay applies, quote verbatim from the EXCEPTION file.
+
 ${hasReadTools ? "You MUST call the provided Apaleo MCP tools to fetch live data before issuing your governance decision. Do not skip tool calls." : ""}
 After fetching live data, respond ONLY in this exact JSON format with no extra text:
 {
   "decision": "PASS" | "FAIL" | "ESCALATE",
-  "clauseApplied": "<exact policy clause that governed this decision>",
+  "clauseApplied": "<verbatim sentence copied directly from the governance file>",
   "actionProposed": "<what action was taken or should be taken>",
   "exceptionApplied": true | false,
   "escalationTarget": "<role to escalate to, or null>",
@@ -1012,6 +1029,8 @@ router.post("/agents/availability", async (req, res) => {
       fileReferenced: availFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? availFilesLoaded[0] ?? "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
       apaleoData,
       scenarioRunId,
+      filesConsulted: availFilesLoaded,
+      crossDomainInheritance: hasCrossDomainFiles(availFilesLoaded),
     });
 
     res.json({
@@ -1060,9 +1079,11 @@ router.post("/agents/rate", async (req, res) => {
       companyId: Number(companyId),
       agent: "Rate Agent",
       decision,
-      fileReferenced: filesLoaded[0] ?? "Hospitality-Revenue-Book-rate-agent.SOP.md",
+      fileReferenced: filesLoaded.find(f => f.endsWith('.SOP.md')) ?? filesLoaded[0] ?? "Hospitality-Revenue-Book-rate-agent.SOP.md",
       apaleoData,
       scenarioRunId,
+      filesConsulted: filesLoaded,
+      crossDomainInheritance: hasCrossDomainFiles(filesLoaded),
     });
 
     res.json({
@@ -1256,6 +1277,8 @@ router.post("/agents/reservation", async (req, res) => {
       fileReferenced: resvFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? resvFilesLoaded[0] ?? "Hospitality-Revenue-Book-reservation-bot.SOP.md",
       apaleoData,
       scenarioRunId,
+      filesConsulted: resvFilesLoaded,
+      crossDomainInheritance: hasCrossDomainFiles(resvFilesLoaded),
     });
 
     res.json({
@@ -1380,6 +1403,8 @@ router.post("/agents/checkin", async (req, res) => {
       fileReferenced: checkinFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? checkinFilesLoaded[0] ?? "Hospitality-Operations-Stay-checkin-agent.SOP.md",
       apaleoData,
       scenarioRunId,
+      filesConsulted: checkinFilesLoaded,
+      crossDomainInheritance: hasCrossDomainFiles(checkinFilesLoaded),
     });
 
     res.json({
@@ -1434,6 +1459,8 @@ router.post("/agents/folio", async (req, res) => {
       fileReferenced: folioFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? folioFilesLoaded[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       apaleoData,
       scenarioRunId,
+      filesConsulted: folioFilesLoaded,
+      crossDomainInheritance: hasCrossDomainFiles(folioFilesLoaded),
     });
 
     res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId, usedMcp, toolCallsMade, filesLoaded: folioFilesLoaded });
@@ -1560,6 +1587,8 @@ router.post("/agents/folio-charge", async (req, res) => {
       fileReferenced: folioChargeFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? folioChargeFilesLoaded[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       apaleoData,
       scenarioRunId,
+      filesConsulted: folioChargeFilesLoaded,
+      crossDomainInheritance: hasCrossDomainFiles(folioChargeFilesLoaded),
     });
 
     res.json({
@@ -1685,6 +1714,8 @@ router.post("/agents/checkout", async (req, res) => {
       fileReferenced: checkoutFileRef,
       apaleoData,
       scenarioRunId,
+      filesConsulted: checkoutFilesLoaded,
+      crossDomainInheritance: hasCrossDomainFiles(checkoutFilesLoaded),
     });
 
     res.json({
@@ -1766,6 +1797,8 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
       fileReferenced: revFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? revFilesLoaded[0] ?? "revenue-reconciliation-policy.md",
       apaleoData,
       scenarioRunId,
+      filesConsulted: revFilesLoaded,
+      crossDomainInheritance: hasCrossDomainFiles(revFilesLoaded),
     });
 
     res.json({
@@ -1854,6 +1887,8 @@ router.post("/agents/scenario/run", async (req, res) => {
         fileReferenced: availScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? availScenarioFiles[0] ?? "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
         apaleoData: { propertyId, arrival: today, departure: tomorrow, unitGroups: unitGroups.slice(0, 3), usedMcp: availUsedMcp, toolCallsMade: availToolCalls },
         scenarioRunId,
+        filesConsulted: availScenarioFiles,
+        crossDomainInheritance: hasCrossDomainFiles(availScenarioFiles),
       });
       results.push({ step: 1, agent: "Availability Agent", ...decision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
@@ -1872,6 +1907,8 @@ router.post("/agents/scenario/run", async (req, res) => {
         fileReferenced: rateScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? rateScenarioFiles[0] ?? "Hospitality-Revenue-Book-rate-agent.SOP.md",
         apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls },
         scenarioRunId,
+        filesConsulted: rateScenarioFiles,
+        crossDomainInheritance: hasCrossDomainFiles(rateScenarioFiles),
       });
       results.push({ step: 2, agent: "Rate Agent", ...rateDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
@@ -1948,6 +1985,8 @@ router.post("/agents/scenario/run", async (req, res) => {
         fileReferenced: resvScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? resvScenarioFiles[0] ?? "Hospitality-Revenue-Book-reservation-bot.SOP.md",
         apaleoData: { createdId, writeExecuted, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls },
         scenarioRunId,
+        filesConsulted: resvScenarioFiles,
+        crossDomainInheritance: hasCrossDomainFiles(resvScenarioFiles),
       });
       results.push({ step: 3, agent: "Reservation Bot", ...decision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
@@ -2019,6 +2058,8 @@ router.post("/agents/scenario/run", async (req, res) => {
         fileReferenced: ciScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? ciScenarioFiles[0] ?? "Hospitality-Operations-Stay-checkin-agent.SOP.md",
         apaleoData: { reservationId, checkinExecuted, folioId: folioFromCheckin, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls },
         scenarioRunId,
+        filesConsulted: ciScenarioFiles,
+        crossDomainInheritance: hasCrossDomainFiles(ciScenarioFiles),
       });
       results.push({ step: 4, agent: "Check-In Agent", ...ciDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
@@ -2079,6 +2120,8 @@ router.post("/agents/scenario/run", async (req, res) => {
         fileReferenced: fcScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? fcScenarioFiles[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
         apaleoData: fcWitnessApaleoData,
         scenarioRunId,
+        filesConsulted: fcScenarioFiles,
+        crossDomainInheritance: hasCrossDomainFiles(fcScenarioFiles),
       });
       results.push({ step: 5, agent: "Folio Charge Agent", ...fcDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
@@ -2141,6 +2184,8 @@ router.post("/agents/scenario/run", async (req, res) => {
           fileReferenced: coFileRef,
           apaleoData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", totalOutstanding: coTotalOutstanding, currency: coCurrency, usedMcp: coUsedMcp, toolCallsMade: coToolCalls },
           scenarioRunId,
+          filesConsulted: coScenarioFiles,
+          crossDomainInheritance: hasCrossDomainFiles(coScenarioFiles),
         });
         results.push({ step: 6, agent: "Checkout Agent", ...coDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
       } else {
@@ -2154,6 +2199,8 @@ router.post("/agents/scenario/run", async (req, res) => {
           fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
           apaleoData: { reservationId: undefined, checkoutExecuted: false },
           scenarioRunId,
+          filesConsulted: [],
+          crossDomainInheritance: false,
         });
         results.push({ step: 6, agent: "Checkout Agent", ...decision, witnessEntryId: wid, apaleoIds: { ...ids } });
       }
@@ -2183,6 +2230,8 @@ router.post("/agents/scenario/run", async (req, res) => {
         fileReferenced: revScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? revScenarioFiles[0] ?? "revenue-reconciliation-policy.md",
         apaleoData: { date: today, reservationCount: reservations.count, totalRevenue: total, currency, scenarioReservationId: ids.reservationId, usedMcp: revUsedMcp, toolCallsMade: revToolCalls },
         scenarioRunId,
+        filesConsulted: revScenarioFiles,
+        crossDomainInheritance: hasCrossDomainFiles(revScenarioFiles),
       });
       results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }

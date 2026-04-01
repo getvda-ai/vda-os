@@ -5550,6 +5550,38 @@ function AgentStatusCard({ agent, status, lastEntry, running }) {
   );
 }
 
+const FILE_TYPE_BADGE = {
+  AGENTS:          { color: "#4A9EFF", label: "AGENTS" },
+  SOP:             { color: "#22D47A", label: "SOP" },
+  SKILL:           { color: "#A066FF", label: "SKILL" },
+  EXCEPTION:       { color: "#FF6B2B", label: "EXCEPTION" },
+  SHARED_SERVICES: { color: "#FF4D6A", label: "SHARED" },
+};
+
+function inferFileType(filename) {
+  if (!filename) return null;
+  if (filename.endsWith(".EXCEPTION.md")) return "EXCEPTION";
+  if (filename.endsWith(".AGENTS.md"))    return "AGENTS";
+  if (filename.endsWith(".SOP.md"))       return "SOP";
+  if (filename.endsWith(".SKILL.md"))     return "SKILL";
+  const lower = filename.toLowerCase();
+  if (lower.includes("shared-o2c") || lower.includes("finance-o2c") || lower.includes("shared_services")) return "SHARED_SERVICES";
+  return null;
+}
+
+function FileBadgeChip({ filename }) {
+  const ft = inferFileType(filename);
+  if (!ft) return null;
+  const cfg = FILE_TYPE_BADGE[ft];
+  return (
+    <span title={filename} style={{
+      fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.08em",
+      background: cfg.color + "22", color: cfg.color, border: `1px solid ${cfg.color}55`,
+      borderRadius: 3, padding: "1px 5px", whiteSpace: "nowrap", cursor: "default",
+    }}>{cfg.label}</span>
+  );
+}
+
 function LiveWitnessStream({ entries }) {
   const listRef = useRef(null);
   useEffect(() => {
@@ -5568,6 +5600,8 @@ function LiveWitnessStream({ entries }) {
     <div ref={listRef} style={{ overflowY: "auto", maxHeight: 340, display: "flex", flexDirection: "column", gap: 6, padding: "12px 16px" }}>
       {entries.map((e, i) => {
         const decColor = { PASS: T.green, FAIL: T.red, ESCALATE: T.amber }[e.decision] || T.dim;
+        const filesConsulted = e.filesConsulted ?? [];
+        const crossDomain = e.crossDomainInheritance === true || e.apaleoData?.crossDomainInheritance === true;
         return (
           <div key={e.id || i} style={{
             background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${decColor}`,
@@ -5580,9 +5614,44 @@ function LiveWitnessStream({ entries }) {
                 {e.createdAt ? new Date(e.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : e.timestamp || ""}
               </span>
             </div>
-            <div style={{ fontSize: 10, color: decColor, fontFamily: T.mono, marginBottom: 3 }}>
-              {e.fileReferenced} · {e.clauseApplied?.slice(0, 70)}{e.clauseApplied?.length > 70 ? "…" : ""}
-            </div>
+
+            {filesConsulted.length > 0 && (
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 5 }}>
+                {filesConsulted.map((f, fi) => <FileBadgeChip key={fi} filename={f} />)}
+                {crossDomain && (
+                  <span style={{
+                    fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.08em",
+                    background: "#FF4D6A22", color: "#FF4D6A", border: "1px solid #FF4D6A55",
+                    borderRadius: 3, padding: "1px 5px",
+                  }}>Cross-domain ✓</span>
+                )}
+              </div>
+            )}
+            {filesConsulted.length === 0 && crossDomain && (
+              <div style={{ marginBottom: 5 }}>
+                <span style={{
+                  fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.08em",
+                  background: "#FF4D6A22", color: "#FF4D6A", border: "1px solid #FF4D6A55",
+                  borderRadius: 3, padding: "1px 5px",
+                }}>Cross-domain ✓</span>
+              </div>
+            )}
+
+            {e.fileReferenced && (
+              <div style={{ fontSize: 10, color: decColor, fontFamily: T.mono, marginBottom: 4, opacity: 0.85 }}>
+                {e.fileReferenced}
+              </div>
+            )}
+
+            {e.clauseApplied && (
+              <pre style={{
+                fontSize: 10, fontFamily: T.mono, color: decColor,
+                background: decColor + "12", border: `1px solid ${decColor}33`,
+                borderRadius: 4, padding: "5px 8px", margin: "0 0 5px 0",
+                whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5,
+              }}>{e.clauseApplied}</pre>
+            )}
+
             {e.apaleoData?.usedMcp && (
               <div style={{ fontSize: 10, color: "#6366f1", fontFamily: T.mono, marginBottom: 3 }}>
                 via Apaleo MCP{typeof e.apaleoData.toolCallsMade === "number" ? ` · ${e.apaleoData.toolCallsMade} tool call${e.apaleoData.toolCallsMade !== 1 ? "s" : ""}` : ""}
