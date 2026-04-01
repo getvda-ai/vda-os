@@ -2071,4 +2071,75 @@ router.post("/admin/seed-companies", async (_req, res) => {
   res.json({ success, created, existing, errors: errors.length > 0 ? errors : undefined, log: [...log, ...c2mdLog], companies: seededRows });
 });
 
+// ─── POST /api/admin/seed-company-governance ─────────────────────────────────
+// Seeds all 19 VDA-MD canonical governance files for a single company (wizard flow).
+// Idempotent — existing canonical files are updated, legacy files archived.
+
+router.post("/admin/seed-company-governance", async (req, res) => {
+  const { companyId, companyName } = req.body as { companyId: number; companyName: string };
+
+  if (!companyId || !companyName) {
+    return res.status(400).json({ error: "companyId and companyName required" });
+  }
+
+  const log: string[] = [];
+  const errors: string[] = [];
+  let filesSeeded = 0;
+
+  try {
+    const fileDefs = buildGovernanceFiles(Number(companyId), companyName);
+
+    // Unarchive any existing canonical files for this company
+    const canonicalFilenames = fileDefs.map(f => f.filename);
+    await db
+      .update(governanceFiles)
+      .set({ isArchived: false })
+      .where(and(
+        eq(governanceFiles.companyId, Number(companyId)),
+        inArray(governanceFiles.filename, canonicalFilenames)
+      ));
+
+    for (const fileDef of fileDefs) {
+      try {
+        const existing = await db
+          .select({ id: governanceFiles.id })
+          .from(governanceFiles)
+          .where(and(
+            eq(governanceFiles.companyId, Number(companyId)),
+            eq(governanceFiles.filename, fileDef.filename)
+          ));
+
+        if (existing.length > 0) {
+          await db
+            .update(governanceFiles)
+            .set({ ...fileDef, isArchived: false, updatedAt: new Date() })
+            .where(eq(governanceFiles.id, existing[0].id));
+          log.push(`updated: ${fileDef.filename}`);
+        } else {
+          await db.insert(governanceFiles).values({ ...fileDef, isArchived: false });
+          log.push(`created: ${fileDef.filename}`);
+          filesSeeded++;
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(`${fileDef.filename}: ${msg}`);
+      }
+    }
+
+    log.push(`Seeded ${fileDefs.length} VDA-MD governance files for company ${companyId} (${companyName})`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errors.push(`seed-company-governance failed: ${msg}`);
+  }
+
+  res.json({
+    success: errors.length === 0,
+    companyId,
+    companyName,
+    filesSeeded,
+    log,
+    errors: errors.length > 0 ? errors : undefined,
+  });
+});
+
 export default router;
