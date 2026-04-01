@@ -1,0 +1,40 @@
+What's Good in This Spec
+The 12-month free launch period is smart. It removes the friction of the commercial conversation entirely during the period when you need adoption and feedback most. Anyone who builds on it in year one becomes a reference customer or a paying customer in year two. Good instinct.
+The EUR pricing is the right currency. Your primary regulated enterprise market is European. Pricing in EUR signals that. Don't let anyone talk you into USD as the primary currency.
+LicenseRef-VDA-MD in package.json is technically correct for a non-SPDX licence. Small detail but it shows whoever wrote this knows what they're doing.
+The CI workflow is minimal and correct. Build check on push to main is exactly right for now. Don't over-engineer the pipeline at this stage.
+
+What Needs Challenging
+One critical problem with the licence as described:
+
+"Grants free unrestricted use for 12 months from the stated release date"
+
+"Unrestricted" is dangerous wording. It means a well-resourced competitor could take your entire codebase, your C2MD methodology, your A2MD pipeline, fork it, rebrand it, and launch a competing product — all within your 12-month free window — and you'd have no recourse because you explicitly granted unrestricted use.
+The 12-month free period should be free unrestricted use for end users and implementers — not free unrestricted use to build competing products. The licence needs to say:
+During the 12-month Launch Period, the Licensed Work may be 
+used, copied, and modified at no charge for any purpose 
+EXCEPT:
+  (a) Building a product or service that competes directly 
+      with the Licensed Work
+  (b) Removing or obscuring attribution to the Licensor
+  (c) Claiming ownership of the Proprietary Methods 
+      (C2MD, A2MD, Two-Axis Governance Map)
+Without that carve-out, the 12-month free period is a gift to competitors, not users.
+The CONTRIBUTING.md two non-negotiable rules:
+
+"no /api/ prefix in routes, all AI calls via callAI helper"
+
+These are internal implementation conventions, not contribution rules. They'll confuse external contributors and make the repo look immature. Move these to a DEVELOPMENT.md internal guide. CONTRIBUTING.md should be about process — how to raise an issue, how to submit a PR, what gets accepted — not internal coding conventions.
+CHANGELOG.md v1.0.0 entry:
+Before you publish a v1.0.0 changelog, make sure you're comfortable calling this v1.0.0 publicly. That version number implies production readiness and stability to enterprise buyers. If you're still iterating rapidly — which you are — consider v0.9.0 or calling it a "Release Candidate." Once you've shipped v1.0.0 publicly, rolling back that version signal is awkward.
+
+What's Missing From This Spec
+No NOTICE file.
+BSL and proprietary licences with attribution requirements typically include a NOTICE file listing the third-party components and their licences. If you're using Anthropic's API, simple-git, marked.js etc., their licences need to be acknowledged. An enterprise legal team will check for this.
+No explicit definition of "Release Date" in the licence.
+The 12-month clock starts from "the public release date" — but that date needs to be hardcoded into the licence file itself, not left as a placeholder. The moment the repo goes public, add the exact date:
+Release Date: [DD Month YYYY]
+Tier Commencement Date: [DD Month YYYY + 12 months]
+If you leave it vague, a clever user will argue their 12 months started later than yours.
+No mention of the website URL for commercial licensing.
+Every file that references commercial licensing should point to a real URL — not a placeholder. This needs to be your actual domain before the repo goes public. Which brings us back to the domain question from earlier.
