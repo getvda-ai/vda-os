@@ -9,8 +9,8 @@ import type {
   ReservationStatus,
 } from "../lib/apaleo-types.js";
 import { callAI, callAIFull } from "./ai-proxy.js";
-import { db, witnessEntries } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { db, witnessEntries, governanceFiles } from "@workspace/db";
+import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
@@ -621,6 +621,55 @@ Unmatched folios: CFO / Finance audit.
 - ISO 22301: Daily reconciliation schedule maintained via REST if MCP unavailable`,
 };
 
+// ─── FM Governance Policy Lookup ─────────────────────────────────────────────
+// Maps policy keys (used internally) to the canonical filename in the File Manager.
+// Agents MUST run on the enriched FM file content. The hardcoded POLICIES above
+// are fallbacks ONLY — used when no live FM file exists for the company.
+
+const POLICY_FILENAME_MAP: Record<string, string> = {
+  availability:  "availability-policy.md",
+  rate:          "rate-override-policy.md",
+  reservation:   "reservation-bot.md",
+  checkin:       "check-in-agent.md",
+  folio:         "folio-charge-policy.md",
+  folio_charge:  "folio-charge-policy.md",
+  checkout:      "checkout-agent.md",
+  revenue:       "revenue-reconciliation-policy.md",
+};
+
+async function getGovernancePolicyFromFM(companyId: number, policyKey: string): Promise<string> {
+  const filename = POLICY_FILENAME_MAP[policyKey];
+  if (filename && companyId) {
+    try {
+      const [row] = await db
+        .select({ content: governanceFiles.content, filename: governanceFiles.filename })
+        .from(governanceFiles)
+        .where(
+          and(
+            eq(governanceFiles.companyId, companyId),
+            eq(governanceFiles.filename, filename),
+            eq(governanceFiles.isArchived, false)
+          )
+        )
+        .orderBy(desc(governanceFiles.updatedAt))
+        .limit(1);
+      if (row?.content && row.content.length > 200) {
+        logger.info({ companyId, policyKey, filename }, "Agent loaded policy from FM governance file");
+        return row.content;
+      }
+    } catch (err) {
+      logger.warn({ err, companyId, policyKey }, "FM policy lookup failed — using hardcoded fallback");
+    }
+  }
+  const fallback = POLICIES[policyKey];
+  if (!fallback) {
+    logger.warn({ policyKey }, "No policy found in FM or hardcoded POLICIES — agent will run without policy context");
+    return `## Policy Not Found\nNo governance file found for policy key: ${policyKey}. Escalate all decisions until a governance file is loaded.`;
+  }
+  logger.info({ companyId, policyKey }, "Agent using hardcoded fallback policy");
+  return fallback;
+}
+
 // ─── Agent Decision Type ──────────────────────────────────────────────────────
 
 interface AgentDecision {
@@ -669,9 +718,10 @@ async function evaluateWithPolicy(
   agentName: string,
   policyKey: string,
   context: string,
-  task: string
+  task: string,
+  companyId: number = 0
 ): Promise<AgentDecision> {
-  const policy = POLICIES[policyKey];
+  const policy = await getGovernancePolicyFromFM(companyId, policyKey);
   const aiResponse = await callAI({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
@@ -724,9 +774,10 @@ async function evaluateWithPolicyAndMcp(
   agentName: string,
   policyKey: string,
   task: string,
-  agentToolNames: string[]
+  agentToolNames: string[],
+  companyId: number = 0
 ): Promise<AgenticEvalResult> {
-  const policy = POLICIES[policyKey];
+  const policy = await getGovernancePolicyFromFM(companyId, policyKey);
 
   let anthropicTools: Array<{
     name: string;
@@ -880,7 +931,8 @@ router.post("/agents/availability", async (req, res) => {
       "Availability Agent",
       "availability",
       `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults. Fetch live availability via GetAvailableUnitGroups, rate plans via ListRatePlans, and active offers via ListOffers from Apaleo.`,
-      [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListOffers]
+      [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListOffers],
+      Number(companyId)
     );
 
     const apaleoData: Record<string, unknown> = {
@@ -931,7 +983,8 @@ router.post("/agents/rate", async (req, res) => {
       "Rate Agent",
       "rate",
       `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans via ListRatePlans and revenue report via GetReport from Apaleo, then apply rate-override policy.`,
-      [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport]
+      [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport],
+      Number(companyId)
     );
 
     const apaleoData: Record<string, unknown> = {
@@ -1075,7 +1128,7 @@ router.post("/agents/reservation", async (req, res) => {
     ].filter(Boolean).join(" ");
 
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
-      "Reservation Bot", "reservation", taskCtx, mcpTools
+      "Reservation Bot", "reservation", taskCtx, mcpTools, Number(companyId)
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1225,7 +1278,8 @@ router.post("/agents/checkin", async (req, res) => {
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
       "Check-In Agent", "checkin",
       `Validate and process check-in for ${guestName ?? "guest"} at property ${propertyId}. ${resolvedReservationId ? `Use GetReservation to verify reservation ${resolvedReservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "Find today's arriving reservations."} Run all 5 validation gates per check-in policy before making your decision.`,
-      [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts]
+      [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts],
+      Number(companyId)
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1300,7 +1354,8 @@ router.post("/agents/folio", async (req, res) => {
       "Folio Agent",
       "folio",
       taskDesc,
-      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
+      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
+      Number(companyId)
     );
 
     const apaleoData: Record<string, unknown> = {
@@ -1390,7 +1445,8 @@ router.post("/agents/folio-charge", async (req, res) => {
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
       "Folio Agent", "folio_charge",
       `Post charge €${chargeAmount} ${currency} (${serviceType}: ${chargeName ?? "unnamed"}) to folio ${resolvedFolioId ?? "none"} at property ${propertyId}. ${resolvedFolioId ? `Use GetFolio to verify folio ${resolvedFolioId} is Open, ListPaymentAccounts to confirm payment method, ListInvoices to check for duplicate charges, then apply folio-charge-policy thresholds.` : "No folio resolved — apply FAIL decision."}`,
-      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices]
+      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices],
+      Number(companyId)
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1520,7 +1576,8 @@ router.post("/agents/checkout", async (req, res) => {
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
       "Checkout Agent", "checkout",
       `Process checkout for ${guestName ?? "guest"} (${loyaltyTier ?? "Standard"} tier) at property ${propertyId}. ${reservationId ? `Use GetReservation to verify InHouse status for reservation ${reservationId}, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges.` : `Find today's departing InHouse reservations at property ${propertyId}.`} Late checkout requested: ${lateCheckout ?? "No"}. Apply all checkout-policy.md gates.`,
-      [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
+      [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
+      Number(companyId)
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1620,7 +1677,8 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls } = await evaluateWithPolicyAndMcp(
       "Revenue Reconciliation Agent", "revenue",
       `Reconcile daily revenue for property ${propertyId} on ${targetDate}. ${reservations.length} reservations fetched via REST with total ${totalRevenue} ${currency}. Use GetReport to pull live revenue report, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charge records. Apply revenue-reconciliation-policy variance thresholds.`,
-      [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
+      [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
+      Number(companyId)
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1711,7 +1769,8 @@ router.post("/agents/scenario/run", async (req, res) => {
       const { decision, usedMcp: availUsedMcp, toolCallsMade: availToolCalls } = await evaluateWithPolicyAndMcp(
         "Availability Agent", "availability",
         `Check live unit availability for property ${propertyId} from ${today} to ${tomorrow} for 2 adults. Use GetAvailableUnitGroups, ListRatePlans, and ListOffers MCP tools to fetch real Apaleo data, then apply availability-policy.md decision criteria.`,
-        [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListOffers]
+        [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListOffers],
+        Number(companyId)
       );
 
       const wid = await writeWitnessEntry({
@@ -1729,7 +1788,8 @@ router.post("/agents/scenario/run", async (req, res) => {
       const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls } = await evaluateWithPolicyAndMcp(
         "Rate Agent", "rate",
         `Evaluate a 10% discount rate request: BAR €${bar}, requested €${requested} for property ${propertyId}. ${ids.ratePlanId ? `Rate plan ID: ${ids.ratePlanId}.` : ""} Use ListRatePlans and GetReport MCP tools to verify current Apaleo rate plans and revenue data, then apply rate-override-policy thresholds.`,
-        [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport]
+        [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport],
+        Number(companyId)
       );
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
@@ -1762,7 +1822,8 @@ router.post("/agents/scenario/run", async (req, res) => {
       const { decision, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls } = await evaluateWithPolicyAndMcp(
         "Reservation Bot", "reservation",
         `Create a reservation for Demo Guest at property ${propertyId} arriving ${today}, departing ${tomorrow}. ${ids.unitGroupId ? `Unit group: ${ids.unitGroupId}.` : ""} ${ids.ratePlanId ? `Rate plan: ${ids.ratePlanId}.` : ""} Use GetAvailableUnitGroups, ListRatePlans, and GetGuestProfile MCP tools to verify live availability and guest identity, then apply reservation-policy rules.`,
-        [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetGuestProfile]
+        [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetGuestProfile],
+        Number(companyId)
       );
 
       // Execute only on PASS
@@ -1859,7 +1920,8 @@ router.post("/agents/scenario/run", async (req, res) => {
       const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls } = await evaluateWithPolicyAndMcp(
         "Check-In Agent", "checkin",
         `Check-in Demo Guest at property ${propertyId}. ${reservationId ? `Use GetReservation to verify reservation ${reservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "No reservation ID resolved — issue FAIL."} Validate all 5 check-in gates per check-in-policy.md.`,
-        [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts]
+        [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts],
+        Number(companyId)
       );
 
       if (ciDecision.decision === "PASS" && reservationId) {
@@ -1906,7 +1968,8 @@ router.post("/agents/scenario/run", async (req, res) => {
       const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls } = await evaluateWithPolicyAndMcp(
         "Folio Agent", "folio_charge",
         `Post a room charge of €240 EUR (RoomRevenue: Demo Room Charge) to folio ${folioId ?? "none"} at property ${propertyId}. ${folioId ? `Use GetFolio to verify folio ${folioId} is Open, ListPaymentAccounts to confirm payment method, and ListInvoices to check for duplicate charges.` : "No folio ID resolved — apply FAIL."} Apply folio-charge-policy thresholds.`,
-        [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices]
+        [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices],
+        Number(companyId)
       );
 
       if (fcDecision.decision === "PASS" && folioId) {
@@ -1969,7 +2032,8 @@ router.post("/agents/scenario/run", async (req, res) => {
         const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls } = await evaluateWithPolicyAndMcp(
           "Checkout Agent", "checkout",
           `Checkout Demo Guest (Gold loyalty tier, late checkout until 13:00) at property ${propertyId}. Use GetReservation to verify reservation ${reservationId} is InHouse, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges. Apply checkout-policy.md gates and loyalty exception rules.`,
-          [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
+          [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
+          Number(companyId)
         );
 
         if (coDecision.decision === "PASS") {
@@ -2025,7 +2089,8 @@ router.post("/agents/scenario/run", async (req, res) => {
       const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls } = await evaluateWithPolicyAndMcp(
         "Revenue Reconciliation Agent", "revenue",
         `End-of-scenario revenue reconciliation for property ${propertyId} on ${today}. ${reservations.count} reservations (total ${total} ${currency}) retrieved via REST. Use GetReport to pull live revenue data, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charges. Apply revenue-reconciliation-policy variance thresholds.`,
-        [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices]
+        [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
+        Number(companyId)
       );
 
       const wid = await writeWitnessEntry({
