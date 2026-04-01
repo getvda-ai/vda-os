@@ -971,14 +971,15 @@ router.post("/admin/seed-companies", async (_req, res) => {
   const c2mdLog: string[] = [];
 
   try {
-    const citizenMBrandContext = CITIZENM_PROPERTIES[0].brandContext;
     const allPropertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
     const companyRows = await db
-      .select({ id: companies.id, apaleoPropertyId: companies.apaleoPropertyId })
+      .select({ id: companies.id, apaleoPropertyId: companies.apaleoPropertyId, brandContext: companies.brandContext })
       .from(companies)
       .where(inArray(companies.apaleoPropertyId, allPropertyIds));
 
     const companyIds = companyRows.map(c => c.id);
+    // Read brandContext from DB (source of truth, just upserted above)
+    const citizenMBrandContext = companyRows[0]?.brandContext ?? CITIZENM_PROPERTIES[0].brandContext;
     const canonicalFilenames = [
       "rate-override-policy.md",
       "check-in-agent.md",
@@ -997,7 +998,11 @@ router.post("/admin/seed-companies", async (_req, res) => {
         inArray(governanceFiles.filename, canonicalFilenames),
       ));
 
-    const unenrichedFiles = existingFiles.filter(f => !f.content?.includes(C2MD_MARKER));
+    // Enriched if file has the C2MD marker AND content is substantively long (>800 chars).
+    // Dual check prevents partial/malformed model output from masking a re-enrichment need.
+    const unenrichedFiles = existingFiles.filter(
+      f => !f.content?.includes(C2MD_MARKER) || (f.content?.length ?? 0) <= 800
+    );
 
     if (unenrichedFiles.length === 0) {
       c2mdLog.push("C2MD: all governance files already enriched — skipped");
@@ -1008,28 +1013,23 @@ router.post("/admin/seed-companies", async (_req, res) => {
       const templateFiles = buildGovernanceFiles(0, "citizenM");
       const enrichedByFilename = new Map<string, string>();
 
-      // 6 parallel Claude calls — one per file type, shared across all hotels
-      const enrichResults = await Promise.allSettled(
-        templateFiles
-          .filter(tmpl => unenrichedFiles.some(f => f.filename === tmpl.filename))
-          .map(async (tmpl) => {
-            const enriched = await generateC2MDContent(tmpl.filename, tmpl.content, citizenMBrandContext);
-            return { filename: tmpl.filename, enriched };
-          })
+      // 6 sequential Claude calls — one per file type, shared across all hotels.
+      // Sequential to avoid API burst-rate risk and to match task requirements.
+      const filesToEnrich = templateFiles.filter(
+        tmpl => unenrichedFiles.some(f => f.filename === tmpl.filename)
       );
-
-      for (const result of enrichResults) {
-        if (result.status === "fulfilled") {
-          const { filename, enriched } = result.value;
+      for (const tmpl of filesToEnrich) {
+        try {
+          const enriched = await generateC2MDContent(tmpl.filename, tmpl.content, citizenMBrandContext);
           if (enriched && enriched.length > 400) {
-            enrichedByFilename.set(filename, enriched);
-            c2mdLog.push(`C2MD: ✓ ${filename} — ${enriched.length} chars`);
+            enrichedByFilename.set(tmpl.filename, enriched);
+            c2mdLog.push(`C2MD: ✓ ${tmpl.filename} — ${enriched.length} chars`);
           } else {
-            c2mdLog.push(`C2MD: ✗ ${filename} — response too short, kept static`);
+            c2mdLog.push(`C2MD: ✗ ${tmpl.filename} — response too short, kept static`);
           }
-        } else {
-          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-          c2mdLog.push(`C2MD: ERROR — ${msg}`);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          c2mdLog.push(`C2MD: ERROR ${tmpl.filename} — ${msg}`);
         }
       }
 
