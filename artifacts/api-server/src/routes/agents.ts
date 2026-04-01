@@ -10,7 +10,7 @@ import type {
 } from "../lib/apaleo-types.js";
 import { callAI, callAIFull } from "./ai-proxy.js";
 import { db, witnessEntries, governanceFiles } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
@@ -622,40 +622,70 @@ Unmatched folios: CFO / Finance audit.
 };
 
 // ─── FM Governance Policy Lookup ─────────────────────────────────────────────
-// Maps policy keys (used internally) to the canonical filename in the File Manager.
-// Agents MUST run on the enriched FM file content. The hardcoded POLICIES above
-// are fallbacks ONLY — used when no live FM file exists for the company.
+// Maps policy keys (used internally) to the canonical agentId in the File Manager.
+// Agents load ALL file types (AGENTS + SOP + SKILL) for their agentId, concatenated.
+// Folio and checkout agents also inherit the Finance O2C shared services file.
+// Hardcoded POLICIES above are fallbacks ONLY — used when no live FM files exist.
 
-const POLICY_FILENAME_MAP: Record<string, string> = {
-  availability:  "availability-policy.md",
-  rate:          "rate-override-policy.md",
-  reservation:   "reservation-bot.md",
-  checkin:       "check-in-agent.md",
-  folio:         "folio-charge-policy.md",
-  folio_charge:  "folio-charge-policy.md",
-  checkout:      "checkout-agent.md",
-  revenue:       "revenue-reconciliation-policy.md",
+const POLICY_AGENT_ID_MAP: Record<string, string | null> = {
+  availability:  "availability-agent",
+  rate:          "rate-agent",
+  reservation:   "reservation-bot",
+  checkin:       "check-in-agent",
+  folio:         "folio-charge-agent",
+  folio_charge:  "folio-charge-agent",
+  checkout:      "checkout-agent",
+  revenue:       null, // no FM files — always uses hardcoded fallback
+};
+
+// Agents that must inherit from Finance O2C shared services (cross-domain inheritance)
+const CROSS_DOMAIN_AGENT_IDS: Record<string, string[]> = {
+  "folio-charge-agent": ["finance-o2c-shared"],
+  "checkout-agent":     ["finance-o2c-shared"],
 };
 
 async function getGovernancePolicyFromFM(companyId: number, policyKey: string): Promise<string> {
-  const filename = POLICY_FILENAME_MAP[policyKey];
-  if (filename && companyId) {
+  const agentId = POLICY_AGENT_ID_MAP[policyKey];
+  if (agentId && companyId) {
     try {
-      const [row] = await db
-        .select({ content: governanceFiles.content, filename: governanceFiles.filename })
+      // Load all VDA-MD file types for this agent: AGENTS (charter) + SOP (rules) + SKILL (tools)
+      const rows = await db
+        .select({ content: governanceFiles.content, filename: governanceFiles.filename, fileType: governanceFiles.fileType })
         .from(governanceFiles)
         .where(
           and(
             eq(governanceFiles.companyId, companyId),
-            eq(governanceFiles.filename, filename),
+            eq(governanceFiles.agentId, agentId),
             eq(governanceFiles.isArchived, false)
           )
         )
-        .orderBy(desc(governanceFiles.updatedAt))
-        .limit(1);
-      if (row?.content && row.content.length > 200) {
-        logger.info({ companyId, policyKey, filename }, "Agent loaded policy from FM governance file");
-        return row.content;
+        .orderBy(governanceFiles.fileType); // AGENTS → SHARED_SERVICES → SKILL → SOP (alphabetical)
+
+      // Also load cross-domain shared services files if this agent requires them
+      const crossDomainIds = CROSS_DOMAIN_AGENT_IDS[agentId] ?? [];
+      let crossDomainRows: { content: string; filename: string; fileType: string }[] = [];
+      if (crossDomainIds.length > 0) {
+        crossDomainRows = await db
+          .select({ content: governanceFiles.content, filename: governanceFiles.filename, fileType: governanceFiles.fileType })
+          .from(governanceFiles)
+          .where(
+            and(
+              eq(governanceFiles.companyId, companyId),
+              eq(governanceFiles.isArchived, false),
+              inArray(governanceFiles.agentId, crossDomainIds)
+            )
+          );
+      }
+
+      const allRows = [...crossDomainRows, ...rows]; // cross-domain first (pre-condition block)
+      const filesLoaded = allRows.map(r => r.filename);
+
+      if (allRows.length > 0 && allRows.some(r => r.content && r.content.length > 200)) {
+        const combined = allRows
+          .map(r => `## [${r.fileType}] ${r.filename}\n\n${r.content}`)
+          .join("\n\n---\n\n");
+        logger.info({ companyId, policyKey, agentId, filesLoaded, crossDomain: crossDomainIds.length > 0 }, "Agent loaded multi-file policy from FM governance files");
+        return combined;
       }
     } catch (err) {
       logger.warn({ err, companyId, policyKey }, "FM policy lookup failed — using hardcoded fallback");
