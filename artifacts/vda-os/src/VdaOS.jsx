@@ -5573,12 +5573,25 @@ function FileBadgeChip({ filename }) {
   const ft = inferFileType(filename);
   if (!ft) return null;
   const cfg = FILE_TYPE_BADGE[ft];
+  const shortName = filename.replace(/\.md$/, "").split(/[-.]/).slice(-2).join(".");
   return (
-    <span title={filename} style={{
-      fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.08em",
-      background: cfg.color + "22", color: cfg.color, border: `1px solid ${cfg.color}55`,
-      borderRadius: 3, padding: "1px 5px", whiteSpace: "nowrap", cursor: "default",
-    }}>{cfg.label}</span>
+    <span
+      title={`Click to view full filename:\n${filename}`}
+      onClick={() => {
+        const msg = `Governance file consulted:\n\n${filename}\n\nFile type: ${ft}`;
+        window.alert(msg);
+      }}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 3,
+        fontSize: 8, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.06em",
+        background: cfg.color + "18", color: cfg.color, border: `1px solid ${cfg.color}55`,
+        borderRadius: 3, padding: "2px 6px", whiteSpace: "nowrap", cursor: "pointer",
+        userSelect: "none",
+      }}
+    >
+      <span style={{ opacity: 0.7, marginRight: 1 }}>[{cfg.label}]</span>
+      <span>{shortName.length > 28 ? shortName.slice(0, 28) + "…" : shortName}</span>
+    </span>
   );
 }
 
