@@ -420,13 +420,15 @@ async function evaluateWithPolicyAndMcp(
     logger.warn({ err, agentName }, "Could not load MCP tools — falling back to policy-only evaluation");
   }
 
+  const hasReadTools = anthropicTools.length > 0;
+
   const systemPrompt = `You are the ${agentName} operating under the VDA-MK governance framework.
 Your governing policy document is:
 
 ${policy}
 
-${anthropicTools.length > 0 ? "Use the provided Apaleo MCP tools to fetch live data before making your decision." : ""}
-You MUST respond ONLY in this exact JSON format with no extra text:
+${hasReadTools ? "You MUST call the provided Apaleo MCP tools to fetch live data before issuing your governance decision. Do not skip tool calls." : ""}
+After fetching live data, respond ONLY in this exact JSON format with no extra text:
 {
   "decision": "PASS" | "FAIL" | "ESCALATE",
   "clauseApplied": "<exact policy clause that governed this decision>",
@@ -439,12 +441,12 @@ You MUST respond ONLY in this exact JSON format with no extra text:
   const messages: unknown[] = [
     {
       role: "user",
-      content: `Task: ${task}\n\n${anthropicTools.length > 0 ? "Call the Apaleo MCP tools to retrieve live data, then issue your governance decision." : "Apply policy with available context."}`,
+      content: `Task: ${task}\n\n${hasReadTools ? "REQUIRED: Call the Apaleo MCP tools first to retrieve live data, then issue your governance decision JSON." : "Apply policy with available context and respond with your governance decision JSON."}`,
     },
   ];
 
   let toolCallsMade = 0;
-  const MAX_ITERATIONS = 6;
+  const MAX_ITERATIONS = 8;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await callAIFull({
@@ -452,7 +454,7 @@ You MUST respond ONLY in this exact JSON format with no extra text:
       max_tokens: 2048,
       system: systemPrompt,
       messages,
-      tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+      tools: hasReadTools ? anthropicTools : undefined,
     });
 
     if (response.stop_reason === "tool_use") {
@@ -489,6 +491,15 @@ You MUST respond ONLY in this exact JSON format with no extra text:
 
     const textBlock = response.content.find((b) => b.type === "text");
     if (textBlock?.text) {
+      // If tools were available but Claude skipped them, inject a mandatory reminder
+      if (hasReadTools && toolCallsMade === 0 && i === 0) {
+        messages.push({ role: "assistant", content: response.content });
+        messages.push({
+          role: "user",
+          content: "You skipped the required MCP tool calls. You MUST call at least one Apaleo MCP tool to fetch live data before issuing your governance decision. Please call the appropriate tool now.",
+        });
+        continue;
+      }
       try {
         const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
         const decision = JSON.parse(jsonMatch ? jsonMatch[0] : textBlock.text) as AgentDecision;
@@ -726,8 +737,6 @@ router.post("/agents/reservation", async (req, res) => {
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
     const mcpTools = action === "create"
       ? [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans]
-      : action === "modify"
-      ? [MCP_TOOLS.GetReservation, MCP_TOOLS.AmendReservation]
       : [MCP_TOOLS.GetReservation];
 
     const taskCtx = [
