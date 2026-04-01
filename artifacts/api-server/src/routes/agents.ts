@@ -1546,6 +1546,13 @@ router.post("/agents/folio-charge", async (req, res) => {
       apaleoData.blockedReason = `Policy decision was ${decision.decision} — charge not posted`;
     }
 
+    // Log cross-domain inheritance explicitly in witness evidence
+    const folioChargeCrossdomainFile = folioChargeFilesLoaded.find(f => f.toLowerCase().includes("shared-o2c") || f.toLowerCase().includes("finance-o2c"));
+    if (folioChargeCrossdomainFile) {
+      apaleoData.crossDomainInheritance = true;
+      apaleoData.inheritedPolicyFile = folioChargeCrossdomainFile;
+    }
+
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
       agent: "Folio Charge Agent",
@@ -2061,10 +2068,16 @@ router.post("/agents/scenario/run", async (req, res) => {
         }
       }
 
+      // Log cross-domain inheritance explicitly in witness evidence for scenario step 5
+      const fcCrossdomainFile = fcScenarioFiles.find(f => f.toLowerCase().includes("shared-o2c") || f.toLowerCase().includes("finance-o2c"));
+      const fcWitnessApaleoData: Record<string, unknown> = {
+        folioId, chargePosted, chargeAmount: 240, currency: "EUR", usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls,
+        ...(fcCrossdomainFile ? { crossDomainInheritance: true, inheritedPolicyFile: fcCrossdomainFile } : {}),
+      };
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Folio Charge Agent", decision: fcDecision,
         fileReferenced: fcScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? fcScenarioFiles[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
-        apaleoData: { folioId, chargePosted, chargeAmount: 240, currency: "EUR", usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls },
+        apaleoData: fcWitnessApaleoData,
         scenarioRunId,
       });
       results.push({ step: 5, agent: "Folio Charge Agent", ...fcDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
