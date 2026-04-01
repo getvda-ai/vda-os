@@ -683,13 +683,27 @@ async function getGovernancePolicyFromFM(companyId: number, policyKey: string): 
       }
 
       const allRows = [...crossDomainRows, ...rows]; // cross-domain first (pre-condition block)
-      const filesLoaded = allRows.map(r => r.filename);
 
-      if (allRows.length > 0 && allRows.some(r => r.content && r.content.length > 200)) {
-        const policyText = allRows
+      // Also load active EXCEPTION overlays for this agent (separate from AGENTS/SOP/SKILL)
+      // EXCEPTION files are filtered out of the main rows (which include all fileTypes) and handled specially
+      const baseRows = allRows.filter(r => r.fileType !== "EXCEPTION");
+      const exceptionRows = allRows.filter(r => r.fileType === "EXCEPTION");
+      const filesLoaded = [...baseRows.map(r => r.filename), ...exceptionRows.map(r => r.filename)];
+
+      if (baseRows.length > 0 && baseRows.some(r => r.content && r.content.length > 200)) {
+        let policyText = baseRows
           .map(r => `## [${r.fileType}] ${r.filename}\n\n${r.content}`)
           .join("\n\n---\n\n");
-        logger.info({ companyId, policyKey, agentId, filesLoaded, crossDomain: crossDomainIds.length > 0 }, "Agent loaded multi-file policy from FM governance files");
+
+        // Append exception overlays after the SOP baseline with a clear section header
+        if (exceptionRows.length > 0) {
+          const exceptionText = exceptionRows
+            .map(r => `### [${r.fileType}] ${r.filename}\n\n${r.content}`)
+            .join("\n\n");
+          policyText += `\n\n---\n\n## Active Exception Overlays\n\nThe following active exception overlay(s) take precedence over the SOP baseline where all activation conditions are met:\n\n${exceptionText}`;
+        }
+
+        logger.info({ companyId, policyKey, agentId, filesLoaded, crossDomain: crossDomainIds.length > 0, exceptionCount: exceptionRows.length }, "Agent loaded multi-file policy from FM governance files");
         return { policyText, filesLoaded };
       }
     } catch (err) {
@@ -839,12 +853,22 @@ async function evaluateWithPolicyAndMcp(
   }
 
   const hasReadTools = anthropicTools.length > 0;
+  const hasCrossDomain = filesLoaded.some(f => f.toLowerCase().includes("shared-o2c") || f.toLowerCase().includes("finance-o2c"));
+  const hasExceptions = filesLoaded.some(f => f.endsWith(".EXCEPTION.md"));
+
+  const crossDomainBlock = hasCrossDomain
+    ? `\nCROSS-DOMAIN INHERITANCE: Your policy includes the Finance Shared Services O2C file (Hospitality-Finance-Shared-O2C-folio-charge-authority.md). You MUST consult it BEFORE executing any folio charge or fee waiver — it defines mandatory charge thresholds and autonomous authority limits.\n`
+    : "";
+
+  const exceptionBlock = hasExceptions
+    ? `\nEXCEPTION OVERLAYS ACTIVE: Active EXCEPTION.md overlay(s) are present in the "Active Exception Overlays" section of your policy. Evaluate whether each exception's activation conditions are ALL satisfied. When an exception applies, you MUST set exceptionApplied: true and cite the exact exception clause verbatim in clauseApplied.\n`
+    : "";
 
   const systemPrompt = `You are the ${agentName} operating under the VDA-MK governance framework.
 Your governing policy document is:
 
 ${policyText}
-
+${crossDomainBlock}${exceptionBlock}
 ${hasReadTools ? "You MUST call the provided Apaleo MCP tools to fetch live data before issuing your governance decision. Do not skip tool calls." : ""}
 After fetching live data, respond ONLY in this exact JSON format with no extra text:
 {
@@ -1643,11 +1667,15 @@ router.post("/agents/checkout", async (req, res) => {
       apaleoData.blockedReason = `Policy decision was ${decision.decision} — checkout API not called`;
     }
 
+    // When an exception governed the outcome, cite the EXCEPTION.md file; otherwise cite SOP
+    const checkoutFileRef = decision.exceptionApplied
+      ? (checkoutFilesLoaded.find(f => f.endsWith('.EXCEPTION.md')) ?? checkoutFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md")
+      : (checkoutFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? checkoutFilesLoaded[0] ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md");
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
       agent: "Checkout Agent",
       decision,
-      fileReferenced: checkoutFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? checkoutFilesLoaded[0] ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+      fileReferenced: checkoutFileRef,
       apaleoData,
       scenarioRunId,
     });
@@ -2092,9 +2120,12 @@ router.post("/agents/scenario/run", async (req, res) => {
 
         const coTotalOutstanding = folios.reduce((s: number, f: ApaleoFolio) => s + (f.outstandingAmount?.amount ?? 0), 0);
         const coCurrency = folios[0]?.totalAmount?.currency ?? "EUR";
+        const coFileRef = coDecision.exceptionApplied
+          ? (coScenarioFiles.find(f => f.endsWith('.EXCEPTION.md')) ?? coScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md")
+          : (coScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? coScenarioFiles[0] ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md");
         const wid = await writeWitnessEntry({
           companyId: Number(companyId), agent: "Checkout Agent", decision: coDecision,
-          fileReferenced: coScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? coScenarioFiles[0] ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+          fileReferenced: coFileRef,
           apaleoData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", totalOutstanding: coTotalOutstanding, currency: coCurrency, usedMcp: coUsedMcp, toolCallsMade: coToolCalls },
           scenarioRunId,
         });

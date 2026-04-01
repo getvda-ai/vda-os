@@ -1793,6 +1793,95 @@ GDPR: Guest financial data MUST NOT be retained beyond the legal retention perio
 SOC 2 Type II: All cross-domain charge actions contribute to the continuous evidence trail.
 `,
     },
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // EXCEPTION OVERLAY — Checkout Agent · Gold Loyalty Late Checkout
+    // ──────────────────────────────────────────────────────────────────────────
+    {
+      filename: "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
+      filepath: "governance/Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
+      fileType: "EXCEPTION",
+      axis: "vertical",
+      stage: "checkout",
+      journeyStage: "Post-Stay",
+      owner: "Front Office Manager",
+      domain: "Checkout",
+      agentId: "checkout-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: false,
+      nistControl: "AC-2",
+      content: `---
+file_type: EXCEPTION
+exception_type: loyalty-override
+agent_id: checkout-agent
+industry: Hospitality
+domain: Checkout
+journey_stage_axis: Post-Stay
+value_stream_axis: O2C
+authored_by: Front Office Manager
+consulted: Revenue Manager, Finance Director
+informed: General Manager, Operations Director
+approved_by: General Manager
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: LOW
+c2md_confidence: 0.97
+nist_control: AC-2, AU-2
+conditions:
+  - loyalty_tier: Gold
+  - folio_balance: "<€50"
+exception_overrides:
+  - late_checkout_fee: "€0 (waived)"
+  - checkout_extension_time: "13:00"
+  - finance_approval_required: false
+vendor: VDA-MK for Apaleo
+---
+
+# Gold Loyalty Late Checkout Exception Overlay (EXCEPTION)
+
+## Exception Purpose
+
+This EXCEPTION.md overrides the baseline late checkout fee clause in the Checkout Agent SOP for Gold loyalty tier guests. It is an active exception overlay read by the Checkout Agent at runtime alongside the SOP baseline.
+
+## Exception Clause
+
+Gold loyalty tier guests are permitted a complimentary late checkout extension to 13:00, waiving the standard €30 late checkout fee. Finance approval is not required for folios with a balance < €50. This exception applies only to verified Gold tier accounts in the Apaleo guest profile.
+
+## Conditions for Activation
+
+This exception applies ONLY when ALL of the following conditions are met:
+1. Guest loyalty tier is verified as **Gold** in the Apaleo guest profile at the time of checkout.
+2. Folio balance at the time of checkout is **less than €50** (confirmed via Apaleo Folio API).
+3. Late checkout request is for **13:00 or earlier** (not beyond).
+
+## Clause Superseded
+
+This exception overrides the following clause in the Checkout Agent SOP:
+> "MUST apply the standard late checkout fee (€30 per hour or part thereof) unless a valid EXCEPTION.md overlay is active."
+
+The standard €30 fee is waived when this exception's conditions are satisfied.
+
+## Witness Agent Requirement
+
+MUST record exception_applied: true in the Witness Agent entry when this exception governs the checkout outcome.
+MUST record fileReferenced as this EXCEPTION.md filename in the Witness Agent entry.
+MUST cite the exact exception clause verbatim in the clauseApplied field of the Witness entry.
+
+## RACI
+
+- **Responsible**: Checkout Agent (evaluates conditions and applies exception)
+- **Accountable**: Front Office Manager
+- **Consulted**: Revenue Manager, Finance Director
+- **Informed**: General Manager, Operations Director
+
+## Expiry and Governance
+
+This exception expires: 2026-12-31. A new EXCEPTION.md must be authored and approved before renewal.
+Exception override must be re-approved by General Manager if conditions change.
+Finance approval is explicitly not required for fee waivers within the conditions above (folio < €50).
+`,
+    },
   ];
 
   return files.map(f => {
@@ -1897,6 +1986,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
         "Hospitality-Revenue-Book-reservation-bot.SOP.md",
         "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
         "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
+        "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
       ];
       for (const name of CANONICAL) {
         await db
@@ -1988,6 +2078,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
       "Hospitality-Revenue-Book-reservation-bot.SOP.md",
       "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
       "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
+      "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
     ];
 
     // Load all canonical governance files for all 5 hotels
