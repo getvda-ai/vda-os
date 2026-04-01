@@ -32,252 +32,44 @@ const GLOBAL_CSS = `
 `;
 
 // ─────────────────────────────────────────────
-// INDUSTRY CONFIGURATIONS
+// INDUSTRY CONFIGURATIONS — Apaleo Hospitality Only
 // ─────────────────────────────────────────────
 const INDUSTRY_CONFIGS = {
   hospitality: {
-    label: "Hospitality & Hotels", icon: "🏨",
-    customerTerm: "Guest", employeeTerm: "Team Member", serviceTerm: "Property",
+    label: "Apaleo Hospitality Stack", icon: "🏨",
+    customerTerm: "Guest", employeeTerm: "Property Team Member", serviceTerm: "Reservation",
     domainColors: { business: T.blue, operations: T.orange, shared: T.green },
     nistControls: ["AC-2", "AU-2", "SA-4", "IR-4"],
-    additionalFrameworks: ["PCI DSS (payment card data)", "ISO 22301 (business continuity)"],
+    additionalFrameworks: ["PCI DSS (guest payment card data)", "GDPR / CCPA (guest personal data)", "ISO 22301 (business continuity)", "Local data privacy laws (jurisdiction-specific)"],
     journeyStages: [
-      { id: "discover", label: "Discover & Book", domain: "Business", owner: "Head of Revenue", color: T.blue,
-        agents: ["Availability Agent", "Pricing Agent", "Reservation Bot"] },
-      { id: "arrive", label: "Arrive & Stay", domain: "Operations", owner: "Operations Director", color: T.orange,
-        agents: ["Check-in Agent", "Room Agent", "Concierge Bot"] },
+      { id: "discover", label: "Discover & Book", domain: "Revenue", owner: "Head of Revenue", color: T.blue,
+        agents: ["Availability Agent", "Rate Agent", "Reservation Bot"] },
+      { id: "checkin", label: "Check-In", domain: "Operations", owner: "Operations Director", color: T.orange,
+        agents: ["Check-In Agent", "Unit Assignment Bot", "Guest Verification Agent"] },
+      { id: "instay", label: "In-Stay", domain: "Operations", owner: "Operations Director", color: T.orange,
+        agents: ["Concierge Agent", "Folio Agent", "Service Request Bot"] },
       { id: "checkout", label: "Checkout", domain: "Operations", owner: "Operations Director", color: T.orange,
-        agents: ["Checkout Agent", "Billing Agent"] },
-      { id: "retain", label: "Post-Stay & Loyalty", domain: "Business", owner: "CX Director", color: T.blue,
-        agents: ["Review Agent", "Loyalty Bot", "Re-engage Agent"] },
+        agents: ["Checkout Agent", "Folio Settlement Agent", "Revenue Reconciliation Agent"] },
+      { id: "poststay", label: "Post-Stay", domain: "Revenue", owner: "CX Director", color: T.blue,
+        agents: ["Review Agent", "Re-engagement Bot", "Loyalty Offer Agent"] },
     ],
     sharedServices: [
       { id: "s2p", label: "Source-to-Pay", owner: "CFO", icon: "📋", color: T.green,
-        agents: ["Invoice Agent", "PO Agent", "Vendor Bot"] },
-      { id: "hrpay", label: "HR & Payroll", owner: "CPO", icon: "👥", color: T.green,
-        agents: ["Onboarding Agent", "Payroll Bot", "Offboarding Agent"] },
+        agents: ["F&B Procurement Agent", "Maintenance PO Agent", "Vendor Compliance Bot"] },
+      { id: "hrpay", label: "HR & Roster", owner: "CPO", icon: "👥", color: T.green,
+        agents: ["Onboarding Agent", "Roster Bot", "Offboarding Agent"] },
       { id: "o2c", label: "Order-to-Cash", owner: "CFO", icon: "💰", color: T.teal,
-        agents: ["Invoice Agent", "Payment Collection Bot", "Revenue Reconciliation Agent"] },
+        agents: ["Folio Invoice Agent", "Payment Collection Bot", "Revenue Reconciliation Agent"] },
     ],
     exceptionScenarios: [
-      { id: "loyalty", label: "Loyalty Exception", icon: "⭐", description: "VIP loyalty tier checkout override" },
-      { id: "procurement", label: "Preferred Supplier", icon: "📋", description: "Preferred vendor procurement exception" },
-      { id: "access", label: "Staff Fast-Track", icon: "👤", description: "Specialist role access provisioning" },
+      { id: "loyalty", label: "Rate Plan Override", icon: "⭐", description: "Rate plan exception for key account or VIP reservation" },
+      { id: "procurement", label: "Preferred Supplier", icon: "📋", description: "Preferred vendor procurement exception for F&B or maintenance" },
+      { id: "access", label: "Staff Fast-Track", icon: "👤", description: "Specialist role access provisioning before start date" },
     ],
     witnessEntries: [
-      { agent: "Checkout Agent", decision: "PASS", file: "checkout-policy.md", clause: "MAY grant late checkout for loyalty tier members", exception: true },
-      { agent: "PO Agent", decision: "FAIL", file: "procurement-authority.md", clause: "MUST NOT process PO above authority level", exception: false },
-      { agent: "Onboarding Agent", decision: "ESCALATE", file: "staff-access-policy.md", clause: "MUST NOT provision access without manager approval", exception: false },
-    ],
-  },
-  financial: {
-    label: "Financial Services", icon: "🏦",
-    customerTerm: "Client", employeeTerm: "Advisor", serviceTerm: "Account",
-    domainColors: { business: T.blue, operations: T.teal, shared: T.green },
-    nistControls: ["AC-2", "AU-2", "SC-28", "RA-5", "IR-4"],
-    additionalFrameworks: ["SOX (financial reporting)", "DORA (digital operational resilience)", "MiFID II (investment services)"],
-    journeyStages: [
-      { id: "prospect", label: "Prospect & KYC", domain: "Compliance", owner: "Chief Compliance Officer", color: T.blue,
-        agents: ["KYC Agent", "AML Screening Bot", "Risk Scoring Agent"] },
-      { id: "onboard", label: "Onboard & Activate", domain: "Business", owner: "Head of Client Services", color: T.teal,
-        agents: ["Onboarding Agent", "Product Recommendation Bot", "Activation Agent"] },
-      { id: "transact", label: "Transact & Monitor", domain: "Operations", owner: "Head of Operations", color: T.orange,
-        agents: ["Transaction Agent", "Fraud Monitor", "Limit Enforcement Bot"] },
-      { id: "retain", label: "Review & Retain", domain: "Business", owner: "Head of CX", color: T.blue,
-        agents: ["Portfolio Review Agent", "Re-engagement Bot", "Churn Prevention Agent"] },
-    ],
-    sharedServices: [
-      { id: "risk", label: "Risk & Compliance", owner: "CRO", icon: "⚖️", color: T.green,
-        agents: ["Risk Assessment Agent", "Compliance Monitor", "Reporting Bot"] },
-      { id: "hrpay", label: "HR & Payroll", owner: "CPO", icon: "👥", color: T.green,
-        agents: ["Onboarding Agent", "Payroll Bot", "Offboarding Agent"] },
-      { id: "o2c", label: "Order-to-Cash", owner: "CFO", icon: "💰", color: T.teal,
-        agents: ["Revenue Recognition Agent", "Billing Agent", "Collections Bot"] },
-    ],
-    exceptionScenarios: [
-      { id: "credit", label: "Credit Limit Override", icon: "💳", description: "Automated credit decision exception for premium client" },
-      { id: "transaction", label: "Transaction Limit", icon: "💰", description: "Transaction above threshold for verified HNW client" },
-      { id: "access", label: "Elevated Access", icon: "🔑", description: "Privileged system access for specialist role" },
-    ],
-    witnessEntries: [
-      { agent: "Transaction Agent", decision: "ESCALATE", file: "transaction-limits.md", clause: "MUST escalate transactions above risk threshold", exception: false },
-      { agent: "KYC Agent", decision: "PASS", file: "kyc-verification.md", clause: "MAY approve standard onboarding for verified clients", exception: false },
-      { agent: "Risk Assessment Agent", decision: "FAIL", file: "credit-policy.md", clause: "MUST NOT approve credit above automated limit without review", exception: false },
-    ],
-  },
-  healthcare: {
-    label: "Healthcare", icon: "🏥",
-    customerTerm: "Patient", employeeTerm: "Clinician", serviceTerm: "Care Episode",
-    domainColors: { business: T.teal, operations: T.blue, shared: T.green },
-    nistControls: ["AC-2", "AU-2", "MP-6", "SC-28", "IA-5"],
-    additionalFrameworks: ["HIPAA / UK DSPT (health data)", "NHS DTAC (digital technology)", "MDR (medical device regulation)"],
-    journeyStages: [
-      { id: "refer", label: "Refer & Triage", domain: "Clinical", owner: "Clinical Director", color: T.teal,
-        agents: ["Triage Agent", "Referral Router", "Priority Scoring Bot"] },
-      { id: "assess", label: "Assess & Diagnose", domain: "Clinical", owner: "Clinical Director", color: T.teal,
-        agents: ["Assessment Agent", "Clinical Decision Support", "Diagnostic Aid Bot"] },
-      { id: "treat", label: "Treat & Monitor", domain: "Operations", owner: "Head of Operations", color: T.blue,
-        agents: ["Care Plan Agent", "Medication Agent", "Monitoring Bot"] },
-      { id: "discharge", label: "Discharge & Follow-up", domain: "Operations", owner: "Head of Operations", color: T.blue,
-        agents: ["Discharge Agent", "Follow-up Scheduler", "Outcome Tracker"] },
-    ],
-    sharedServices: [
-      { id: "procurement", label: "Procurement", owner: "Head of Procurement", icon: "📋", color: T.green,
-        agents: ["Medical Supplies Agent", "Equipment Agent", "Vendor Bot"] },
-      { id: "hrpay", label: "HR & Workforce", owner: "HR Director", icon: "👥", color: T.green,
-        agents: ["Onboarding Agent", "Credentialing Bot", "Rota Agent"] },
-      { id: "o2c", label: "Order-to-Cash", owner: "CFO", icon: "💰", color: T.teal,
-        agents: ["Patient Billing Agent", "Insurance Claims Bot", "Revenue Cycle Agent"] },
-    ],
-    exceptionScenarios: [
-      { id: "clinical", label: "Clinical Decision Override", icon: "🩺", description: "AI clinical decision support exception for complex case" },
-      { id: "procurement", label: "Emergency Procurement", icon: "📋", description: "Urgent medical supplies above standard threshold" },
-      { id: "access", label: "Locum Staff Access", icon: "👤", description: "Temporary clinical staff fast-track system access" },
-    ],
-    witnessEntries: [
-      { agent: "Clinical Decision Support", decision: "ESCALATE", file: "clinical-ai-policy.md", clause: "MUST escalate all AI recommendations to responsible clinician", exception: false },
-      { agent: "Medical Supplies Agent", decision: "PASS", file: "procurement-authority.md", clause: "MAY approve emergency procurement above threshold with clinical sign-off", exception: true },
-      { agent: "Onboarding Agent", decision: "PASS", file: "staff-access-policy.md", clause: "MAY provision access for credentialed locum staff with HR approval", exception: true },
-    ],
-  },
-  retail: {
-    label: "Retail & E-commerce", icon: "🛍️",
-    customerTerm: "Customer", employeeTerm: "Associate", serviceTerm: "Order",
-    domainColors: { business: T.blue, operations: T.orange, shared: T.green },
-    nistControls: ["AC-2", "AU-2", "SA-4", "SI-10"],
-    additionalFrameworks: ["PCI DSS (payment card)", "Consumer Duty (FCA where relevant)", "CCPA / GDPR (consumer data)"],
-    journeyStages: [
-      { id: "discover", label: "Discover & Browse", domain: "Marketing", owner: "CMO", color: T.blue,
-        agents: ["Recommendation Agent", "Search Bot", "Personalisation Agent"] },
-      { id: "purchase", label: "Purchase & Pay", domain: "Commerce", owner: "Head of Commerce", color: T.teal,
-        agents: ["Basket Agent", "Payment Agent", "Fraud Detection Bot"] },
-      { id: "fulfil", label: "Fulfil & Deliver", domain: "Operations", owner: "Operations Director", color: T.orange,
-        agents: ["Inventory Agent", "Dispatch Bot", "Carrier Agent"] },
-      { id: "service", label: "Service & Retain", domain: "CX", owner: "CX Director", color: T.blue,
-        agents: ["Returns Agent", "Complaints Bot", "Loyalty Agent"] },
-    ],
-    sharedServices: [
-      { id: "s2p", label: "Supplier Management", owner: "Head of Buying", icon: "📋", color: T.green,
-        agents: ["Buying Agent", "PO Agent", "Vendor Bot"] },
-      { id: "hrpay", label: "HR & Payroll", owner: "HR Director", icon: "👥", color: T.green,
-        agents: ["Onboarding Agent", "Scheduling Bot", "Payroll Agent"] },
-      { id: "o2c", label: "Order-to-Cash", owner: "CFO", icon: "💰", color: T.teal,
-        agents: ["Invoice Agent", "Refunds & Reconciliation Bot", "Credit Control Agent"] },
-    ],
-    exceptionScenarios: [
-      { id: "pricing", label: "Dynamic Price Override", icon: "💰", description: "Automated pricing exception for loyalty customer" },
-      { id: "fraud", label: "Fraud Threshold", icon: "🔒", description: "Transaction above fraud threshold for verified customer" },
-      { id: "access", label: "Seasonal Staff", icon: "👤", description: "Temporary staff fast-track access provisioning" },
-    ],
-    witnessEntries: [
-      { agent: "Recommendation Agent", decision: "PASS", file: "personalisation-policy.md", clause: "MAY apply personalised pricing for loyalty tier customers", exception: true },
-      { agent: "Fraud Detection Bot", decision: "ESCALATE", file: "fraud-policy.md", clause: "MUST escalate transactions above fraud risk threshold to human review", exception: false },
-      { agent: "PO Agent", decision: "FAIL", file: "procurement-authority.md", clause: "MUST NOT process PO above buyer authority level", exception: false },
-    ],
-  },
-  professional: {
-    label: "Professional Services", icon: "💼",
-    customerTerm: "Client", employeeTerm: "Consultant", serviceTerm: "Engagement",
-    domainColors: { business: T.blue, operations: T.teal, shared: T.green },
-    nistControls: ["AC-2", "AU-2", "AC-17", "SC-8"],
-    additionalFrameworks: ["ISO 27001 (information security)", "SRA / Legal regulatory frameworks (where applicable)"],
-    journeyStages: [
-      { id: "prospect", label: "Prospect & Qualify", domain: "Business Development", owner: "Head of BD", color: T.blue,
-        agents: ["Lead Scoring Agent", "Conflict Check Bot", "Proposal Agent"] },
-      { id: "engage", label: "Engage & Contract", domain: "Delivery", owner: "Partner", color: T.teal,
-        agents: ["Scoping Agent", "Contract Bot", "Resource Agent"] },
-      { id: "deliver", label: "Deliver & Quality", domain: "Delivery", owner: "Partner", color: T.teal,
-        agents: ["Delivery Monitor", "Quality Bot", "Billing Agent"] },
-      { id: "close", label: "Close & Renew", domain: "Business Development", owner: "Head of BD", color: T.blue,
-        agents: ["Closure Agent", "Feedback Bot", "Renewal Agent"] },
-    ],
-    sharedServices: [
-      { id: "procurement", label: "Procurement", owner: "Head of Operations", icon: "📋", color: T.green,
-        agents: ["Vendor Agent", "PO Bot", "Subcontractor Agent"] },
-      { id: "hrpay", label: "HR & Talent", owner: "HR Director", icon: "👥", color: T.green,
-        agents: ["Onboarding Agent", "Utilisation Bot", "Payroll Agent"] },
-      { id: "o2c", label: "Order-to-Cash", owner: "CFO", icon: "💰", color: T.teal,
-        agents: ["Engagement Billing Agent", "Revenue Recognition Bot", "Collections Agent"] },
-    ],
-    exceptionScenarios: [
-      { id: "pricing", label: "Engagement Rate Override", icon: "💰", description: "Discounted rate exception for strategic client" },
-      { id: "procurement", label: "Subcontractor Approval", icon: "📋", description: "Preferred subcontractor procurement exception" },
-      { id: "access", label: "Client System Access", icon: "👤", description: "Consultant access to client systems" },
-    ],
-    witnessEntries: [
-      { agent: "Contract Bot", decision: "ESCALATE", file: "rate-authority.md", clause: "MUST escalate discounts above partner authority to Managing Partner", exception: false },
-      { agent: "Vendor Agent", decision: "PASS", file: "procurement-policy.md", clause: "MAY approve preferred subcontractor without three-quote requirement", exception: true },
-      { agent: "Resource Agent", decision: "PASS", file: "staff-access-policy.md", clause: "MAY provision client system access for credentialed consultants with client approval", exception: true },
-    ],
-  },
-  manufacturing: {
-    label: "Manufacturing & Supply Chain", icon: "🏭",
-    customerTerm: "Customer", employeeTerm: "Operator", serviceTerm: "Production Order",
-    domainColors: { business: T.blue, operations: T.orange, shared: T.green },
-    nistControls: ["AC-2", "AU-2", "SA-4", "PE-3", "SC-28"],
-    additionalFrameworks: ["ISO 9001 (quality management)", "ITAR / Export controls (where applicable)", "OT/ICS security (IEC 62443)"],
-    journeyStages: [
-      { id: "design", label: "Design & Qualify", domain: "Engineering", owner: "Head of Engineering", color: T.blue,
-        agents: ["Design Review Agent", "BOM Bot", "Quality Qualification Agent"] },
-      { id: "source", label: "Source & Procure", domain: "Operations", owner: "Head of Procurement", color: T.orange,
-        agents: ["Supplier Agent", "PO Bot", "Goods Receipt Agent"] },
-      { id: "produce", label: "Produce & QC", domain: "Operations", owner: "Operations Director", color: T.orange,
-        agents: ["Production Scheduler", "QC Agent", "Defect Detection Bot"] },
-      { id: "ship", label: "Ship & Service", domain: "Commercial", owner: "Head of Commercial", color: T.blue,
-        agents: ["Logistics Agent", "Invoice Bot", "Field Service Agent"] },
-    ],
-    sharedServices: [
-      { id: "quality", label: "Quality & Compliance", owner: "Quality Director", icon: "✅", color: T.green,
-        agents: ["Audit Agent", "NCR Bot", "CAPA Agent"] },
-      { id: "hrpay", label: "HR & Workforce", owner: "HR Director", icon: "👥", color: T.green,
-        agents: ["Onboarding Agent", "Skills Bot", "Payroll Agent"] },
-      { id: "o2c", label: "Order-to-Cash", owner: "CFO", icon: "💰", color: T.teal,
-        agents: ["Customer Invoice Agent", "Credit Control Bot", "Cash Application Agent"] },
-    ],
-    exceptionScenarios: [
-      { id: "quality", label: "Quality Hold Override", icon: "✅", description: "Production hold exception for certified deviation" },
-      { id: "procurement", label: "Approved Supplier Exception", icon: "📋", description: "Alternative supplier exception for critical component" },
-      { id: "access", label: "Contractor Access", icon: "👤", description: "Third-party contractor system access exception" },
-    ],
-    witnessEntries: [
-      { agent: "QC Agent", decision: "FAIL", file: "quality-hold-policy.md", clause: "MUST NOT release non-conforming product without Engineering deviation approval", exception: false },
-      { agent: "Supplier Agent", decision: "PASS", file: "approved-supplier-policy.md", clause: "MAY approve alternative supplier for critical shortage with Quality sign-off", exception: true },
-      { agent: "Onboarding Agent", decision: "ESCALATE", file: "contractor-access-policy.md", clause: "MUST escalate contractor access requests to CISO and site manager", exception: false },
-    ],
-  },
-  marina: {
-    label: "Marina & Boating", icon: "⛵",
-    customerTerm: "Boat Owner", employeeTerm: "Dockmaster", serviceTerm: "Berth",
-    domainColors: { business: T.blue, operations: T.teal, shared: T.green },
-    nistControls: ["AC-2", "AU-2", "SA-4", "SI-10"],
-    additionalFrameworks: ["MCA / MSN regulations (maritime safety)", "Consumer Duty (FCA where applicable)", "GDPR / CCPA (customer & vessel data)", "Marine Insurance Act (vessel cover verification)"],
-    journeyStages: [
-      { id: "enquire", label: "Enquire & Reserve", domain: "Commercial", owner: "Head of Commercial", color: T.blue,
-        agents: ["Berth Availability Agent", "Mooring Pricing Agent", "Reservation Bot"] },
-      { id: "arrive", label: "Arrive & Berth", domain: "Operations", owner: "Harbour Master", color: T.teal,
-        agents: ["Arrival Agent", "Berth Assignment Bot", "Safety Check Agent"] },
-      { id: "sales", label: "Boat Sales & Brokerage", domain: "Commercial", owner: "Head of Sales", color: T.blue,
-        agents: ["Listings Agent", "Valuation Bot", "Sales Progression Agent"] },
-      { id: "renew", label: "Service & Renew", domain: "Commercial", owner: "Head of Commercial", color: T.blue,
-        agents: ["Renewal Agent", "Maintenance Scheduler", "Upgrade Recommendation Bot"] },
-    ],
-    sharedServices: [
-      { id: "s2p", label: "Marine Procurement", owner: "Operations Manager", icon: "📋", color: T.green,
-        agents: ["Parts & Supplies Agent", "PO Agent", "Approved Supplier Bot"] },
-      { id: "hrpay", label: "HR & Workforce", owner: "HR Manager", icon: "👥", color: T.green,
-        agents: ["Onboarding Agent", "Rota Bot", "Payroll Agent"] },
-      { id: "o2c", label: "Order-to-Cash", owner: "CFO", icon: "💰", color: T.teal,
-        agents: ["Mooring Invoice Agent", "Sales Completion Bot", "Debt Collection Agent"] },
-    ],
-    exceptionScenarios: [
-      { id: "berth", label: "Priority Berth Exception", icon: "⛵", description: "Priority berth allocation for long-standing Boat Owner or VIP" },
-      { id: "procurement", label: "Emergency Parts Exception", icon: "📋", description: "Urgent marine parts procurement above standard approval threshold" },
-      { id: "access", label: "Seasonal Staff Access", icon: "👤", description: "Temporary seasonal dockmaster fast-track system access provisioning" },
-    ],
-    witnessEntries: [
-      { agent: "Berth Assignment Bot", decision: "PASS", file: "berth-allocation-exception.md", clause: "MAY assign premium berth to verified long-standing Boat Owner with Harbour Master approval", exception: true },
-      { agent: "Parts & Supplies Agent", decision: "FAIL", file: "procurement-authority.md", clause: "MUST NOT process PO above Operations Manager authority level without CFO sign-off", exception: false },
-      { agent: "Onboarding Agent", decision: "ESCALATE", file: "staff-access-policy.md", clause: "MUST escalate seasonal staff access requests to Harbour Master before provisioning", exception: false },
+      { agent: "Checkout Agent", decision: "PASS", file: "folio-settlement-policy.md", clause: "MAY waive late checkout fee for verified loyalty tier guests", exception: true },
+      { agent: "Maintenance PO Agent", decision: "FAIL", file: "procurement-authority.md", clause: "MUST NOT process PO above authority level without CFO sign-off", exception: false },
+      { agent: "Onboarding Agent", decision: "ESCALATE", file: "staff-access-provisioning-baseline.md", clause: "MUST NOT provision access without manager approval in the HR system", exception: false },
     ],
   },
 };
@@ -465,10 +257,10 @@ function DecisionBadge({ decision, large }) {
 // SETUP WIZARD
 // ─────────────────────────────────────────────
 function SetupWizard({ onComplete }) {
-  const [step, setStep] = useState(1); // 1=welcome, 2=company, 3=files, 4=industry, 5=ingest, 6=ready
+  const [step, setStep] = useState(1); // 1=welcome, 2=company, 3=files, 4=ingest, 5=ready
   const [companyName, setCompanyName] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
-  const [industry, setIndustry] = useState("");
+  const industry = "hospitality"; // Locked to Apaleo hospitality
   const [brandContext, setBrandContext] = useState("");
   const [ingesting, setIngesting] = useState(false);
   const [ingestLog, setIngestLog] = useState([]);
@@ -487,7 +279,6 @@ function SetupWizard({ onComplete }) {
     setIngestError(null);
     setElapsedSecs(0);
     setIngestPhase("files");
-    // Start elapsed timer
     clearInterval(elapsedRef.current);
     elapsedRef.current = setInterval(() => setElapsedSecs(s => s + 1), 1000);
 
@@ -518,7 +309,7 @@ function SetupWizard({ onComplete }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514", max_tokens: 1500,
-            system: "You are extracting brand context for the VDA-MD AI governance framework. Documents may be in any language including Dutch, German, French, or Spanish. Output everything in English, but preserve brand-specific proper nouns exactly as they appear — product names, system names, role titles, and branded terms should be kept verbatim with the original-language term noted in brackets. Extract: company values and mission, tone of voice, key role titles, named internal systems or platforms, operational terminology. Output as structured plain text. Be concise — 400-600 words.",
+            system: "You are extracting brand context for the VDA-MK AI governance framework (Apaleo hospitality). Documents may be in any language including Dutch, German, French, or Spanish. Output everything in English, but preserve brand-specific proper nouns exactly as they appear — product names, system names, role titles, and branded terms should be kept verbatim with the original-language term noted in brackets. Extract: company values and mission, tone of voice, key role titles, named internal systems or platforms, operational terminology. Output as structured plain text. Be concise — 400-600 words.",
             messages: [{ role: "user", content: fileMessageContent }]
           })
         });
@@ -541,8 +332,8 @@ function SetupWizard({ onComplete }) {
           model: "claude-sonnet-4-20250514",
           max_tokens: 1500,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
-          system: `You are extracting brand context for the VDA-MD AI governance framework. The company website may be in any language — Dutch, German, French, Spanish, or other. Search the company website and extract brand context. IMPORTANT: Output everything in English regardless of the website language. However, preserve brand-specific proper nouns exactly as they appear in the original language — product names, system names, platform names, role titles, and branded terminology should be kept verbatim (e.g. if the Dutch site says "Medewerkers" for employees, note: their term is "Medewerkers"). Extract: company values and mission, tone of voice and language style, key role titles used (with original-language terms noted), named internal systems or platforms, operational terminology specific to this company, industry-specific language. Output as structured plain text optimised for injecting into an AI governance document generation prompt. Be concise — 400-600 words maximum.`,
-          messages: [{ role: "user", content: `Search ${websiteUrl} and extract brand context for ${companyName} (${INDUSTRY_CONFIGS[industry]?.label} industry). The site may be in a language other than English — that is fine, extract the content and output in English while preserving any brand-specific terms verbatim. Focus on: brand voice, role titles (with original language terms), key systems/platforms mentioned, operational terminology, company values. This context will make AI governance documents sound authentic to this company.` }]
+          system: `You are extracting brand context for the VDA-MK AI governance framework (Apaleo hospitality). The property website may be in any language — Dutch, German, French, Spanish, or other. Search the property website and extract brand context. IMPORTANT: Output everything in English regardless of the website language. However, preserve brand-specific proper nouns exactly as they appear in the original language — product names, system names, platform names, role titles, and branded terminology should be kept verbatim (e.g. if the Dutch site says "Medewerkers" for employees, note: their term is "Medewerkers"). Extract: company values and mission, tone of voice and language style, key role titles used (with original-language terms noted), named internal systems or platforms, operational terminology specific to this property, hospitality-specific language. Output as structured plain text optimised for injecting into an Apaleo AI governance document generation prompt. Be concise — 400-600 words maximum.`,
+          messages: [{ role: "user", content: `Search ${websiteUrl} and extract brand context for ${companyName} (Apaleo hospitality property). The site may be in a language other than English — that is fine, extract the content and output in English while preserving any brand-specific terms verbatim. Focus on: brand voice, role titles (with original language terms), key systems/platforms mentioned, operational terminology, company values. Also note any Apaleo-native references (property codes, rate plans, folio workflows). This context will make AI governance documents sound authentic to this property.` }]
         })
       });
 
@@ -570,24 +361,22 @@ function SetupWizard({ onComplete }) {
       addLog("GDPR Article mapping complete ✓", T.green);
       addLog("EU AI Act Article mapping complete ✓", T.green);
       await new Promise(r => setTimeout(r, 300));
-      addLog(`✓ VDA-MD framework configured for ${companyName}`, T.orange);
+      addLog(`✓ VDA-MK for Apaleo framework configured for ${companyName}`, T.orange);
       clearInterval(elapsedRef.current);
       setIngestPhase("done");
       setIngesting(false);
-      setStep(6);
+      setStep(5);
     } catch (e) {
       clearInterval(elapsedRef.current);
       setIngestPhase("error");
       setIngestError(e.message);
       setIngesting(false);
-      // Still allow proceeding with fallback context
-      setBrandContext(`Brand context for ${companyName} — ${INDUSTRY_CONFIGS[industry]?.label}. Professional ${industry} sector organisation. Apply industry-standard terminology throughout governance documents.`);
+      setBrandContext(`Brand context for ${companyName} — ${INDUSTRY_CONFIGS[industry]?.label}. Apaleo-powered hospitality organisation. Apply Apaleo-native guest journey terminology throughout governance documents.`);
       addLog("⚠ Web ingestion limited — using fallback context", T.amber);
-      setTimeout(() => setStep(6), 1500);
+      setTimeout(() => setStep(5), 1500);
     }
   };
 
-  const industryOptions = Object.entries(INDUSTRY_CONFIGS).map(([k, v]) => ({ value: k, label: v.label, icon: v.icon }));
   const selectedIndustry = INDUSTRY_CONFIGS[industry];
 
   const inputStyle = {
@@ -617,30 +406,33 @@ function SetupWizard({ onComplete }) {
           <div style={{
             height: "100%", borderRadius: 999,
             background: `linear-gradient(90deg, ${T.orange}, ${T.amber})`,
-            width: `${(step / 6) * 100}%`,
+            width: `${(step / 5) * 100}%`,
             transition: "width 0.5s ease",
           }} />
         </div>
 
         <div style={{ padding: 40 }}>
-          {/* Step 1 — Welcome */}
+          {/* Step 1 — Welcome / Apaleo intro */}
           {step === 1 && (
             <div style={{ animation: "wizard-in 0.3s ease" }}>
-              <div style={{ fontSize: 48, marginBottom: 16, animation: "float 3s ease-in-out infinite" }}>🏗️</div>
-              <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 28, color: T.text, letterSpacing: "-0.03em", marginBottom: 12 }}>
-                VDA-MD Framework
+              <div style={{ fontSize: 48, marginBottom: 16, animation: "float 3s ease-in-out infinite" }}>🏨</div>
+              <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 28, color: T.text, letterSpacing: "-0.03em", marginBottom: 8 }}>
+                VDA-MK for Apaleo
               </h1>
-              <div style={{ fontSize: 13, color: T.orange, fontFamily: T.mono, fontWeight: 700, marginBottom: 16, letterSpacing: "0.1em" }}>
-                VALUE-DRIVEN AI WITH MARKDOWNS · GOVERNANCE TEMPLATE
+              <div style={{ fontSize: 13, color: T.orange, fontFamily: T.mono, fontWeight: 700, marginBottom: 6, letterSpacing: "0.1em" }}>
+                AI GOVERNANCE LAYER · APALEO HOSPITALITY STACK
               </div>
-              <p style={{ fontSize: 15, color: T.muted, lineHeight: 1.75, marginBottom: 24 }}>
-                This wizard configures the VDA-MD framework for your organisation. Enter your company website and industry, and the system will:
+              <div style={{ fontSize: 12, color: T.dim, fontFamily: T.mono, marginBottom: 18, padding: "6px 12px", background: `${T.blue}0a`, border: `1px solid ${T.blue}25`, borderRadius: 6, display: "inline-block" }}>
+                Powered by Apaleo · API-first property management
+              </div>
+              <p style={{ fontSize: 15, color: T.muted, lineHeight: 1.75, marginBottom: 20 }}>
+                This wizard configures the VDA-MK AI governance framework for your Apaleo-powered property or group. Enter your property website and the system will:
               </p>
               {[
-                ["📥", "Ingest your brand context via live web search"],
-                ["📋", "Select the right NIST SP 800-53 controls for your industry"],
-                ["⚡", "Build a governed exception engine for your value streams"],
-                ["🕵️", "Configure the Witness Agent audit trail for your context"],
+                ["📥", "Ingest your brand context from your property website"],
+                ["📋", "Map NIST SP 800-53 controls to the Apaleo guest lifecycle"],
+                ["⚡", "Build a governed exception engine for Reservations, Folios, and Rate Plans"],
+                ["🕵️", "Pre-seed the Witness Agent with Apaleo-native audit decisions"],
               ].map(([icon, text]) => (
                 <div key={text} style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-start" }}>
                   <span style={{ fontSize: 18, flexShrink: 0 }}>{icon}</span>
@@ -648,7 +440,7 @@ function SetupWizard({ onComplete }) {
                 </div>
               ))}
               <div style={{ marginTop: 8, padding: "10px 14px", background: `${T.green}0a`, border: `1px solid ${T.green}30`, borderRadius: 8, fontSize: 12, color: T.green, fontFamily: T.mono }}>
-                GDPR + EU AI Act compliance always included · NIST selected per industry
+                PCI DSS + GDPR + EU AI Act always included · Apaleo guest journey locked in
               </div>
               <button onClick={() => setStep(2)} style={{
                 marginTop: 28, width: "100%", padding: "14px", background: T.orange,
@@ -656,7 +448,7 @@ function SetupWizard({ onComplete }) {
                 fontFamily: T.sans, fontWeight: 800, cursor: "pointer",
                 boxShadow: `0 0 32px ${T.orange}55`,
               }}>
-                Configure my VDA-MD framework →
+                Configure my Apaleo VDA-MK hub →
               </button>
             </div>
           )}
@@ -664,13 +456,13 @@ function SetupWizard({ onComplete }) {
           {/* Step 2 — Company */}
           {step === 2 && (
             <div style={{ animation: "wizard-in 0.3s ease" }}>
-              <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, marginBottom: 6 }}>Your Company</h2>
-              <p style={{ fontSize: 13, color: T.dim, marginBottom: 28 }}>Enter your company name and website — we'll ingest brand context from the site.</p>
-              <label style={{ fontSize: 11, color: T.muted, fontFamily: T.mono, letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 8 }}>Company Name</label>
-              <input value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="e.g. Acme Corporation"
+              <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, marginBottom: 6 }}>Your Property</h2>
+              <p style={{ fontSize: 13, color: T.dim, marginBottom: 28 }}>Enter your property name and website — we'll ingest brand context from the Apaleo property site.</p>
+              <label style={{ fontSize: 11, color: T.muted, fontFamily: T.mono, letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 8 }}>Property Name</label>
+              <input value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="e.g. Grand Hotel Amsterdam"
                 style={{ ...inputStyle, marginBottom: 20 }} />
-              <label style={{ fontSize: 11, color: T.muted, fontFamily: T.mono, letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 8 }}>Company Website</label>
-              <input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="e.g. https://acme.com"
+              <label style={{ fontSize: 11, color: T.muted, fontFamily: T.mono, letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 8 }}>Property Website</label>
+              <input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="e.g. https://grandhotel.com"
                 style={inputStyle} />
               <div style={{ fontSize: 11, color: T.dim, marginTop: 8, fontFamily: T.mono }}>
                 Dutch, German, French and other languages supported · Public pages only
@@ -813,64 +605,19 @@ function SetupWizard({ onComplete }) {
                   flex: 1, padding: "12px", background: T.card, border: `1px solid ${T.border}`,
                   borderRadius: 10, color: T.muted, fontSize: 14, fontFamily: T.sans, cursor: "pointer",
                 }}>← Back</button>
-                <button onClick={() => setStep(4)} style={{
+                <button onClick={() => { setStep(4); setTimeout(runIngestion, 400); }} style={{
                   flex: 2, padding: "12px", background: T.orange,
                   border: "none", borderRadius: 10, color: "#fff", fontSize: 14,
                   fontFamily: T.sans, fontWeight: 700, cursor: "pointer",
                 }}>
-                  {uploadedFiles.length > 0 ? `Continue with ${uploadedFiles.length} file${uploadedFiles.length > 1 ? "s" : ""} →` : "Skip — Continue →"}
+                  {uploadedFiles.length > 0 ? `Continue with ${uploadedFiles.length} file${uploadedFiles.length > 1 ? "s" : ""} →` : "Ingest Brand Context →"}
                 </button>
               </div>
             </div>
           )}
 
-          {/* Step 4 — Industry */}
+          {/* Step 4 — Ingesting */}
           {step === 4 && (
-            <div style={{ animation: "wizard-in 0.3s ease" }}>
-              <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, marginBottom: 6 }}>Industry</h2>
-              <p style={{ fontSize: 13, color: T.dim, marginBottom: 20 }}>Select your industry — this determines the NIST controls, value streams, and governance scenarios.</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
-                {industryOptions.map(opt => (
-                  <button key={opt.value} onClick={() => setIndustry(opt.value)} style={{
-                    background: industry === opt.value ? `${T.orange}15` : T.card,
-                    border: `2px solid ${industry === opt.value ? T.orange : T.border}`,
-                    borderRadius: 10, padding: "12px 14px", cursor: "pointer", textAlign: "left",
-                    transition: "all 0.15s",
-                  }}>
-                    <div style={{ fontSize: 22, marginBottom: 6 }}>{opt.icon}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: industry === opt.value ? T.orange : T.text, fontFamily: T.sans }}>{opt.label}</div>
-                  </button>
-                ))}
-              </div>
-              {selectedIndustry && (
-                <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
-                  <div style={{ fontSize: 11, color: T.muted, fontFamily: T.mono, marginBottom: 8 }}>NIST CONTROLS FOR THIS INDUSTRY</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                    {selectedIndustry.nistControls.map(c => <Tag key={c} color={T.blue}>{c}</Tag>)}
-                    <Tag color={T.green}>GDPR</Tag>
-                    <Tag color={T.purple}>EU AI Act</Tag>
-                  </div>
-                  {selectedIndustry.additionalFrameworks.map(f => (
-                    <div key={f} style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>+ {f}</div>
-                  ))}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 12 }}>
-                <button onClick={() => setStep(3)} style={{
-                  flex: 1, padding: "12px", background: T.card, border: `1px solid ${T.border}`,
-                  borderRadius: 10, color: T.muted, fontSize: 14, fontFamily: T.sans, cursor: "pointer",
-                }}>← Back</button>
-                <button onClick={() => { setStep(5); setTimeout(runIngestion, 400); }} disabled={!industry} style={{
-                  flex: 2, padding: "12px", background: industry ? T.orange : T.border,
-                  border: "none", borderRadius: 10, color: "#fff", fontSize: 14,
-                  fontFamily: T.sans, fontWeight: 700, cursor: industry ? "pointer" : "not-allowed",
-                }}>Ingest Brand Context →</button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 5 — Ingesting */}
-          {step === 5 && (
             <div style={{ animation: "wizard-in 0.3s ease" }}>
 
               {/* Status header */}
@@ -994,8 +741,8 @@ function SetupWizard({ onComplete }) {
                     clearInterval(elapsedRef.current);
                     setIngesting(false);
                     setIngestPhase("done");
-                    if (!brandContext) setBrandContext(`Brand context for ${companyName} — ${INDUSTRY_CONFIGS[industry]?.label}. Professional ${industry} sector organisation.`);
-                    setStep(6);
+                    if (!brandContext) setBrandContext(`Brand context for ${companyName} — ${INDUSTRY_CONFIGS[industry]?.label}. Apaleo-powered hospitality organisation.`);
+                    setStep(5);
                   }} style={{
                     padding: "8px 18px", background: T.orange, border: "none",
                     borderRadius: 7, color: "#fff", fontSize: 13, fontFamily: T.sans,
@@ -1013,21 +760,24 @@ function SetupWizard({ onComplete }) {
             </div>
           )}
 
-          {/* Step 6 — Ready */}
-          {step === 6 && (
+          {/* Step 5 — Ready */}
+          {step === 5 && (
             <div style={{ animation: "wizard-in 0.3s ease", textAlign: "center" }}>
               <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
               <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 24, color: T.text, marginBottom: 8, letterSpacing: "-0.02em" }}>
                 {companyName} is ready
               </h2>
-              <div style={{ fontSize: 13, color: T.dim, marginBottom: 24 }}>VDA-MD framework configured · Brand context ingested · NIST controls mapped</div>
+              <div style={{ fontSize: 13, color: T.dim, marginBottom: 6 }}>VDA-MK framework configured · Brand context ingested · Apaleo guest lifecycle mapped</div>
+              <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 20, padding: "5px 12px", background: `${T.blue}0a`, border: `1px solid ${T.blue}25`, borderRadius: 6, display: "inline-block" }}>
+                Powered by Apaleo · API-first property management
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 24, textAlign: "left" }}>
                 {[
                   { label: "Brand Context", value: uploadedFiles.length > 0 ? `Website + ${uploadedFiles.length} uploaded file${uploadedFiles.length > 1 ? "s" : ""}` : "Website ingested", icon: "📥" },
-              { label: "Industry", value: selectedIndustry?.label, icon: selectedIndustry?.icon },
+                  { label: "Platform", value: selectedIndustry?.label, icon: selectedIndustry?.icon },
                   { label: "NIST Controls", value: selectedIndustry?.nistControls.join(", "), icon: "📋" },
-                  { label: "Value Streams", value: `${selectedIndustry?.journeyStages.length} journey stages`, icon: "🗺" },
-                  { label: "Regulatory", value: "GDPR + EU AI Act", icon: "⚖️" },
+                  { label: "Guest Journey", value: `${selectedIndustry?.journeyStages.length} Apaleo lifecycle stages`, icon: "🗺" },
+                  { label: "Regulatory", value: "PCI DSS + GDPR + EU AI Act", icon: "⚖️" },
                 ].map(item => (
                   <div key={item.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px" }}>
                     <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 4 }}>{item.label}</div>
@@ -1042,7 +792,7 @@ function SetupWizard({ onComplete }) {
                 cursor: "pointer", boxShadow: `0 0 32px ${T.orange}55`,
                 animation: "glow-pulse 2s ease-in-out infinite",
               }}>
-                Launch {companyName} VDA-MD Hub →
+                Launch {companyName} Apaleo VDA-MK Hub →
               </button>
             </div>
           )}
@@ -1072,7 +822,7 @@ Rules:
 - Keep the "md" field concise: frontmatter + summary + agent rules + violation definition (max ~400 words)
 - Escape all newlines in the "md" value as \\n`;
 
-  const userPrompt = `Translate NIST ${controlId} (${control.title}) into a VDA-MD governance .md file.
+  const userPrompt = `Translate NIST ${controlId} (${control.title}) into a VDA-MK governance .md file for an Apaleo hospitality property.
 
 OSCAL SOURCE:
 ${control.oscal}
@@ -1132,7 +882,7 @@ async function runGovernanceDecision(scenario, params, withException, companyNam
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514", max_tokens: 800,
-      system: `You are the VDA-MD Governance Agent for ${companyName}. Evaluate strictly against the governance Markdown files. Respond ONLY with valid JSON.`,
+      system: `You are the VDA-MK Governance Agent for ${companyName} (Apaleo hospitality property). Evaluate strictly against the governance Markdown files. Respond ONLY with valid JSON.`,
       messages: [{ role: "user", content: `${govCtx}\n\nPARAMETERS:\n${paramText}\n\nReturn: {"decision":"PASS|FAIL|ESCALATE","governed_by":"baseline|exception","file_referenced":"filename","clause_applied":"the rule","reasoning":"2-3 sentences","escalation_target":"role or null","exception_evaluated":true|false,"exception_applied":true|false}` }]
     })
   });
@@ -1294,7 +1044,7 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
   ].filter(Boolean);
 
   const mustNotRules = [
-    `MUST NOT operate without a current, approved governance file in the VDA-MD repository`,
+    `MUST NOT operate without a current, approved governance file in the VDA-MK repository`,
     `MUST NOT execute actions when an exception is required but no exception overlay is active`,
     `MUST NOT bypass human oversight where required by EU AI Act Article 14`,
     isPayment    ? `MUST NOT process transactions above threshold without appropriate authority sign-off` : null,
@@ -1400,11 +1150,11 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
 
 <div class="letterhead">
   <div>
-    <div class="brand">VDA-MD Framework</div>
+    <div class="brand">VDA-MK for Apaleo</div>
     <div class="brand-sub">Value-Driven AI with Markdowns · Agent Policy Document</div>
   </div>
   <div class="doc-meta">
-    <div><strong>${companyName || "VDA-MD"}</strong></div>
+    <div><strong>${companyName || "Apaleo Property"}</strong></div>
     <div>${config.label}</div>
     <div>${date}</div>
     <div style="margin-top:4px;color:#aaa">CONFIDENTIAL — INTERNAL USE</div>
@@ -1414,7 +1164,7 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
 <h1>${agent}</h1>
 <div class="agent-meta">
   <span class="tag tag-orange">${domain}</span>
-  <span class="tag tag-orange">VDA-MD Agent</span>
+  <span class="tag tag-orange">VDA-MK Agent</span>
   <span class="tag tag-purple">EU AI Act</span>
   <span class="tag tag-blue">NIST SP 800-53</span>
 </div>
@@ -1483,8 +1233,8 @@ ${addlRows ? `<div class="fw-section">
 </div>` : ""}
 
 <div class="footer">
-  <span>${agent} · ${domain} · ${companyName || "VDA-MD"}</span>
-  <span>VDA-MD Framework · C2MD Pipeline · Proprietary IP · ${new Date().getFullYear()}</span>
+  <span>${agent} · ${domain} · ${companyName || "Apaleo Property"}</span>
+  <span>VDA-MK for Apaleo · C2MD Pipeline · Powered by Apaleo · ${new Date().getFullYear()}</span>
 </div>
 
 <button class="print-btn no-print" onclick="window.print()">⬇ Save as PDF</button>
@@ -1521,7 +1271,7 @@ ${addlRows ? `<div class="fw-section">
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
                 <Tag color={color}>{domain}</Tag>
-                <Tag color={T.orange}>VDA-MD Agent</Tag>
+                <Tag color={T.orange}>VDA-MK Agent</Tag>
                 <Tag color={T.purple}>EU AI Act</Tag>
               </div>
               <h3 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 20, color: T.text, letterSpacing: "-0.02em", marginBottom: 4 }}>{agent}</h3>
@@ -1696,7 +1446,7 @@ ${addlRows ? `<div class="fw-section">
         {/* Footer */}
         <div style={{ padding: "12px 22px", borderTop: `1px solid ${T.border}`, flexShrink: 0, display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>
-            {agent} · {domain} · {companyName || "VDA-MD"}
+            {agent} · {domain} · {companyName || "Apaleo Property"}
           </div>
           <Tag color={T.green}>Witness Agent Active</Tag>
         </div>
@@ -2108,26 +1858,36 @@ function JourneyMapTab({ config, companyName }) {
 // ─────────────────────────────────────────────
 
 const SAMPLE_AGENT_MD = `---
-name: check-in-assistant
-description: Helps guests check in at the hotel
+name: check-in-agent
+description: Automates Apaleo check-in flow for arriving guests
+version: 1.0
+owner: front-office
+tags: [check-in, apaleo, guest-journey]
 ---
 
 ## Role
-You are a hotel check-in assistant. Help guests check in quickly.
+You are the Apaleo Check-In Agent. You manage the digital check-in workflow for arriving guests using the Apaleo Property Management API.
 
-## Behaviour  
-- Be friendly and efficient
-- Check if room is ready
-- Assign a room if available
-- Handle loyalty member upgrades when possible
-- If there's a problem, escalate to the front desk team
-- Don't process payments over £500
+## Behaviour
+- Verify reservation status via Apaleo Reservations API before proceeding
+- Confirm folio balance is settled or a valid payment method is on file
+- Assign a unit using Apaleo Unit Management API; prioritise room-type match
+- Honour loyalty tier upgrades when an equivalent unit is available
+- Send digital key and arrival confirmation via Apaleo Messaging API
+- Escalate to front-office team if reservation has a block, dispute, or open folio balance > €500
+- Never override a unit assignment without a supervisor token
+
+## Constraints
+- Max folio pre-auth: €1,000
+- Do not process refunds — route to Folio Settlement Agent
+- PCI DSS: never log raw card data
 
 ## Tools
-- room_availability_check
-- room_assignment  
-- loyalty_lookup
-- send_notification`;
+- apaleo_reservations_get
+- apaleo_unit_assign
+- apaleo_folio_check
+- apaleo_messaging_send
+- apaleo_loyalty_lookup`;
 
 const SOURCE_PLACEHOLDERS = {
   "OpenAI": "# System Prompt\nYou are a helpful assistant that...",
@@ -2221,7 +1981,7 @@ function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn, companyI
   const handleLoadSample = () => {
     setInputMd(SAMPLE_AGENT_MD);
     setInputSource("Custom");
-    setAgentName("Check-in Assistant");
+    setAgentName("Check-In Agent");
   };
 
   const handleDownload = () => {
@@ -2248,7 +2008,7 @@ function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn, companyI
       decision: "NORMALISED",
       fileReferenced: filename,
       clauseApplied: "A2MD normalisation completed — " + detectedGaps.length + " gaps resolved, all MUST/MUST NOT/MAY rules verified",
-      actionProposed: `External agent file normalised to VDA-MD schema · Source: ${inputSource} · Gap score: ${gapScore}/100 → 100/100`,
+      actionProposed: `External agent file normalised to VDA-MK schema · Source: ${inputSource} · Gap score: ${gapScore}/100 → 100/100`,
       exceptionApplied: false,
       escalationTarget: null,
       reasoning: normReport
@@ -2274,9 +2034,9 @@ function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn, companyI
     setNormReport(null);
     setStatus("analysing");
 
-    const systemPrompt = `You are the A2MD Gap Analysis Engine, part of the VDA-MD (Value-Driven AI Markdown) Framework. Your job is to analyse an existing agent Markdown file and identify every structural gap between it and a valid VDA-MD governed agent file.
+    const systemPrompt = `You are the A2MD Gap Analysis Engine, part of the VDA-MK (Value-Driven AI with Markdowns) Framework for Apaleo hospitality. Your job is to analyse an existing agent Markdown file and identify every structural gap between it and a valid VDA-MK governed agent file.
 
-A valid VDA-MD agent file MUST have ALL of the following:
+A valid VDA-MK agent file MUST have ALL of the following:
 
 YAML FRONT MATTER containing:
   agent_id: (slugified agent name)
@@ -2285,7 +2045,7 @@ YAML FRONT MATTER containing:
   axis: (vertical | horizontal)
   journey_stage: (one of the journey stages OR shared service id)
   normalisation_level: (1 | 2 | 3)
-  vendor: (vendor name or "VDA-MD Native")
+  vendor: (vendor name or "VDA-MK for Apaleo")
   baseline: (true | false)
 
 SECTIONS:
@@ -2405,7 +2165,7 @@ ${truncatedInput}`;
     setNormReport(null);
     setStatus("normalising");
 
-    const systemPrompt = `You are the A2MD Normalisation Engine, part of the VDA-MD (Value-Driven AI Markdown) Framework. Your job is to take an existing agent file and rewrite it as a fully compliant VDA-MD governed Markdown file.
+    const systemPrompt = `You are the A2MD Normalisation Engine, part of the VDA-MK (Value-Driven AI with Markdowns) Framework for Apaleo hospitality. Your job is to take an existing agent file and rewrite it as a fully compliant VDA-MK governed Markdown file.
 
 NORMALISATION RULES:
 1. Preserve all valid existing content — do not discard working rules
@@ -2517,7 +2277,7 @@ ${inputMd}`;
           <Tag color={T.purple}>{config.label}</Tag>
         </div>
         <p style={{ color: T.muted, fontSize: 16, lineHeight: 1.7, maxWidth: 780 }}>
-          Every AI agent — regardless of vendor or origin — must have a VDA-MD governed Markdown file before it can operate in a governed enterprise. A2MD normalises any existing agent file into a compliant governance passport in one step.
+          Every AI agent — regardless of vendor or origin — must have a VDA-MK governed Markdown file before it can operate in an Apaleo-governed property. A2MD normalises any existing agent file into a compliant governance passport in one step.
         </p>
       </div>
 
@@ -2525,8 +2285,8 @@ ${inputMd}`;
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 28 }}>
         {[
           { dot: T.amber, title: "Any Agent File", body: "OpenAI prompts, LangChain configs, GitHub Copilot AGENTS.md, WSO2 AFM, Claude Code CLAUDE.md, or any plain-text agent definition" },
-          { dot: T.orange, title: "Gap Analysis + Normalisation", body: "AI identifies every structural gap against the VDA-MD schema, then rewrites the file with all missing governance elements added" },
-          { dot: T.green, title: "VDA-MD Governed Passport", body: "Complete YAML front matter, MUST/MUST NOT/MAY rules, escalation paths, Witness Agent compatibility, Two-Axis placement confirmed" },
+          { dot: T.orange, title: "Gap Analysis + Normalisation", body: "AI identifies every structural gap against the VDA-MK schema, then rewrites the file with all missing governance elements added" },
+          { dot: T.green, title: "VDA-MK Governed Passport", body: "Complete YAML front matter, MUST/MUST NOT/MAY rules, escalation paths, Witness Agent compatibility, Two-Axis placement confirmed" },
         ].map((c, i) => (
           <div key={i} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", display: "flex", gap: 12 }}>
             <div style={{ width: 10, height: 10, borderRadius: "50%", background: c.dot, marginTop: 4, flexShrink: 0 }} />
@@ -2631,7 +2391,7 @@ ${inputMd}`;
         {/* COLUMN 2 — GAP ANALYSIS */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col2BorderColor}`, borderRadius: 12, padding: 20, minHeight: 600 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>Gap Analysis</div>
-          <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>What's missing vs VDA-MD schema</div>
+          <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>What's missing vs VDA-MK schema</div>
 
           {isAnalysing ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 60, gap: 16 }}>
@@ -2725,7 +2485,7 @@ ${inputMd}`;
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 }}
               >
-                {isNormalising ? <><span style={{ display: "inline-block", animation: "spin 1.2s linear infinite" }}>⟳</span> Normalising…</> : isDone ? "✓ Normalised" : "Normalise → VDA-MD"}
+                {isNormalising ? <><span style={{ display: "inline-block", animation: "spin 1.2s linear infinite" }}>⟳</span> Normalising…</> : isDone ? "✓ Normalised" : "Normalise → VDA-MK"}
               </button>
             </div>
           )}
@@ -2733,9 +2493,9 @@ ${inputMd}`;
 
         {/* COLUMN 3 — OUTPUT */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col3BorderColor}`, borderRadius: 12, padding: 20, minHeight: 600 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>VDA-MD Governed Output</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>VDA-MK Governed Output</div>
           <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>
-            {agentName ? `${agentName.toLowerCase().replace(/\s+/g, "-")}-vdamd.md` : "output.md"} · Ready for Two-Axis Map
+            {agentName ? `${agentName.toLowerCase().replace(/\s+/g, "-")}-vdamk.md` : "output.md"} · Ready for Two-Axis Map
           </div>
 
           {/* macOS chrome */}
@@ -2750,7 +2510,7 @@ ${inputMd}`;
               <div style={{ minHeight: 340, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
                 <div style={{ fontSize: 28, opacity: 0.3 }}>⚙</div>
                 <div style={{ color: T.dim, fontFamily: T.mono, fontSize: 12 }}>→ Normalised output will appear here</div>
-                <div style={{ color: T.dim, fontSize: 11, opacity: 0.6 }}>The complete VDA-MD governed .md file, ready to deploy</div>
+                <div style={{ color: T.dim, fontSize: 11, opacity: 0.6 }}>The complete VDA-MK governed .md file, ready to deploy</div>
               </div>
             ) : (
               <pre style={{
@@ -3208,78 +2968,81 @@ const FM_FILE_TEMPLATES = {
   AGENTS: (cfg, company) => `---
 file_type: AGENTS
 agent_id: ${(company || "agent").toLowerCase().replace(/\s+/g, "-")}-agent
-domain: ${cfg?.domainColors ? "Business" : "Business"}
-owner: ${cfg?.journeyStages?.[0]?.owner || "Department Head"}
+domain: Hospitality
+owner: ${cfg?.journeyStages?.[0]?.owner || "Front Office Manager"}
 axis: vertical
-journey_stage: ${cfg?.journeyStages?.[0]?.id || "onboarding"}
+journey_stage: ${cfg?.journeyStages?.[0]?.id || "checkin"}
 normalisation_level: 2
-vendor: VDA-MD Native
+vendor: VDA-MK for Apaleo
 baseline: true
 nist_control: AC-2
+apaleo_api: Reservations API
 ---
 
 ## Agent Scope
 
-This agent governs automated decision-making within the ${cfg?.journeyStages?.[0]?.label || "core"} journey stage for ${company}.
+This agent governs automated decision-making within the ${cfg?.journeyStages?.[0]?.label || "Check-In"} stage of the Apaleo guest journey for ${company}.
 
 ## Permitted Actions
 
-MUST verify ${cfg?.customerTerm || "customer"} identity before processing any request.
+MUST verify guest reservation status in Apaleo Reservations API before processing any request.
 MUST log every decision to the Witness Agent audit trail before execution.
 MUST NOT process requests that exceed defined authority levels without escalation.
-MUST NOT retain ${cfg?.customerTerm || "customer"} data beyond the required retention window.
-MAY apply standard service rules without human approval for low-risk decisions.
+MUST NOT retain guest PII beyond the required GDPR retention window.
+MAY apply standard Apaleo service rules without human approval for low-risk decisions.
 MAY escalate to a human ${cfg?.employeeTerm || "team member"} when confidence falls below threshold.
 
 ## Escalation Path
 
-MUST escalate to ${cfg?.journeyStages?.[0]?.owner || "the department head"} when:
+MUST escalate to ${cfg?.journeyStages?.[0]?.owner || "Front Office Manager"} when:
 - Decision confidence is below 80%
-- Request value exceeds automated authority
-- ${cfg?.customerTerm || "Customer"} disputes the automated outcome
+- Folio balance or rate override request exceeds automated authority
+- Guest disputes the automated outcome
 
 ## Cross-Domain Inheritance
 
 MAY inherit permissions from the Shared Services axis for procurement and HR decisions.
-MUST apply compliance baseline controls from the Compliance axis at all times.
+MUST apply PCI DSS and GDPR baseline controls at all times.
 
 ## Violation Definition
 
 Any decision made without Witness Agent logging constitutes a violation.
-Any decision that bypasses the escalation path without documented justification constitutes a violation.
+Any Apaleo API call that bypasses the escalation path without documented justification constitutes a violation.
 
 ## Compliance Baseline
 
 Inherits: NIST SP 800-53 AC-2, AU-2
-Industry: ${cfg?.additionalFrameworks?.[0] || "Applicable regulatory frameworks"}
+Frameworks: ${(cfg?.additionalFrameworks || ["PCI DSS", "GDPR/CCPA", "ISO 22301"]).join(", ")}
 `,
 
   SOP: (cfg, company) => `---
 file_type: SOP
-owner: ${cfg?.journeyStages?.[0]?.owner || "Operations Lead"}
-domain: Operations
+owner: ${cfg?.journeyStages?.[0]?.owner || "Front Office Manager"}
+domain: Hospitality Operations
 axis: horizontal
 journey_stage: shared
 normalisation_level: 2
-vendor: VDA-MD Native
+vendor: VDA-MK for Apaleo
 baseline: true
 nist_control: AU-2
+apaleo_api: Reservations API, Folio API
 ---
 
 ## Purpose
 
-This Standard Operating Procedure defines the process for AI agent operation within ${company}.
+This Standard Operating Procedure defines the process for AI agent operation within the Apaleo guest lifecycle at ${company}.
 
 ## Scope
 
-Applies to all AI agents operating within the ${cfg?.label || "industry"} governance framework.
+Applies to all AI agents operating within the Apaleo VDA-MK governance framework — spanning Discover & Book through Post-Stay.
 
 ## Procedure
 
 MUST follow the four-step decision cycle: Sense → Reason → Act → Log.
+MUST verify Apaleo reservation or folio status before processing any guest-facing action.
 MUST obtain explicit authorisation for any action above the automated authority threshold.
-MUST NOT execute irreversible actions without human confirmation.
-MAY defer low-risk, high-frequency decisions to fully automated processing.
+MUST NOT execute irreversible Apaleo API actions (folio settlement, unit assignment) without human confirmation for high-value transactions.
+MAY defer low-risk, high-frequency decisions (standard check-in, unit assignment within confirmed reservation) to fully automated processing.
 
 ## Review Cycle
 
@@ -3289,51 +3052,52 @@ Any material changes MUST be signed off by the owner before taking effect.
 ## Escalation
 
 MUST escalate policy exceptions to the Chief Compliance Officer within 24 hours.
+MUST escalate PCI DSS incidents to the Data Protection Officer within 72 hours.
 `,
 
   SKILL: (cfg, company) => `---
 file_type: SKILL
 owner: ${cfg?.journeyStages?.[0]?.owner || "Technical Lead"}
-domain: Technology
+domain: Hospitality Technology
 axis: horizontal
 journey_stage: shared
 normalisation_level: 2
-vendor: VDA-MD Native
+vendor: VDA-MK for Apaleo
 baseline: false
 ---
 
 ## Skill Scope
 
-This skill file defines a reusable capability that may be invoked by authorised agents within ${company}.
+This skill file defines a reusable capability that may be invoked by authorised Apaleo agents within ${company}.
 
 ## Permitted Usage
 
 MUST only be invoked by agents with a valid agent_id in their YAML front matter.
 MUST log each invocation to the Witness Agent trail.
-MUST NOT be used outside the journey stages listed in the consuming agent's jurisdiction.
+MUST NOT be used outside the Apaleo guest journey stages listed in the consuming agent's jurisdiction.
 MAY be shared across axes where the consuming agent has cross-domain inheritance declared.
 
 ## Parameters
 
-MUST receive validated, typed inputs only.
+MUST receive validated, typed inputs only — including Apaleo reservation IDs and folio references.
 MUST NOT accept raw user-supplied strings without sanitisation.
 
 ## Output Contract
 
-MUST return a structured response conforming to the VDA-MD output schema.
-MUST NOT return personally identifiable information unless the consuming agent has explicit permission.
+MUST return a structured response conforming to the VDA-MK output schema.
+MUST NOT return guest PII unless the consuming agent has explicit GDPR-compliant permission.
 `,
 
   EXCEPTION: (cfg, company) => `---
 file_type: EXCEPTION
-owner: ${cfg?.journeyStages?.[0]?.owner || "Department Head"}
+owner: ${cfg?.journeyStages?.[0]?.owner || "Revenue Manager"}
 domain: Compliance
 axis: horizontal
 journey_stage: shared
 normalisation_level: 3
-vendor: VDA-MD Native
+vendor: VDA-MK for Apaleo
 baseline: false
-exception_reason: Documented exception to standard governance rule
+exception_reason: Documented exception to standard Apaleo governance rule
 expires_at: ${new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
 ---
 
@@ -3366,52 +3130,57 @@ domain: Compliance
 axis: horizontal
 journey_stage: shared
 normalisation_level: 3
-vendor: VDA-MD Native
+vendor: VDA-MK for Apaleo
 baseline: true
 nist_control: ${cfg?.nistControls?.[0] || "AC-2"}
 ---
 
 ## Compliance Scope
 
-This file defines the compliance baseline inherited by all agents within ${company}.
+This file defines the compliance baseline inherited by all Apaleo-connected agents within ${company}.
 
 ## Mandatory Controls
 
-MUST implement NIST SP 800-53 controls: ${(cfg?.nistControls || ["AC-2", "AU-2"]).join(", ")}.
-MUST comply with: ${(cfg?.additionalFrameworks || ["Applicable regulations"]).join(", ")}.
-MUST NOT process data in a manner inconsistent with GDPR Article 5 principles.
+MUST implement NIST SP 800-53 controls: ${(cfg?.nistControls || ["AC-2", "AU-2", "AU-12", "SI-7"]).join(", ")}.
+MUST comply with: ${(cfg?.additionalFrameworks || ["PCI DSS", "GDPR/CCPA", "ISO 22301"]).join(", ")}.
+MUST NOT process guest payment card data in a manner inconsistent with PCI DSS requirements.
+MUST NOT process guest PII in a manner inconsistent with GDPR Article 5 principles.
 MUST maintain an audit trail per EU AI Act Article 12 requirements.
+MUST NOT store raw Apaleo API credentials or guest payment data in agent logs.
 
-## Data Handling
+## Guest Data Handling
 
-MUST classify all data before processing.
-MUST NOT retain data beyond the defined retention period.
-MAY apply automated pseudonymisation for analytics workloads with documented justification.
+MUST classify all guest data before processing (PII, payment, preference).
+MUST NOT retain guest PII beyond the required retention window.
+MUST apply pseudonymisation for analytics workloads involving guest data.
+MAY retain anonymised aggregated data for operational reporting with documented justification.
 
 ## Incident Response
 
-MUST notify the Data Protection Officer within 72 hours of a suspected data breach.
-MUST preserve all audit logs for a minimum of 12 months.
+MUST notify the Data Protection Officer within 72 hours of a suspected guest data breach.
+MUST notify PCI DSS QSA within required timelines for payment card incidents.
+MUST preserve all Apaleo agent audit logs for a minimum of 12 months.
 `,
 
   CUSTOM: (_cfg, company) => `---
 file_type: CUSTOM
-owner: Department Head
-domain: Business
+owner: Front Office Manager
+domain: Hospitality
 axis: vertical
 journey_stage: shared
 normalisation_level: 1
-vendor: VDA-MD Native
+vendor: VDA-MK for Apaleo
 baseline: false
 ---
 
 ## Purpose
 
-Custom governance document for ${company}.
+Custom governance document for ${company} — Apaleo property.
 
 ## Rules
 
 MUST define clear governance rules using MUST, MUST NOT, or MAY clauses.
+MUST reference the relevant Apaleo API or guest journey stage where applicable.
 MUST NOT leave this template without a named owner.
 MAY be promoted to a standard file type once validated.
 `,
@@ -5281,7 +5050,7 @@ function WitnessAgentTab({ log, config, companyName, isSeeded }) {
 
       {log.length > 0 && (
         <div style={{ marginTop: 20, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ fontSize: 12, color: T.dim, fontFamily: T.mono }}>witness_agent.log · {companyName} · VDA-MD v1.0 · {log.length} entries</div>
+          <div style={{ fontSize: 12, color: T.dim, fontFamily: T.mono }}>witness_agent.log · {companyName} · VDA-MK for Apaleo · {log.length} entries</div>
           <div style={{ display: "flex", gap: 8 }}><Tag color={T.green}>SOC 2 Type II</Tag><Tag color={T.blue}>GDPR Article 5</Tag><Tag color={T.purple}>EU AI Act Art.12</Tag><Tag color={T.orange}>ISO 42001</Tag></div>
         </div>
       )}
@@ -5341,88 +5110,22 @@ function buildSeedLog(config, companyName) {
     },
   ];
 
-  // Industry-specific entries (7)
+  // Apaleo hospitality-specific entries (7)
   const industryEntries = {
     hospitality: [
-      { id: 10, timestamp: ts(0, 3), agent: "Checkout Agent", decision: "PASS", fileReferenced: "checkout-late-departure-exception.md", clauseApplied: "MAY grant late checkout to 14:00 without fee for verified loyalty tier members", actionProposed: `${customer} requested late checkout to 13:30 — loyalty tier verified, no fee applied`, escalationTarget: null, exceptionApplied: true, reasoning: `${customer} holds active Gold loyalty status confirmed in CRM. Late checkout to 14:00 permitted under exception overlay. No capacity constraint. Fee waived automatically.` },
-      { id: 11, timestamp: ts(0, 15), agent: "Checkout Agent", decision: "FAIL", fileReferenced: "checkout-policy.md", clauseApplied: "MUST NOT waive late checkout fee without Operations Director authorisation", actionProposed: `Standard ${customer.toLowerCase()} requested fee waiver for late checkout — denied, baseline applies`, escalationTarget: "Operations Director", exceptionApplied: false, reasoning: `${customer} does not hold loyalty tier qualifying for automatic late checkout benefit. No active exception overlay. Fee waiver requires Operations Director authorisation per baseline policy.` },
-      { id: 12, timestamp: ts(1, 5), agent: "Booking Rate Agent", decision: "ESCALATE", fileReferenced: "rate-override-policy.md", clauseApplied: "MUST escalate discount requests above Revenue Manager authority to VP Revenue", actionProposed: "Corporate account requested 25% rate discount — above Revenue Manager ceiling, escalated", escalationTarget: "VP Revenue", exceptionApplied: false, reasoning: "Requested discount of 25% exceeds Revenue Manager authority ceiling of 18%. Account is Tier 2, not Tier 1. No active key account exception overlay. Escalated to VP Revenue for approval." },
-      { id: 13, timestamp: ts(1, 33), agent: "Booking Rate Agent", decision: "PASS", fileReferenced: "key-account-rate-exception.md", clauseApplied: "MAY approve up to 18% discount at Revenue Manager authority for verified Tier 1 accounts", actionProposed: "Tier 1 Key Account rate amendment approved — exception overlay applied", escalationTarget: null, exceptionApplied: true, reasoning: "Account verified as Tier 1 in CRM. Requested discount of 16% within exception ceiling. Rate parity obligations checked. Exception conditions all met." },
-      { id: 14, timestamp: ts(2, 11), agent: "Check-in Agent", decision: "PASS", fileReferenced: "checkin-policy.md", clauseApplied: "MUST verify availability via VCI threshold before assigning room", actionProposed: `${customer} check-in — VCI availability confirmed, room assigned`, escalationTarget: null, exceptionApplied: false, reasoning: "VCI room availability confirmed above threshold. Room status verified. Check-in conditions met. Room assigned and keys provisioned." },
-      { id: 15, timestamp: ts(3, 44), agent: "Checkout Agent", decision: "PASS", fileReferenced: "checkout-policy.md", clauseApplied: "MUST confirm departure date before processing checkout", actionProposed: `Standard ${customer.toLowerCase()} checkout at 11:00 — all conditions met`, escalationTarget: null, exceptionApplied: false, reasoning: "Departure date confirmed in PMS. No outstanding charges. No pending disputes. Standard checkout processed." },
-      { id: 16, timestamp: ts(4, 2), agent: "Onboarding Agent", decision: "ESCALATE", fileReferenced: "staff-access-specialist-fasttrack-exception.md", clauseApplied: "MUST flag and NOT provision if CISO sign-off is missing", actionProposed: `Digital & Tech ${employee.toLowerCase()} fast-track provisioning request — CISO sign-off not found, escalated`, escalationTarget: "CISO", exceptionApplied: false, reasoning: "Role classified as Digital/Tech specialist qualifying for fast-track exception. However no CISO sign-off reference found in log for this individual. Provisioning blocked. Escalated to CISO for approval." },
-      { id: 17, timestamp: ts(4, 28), agent: "Invoice Agent", decision: "PASS", fileReferenced: "invoice-collection-policy.md", clauseApplied: "MUST generate invoice within 24 hours of checkout and send to confirmed billing address", actionProposed: "Post-stay invoice generated and dispatched to corporate billing contact", escalationTarget: null, exceptionApplied: false, reasoning: "Checkout completed. Corporate billing address confirmed in Salesforce. Invoice generated from folio data. Dispatched via automated billing workflow within SLA." },
-      { id: 18, timestamp: ts(5, 12), agent: "Payment Collection Bot", decision: "ESCALATE", fileReferenced: "collections-policy.md", clauseApplied: "MUST escalate invoices unpaid beyond 30-day terms to Credit Control", actionProposed: "Corporate invoice 30 days overdue — escalated to Credit Control team", escalationTarget: "Credit Control", exceptionApplied: false, reasoning: "Invoice INV-2026-4471 has passed 30-day payment terms. Two automated reminders sent. No payment or dispute received. Escalated to Credit Control for manual follow-up per O2C policy." },
-    ],
-    financial: [
-      { id: 10, timestamp: ts(0, 3), agent: "KYC Agent", decision: "PASS", fileReferenced: "kyc-verification-policy.md", clauseApplied: "MAY approve standard onboarding for clients passing all verification checks", actionProposed: `New ${customer.toLowerCase()} onboarding — KYC verification passed, account activation authorised`, escalationTarget: null, exceptionApplied: false, reasoning: "Identity documents verified. PEP and sanctions screening clear. Source of funds documentation acceptable. Standard KYC conditions met." },
-      { id: 11, timestamp: ts(0, 18), agent: "Transaction Agent", decision: "ESCALATE", fileReferenced: "transaction-limits-policy.md", clauseApplied: "MUST escalate transactions above risk threshold to human review", actionProposed: `Transaction of €45,000 triggered risk threshold — escalated to Compliance`, escalationTarget: "Compliance Officer", exceptionApplied: false, reasoning: "Transaction value and destination combination triggered automated risk scoring above threshold. GDPR Article 22 — customer informed of automated flag. Human review required before processing." },
-      { id: 12, timestamp: ts(0, 41), agent: "Fraud Monitor", decision: "FAIL", fileReferenced: "fraud-prevention-policy.md", clauseApplied: "MUST NOT process transactions with fraud risk score above threshold without human review", actionProposed: "Card transaction blocked — fraud risk score 94/100, above 75 threshold", escalationTarget: "Fraud Operations", exceptionApplied: false, reasoning: "Fraud risk model score of 94 exceeds hard threshold. Transaction pattern inconsistent with client history. Transaction blocked. Client notified per GDPR transparency obligations." },
-      { id: 13, timestamp: ts(1, 9), agent: "AML Screening Bot", decision: "ESCALATE", fileReferenced: "aml-screening-policy.md", clauseApplied: "MUST escalate all positive screening matches to Compliance before proceeding", actionProposed: `${customer} transaction matched AML screening list — escalated for manual review`, escalationTarget: "MLRO", exceptionApplied: false, reasoning: "Fuzzy match against consolidated sanctions list returned 78% confidence match. Per regulatory requirement, all matches above 70% must be escalated to MLRO for manual determination." },
-      { id: 14, timestamp: ts(1, 55), agent: "Risk Assessment Agent", decision: "FAIL", fileReferenced: "credit-policy.md", clauseApplied: "MUST NOT approve credit above automated limit without review board sign-off", actionProposed: "Credit application above automated approval ceiling — declined, manual review required", escalationTarget: "Credit Committee", exceptionApplied: false, reasoning: "Requested credit limit exceeds automated approval ceiling. Risk score within acceptable range but value triggers mandatory Credit Committee review. Application placed in review queue." },
-      { id: 15, timestamp: ts(2, 30), agent: "KYC Agent", decision: "PASS", fileReferenced: "enhanced-due-diligence-exception.md", clauseApplied: "MAY approve onboarding for PEP-adjacent clients with Enhanced Due Diligence completed", actionProposed: `High-net-worth ${customer.toLowerCase()} with PEP connection onboarded — EDD completed, exception applied`, escalationTarget: null, exceptionApplied: true, reasoning: "Client identified as PEP-adjacent. Enhanced Due Diligence completed and approved by Compliance Director. EDD exception overlay active. Onboarding approved with elevated monitoring flag." },
-      { id: 16, timestamp: ts(3, 12), agent: "Onboarding Agent", decision: "PASS", fileReferenced: "staff-access-provisioning-baseline.md", clauseApplied: "MUST confirm access level matches role requirements before provisioning", actionProposed: `New ${employee.toLowerCase()} provisioned — role-scoped access confirmed`, escalationTarget: null, exceptionApplied: false, reasoning: "Workday record confirmed. Start date matched. Access level validated against role requirements — read-only to client data, no transaction authority. Provisioning completed." },
-      { id: 17, timestamp: ts(4, 15), agent: "Revenue Recognition Agent", decision: "PASS", fileReferenced: "revenue-recognition-policy.md", clauseApplied: "MUST recognise revenue only when performance obligation is satisfied under IFRS 15", actionProposed: "Revenue recognition event triggered — service delivery confirmed, revenue posted", escalationTarget: null, exceptionApplied: false, reasoning: "Service delivery confirmed by client acceptance. IFRS 15 performance obligation satisfied. Revenue posted to correct period in finance system. SOX control evidence logged." },
-      { id: 18, timestamp: ts(5, 33), agent: "Collections Bot", decision: "ESCALATE", fileReferenced: "collections-policy.md", clauseApplied: "MUST escalate debts above threshold overdue beyond 60 days to Finance Director", actionProposed: "Client account overdue 65 days above escalation threshold — Finance Director notified", escalationTarget: "Finance Director", exceptionApplied: false, reasoning: "Client account balance of £28,500 is 65 days past due — above 60-day escalation threshold. Three automated reminders sent. No payment plan agreed. Escalated to Finance Director for credit risk review." },
-    ],
-    healthcare: [
-      { id: 10, timestamp: ts(0, 5), agent: "Clinical Decision Support", decision: "ESCALATE", fileReferenced: "clinical-ai-policy.md", clauseApplied: "MUST escalate all AI clinical recommendations to the responsible clinician before action", actionProposed: "AI diagnostic recommendation generated — escalated to responsible clinician for review", escalationTarget: "Responsible Clinician", exceptionApplied: false, reasoning: "Clinical AI system generated differential diagnosis recommendation. Per EU AI Act Article 14 and clinical governance policy, AI recommendation must be reviewed and confirmed by responsible clinician before clinical action. Recommendation presented, not applied." },
-      { id: 11, timestamp: ts(0, 28), agent: "Triage Agent", decision: "PASS", fileReferenced: "triage-priority-policy.md", clauseApplied: "MUST assign priority classification within defined clinical parameters", actionProposed: `${customer} triage completed — Priority 2 classification assigned`, escalationTarget: null, exceptionApplied: false, reasoning: "Clinical parameters within automated triage scope. Vital signs and presenting complaint mapped to priority classification matrix. Priority 2 assigned. Clinical staff notified." },
-      { id: 12, timestamp: ts(0, 52), agent: "Medication Agent", decision: "ESCALATE", fileReferenced: "medication-policy.md", clauseApplied: "MUST escalate drug interaction risk above threshold to prescribing clinician", actionProposed: `Medication order flagged — potential drug interaction detected, escalated to prescriber`, escalationTarget: "Prescribing Clinician", exceptionApplied: false, reasoning: "Drug interaction risk score between prescribed medications is 0.82, above 0.75 escalation threshold. Agent blocked automatic dispensing authorisation. Prescribing clinician alerted for clinical decision." },
-      { id: 13, timestamp: ts(1, 14), agent: "Medical Supplies Agent", decision: "PASS", fileReferenced: "emergency-procurement-exception.md", clauseApplied: "MAY approve emergency procurement above standard threshold with documented clinical sign-off", actionProposed: "Emergency medical supplies order approved — urgent clinical need, exception overlay applied", escalationTarget: null, exceptionApplied: true, reasoning: "Clinical Director sign-off confirmed for emergency procurement. Supplier on approved vendor list. Value within exception ceiling. Critical patient care requirement documented. Exception conditions all met." },
-      { id: 14, timestamp: ts(1, 48), agent: "Discharge Agent", decision: "PASS", fileReferenced: "discharge-policy.md", clauseApplied: "MUST confirm all discharge criteria met before authorising discharge", actionProposed: `${customer} discharge authorised — all criteria met`, escalationTarget: null, exceptionApplied: false, reasoning: "Clinical discharge criteria confirmed. Follow-up appointment scheduled. Discharge summary generated. Prescription issued. All required documentation complete." },
-      { id: 15, timestamp: ts(2, 22), agent: "Onboarding Agent", decision: "PASS", fileReferenced: "locum-staff-access-exception.md", clauseApplied: "MAY provision access for credentialed locum staff with HR and Credentialing approval", actionProposed: `Locum ${employee.toLowerCase()} fast-track access granted — credentials verified, exception applied`, escalationTarget: null, exceptionApplied: true, reasoning: "Locum staff GMC/NMC credentials verified by Credentialing Bot. HR approval confirmed. Access limited to required clinical systems for contracted ward only. Exception conditions met." },
-      { id: 16, timestamp: ts(3, 6), agent: "Credentialing Bot", decision: "FAIL", fileReferenced: "staff-credentialing-policy.md", clauseApplied: "MUST NOT allow clinical access without valid, current professional registration", actionProposed: `${employee} credentialing check failed — registration expired, access blocked`, escalationTarget: "HR Director", exceptionApplied: false, reasoning: "Professional registration expiry date has passed. No renewal confirmation found. Clinical system access blocked automatically. HR Director notified for resolution." },
-      { id: 17, timestamp: ts(4, 9), agent: "Patient Billing Agent", decision: "PASS", fileReferenced: "patient-billing-policy.md", clauseApplied: "MUST verify insurance eligibility before raising patient invoice", actionProposed: "Patient billing completed — insurance eligibility verified, claim submitted", escalationTarget: null, exceptionApplied: false, reasoning: "Insurance eligibility confirmed with provider. Procedure codes validated. Claim submitted within 48-hour SLA. Patient statement generated for any residual balance." },
-      { id: 18, timestamp: ts(5, 47), agent: "Insurance Claims Bot", decision: "ESCALATE", fileReferenced: "claims-management-policy.md", clauseApplied: "MUST escalate rejected insurance claims above threshold to Revenue Cycle Manager", actionProposed: "Insurance claim rejected — value above escalation threshold, Revenue Cycle Manager notified", escalationTarget: "Revenue Cycle Manager", exceptionApplied: false, reasoning: "Claim value of £4,200 rejected by insurer citing incomplete documentation. Above £2,000 manual review threshold. Revenue Cycle Manager notified to review rejection reason and resubmit or appeal." },
-    ],
-    retail: [
-      { id: 10, timestamp: ts(0, 2), agent: "Recommendation Agent", decision: "PASS", fileReferenced: "personalisation-exception.md", clauseApplied: "MAY apply personalised pricing for loyalty tier customers — GDPR consent on file", actionProposed: `Loyalty ${customer.toLowerCase()} — personalised offer applied, exception overlay active`, escalationTarget: null, exceptionApplied: true, reasoning: "Customer holds active Gold loyalty status. GDPR Article 6(a) consent on file for personalised communications. Personalisation exception overlay active. Offer applied within permitted parameters." },
-      { id: 11, timestamp: ts(0, 11), agent: "Fraud Detection Bot", decision: "ESCALATE", fileReferenced: "fraud-prevention-policy.md", clauseApplied: "MUST escalate transactions above fraud risk threshold to human review", actionProposed: `High-value order triggered fraud threshold — escalated to Fraud Operations`, escalationTarget: "Fraud Operations", exceptionApplied: false, reasoning: "Order value and shipping destination combination returned fraud risk score of 82/100, above 75 threshold. Customer notified of verification step per GDPR transparency requirements. Fraud Operations alerted." },
-      { id: 12, timestamp: ts(0, 34), agent: "Payment Agent", decision: "FAIL", fileReferenced: "payment-processing-policy.md", clauseApplied: "MUST NOT process payment without successful card authorisation", actionProposed: "Payment declined — card authorisation failed, customer notified", escalationTarget: null, exceptionApplied: false, reasoning: "Card authorisation returned decline code from payment processor. Payment not processed. Customer notified. Order held pending payment update. PCI DSS logging requirements met." },
-      { id: 13, timestamp: ts(1, 7), agent: "Returns Agent", decision: "PASS", fileReferenced: "returns-policy.md", clauseApplied: "MAY approve return and refund within standard returns window without manager approval", actionProposed: `${customer} return request approved — within returns window, automated refund initiated`, escalationTarget: null, exceptionApplied: false, reasoning: "Return request within 30-day window. Product in acceptable condition per customer declaration. Refund initiated to original payment method. Consumer Duty obligations met." },
-      { id: 14, timestamp: ts(1, 51), agent: "PO Agent", decision: "FAIL", fileReferenced: "procurement-approval-authority-baseline.md", clauseApplied: "MUST NOT process PO above buyer authority level", actionProposed: "Supplier purchase order above buyer authority ceiling — blocked, escalated to Head of Buying", escalationTarget: "Head of Buying", exceptionApplied: false, reasoning: "PO value exceeds buyer's delegated authority ceiling. No Preferred Supplier exception applicable. Head of Buying sign-off required per procurement policy." },
-      { id: 15, timestamp: ts(2, 18), agent: "Personalisation Agent", decision: "FAIL", fileReferenced: "personalisation-policy.md", clauseApplied: "MUST NOT apply personalisation without valid GDPR Article 6 lawful basis", actionProposed: `${customer} personalisation request blocked — consent not found`, escalationTarget: null, exceptionApplied: false, reasoning: "Customer record shows no active consent for personalised marketing under GDPR Article 6(a). No other applicable lawful basis. Personalisation blocked. Standard experience served." },
-      { id: 16, timestamp: ts(3, 29), agent: "Onboarding Agent", decision: "PASS", fileReferenced: "seasonal-staff-access-exception.md", clauseApplied: "MAY provision seasonal staff access with HR confirmation and line manager request", actionProposed: `Seasonal ${employee.toLowerCase()} access provisioned — peak trading period exception active`, escalationTarget: null, exceptionApplied: true, reasoning: "Seasonal staffing exception overlay active for peak trading period. HR confirmation received. Line manager request logged. Access limited to POS and inventory systems. Exception conditions met." },
-      { id: 17, timestamp: ts(4, 21), agent: "Invoice Agent", decision: "PASS", fileReferenced: "invoice-processing-policy.md", clauseApplied: "MUST generate VAT-compliant invoice within 24 hours of order dispatch", actionProposed: "Order dispatched — VAT invoice generated and emailed to customer", escalationTarget: null, exceptionApplied: false, reasoning: "Order confirmed dispatched. VAT invoice generated with correct tax codes. Sent to customer email on file. Invoice reference logged in finance system for reconciliation." },
-      { id: 18, timestamp: ts(5, 38), agent: "Credit Control Agent", decision: "FAIL", fileReferenced: "credit-control-policy.md", clauseApplied: "MUST NOT extend further credit to accounts with overdue balance above credit limit", actionProposed: "New trade account order blocked — existing overdue balance exceeds credit limit", escalationTarget: "Head of Finance", exceptionApplied: false, reasoning: "Trade customer has outstanding balance of £12,400 against credit limit of £10,000. New order of £3,200 would exceed limit further. Order blocked. Head of Finance notified." },
-    ],
-    professional: [
-      { id: 10, timestamp: ts(0, 6), agent: "Conflict Check Bot", decision: "PASS", fileReferenced: "conflict-of-interest-policy.md", clauseApplied: "MUST run conflict check before engagement proposal is submitted", actionProposed: "New engagement conflict check completed — no conflicts found, proposal authorised", escalationTarget: null, exceptionApplied: false, reasoning: "Conflict check run against current client register and restricted party list. No conflicts identified. Engagement proposal cleared for submission." },
-      { id: 11, timestamp: ts(0, 24), agent: "Contract Bot", decision: "ESCALATE", fileReferenced: "rate-authority.md", clauseApplied: "MUST escalate discounts above partner authority ceiling to Managing Partner", actionProposed: "Engagement rate discount above Partner authority — escalated to Managing Partner", escalationTarget: "Managing Partner", exceptionApplied: false, reasoning: "Client requested 22% discount. Partner authority ceiling is 15%. No strategic client exception overlay active. Managing Partner approval required before contract can be issued." },
-      { id: 12, timestamp: ts(0, 47), agent: "Contract Bot", decision: "PASS", fileReferenced: "strategic-client-rate-exception.md", clauseApplied: "MAY approve up to 25% discount for designated strategic accounts with Managing Partner sign-off", actionProposed: "Strategic client rate discount approved — exception overlay applied, Managing Partner confirmed", escalationTarget: null, exceptionApplied: true, reasoning: "Client designated as strategic account in CRM. Managing Partner sign-off confirmed. Requested discount of 20% within exception ceiling. Exception conditions met." },
-      { id: 13, timestamp: ts(1, 3), agent: "Resource Agent", decision: "PASS", fileReferenced: "client-system-access-exception.md", clauseApplied: "MAY provision client system access for credentialed consultants with client approval", actionProposed: `${employee} client system access provisioned — client approval and NDA confirmed`, escalationTarget: null, exceptionApplied: true, reasoning: "Client system access request received. NDA in place. Client IT security sign-off obtained. Consultant credentials verified. Access limited to project scope. Exception conditions met." },
-      { id: 14, timestamp: ts(1, 38), agent: "Billing Agent", decision: "ESCALATE", fileReferenced: "billing-policy.md", clauseApplied: "MUST escalate invoices above partner sign-off threshold to Finance Director", actionProposed: "Invoice above Partner sign-off threshold — escalated to Finance Director", escalationTarget: "Finance Director", exceptionApplied: false, reasoning: "Invoice value exceeds Partner sign-off authority. Finance Director approval required per billing policy. Invoice held pending approval." },
-      { id: 15, timestamp: ts(2, 14), agent: "Vendor Agent", decision: "PASS", fileReferenced: "preferred-subcontractor-exception.md", clauseApplied: "MAY approve preferred subcontractor without three-quote requirement", actionProposed: "Preferred subcontractor engagement approved — exception overlay applied", escalationTarget: null, exceptionApplied: true, reasoning: "Subcontractor on current Preferred Supplier List. Engagement value within exception ceiling. DPA and insurance confirmed. Exception conditions all met." },
-      { id: 16, timestamp: ts(3, 51), agent: "Conflict Check Bot", decision: "FAIL", fileReferenced: "conflict-of-interest-policy.md", clauseApplied: "MUST NOT submit proposal where conflict of interest is identified", actionProposed: "Engagement proposal blocked — conflict of interest detected, partner notified", escalationTarget: "Ethics Committee", exceptionApplied: false, reasoning: "Proposed client appears on restricted party list due to active matter for opposing party. Conflict confirmed. Proposal blocked. Ethics Committee notified for formal conflict determination." },
-      { id: 17, timestamp: ts(4, 6), agent: "Engagement Billing Agent", decision: "PASS", fileReferenced: "billing-policy.md", clauseApplied: "MUST generate milestone invoice within 3 working days of milestone sign-off", actionProposed: "Project milestone completed — milestone invoice generated and issued to client", escalationTarget: null, exceptionApplied: false, reasoning: "Milestone sign-off received from client. Time and materials reconciled against budget. Invoice generated for milestone value. Dispatched within 3-day SLA. Revenue recognised in correct period." },
-      { id: 18, timestamp: ts(5, 19), agent: "Collections Agent", decision: "ESCALATE", fileReferenced: "collections-policy.md", clauseApplied: "MUST escalate client invoices overdue beyond 45 days to Partner and Finance Director", actionProposed: "Client invoice 52 days overdue — escalated to Partner and Finance Director", escalationTarget: "Partner / Finance Director", exceptionApplied: false, reasoning: "Invoice INV-PS-2026-0892 is 52 days past 30-day payment terms. Client has not responded to two automated reminders. Value of £18,500. Escalated to engagement Partner and Finance Director for client relationship discussion." },
-    ],
-    manufacturing: [
-      { id: 10, timestamp: ts(0, 4), agent: "QC Agent", decision: "FAIL", fileReferenced: "quality-hold-policy.md", clauseApplied: "MUST NOT release non-conforming product without Engineering deviation approval", actionProposed: "Production batch placed on quality hold — non-conformance detected, release blocked", escalationTarget: "Engineering Director", exceptionApplied: false, reasoning: "Dimensional measurement outside tolerance on 3 of 50 sampled units (6%). Exceeds 4% NCR threshold. Batch quarantined automatically. Engineering Director notified for deviation assessment." },
-      { id: 11, timestamp: ts(0, 19), agent: "QC Agent", decision: "PASS", fileReferenced: "quality-deviation-exception.md", clauseApplied: "MAY release batch with formal Engineering deviation approval and customer concession", actionProposed: "Production batch released — Engineering deviation approved, customer concession obtained", escalationTarget: null, exceptionApplied: true, reasoning: "Engineering deviation REF-2026-0847 approved. Non-conformance assessed as non-critical. Customer concession C-2026-0312 obtained. Batch released with deviation documentation attached." },
-      { id: 12, timestamp: ts(0, 38), agent: "Supplier Agent", decision: "PASS", fileReferenced: "approved-supplier-policy.md", clauseApplied: "MAY approve alternative supplier for critical shortage with Quality Director sign-off", actionProposed: "Alternative supplier approved for critical component — shortage exception applied", escalationTarget: null, exceptionApplied: true, reasoning: "Primary approved supplier unable to fulfil. Alternative supplier pre-qualified for emergency use. Quality Director sign-off obtained. Full qualification to follow. Exception conditions met." },
-      { id: 13, timestamp: ts(1, 2), agent: "Defect Detection Bot", decision: "ESCALATE", fileReferenced: "defect-response-policy.md", clauseApplied: "MUST escalate potential safety-critical defect to Quality Director immediately", actionProposed: "Potential safety-critical defect pattern detected — production paused, Quality Director alerted", escalationTarget: "Quality Director", exceptionApplied: false, reasoning: "Machine learning defect model identified pattern consistent with safety-critical failure mode. Production line paused automatically. Quality Director and Safety Officer notified. ISO 9001 corrective action process triggered." },
-      { id: 14, timestamp: ts(1, 44), agent: "PO Bot", decision: "FAIL", fileReferenced: "procurement-approval-authority-baseline.md", clauseApplied: "MUST NOT process PO above requestor's authority level", actionProposed: "Capital equipment PO blocked — above procurement authority ceiling, CFO approval required", escalationTarget: "CFO", exceptionApplied: false, reasoning: "Capital equipment PO value exceeds Procurement Director authority ceiling. No approved budget exception. CFO sign-off required per authority matrix." },
-      { id: 15, timestamp: ts(2, 8), agent: "Audit Agent", decision: "ESCALATE", fileReferenced: "internal-audit-policy.md", clauseApplied: "MUST escalate critical audit finding to Quality Director and Management Representative", actionProposed: "Critical ISO 9001 audit finding — process non-compliance identified, escalated", escalationTarget: "Quality Director", exceptionApplied: false, reasoning: "Internal audit identified documented procedure not being followed consistently. Classified as Major Non-Conformance under ISO 9001. CAPA required within 30 days. Quality Director and Management Representative notified." },
-      { id: 16, timestamp: ts(3, 17), agent: "Onboarding Agent", decision: "ESCALATE", fileReferenced: "contractor-access-policy.md", clauseApplied: "MUST escalate contractor access requests to CISO and site manager before provisioning", actionProposed: `Third-party contractor access request — escalated to CISO and Site Manager for approval`, escalationTarget: "CISO / Site Manager", exceptionApplied: false, reasoning: "Third-party contractor requesting access to OT/ICS systems. IEC 62443 security requirements apply. CISO and Site Manager approval required before any access is provisioned. Request queued pending approval." },
-      { id: 17, timestamp: ts(4, 13), agent: "Customer Invoice Agent", decision: "PASS", fileReferenced: "invoice-policy.md", clauseApplied: "MUST raise customer invoice on confirmed goods dispatch with correct incoterms", actionProposed: "Goods dispatched to customer — invoice raised with correct incoterms and export documentation", escalationTarget: null, exceptionApplied: false, reasoning: "Dispatch confirmed by logistics. Incoterms verified against purchase order. Export documentation attached. Invoice raised in ERP system. ITAR compliance check completed where applicable." },
-      { id: 18, timestamp: ts(5, 44), agent: "Credit Control Bot", decision: "ESCALATE", fileReferenced: "credit-management-policy.md", clauseApplied: "MUST escalate accounts overdue beyond credit terms to Finance Director and Account Manager", actionProposed: "Customer account overdue 40 days — escalated to Finance Director and Key Account Manager", escalationTarget: "Finance Director / KAM", exceptionApplied: false, reasoning: "Customer account balance of €34,000 is 40 days past agreed 30-day terms. No payment or dispute received. Account Manager notified to engage customer. Finance Director notified for credit risk assessment." },
-    ],
-    marina: [
-      { id: 10, timestamp: ts(0, 3), agent: "Berth Assignment Bot", decision: "PASS", fileReferenced: "berth-allocation-exception.md", clauseApplied: "MAY assign premium berth to verified long-standing Boat Owner with Harbour Master approval", actionProposed: `${customer} berth assignment — premium pontoon berth allocated, Harbour Master approval on file`, escalationTarget: null, exceptionApplied: true, reasoning: `${customer} holds 8-year tenure — qualifying long-standing status confirmed. Requested premium pontoon berth available. Harbour Master approval REF-HM-2026-0041 obtained. Vessel LOA and beam within berth specification. Exception conditions met.` },
-      { id: 11, timestamp: ts(0, 21), agent: "Safety Check Agent", decision: "FAIL", fileReferenced: "arrival-safety-policy.md", clauseApplied: "MUST NOT permit vessel to enter marina without valid marine insurance certificate on file", actionProposed: `Inbound vessel insurance certificate expired — arrival blocked, ${customer} notified`, escalationTarget: "Harbour Master", exceptionApplied: false, reasoning: "Marine insurance certificate presented by arriving vessel expired 12 days ago. MCA compliance requirement cannot be waived. Vessel instructed to hold on visitor pontoon. Harbour Master notified. Arrival clearance withheld pending renewed certificate." },
-      { id: 12, timestamp: ts(0, 46), agent: "Mooring Pricing Agent", decision: "PASS", fileReferenced: "tariff-policy.md", clauseApplied: "MUST apply current tariff schedule based on vessel LOA, beam, and berth category", actionProposed: `Annual berth fee calculated for ${customer} — LOA 11.2 m, Category B berth, tariff applied`, escalationTarget: null, exceptionApplied: false, reasoning: "Vessel dimensions confirmed. Category B berth tariff applied per current schedule. Tenure discount not applicable — under 5-year qualifying threshold. Fee presented and accepted. Renewal invoice queued." },
-      { id: 13, timestamp: ts(1, 7), agent: "Parts & Supplies Agent", decision: "FAIL", fileReferenced: "procurement-authority.md", clauseApplied: "MUST NOT process PO above Operations Manager authority level without CFO sign-off", actionProposed: "Marine engine parts PO above Operations Manager ceiling — blocked, CFO sign-off required", escalationTarget: "CFO", exceptionApplied: false, reasoning: "PO value of £28,500 for replacement marine engine components exceeds Operations Manager authority ceiling of £15,000. No emergency procurement exception overlay active. CFO approval required before PO can be raised." },
-      { id: 14, timestamp: ts(1, 38), agent: "Valuation Bot", decision: "ESCALATE", fileReferenced: "brokerage-valuation-policy.md", clauseApplied: "MUST escalate brokerage valuations above automated ceiling to Head of Sales for review", actionProposed: "High-value vessel valuation above automated ceiling — escalated to Head of Sales for sign-off", escalationTarget: "Head of Sales", exceptionApplied: false, reasoning: "Indicative valuation of £145,000 for listed vessel exceeds automated approval ceiling of £100,000. Comparables assessed from market data. Head of Sales review required before valuation is presented to Boat Owner." },
-      { id: 15, timestamp: ts(2, 19), agent: "Renewal Agent", decision: "PASS", fileReferenced: "mooring-renewal-policy.md", clauseApplied: "MUST dispatch renewal offer at least 90 days before berth agreement expiry", actionProposed: `${customer} annual berth renewal dispatched — 94 days before expiry, tariff increase noted`, escalationTarget: null, exceptionApplied: false, reasoning: "Berth agreement expiry confirmed. Renewal dispatched 94 days in advance — within the 90-day requirement. New season tariff applied per board-approved schedule. CRM updated with renewal stage." },
-      { id: 16, timestamp: ts(3, 4), agent: "Onboarding Agent", decision: "ESCALATE", fileReferenced: "staff-access-policy.md", clauseApplied: "MUST escalate seasonal staff access requests to Harbour Master before provisioning", actionProposed: `Seasonal ${employee} access request — escalated to Harbour Master for approval before provisioning`, escalationTarget: "Harbour Master", exceptionApplied: false, reasoning: "Seasonal Dockmaster engaged for peak summer period. Access to berth management and vessel tracking systems requested. Harbour Master approval required per seasonal access policy before provisioning. Request queued pending approval." },
-      { id: 17, timestamp: ts(4, 11), agent: "Mooring Invoice Agent", decision: "PASS", fileReferenced: "invoice-processing-policy.md", clauseApplied: "MUST generate berth invoice within 48 hours of reservation confirmation", actionProposed: `Berth reservation confirmed — annual mooring invoice generated and dispatched to ${customer}`, escalationTarget: null, exceptionApplied: false, reasoning: "Reservation confirmed and accepted by Boat Owner. Annual mooring invoice generated with correct vessel details, berth category, and VAT applied. Dispatched to billing contact on file. Invoice reference logged in marina management system." },
-      { id: 18, timestamp: ts(5, 27), agent: "Debt Collection Agent", decision: "ESCALATE", fileReferenced: "collections-policy.md", clauseApplied: "MUST escalate mooring invoices overdue beyond 45 days to CFO and Head of Commercial", actionProposed: "Mooring invoice 52 days overdue — escalated to CFO and Head of Commercial", escalationTarget: "CFO / Head of Commercial", exceptionApplied: false, reasoning: "Mooring invoice INV-MR-2026-0178 for £4,200 is 52 days past 30-day payment terms. Two automated reminders sent. No payment or dispute received. Head of Commercial notified for customer relationship discussion. CFO notified for credit risk assessment. Vessel access restrictions may be applied." },
+      { id: 10, timestamp: ts(0, 3), agent: "Checkout Agent", decision: "PASS", fileReferenced: "folio-settlement-policy.md", clauseApplied: "MAY waive late checkout fee to 14:00 for verified loyalty tier guests", actionProposed: `Reservation RES-2026-88341 — ${customer} requested late checkout to 13:30, loyalty tier verified in Apaleo, fee waived`, escalationTarget: null, exceptionApplied: true, reasoning: `${customer} holds active Gold loyalty status confirmed in Apaleo guest profile. Late checkout exception overlay active. Unit availability checked via Apaleo Inventory API — no constraint. Folio charge suppressed automatically.` },
+      { id: 11, timestamp: ts(0, 15), agent: "Folio Settlement Agent", decision: "FAIL", fileReferenced: "folio-settlement-policy.md", clauseApplied: "MUST NOT post folio charges without matching reservation ID in Apaleo", actionProposed: `Folio charge FOL-2026-0922 blocked — reservation ID not found in Apaleo Reservations API`, escalationTarget: "Operations Director", exceptionApplied: false, reasoning: "Charge submitted without a valid Apaleo reservation reference. Folio cannot be settled against an unlinked guest record. Operations Director notified. Charge held pending reservation verification." },
+      { id: 12, timestamp: ts(1, 5), agent: "Rate Agent", decision: "ESCALATE", fileReferenced: "rate-override-policy.md", clauseApplied: "MUST escalate rate plan override requests above Revenue Manager authority to VP Revenue", actionProposed: "Corporate account requested 25% override on BAR rate plan — above Revenue Manager ceiling, escalated", escalationTarget: "VP Revenue", exceptionApplied: false, reasoning: "Requested rate plan override of 25% below BAR exceeds Revenue Manager authority ceiling of 18%. Account is Tier 2 in Apaleo — not Tier 1 key account. No active rate-plan-override exception overlay. Escalated to VP Revenue for approval." },
+      { id: 13, timestamp: ts(1, 33), agent: "Rate Agent", decision: "PASS", fileReferenced: "key-account-rate-exception.md", clauseApplied: "MAY approve up to 18% discount on BAR at Revenue Manager authority for verified Tier 1 accounts", actionProposed: "Tier 1 Key Account rate plan approved in Apaleo — exception overlay applied, rate plan updated", escalationTarget: null, exceptionApplied: true, reasoning: "Account verified as Tier 1 in Apaleo guest profile and CRM. Requested discount of 16% below BAR within exception ceiling. Rate parity obligations checked. Rate plan updated via Apaleo Rate Plan API. Exception conditions all met." },
+      { id: 14, timestamp: ts(2, 11), agent: "Check-In Agent", decision: "PASS", fileReferenced: "check-in-agent.md", clauseApplied: "MUST verify reservation status in Apaleo before assigning property unit", actionProposed: `Reservation RES-2026-91204 — ${customer} check-in confirmed, unit assigned via Apaleo Unit Management API`, escalationTarget: null, exceptionApplied: false, reasoning: "Reservation status confirmed as CONFIRMED in Apaleo Reservations API. Guest identity verified. Unit availability confirmed. Check-in processed. Access credentials issued. Apaleo reservation status updated to IN_HOUSE." },
+      { id: 15, timestamp: ts(3, 44), agent: "Checkout Agent", decision: "PASS", fileReferenced: "folio-settlement-policy.md", clauseApplied: "MUST confirm folio balance is zero or settled before closing reservation in Apaleo", actionProposed: `Reservation RES-2026-91204 — ${customer.toLowerCase()} checkout at 11:00, folio settled, Apaleo status updated to CHECKED_OUT`, escalationTarget: null, exceptionApplied: false, reasoning: "Folio balance confirmed zero — all charges settled. No pending disputes. Reservation status updated to CHECKED_OUT via Apaleo Reservations API. Revenue recognition entry posted." },
+      { id: 16, timestamp: ts(4, 2), agent: "Onboarding Agent", decision: "ESCALATE", fileReferenced: "staff-access-provisioning-baseline.md", clauseApplied: "MUST flag and NOT provision Apaleo system access if CISO sign-off is missing", actionProposed: `Property Systems ${employee.toLowerCase()} fast-track provisioning request — CISO sign-off not found, escalated`, escalationTarget: "CISO", exceptionApplied: false, reasoning: "Role classified as Property Systems specialist qualifying for fast-track exception. However no CISO sign-off reference found in log for this individual. Apaleo admin provisioning blocked. Escalated to CISO for approval." },
+      { id: 17, timestamp: ts(4, 28), agent: "Folio Invoice Agent", decision: "PASS", fileReferenced: "availability-agent.md", clauseApplied: "MUST generate folio invoice within 24 hours of checkout and dispatch to confirmed billing address", actionProposed: "Post-stay folio invoice INV-2026-4471 generated from Apaleo folio data and dispatched to corporate billing contact", escalationTarget: null, exceptionApplied: false, reasoning: "Checkout completed. Corporate billing address confirmed in Apaleo guest profile. Folio invoice generated from Apaleo Folio API data. Dispatched via automated billing workflow within 24-hour SLA." },
+      { id: 18, timestamp: ts(5, 12), agent: "Payment Collection Bot", decision: "ESCALATE", fileReferenced: "folio-settlement-policy.md", clauseApplied: "MUST escalate folios unpaid beyond 30-day terms to Credit Control", actionProposed: "Folio INV-2026-4471 — 30 days overdue, escalated to Credit Control team", escalationTarget: "Credit Control", exceptionApplied: false, reasoning: "Folio invoice INV-2026-4471 has passed 30-day payment terms. Two automated reminders sent. No payment or dispute received. Escalated to Credit Control for manual follow-up per O2C policy." },
     ],
   };
 
-  const industrySpecific = industryEntries[industry] || industryEntries.hospitality;
+  const industrySpecific = industryEntries.hospitality;
   const all = [...universal, ...industrySpecific].sort((a, b) => a.id - b.id);
 
   return all.map((e, i) => ({ ...e, id: Date.now() + i }));
@@ -5469,8 +5172,8 @@ function Directory({ onNew, onLoad }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ background: T.orange, borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.mono, fontWeight: 900, fontSize: 13, color: "#fff" }}>VD</div>
           <div>
-            <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: "-0.03em" }}>VDA-MD Framework</div>
-            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Value-Driven AI with Markdowns</div>
+            <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: "-0.03em" }}>VDA-MK for Apaleo</div>
+            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>AI Governance · Apaleo Hospitality Stack</div>
           </div>
         </div>
         <button onClick={onNew} style={{
@@ -5480,7 +5183,7 @@ function Directory({ onNew, onLoad }) {
           boxShadow: `0 0 20px ${T.orange}40`,
           display: "flex", gap: 8, alignItems: "center",
         }}>
-          <span>+</span> Configure New Company
+          <span>+</span> Add Property
         </button>
       </div>
 
@@ -5488,10 +5191,10 @@ function Directory({ onNew, onLoad }) {
         {/* Hero */}
         <div style={{ marginBottom: 40 }}>
           <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 32, color: T.text, letterSpacing: "-0.04em", marginBottom: 10 }}>
-            VDA-MD Directory
+            Property Directory
           </h1>
           <p style={{ fontSize: 16, color: T.muted, lineHeight: 1.7, maxWidth: 600 }}>
-            Your saved AI governance hubs. Each entry is a fully configured VDA-MD framework — brand context ingested, NIST controls mapped, exception engine ready.
+            Your Apaleo properties with active VDA-MK governance. Each entry is a fully configured framework — brand context ingested, Apaleo guest lifecycle mapped, exception engine ready.
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <Tag color={T.blue}>NIST SP 800-53</Tag>
@@ -5511,17 +5214,17 @@ function Directory({ onNew, onLoad }) {
         {/* Empty */}
         {companies?.length === 0 && (
           <div style={{ textAlign: "center", padding: "80px 40px", background: T.card, border: `2px dashed ${T.border}`, borderRadius: 16 }}>
-            <div style={{ fontSize: 56, marginBottom: 16 }}>🏗️</div>
-            <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, marginBottom: 10 }}>No companies configured yet</h2>
+            <div style={{ fontSize: 56, marginBottom: 16 }}>🏨</div>
+            <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, marginBottom: 10 }}>No properties configured yet</h2>
             <p style={{ fontSize: 15, color: T.muted, marginBottom: 24, maxWidth: 400, margin: "0 auto 24px" }}>
-              Configure your first company to get started. Enter a company website, select an industry, and the VDA-MD framework will be tailored to that organisation.
+              Add your first Apaleo property to get started. Enter the property website and the VDA-MK framework will be configured for the full Apaleo guest lifecycle.
             </p>
             <button onClick={onNew} style={{
               background: T.orange, border: "none", borderRadius: 10,
               padding: "12px 28px", fontSize: 15, color: "#fff",
               fontFamily: T.sans, fontWeight: 800, cursor: "pointer",
               boxShadow: `0 0 28px ${T.orange}50`,
-            }}>Configure First Company →</button>
+            }}>Add First Property →</button>
           </div>
         )}
 
@@ -5529,7 +5232,7 @@ function Directory({ onNew, onLoad }) {
         {companies?.length > 0 && (
           <>
             <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 16, letterSpacing: "0.08em" }}>
-              {companies.length} CONFIGURED {companies.length === 1 ? "COMPANY" : "COMPANIES"}
+              {companies.length} CONFIGURED {companies.length === 1 ? "PROPERTY" : "PROPERTIES"}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, marginBottom: 32 }}>
               {companies.map(co => {
@@ -5618,8 +5321,8 @@ function Directory({ onNew, onLoad }) {
                 onMouseLeave={() => setHovered(null)}
               >
                 <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.5 }}>+</div>
-                <div style={{ fontSize: 14, color: T.dim, fontWeight: 600 }}>New Company</div>
-                <div style={{ fontSize: 11, color: T.dim, marginTop: 4, fontFamily: T.mono }}>Configure VDA-MD hub</div>
+                <div style={{ fontSize: 14, color: T.dim, fontWeight: 600 }}>Add Property</div>
+                <div style={{ fontSize: 11, color: T.dim, marginTop: 4, fontFamily: T.mono }}>Configure Apaleo VDA-MK hub</div>
               </div>
             </div>
           </>
@@ -5627,7 +5330,7 @@ function Directory({ onNew, onLoad }) {
 
         {/* Framework footer */}
         <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>VDA-MD Framework · C2MD (Compliance to Markdown) · Proprietary IP · March 2026</div>
+          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>VDA-MK Framework · C2MD (Compliance to Markdown) · Powered by Apaleo · April 2026</div>
           <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Saved locally in this browser · No external storage</div>
         </div>
       </div>
@@ -5655,6 +5358,262 @@ export default function VdaOS() {
     setLogIsSeeded(false);
   }, []);
 
+  const seedApaleoGovernanceFiles = async (companyId, companyName) => {
+    const seedFiles = [
+      {
+        filename: "rate-override-policy.md",
+        filepath: "governance/rate-override-policy.md",
+        fileType: "AGENTS",
+        axis: "vertical",
+        stage: "discover",
+        journeyStage: "discover",
+        owner: "Revenue Manager",
+        domain: "Revenue Management",
+        agentId: "rate-agent",
+        normalisationLevel: 3,
+        vendor: "VDA-MK for Apaleo",
+        baseline: true,
+        nistControl: "AC-2",
+        content: `---
+file_type: AGENTS
+agent_id: rate-agent
+domain: Revenue Management
+owner: Revenue Manager
+axis: vertical
+journey_stage: discover
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AC-2
+apaleo_api: Rate Plan API
+---
+
+## Agent Scope
+
+The Rate Agent governs all automated rate plan decisions for ${companyName} via the Apaleo Rate Plan API.
+
+## Permitted Actions
+
+MUST verify account tier in Apaleo before applying any rate plan override.
+MUST log every rate decision to the Witness Agent audit trail before execution.
+MUST NOT apply a discount below BAR without a valid exception overlay.
+MUST NOT process rate overrides that exceed the Revenue Manager authority ceiling of 18%.
+MAY apply standard BAR rates without human approval for direct bookings.
+MAY apply up to 5% early-bird discount automatically for bookings >30 days out.
+
+## Rate Override Authority
+
+MUST escalate to Revenue Manager when: discount request is between 10% and 18% below BAR.
+MUST escalate to VP Revenue when: discount request exceeds 18% below BAR.
+MUST escalate to VP Revenue when: account is not classified as Tier 1 in Apaleo.
+
+## Exception Overlays
+
+MAY apply the \`key-account-rate-exception.md\` overlay for verified Tier 1 accounts (up to 18% discount at Revenue Manager authority).
+MUST NOT apply exception overlay without valid account tier verification in Apaleo.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AC-2, AU-2
+Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+`,
+      },
+      {
+        filename: "folio-settlement-policy.md",
+        filepath: "governance/folio-settlement-policy.md",
+        fileType: "COMPLIANCE",
+        axis: "horizontal",
+        stage: "checkout",
+        journeyStage: "checkout",
+        owner: "Operations Director",
+        domain: "Folio Management",
+        agentId: "folio-settlement-agent",
+        normalisationLevel: 3,
+        vendor: "VDA-MK for Apaleo",
+        baseline: true,
+        nistControl: "AU-2",
+        content: `---
+file_type: COMPLIANCE
+agent_id: folio-settlement-agent
+domain: Folio Management
+owner: Operations Director
+axis: horizontal
+journey_stage: checkout
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AU-2
+apaleo_api: Folio API
+---
+
+## Scope
+
+This policy governs all folio settlement actions performed by the Folio Settlement Agent via the Apaleo Folio API at ${companyName}.
+
+## Mandatory Rules
+
+MUST NOT post folio charges without a matching, confirmed reservation ID in Apaleo Reservations API.
+MUST NOT settle a folio where the reservation status is not IN_HOUSE or CHECKED_OUT in Apaleo.
+MUST confirm folio balance is zero or a valid payment method is on file before checkout.
+MUST log every folio action to the Witness Agent audit trail with Apaleo folio reference.
+MUST NOT process refunds — route all refund requests to a human Folio Agent.
+MUST escalate folios with disputes or unresolved charges to Operations Director before settlement.
+
+## Late Checkout Fee Policy
+
+MAY waive late checkout fee up to 14:00 for verified Gold or Platinum loyalty tier guests.
+MUST confirm loyalty tier in Apaleo guest profile before applying waiver.
+MUST NOT waive late checkout fee beyond 14:00 without Front Office Manager approval.
+
+## Overdue Folio Escalation
+
+MUST escalate folio invoices unpaid beyond 30-day payment terms to Credit Control.
+MUST send minimum two automated reminders before escalation.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AU-2, AC-2
+Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+PCI DSS: MUST NOT store raw card data in folio records or agent logs.
+`,
+      },
+      {
+        filename: "check-in-agent.md",
+        filepath: "governance/check-in-agent.md",
+        fileType: "AGENTS",
+        axis: "vertical",
+        stage: "checkin",
+        journeyStage: "checkin",
+        owner: "Front Office Manager",
+        domain: "Check-In",
+        agentId: "check-in-agent",
+        normalisationLevel: 3,
+        vendor: "VDA-MK for Apaleo",
+        baseline: true,
+        nistControl: "AC-2",
+        content: `---
+file_type: AGENTS
+agent_id: check-in-agent
+domain: Check-In
+owner: Front Office Manager
+axis: vertical
+journey_stage: checkin
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AC-2
+apaleo_api: Reservations API, Unit Management API
+---
+
+## Agent Scope
+
+The Check-In Agent automates the digital check-in workflow for arriving guests at ${companyName} using the Apaleo Property Management API.
+
+## Permitted Actions
+
+MUST verify reservation status in Apaleo Reservations API before assigning a property unit.
+MUST confirm folio balance is settled or a valid payment method is on file before check-in.
+MUST assign a unit using Apaleo Unit Management API — prioritise room-type match to reservation.
+MUST update Apaleo reservation status to IN_HOUSE upon successful check-in.
+MUST log every check-in decision to the Witness Agent audit trail with Apaleo reservation reference.
+MUST NOT check in a guest whose reservation status is CANCELLED or NO_SHOW in Apaleo.
+MUST NOT override a unit assignment without a Front Office Manager supervisor token.
+
+## Loyalty Upgrades
+
+MAY apply room-type upgrade for verified Gold or Platinum loyalty tier guests when an equivalent unit is available.
+MUST confirm loyalty tier in Apaleo guest profile before applying any upgrade.
+MUST NOT apply upgrade if the higher unit type is fully committed for the night.
+
+## Escalation Path
+
+MUST escalate to Front Office Manager when:
+- Reservation has a block, dispute, or open folio balance > €500.
+- Guest identity cannot be verified.
+- No units of the reserved type are available.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AC-2, AU-2
+Frameworks: PCI DSS, GDPR/CCPA
+GDPR: MUST NOT retain guest PII beyond the required retention window.
+PCI DSS: MUST NOT log raw card data during check-in.
+`,
+      },
+      {
+        filename: "availability-agent.md",
+        filepath: "governance/availability-agent.md",
+        fileType: "AGENTS",
+        axis: "vertical",
+        stage: "discover",
+        journeyStage: "discover",
+        owner: "Revenue Manager",
+        domain: "Availability & Inventory",
+        agentId: "availability-agent",
+        normalisationLevel: 3,
+        vendor: "VDA-MK for Apaleo",
+        baseline: true,
+        nistControl: "AC-2",
+        content: `---
+file_type: AGENTS
+agent_id: availability-agent
+domain: Availability & Inventory
+owner: Revenue Manager
+axis: vertical
+journey_stage: discover
+normalisation_level: 3
+vendor: VDA-MK for Apaleo
+baseline: true
+nist_control: AC-2
+apaleo_api: Availability API, Rate Plan API
+---
+
+## Agent Scope
+
+The Availability Agent governs real-time inventory and availability decisions for ${companyName} via the Apaleo Availability and Rate Plan APIs.
+
+## Permitted Actions
+
+MUST query Apaleo Availability API for live unit inventory before confirming any reservation.
+MUST NOT confirm a reservation for a unit type with zero availability in Apaleo.
+MUST log every availability decision to the Witness Agent audit trail before execution.
+MUST NOT alter inventory blocks without Revenue Manager approval.
+MAY apply standard availability rules without human approval for direct bookings.
+MAY hold inventory for group bookings up to 24 hours pending deposit confirmation.
+
+## Inventory Management
+
+MUST NOT release a group booking hold without confirmed deposit or signed group agreement.
+MUST escalate to Revenue Manager when inventory drops below minimum availability threshold.
+MAY apply overbooking policy up to the approved overbooking percentage set by Revenue Manager.
+
+## Post-Stay Invoice Dispatch
+
+MUST generate folio invoice within 24 hours of checkout and dispatch to confirmed billing address.
+MUST reference the Apaleo Folio API data when generating post-stay invoices.
+MUST NOT dispatch invoice to an unverified billing address.
+
+## Compliance Baseline
+
+Inherits: NIST SP 800-53 AC-2, AU-2
+Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
+`,
+      },
+    ];
+
+    for (const f of seedFiles) {
+      try {
+        await fetch("/api/fm/file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, ...f }),
+        });
+      } catch (e) {
+        console.error("Seed file failed:", f.filename, e);
+      }
+    }
+  };
+
   const handleSetupComplete = async (data) => {
     const cfg = { ...INDUSTRY_CONFIGS[data.industry], id: data.industry };
     setLog(buildSeedLog(cfg, data.companyName));
@@ -5680,6 +5639,7 @@ export default function VdaOS() {
         const saved = await res.json();
         setSetup({ ...data, id: saved.id });
         setIsSaved(true);
+        seedApaleoGovernanceFiles(saved.id, data.companyName);
       } else {
         setSetup(data);
         setIsSaved(false);
@@ -5789,7 +5749,7 @@ export default function VdaOS() {
                   {setup.companyName} <span style={{ color: T.dim, fontWeight: 300 }}>·</span> AI Governance Hub
                 </div>
                 <div style={{ fontSize: 11, color: T.dim, marginTop: 2, fontFamily: T.mono }}>
-                  VDA-MD · {config.label} · {config.icon}
+                  VDA-MK · {config.icon} Apaleo Hospitality Stack · Powered by Apaleo
                 </div>
               </div>
             </div>
@@ -5839,7 +5799,7 @@ export default function VdaOS() {
               </button>
             ))}
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, padding: "0 8px" }}>
-              <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{config.icon} {config.label}</span>
+              <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{config.icon} Powered by Apaleo</span>
             </div>
           </div>
 
