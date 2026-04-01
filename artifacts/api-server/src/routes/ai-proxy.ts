@@ -33,6 +33,31 @@ export async function callAI(params: {
   return block?.type === "text" ? block.text : "";
 }
 
+export async function callAIFull(params: {
+  model?: string;
+  max_tokens?: number;
+  system?: string;
+  messages: unknown[];
+  tools?: unknown[];
+}): Promise<{
+  content: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>;
+  stop_reason: string;
+}> {
+  const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
+  const createParams: Record<string, unknown> = {
+    model: resolvedModel,
+    max_tokens: params.max_tokens || 4096,
+    messages: params.messages,
+  };
+  if (params.system) createParams.system = params.system;
+  if (params.tools && params.tools.length > 0) createParams.tools = params.tools;
+  const response = await anthropic.messages.create(createParams as Parameters<typeof anthropic.messages.create>[0]);
+  return {
+    content: response.content as Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>,
+    stop_reason: response.stop_reason ?? "end_turn",
+  };
+}
+
 router.post("/ai/messages", async (req, res) => {
   try {
     const { model, max_tokens, system, messages, tools, tool_choice, ...rest } = req.body;

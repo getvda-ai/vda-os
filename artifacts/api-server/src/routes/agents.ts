@@ -8,7 +8,7 @@ import type {
   ApaleoRatePlan,
   ReservationStatus,
 } from "../lib/apaleo-types.js";
-import { callAI } from "./ai-proxy.js";
+import { callAI, callAIFull } from "./ai-proxy.js";
 import { db, witnessEntries } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
@@ -59,6 +59,21 @@ async function apaleoRequest<T>(
   }
   return resp.json() as Promise<T>;
 }
+
+// ─── Apaleo MCP Tool Name Map (PascalCase as per Apaleo MCP v3.1.1) ──────────
+
+const MCP_TOOLS = {
+  GetAvailableUnitGroups: "GetAvailableUnitGroups",
+  ListRatePlans: "ListRatePlans",
+  GetReservation: "GetReservation",
+  CreateBooking: "CreateBooking",
+  AmendReservation: "AmendReservation",
+  CheckIn: "CheckIn",
+  CheckOut: "CheckOut",
+  GetFolio: "GetFolio",
+  ListFolios: "ListFolios",
+  CreateFolioCharge: "CreateFolioCharge",
+} as const;
 
 // ─── MCP-first executor ───────────────────────────────────────────────────────
 
@@ -370,6 +385,135 @@ You MUST respond ONLY in this exact JSON format with no extra text:
   }
 }
 
+// ─── Agentic Policy Evaluator (Claude tool-use via Apaleo MCP) ───────────────
+
+interface AgenticEvalResult {
+  decision: AgentDecision;
+  toolCallsMade: number;
+  usedMcp: boolean;
+}
+
+async function evaluateWithPolicyAndMcp(
+  agentName: string,
+  policyKey: string,
+  task: string,
+  agentToolNames: string[]
+): Promise<AgenticEvalResult> {
+  const policy = POLICIES[policyKey];
+
+  let anthropicTools: Array<{
+    name: string;
+    description: string;
+    input_schema: Record<string, unknown>;
+  }> = [];
+
+  try {
+    const allTools = await listMcpTools();
+    anthropicTools = allTools
+      .filter((t) => agentToolNames.includes(t.name))
+      .map((t) => ({
+        name: t.name,
+        description: t.description ?? `Apaleo MCP tool: ${t.name}`,
+        input_schema: (t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>,
+      }));
+  } catch (err) {
+    logger.warn({ err, agentName }, "Could not load MCP tools — falling back to policy-only evaluation");
+  }
+
+  const systemPrompt = `You are the ${agentName} operating under the VDA-MK governance framework.
+Your governing policy document is:
+
+${policy}
+
+${anthropicTools.length > 0 ? "Use the provided Apaleo MCP tools to fetch live data before making your decision." : ""}
+You MUST respond ONLY in this exact JSON format with no extra text:
+{
+  "decision": "PASS" | "FAIL" | "ESCALATE",
+  "clauseApplied": "<exact policy clause that governed this decision>",
+  "actionProposed": "<what action was taken or should be taken>",
+  "exceptionApplied": true | false,
+  "escalationTarget": "<role to escalate to, or null>",
+  "reasoning": "<1-3 sentence explanation citing specific data from the live API response>"
+}`;
+
+  const messages: unknown[] = [
+    {
+      role: "user",
+      content: `Task: ${task}\n\n${anthropicTools.length > 0 ? "Call the Apaleo MCP tools to retrieve live data, then issue your governance decision." : "Apply policy with available context."}`,
+    },
+  ];
+
+  let toolCallsMade = 0;
+  const MAX_ITERATIONS = 6;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const response = await callAIFull({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages,
+      tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+    });
+
+    if (response.stop_reason === "tool_use") {
+      const toolResults: unknown[] = [];
+
+      for (const block of response.content) {
+        if (block.type === "tool_use") {
+          toolCallsMade++;
+          const toolArgs = (block.input ?? {}) as Record<string, unknown>;
+          let resultContent: string;
+          try {
+            const mcpResult = await callMcpTool(block.name!, toolArgs);
+            resultContent =
+              mcpResult.content
+                ?.filter((c) => c.type === "text")
+                .map((c) => c.text ?? "")
+                .join("\n") ?? JSON.stringify(mcpResult);
+          } catch (err) {
+            resultContent = `Tool call failed: ${err instanceof Error ? err.message : String(err)}`;
+          }
+
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: resultContent,
+          });
+        }
+      }
+
+      messages.push({ role: "assistant", content: response.content });
+      messages.push({ role: "user", content: toolResults });
+      continue;
+    }
+
+    const textBlock = response.content.find((b) => b.type === "text");
+    if (textBlock?.text) {
+      try {
+        const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
+        const decision = JSON.parse(jsonMatch ? jsonMatch[0] : textBlock.text) as AgentDecision;
+        return { decision, toolCallsMade, usedMcp: toolCallsMade > 0 };
+      } catch {
+        logger.warn({ agentName, text: textBlock.text.slice(0, 200) }, "Could not parse agent JSON response");
+      }
+    }
+    break;
+  }
+
+  return {
+    decision: {
+      decision: "ESCALATE",
+      clauseApplied: "Agentic evaluation did not produce a parseable decision",
+      actionProposed: "Manual review required",
+      exceptionApplied: false,
+      escalationTarget: "Operations Director",
+      reasoning: "The agent loop completed without a clear governance decision — manual review required.",
+    },
+    toolCallsMade,
+    usedMcp: toolCallsMade > 0,
+  };
+}
+
 // ─── Availability Agent ───────────────────────────────────────────────────────
 
 router.post("/agents/availability", async (req, res) => {
@@ -394,54 +538,17 @@ router.post("/agents/availability", async (req, res) => {
       return res.status(400).json({ error: "propertyId, arrival, departure, companyId required" });
     }
 
-    const { result: availData, usedMcp: usedMcpAvail } = await mcpOrRest<{
-      unitGroups: Array<{ unitGroupId: string; availableUnits: number }>;
-    }>(
-      "apaleo_get_availability",
-      { propertyId, arrival, departure, adults },
-      () =>
-        apaleoRequest<{ unitGroups: Array<{ unitGroupId: string; availableUnits: number }> }>(
-          "/availability/v1/unit-groups",
-          "GET",
-          undefined,
-          { propertyId, arrival, departure, adults }
-        ).catch(() => ({ unitGroups: [] }))
+    const { decision, toolCallsMade, usedMcp } = await evaluateWithPolicyAndMcp(
+      "Availability Agent",
+      "availability",
+      `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults. Fetch live availability and rate plan data from Apaleo.`,
+      [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans]
     );
-
-    const { result: ratePlanData } = await mcpOrRest<{ ratePlans: ApaleoRatePlan[] }>(
-      "apaleo_list_rate_plans",
-      { propertyId },
-      () =>
-        apaleoRequest<{ ratePlans: ApaleoRatePlan[] }>(
-          "/rateplan/v1/rate-plans",
-          "GET",
-          undefined,
-          { propertyId }
-        ).catch(() => ({ ratePlans: [] }))
-    );
-
-    const unitGroups = availData.unitGroups ?? [];
-    const ratePlans = ratePlanData.ratePlans ?? [];
 
     const apaleoData: Record<string, unknown> = {
       propertyId, arrival, departure, adults,
-      unitGroupCount: unitGroups.length,
-      unitGroups: unitGroups.slice(0, 5),
-      ratePlanCount: ratePlans.length,
-      ratePlans: ratePlans.slice(0, 5).map((p) => ({ id: p.id, name: p.name, code: p.code })),
-      usedMcp: usedMcpAvail,
+      usedMcp, toolCallsMade,
     };
-
-    const context = `Property: ${propertyId}
-Requested arrival: ${arrival}, departure: ${departure}, adults: ${adults}
-Available unit groups (${unitGroups.length}): ${JSON.stringify(unitGroups.slice(0, 5), null, 2)}
-Rate plans available (${ratePlans.length}): ${ratePlans.map((p) => p.name || p.id).join(", ")}
-Data source: ${usedMcpAvail ? "MCP tool (apaleo_get_availability)" : "Apaleo REST API"}`;
-
-    const decision = await evaluateWithPolicy(
-      "Availability Agent", "availability", context,
-      `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults.`
-    );
 
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
@@ -454,7 +561,7 @@ Data source: ${usedMcpAvail ? "MCP tool (apaleo_get_availability)" : "Apaleo RES
 
     res.json({
       ...decision, witnessEntryId: witnessId,
-      propertyId, arrival, departure, unitGroupCount: unitGroups.length, ratePlanCount: ratePlans.length, usedMcp: usedMcpAvail,
+      propertyId, arrival, departure, usedMcp, toolCallsMade,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -478,38 +585,20 @@ router.post("/agents/rate", async (req, res) => {
       return res.status(400).json({ error: "propertyId, companyId required" });
     }
 
-    const { result: ratePlanData, usedMcp } = await mcpOrRest<{ ratePlans: ApaleoRatePlan[] }>(
-      "apaleo_list_rate_plans",
-      { propertyId },
-      () =>
-        apaleoRequest<{ ratePlans: ApaleoRatePlan[] }>(
-          "/rateplan/v1/rate-plans", "GET", undefined, { propertyId }
-        ).catch(() => ({ ratePlans: [] }))
-    );
-
-    const ratePlans = ratePlanData.ratePlans ?? [];
-    const activePlan = (ratePlanId ? ratePlans.find((p) => p.id === ratePlanId) : null) ?? ratePlans[0];
     const bar = barRate ?? 150;
     const reqRate = requestedRate ?? bar;
     const discountPct = bar > 0 ? Math.round(((bar - reqRate) / bar) * 100) : 0;
 
-    const apaleoData: Record<string, unknown> = {
-      propertyId, barRate: bar, requestedRate: reqRate, discountPct,
-      activePlanId: activePlan?.id, activePlanName: activePlan?.name,
-      ratePlanCount: ratePlans.length, usedMcp,
-    };
-
-    const context = `Property: ${propertyId}
-BAR (Best Available Rate): €${bar}
-Requested rate: €${reqRate} (${discountPct}% below BAR)
-Rate plan: ${activePlan ? activePlan.name || activePlan.id : "BAR"}
-All rate plans (${ratePlans.length}): ${ratePlans.map((p) => p.name || p.id).slice(0, 8).join(", ")}
-Data source: ${usedMcp ? "MCP tool" : "Apaleo REST API"}`;
-
-    const decision = await evaluateWithPolicy(
-      "Rate Agent", "rate", context,
-      `Evaluate rate request: €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}.`
+    const { decision, toolCallsMade, usedMcp } = await evaluateWithPolicyAndMcp(
+      "Rate Agent",
+      "rate",
+      `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans from Apaleo using the ListRatePlans tool and apply rate-override policy.`,
+      [MCP_TOOLS.ListRatePlans]
     );
+
+    const apaleoData: Record<string, unknown> = {
+      propertyId, barRate: bar, requestedRate: reqRate, discountPct, usedMcp, toolCallsMade,
+    };
 
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
@@ -522,7 +611,7 @@ Data source: ${usedMcp ? "MCP tool" : "Apaleo REST API"}`;
 
     res.json({
       ...decision, witnessEntryId: witnessId,
-      propertyId, requestedRate: reqRate, barRate: bar, discountPct, activePlanName: activePlan?.name ?? activePlan?.id, usedMcp,
+      propertyId, requestedRate: reqRate, barRate: bar, discountPct, usedMcp, toolCallsMade,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -655,7 +744,7 @@ router.post("/agents/reservation", async (req, res) => {
           };
           try {
             const { result: created, usedMcp } = await mcpOrRest<CreatedReservation>(
-              "apaleo_create_reservation", { ...bookingBody },
+              MCP_TOOLS.CreateBooking, { ...bookingBody },
               () => apaleoRequest<CreatedReservation>("/booking/v1/reservations", "POST", bookingBody)
             );
             executedReservationId = created.id;
@@ -672,7 +761,7 @@ router.post("/agents/reservation", async (req, res) => {
         try {
           const patchBody = Object.entries(modifyFields).map(([op, val]) => ({ op: "replace", path: `/${op}`, value: val }));
           const { usedMcp } = await mcpOrRest<Record<string, unknown>>(
-            "apaleo_patch_reservation", { reservationId, patch: patchBody },
+            MCP_TOOLS.AmendReservation, { reservationId, patch: patchBody },
             () => apaleoRequest<Record<string, unknown>>(
               `/booking/v1/reservations/${reservationId}`, "PATCH", patchBody
             )
@@ -791,7 +880,7 @@ router.post("/agents/checkin", async (req, res) => {
     if (decision.decision === "PASS" && resolvedReservationId) {
       try {
         const { usedMcp } = await mcpOrRest<Record<string, unknown>>(
-          "apaleo_checkin_reservation",
+          MCP_TOOLS.CheckIn,
           { reservationId: resolvedReservationId },
           () =>
             apaleoRequest<Record<string, unknown>>(
@@ -845,45 +934,24 @@ router.post("/agents/folio", async (req, res) => {
       return res.status(400).json({ error: "propertyId, companyId required" });
     }
 
-    const contextLines: string[] = [`Property: ${propertyId}`];
-    const apaleoData: Record<string, unknown> = { propertyId };
+    const taskDesc = [
+      `Analyse folio charges for property ${propertyId}.`,
+      folioId ? `Use the GetFolio tool to fetch folio ${folioId}.` : "",
+      reservationId ? `Use the ListFolios tool to fetch folios for reservation ${reservationId}.` : "",
+      !folioId && !reservationId ? `Use the ListFolios tool to list open folios for property ${propertyId}.` : "",
+      "Apply folio-settlement-policy.md thresholds and issue a governance decision.",
+    ].filter(Boolean).join(" ");
 
-    if (folioId) {
-      const { result: folio, usedMcp } = await mcpOrRest<ApaleoFolio>(
-        "apaleo_get_folio",
-        { folioId },
-        () => apaleoRequest<ApaleoFolio>(`/finance/v1/folios/${folioId}`)
-      );
-      apaleoData.folio = folio;
-      apaleoData.usedMcp = usedMcp;
-      const charges = folio.charges ?? [];
-      const totalGross = charges.reduce((s, c) => s + (c.amount?.grossAmount ?? 0), 0);
-      const currency = folio.totalAmount?.currency ?? "EUR";
-      contextLines.push(
-        `Folio ${folioId}: status=${folio.status ?? "Unknown"}, reservation=${folio.reservationId ?? reservationId ?? "None"}`,
-        `Total: ${folio.totalAmount?.amount ?? totalGross} ${currency}, outstanding: ${folio.outstandingAmount?.amount ?? 0} ${currency}`,
-        `Charges (${charges.length}): ${JSON.stringify(charges.slice(0, 5), null, 2)}`
-      );
-    } else if (reservationId) {
-      const { result: folioData, usedMcp } = await mcpOrRest<{ folios: ApaleoFolio[]; count: number }>(
-        "apaleo_list_folios", { reservationId },
-        () => apaleoRequest<{ folios: ApaleoFolio[]; count: number }>("/finance/v1/folios", "GET", undefined, { reservationId })
-      );
-      apaleoData.folios = folioData.folios.slice(0, 3);
-      apaleoData.usedMcp = usedMcp;
-      contextLines.push(`Folios for reservation ${reservationId} (${folioData.count}): ${JSON.stringify(folioData.folios.slice(0, 3), null, 2)}`);
-    } else {
-      const folioData = await apaleoRequest<{ folios: ApaleoFolio[]; count: number }>(
-        "/finance/v1/folios", "GET", undefined, { propertyId, status: "Open", pageSize: 5 }
-      ).catch(() => ({ folios: [], count: 0 }));
-      apaleoData.openFolios = folioData.folios.slice(0, 3);
-      contextLines.push(`Open folios for property (${folioData.count}): ${JSON.stringify(folioData.folios.slice(0, 3), null, 2)}`);
-    }
-
-    const decision = await evaluateWithPolicy(
-      "Folio Agent", "folio", contextLines.join("\n"),
-      `Analyse folio charges for property ${propertyId}. ${folioId ? `Folio: ${folioId}.` : ""} ${reservationId ? `Reservation: ${reservationId}.` : ""} Apply folio-settlement-policy.md thresholds.`
+    const { decision, toolCallsMade, usedMcp } = await evaluateWithPolicyAndMcp(
+      "Folio Agent",
+      "folio",
+      taskDesc,
+      [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios]
     );
+
+    const apaleoData: Record<string, unknown> = {
+      propertyId, folioId, reservationId, usedMcp, toolCallsMade,
+    };
 
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
@@ -894,7 +962,7 @@ router.post("/agents/folio", async (req, res) => {
       scenarioRunId,
     });
 
-    res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId });
+    res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId, usedMcp, toolCallsMade });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
@@ -981,7 +1049,7 @@ router.post("/agents/folio-charge", async (req, res) => {
       };
       try {
         const { usedMcp } = await mcpOrRest<Record<string, unknown>>(
-          "apaleo_post_folio_charge",
+          MCP_TOOLS.CreateFolioCharge,
           { folioId: resolvedFolioId, ...chargeBody },
           () => apaleoRequest<Record<string, unknown>>(
             `/finance/v1/folios/${resolvedFolioId}/charges`, "POST", chargeBody
@@ -1101,7 +1169,7 @@ router.post("/agents/checkout", async (req, res) => {
     if (decision.decision === "PASS" && reservationId) {
       try {
         const { usedMcp } = await mcpOrRest<Record<string, unknown>>(
-          "apaleo_checkout_reservation", { reservationId },
+          MCP_TOOLS.CheckOut, { reservationId },
           () => apaleoRequest<Record<string, unknown>>(`/booking/v1/reservations/${reservationId}/checkout`, "PUT")
         );
         checkoutExecuted = true;
@@ -1342,7 +1410,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         };
         try {
           const { result: created, usedMcp } = await mcpOrRest<CreatedReservation>(
-            "apaleo_create_reservation", { ...bookingBody },
+            MCP_TOOLS.CreateBooking, { ...bookingBody },
             () => apaleoRequest<CreatedReservation>("/booking/v1/reservations", "POST", bookingBody)
           );
           createdId = created.id;
@@ -1422,7 +1490,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       if (decision.decision === "PASS" && reservationId) {
         try {
           const { usedMcp } = await mcpOrRest<Record<string, unknown>>(
-            "apaleo_checkin_reservation", { reservationId },
+            MCP_TOOLS.CheckIn, { reservationId },
             () => apaleoRequest<Record<string, unknown>>(`/booking/v1/reservations/${reservationId}/checkin`, "PUT")
           );
           checkinExecuted = true;
@@ -1475,7 +1543,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         };
         try {
           const { usedMcp } = await mcpOrRest<Record<string, unknown>>(
-            "apaleo_post_folio_charge", { folioId, ...chargeBody },
+            MCP_TOOLS.CreateFolioCharge, { folioId, ...chargeBody },
             () => apaleoRequest<Record<string, unknown>>(`/finance/v1/folios/${folioId}/charges`, "POST", chargeBody)
           );
           chargePosted = true;
@@ -1530,7 +1598,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         if (decision.decision === "PASS") {
           try {
             const { usedMcp } = await mcpOrRest<Record<string, unknown>>(
-              "apaleo_checkout_reservation", { reservationId },
+              MCP_TOOLS.CheckOut, { reservationId },
               () => apaleoRequest<Record<string, unknown>>(`/booking/v1/reservations/${reservationId}/checkout`, "PUT")
             );
             checkoutExecuted = true;

@@ -5411,6 +5411,12 @@ function AgentStatusCard({ agent, status, lastEntry, running }) {
           <span style={{ fontWeight: 700, fontSize: 13, fontFamily: T.sans }}>{agent.name}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {!running && lastEntry?.apaleoData?.usedMcp && (
+            <span style={{
+              fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.1em",
+              background: "#6366f1", color: "#fff", borderRadius: 3, padding: "1px 5px",
+            }}>MCP</span>
+          )}
           {running && (
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.orange, display: "inline-block", animation: "pulse-ring 1s ease infinite" }} />
           )}
@@ -5477,12 +5483,20 @@ function LiveWitnessStream({ entries }) {
               {e.fileReferenced} · {e.clauseApplied?.slice(0, 70)}{e.clauseApplied?.length > 70 ? "…" : ""}
             </div>
             <div style={{ fontSize: 11, color: T.dim }}>{e.reasoning?.slice(0, 140)}{e.reasoning?.length > 140 ? "…" : ""}</div>
-            {e.exceptionApplied && (
-              <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 700, marginTop: 4, display: "inline-block" }}>⚡ EXCEPTION APPLIED</span>
-            )}
-            {e.escalationTarget && (
-              <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 700, marginTop: 4, display: "inline-block", marginLeft: 8 }}>↑ ESCALATE → {e.escalationTarget}</span>
-            )}
+            <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+              {e.apaleoData?.usedMcp && (
+                <span style={{
+                  fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.1em",
+                  background: "#6366f1", color: "#fff", borderRadius: 3, padding: "1px 5px",
+                }}>MCP</span>
+              )}
+              {e.exceptionApplied && (
+                <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 700 }}>⚡ EXCEPTION APPLIED</span>
+              )}
+              {e.escalationTarget && (
+                <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 700 }}>↑ ESCALATE → {e.escalationTarget}</span>
+              )}
+            </div>
           </div>
         );
       })}
