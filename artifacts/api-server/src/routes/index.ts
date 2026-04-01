@@ -5,6 +5,7 @@ import companiesRouter from "./companies";
 import fileManagerRouter from "./fileManager";
 import apaleoRouter from "./apaleo";
 import agentsRouter from "./agents";
+import mcpProxyRouter from "./mcp-proxy";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(companiesRouter);
 router.use(fileManagerRouter);
 router.use(apaleoRouter);
 router.use(agentsRouter);
+router.use(mcpProxyRouter);
 
 export default router;

@@ -114,6 +114,15 @@ All Apaleo data calls go to `/api/apaleo/*` (backend proxy), NOT directly to Apa
   - `GET /api/agents/witness?companyId=N` — retrieve persisted Witness Stream entries
   - `POST /api/agents/scenario/run` — Run Full Scenario (7-step end-to-end guest journey)
 
+**Apaleo MCP Proxy** (`src/routes/mcp-proxy.ts`):
+- Transparent proxy to `https://mcp.apaleo.com/mcp` (Apaleo MCP v3.1.1, 235 tools)
+- Endpoint: `POST /api/mcp` — no client auth needed, proxy handles Apaleo bearer token
+- Auto-refreshes Apaleo token using the same cached token service (60 min TTL)
+- Forwards `Mcp-Session-Id` headers bidirectionally for session continuity
+- Supports SSE streaming and standard JSON responses
+- Connect any MCP client (mcpjam, Postman, Claude Desktop) to: `https://<dev-domain>/api/mcp`
+- Full MCP protocol: `initialize` → `tools/list` → `tools/call`
+
 **Apaleo OAuth** (`src/lib/apaleo.ts`):
 - `client_credentials` flow against `https://identity.apaleo.com/connect/token`
 - Token cached in memory with 5-min buffer before expiry
