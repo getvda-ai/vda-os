@@ -6081,27 +6081,41 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
     setRunningAgents(prev => { const n = new Set(prev); n.delete(agentId); return n; });
   }, [hasCredentials, hasCompany, propertyId, companyId, agentParams, addStreamEntry, fetchDbEntries]);
 
+  const SCENARIO_STEPS = [
+    { agentId: "availability",  label: "Step 1/7 — Availability Agent: checking live inventory…" },
+    { agentId: "rate",          label: "Step 2/7 — Rate Agent: evaluating rate request…" },
+    { agentId: "reservation",   label: "Step 3/7 — Reservation Bot: creating guest reservation…" },
+    { agentId: "checkin",       label: "Step 4/7 — Check-In Agent: verifying arrival…" },
+    { agentId: "folio-charge",  label: "Step 5/7 — Folio Charge Agent: posting charges…" },
+    { agentId: "checkout",      label: "Step 6/7 — Checkout Agent: processing departure…" },
+    { agentId: "revenue",       label: "Step 7/7 — Revenue Agent: reconciling revenue…" },
+  ];
+
   const runFullScenario = useCallback(async () => {
     if (!hasCredentials || !hasCompany || scenarioRunning) return;
     setScenarioRunning(true);
     setScenarioComplete(false);
-    setScenarioStep("Starting end-to-end guest journey…");
+    setScenarioStep(SCENARIO_STEPS[0].label);
     setStreamEntries([]);
     setAgentLastEntries({});
+    setRunningAgents(new Set([SCENARIO_STEPS[0].agentId]));
+
+    // Live step ticker — advances every ~35s while the backend runs all agents
+    let stepIdx = 0;
+    const ticker = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, SCENARIO_STEPS.length - 1);
+      setScenarioStep(SCENARIO_STEPS[stepIdx].label);
+      setRunningAgents(new Set([SCENARIO_STEPS[stepIdx].agentId]));
+    }, 35_000);
 
     try {
-      const AGENTS_IN_ORDER = AGENT_DEFS.map(a => a.id);
-      for (const id of AGENTS_IN_ORDER) {
-        setRunningAgents(new Set([id]));
-      }
-      setRunningAgents(new Set(["availability"]));
-      setScenarioStep("Step 1/7 — Availability Agent: checking live inventory…");
-
       const r = await fetch("/api/agents/scenario/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ propertyId, companyId }),
       });
+
+      clearInterval(ticker);
 
       if (r.ok) {
         const data = await r.json();
@@ -6134,6 +6148,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
         fetchDbEntries();
       }
     } catch (e) {
+      clearInterval(ticker);
       setScenarioStep("Scenario failed — check API credentials");
     }
     setRunningAgents(new Set());
