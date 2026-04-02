@@ -5900,94 +5900,302 @@ function FileBadgeChip({ filename }) {
   );
 }
 
-function LiveWitnessStream({ entries }) {
+// ── WitnessLedger ────────────────────────────────────────────────────────────
+function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
   const listRef = useRef(null);
-  useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [entries]);
-
-  if (entries.length === 0) {
-    return (
-      <div style={{ padding: "32px 20px", textAlign: "center", color: T.dim, fontFamily: T.mono, fontSize: 12 }}>
-        Witness Stream is empty — trigger an agent or run the full scenario
-      </div>
-    );
-  }
+  const passCount  = runEntries.filter(e => e.decision === "PASS").length;
+  const failCount  = runEntries.filter(e => e.decision === "FAIL").length;
+  const escalCount = runEntries.filter(e => e.decision === "ESCALATE").length;
+  const pct = runEntries.length ? Math.round((passCount / runEntries.length) * 100) : null;
 
   return (
-    <div ref={listRef} style={{ overflowY: "auto", maxHeight: 340, display: "flex", flexDirection: "column", gap: 6, padding: "12px 16px" }}>
-      {entries.map((e, i) => {
-        const decColor = { PASS: T.green, FAIL: T.red, ESCALATE: T.amber }[e.decision] || T.dim;
-        const filesConsulted = e.filesConsulted ?? [];
-        const crossDomain = e.crossDomainInheritance === true || e.apaleoData?.crossDomainInheritance === true;
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      {runEntries.length > 0 && (
+        <div style={{
+          padding: "7px 14px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
+          background: `${T.green}07`,
+        }}>
+          <span style={{ fontSize: 9, color: T.green, fontFamily: T.mono, fontWeight: 800 }}>{passCount} PASS</span>
+          {failCount > 0 && <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 800 }}>{failCount} FAIL</span>}
+          {escalCount > 0 && <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 800 }}>{escalCount} ESCALATE</span>}
+          {pct !== null && (
+            <span style={{
+              marginLeft: "auto", fontSize: 10, color: T.green, fontFamily: T.mono, fontWeight: 800,
+              background: `${T.green}18`, border: `1px solid ${T.green}40`,
+              borderRadius: 5, padding: "2px 9px",
+            }}>{pct}% compliant</span>
+          )}
+        </div>
+      )}
+
+      <div ref={listRef} style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 6, padding: "10px 12px" }}>
+        {entries.length === 0 && (
+          <div style={{ padding: "28px 12px", textAlign: "center", color: T.dim, fontFamily: T.mono, fontSize: 11, lineHeight: 1.7 }}>
+            No audit entries yet<br />Run the guest journey to begin
+          </div>
+        )}
+        {entries.map((e, i) => {
+          const decColor = { PASS: T.green, FAIL: T.red, ESCALATE: T.amber }[e.decision] || T.dim;
+          const filesConsulted = e.filesConsulted ?? [];
+          const crossDomain = e.crossDomainInheritance === true || e.apaleoData?.crossDomainInheritance === true;
+          const rawId = e.witnessEntryId ?? e.id;
+          const sealId = rawId ? String(rawId).slice(0, 8) : `#${i + 1}`;
+          return (
+            <div key={e.id || i} style={{
+              background: T.surface, border: `1px solid ${T.border}`,
+              borderLeft: `3px solid ${decColor}`,
+              borderRadius: 6, padding: "8px 10px",
+              animation: "slide-up 0.3s ease",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5 }}>
+                <span style={{
+                  fontSize: 7, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.05em",
+                  background: `${decColor}18`, color: decColor, border: `1px solid ${decColor}40`,
+                  borderRadius: 3, padding: "1px 5px", flexShrink: 0,
+                }}>🕵️ #{sealId}</span>
+                <span style={{ fontWeight: 700, fontSize: 11, fontFamily: T.sans, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.agent}</span>
+                <DecisionBadge decision={e.decision} />
+              </div>
+
+              {(filesConsulted.length > 0 || crossDomain) && (
+                <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginBottom: 4 }}>
+                  {filesConsulted.map((f, fi) => <FileBadgeChip key={fi} filename={f} />)}
+                  {crossDomain && (
+                    <span style={{
+                      fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.08em",
+                      background: "#FF4D6A22", color: "#FF4D6A", border: "1px solid #FF4D6A55",
+                      borderRadius: 3, padding: "1px 5px",
+                    }}>Cross-domain ✓</span>
+                  )}
+                </div>
+              )}
+
+              {e.reasoning && (
+                <div style={{ fontSize: 10, color: T.dim, lineHeight: 1.45 }}>
+                  {e.reasoning.slice(0, 110)}{e.reasoning.length > 110 ? "…" : ""}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 5, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+                {e.apaleoData?.usedMcp && (
+                  <span style={{ fontSize: 7, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.1em", background: "#6366f1", color: "#fff", borderRadius: 3, padding: "1px 5px" }}>MCP</span>
+                )}
+                {e.exceptionApplied && (
+                  <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 700 }}>⚡ EXCEPTION</span>
+                )}
+                {e.escalationTarget && (
+                  <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 700 }}>↑ ESCALATE</span>
+                )}
+                <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, marginLeft: "auto" }}>
+                  {e.createdAt ? new Date(e.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : e.timestamp || ""}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ padding: "8px 12px", borderTop: `1px solid ${T.border}` }}>
+        <button onClick={onRefresh} disabled={loading} style={{
+          background: "none", border: `1px solid ${T.border}`,
+          borderRadius: 5, padding: "4px 10px", fontSize: 10, color: T.dim,
+          cursor: "pointer", fontFamily: T.mono, width: "100%",
+        }}>{loading ? "…" : "↺ Refresh from database"}</button>
+      </div>
+    </div>
+  );
+}
+
+// ── JOURNEY_STEPS ─────────────────────────────────────────────────────────────
+const JOURNEY_STEPS = [
+  {
+    step: 1, agentId: "availability", name: "Availability Agent", icon: "🔍",
+    purpose: "Queries live Apaleo inventory for available units and active rate plans for tonight's stay.",
+    insight: "No hardcoded availability thresholds — the policy file is the sole arbiter of what 'available' means.",
+  },
+  {
+    step: 2, agentId: "rate", name: "Rate Agent", icon: "💰",
+    purpose: "Evaluates a 10% discount request (BAR €180 → €162) against revenue policy thresholds.",
+    insight: "Rate override authority is bounded by SKILL.md — not hardcoded. Change the file, change the behaviour.",
+  },
+  {
+    step: 3, agentId: "reservation", name: "Reservation Bot", icon: "📋",
+    purpose: "Creates a booking in Apaleo after policy validation — no PMS write without a PASS decision.",
+    insight: "The reservation bot cannot act alone. Every write is policy-gated before Apaleo is touched.",
+  },
+  {
+    step: 4, agentId: "checkin", name: "Check-In Agent", icon: "✅",
+    purpose: "Validates 5 mandatory gates (ID, folio, payment, status, arrival) before executing check-in.",
+    insight: "One failed gate blocks the entire check-in — preventing costly downstream data errors at source.",
+  },
+  {
+    step: 5, agentId: "folio-charge", name: "Folio Charge Agent", icon: "💳",
+    purpose: "Posts a room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.",
+    insight: "Shared policy files prevent finance rules being re-invented per property — one source of truth.",
+  },
+  {
+    step: 6, agentId: "checkout", name: "Checkout Agent", icon: "🚪",
+    purpose: "Processes departure with Gold loyalty exception evaluation and folio settlement verification.",
+    insight: "Exceptions are auditable, bounded, and immutable files — no hardcoded loyalty logic in code.",
+  },
+  {
+    step: 7, agentId: "revenue", name: "Revenue Reconciliation", icon: "📊",
+    purpose: "Reconciles revenue data and seals the Witness Agent audit trail for the complete guest journey.",
+    insight: "Every decision, every governance file, every outcome — one click away from SOC 2 evidence.",
+  },
+];
+
+// ── JourneyTimeline ───────────────────────────────────────────────────────────
+function JourneyTimeline({ journeySteps, completedSteps, activeStepIdx, hasRun }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {journeySteps.map((step, idx) => {
+        const isActive   = idx === activeStepIdx;
+        const stepData   = completedSteps[step.step];
+        const isComplete = !!stepData;
+        const isUpcoming = !isComplete && !isActive;
+        const decColor   = isComplete
+          ? ({ PASS: T.green, FAIL: T.red, ESCALATE: T.amber }[stepData.decision] || T.dim)
+          : T.dim;
+        const filesConsulted = stepData?.filesConsulted ?? [];
+        const crossDomain    = stepData?.crossDomainInheritance === true;
+
         return (
-          <div key={e.id || i} style={{
-            background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${decColor}`,
-            borderRadius: 6, padding: "10px 12px", animation: "slide-up 0.3s ease",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <DecisionBadge decision={e.decision} />
-              <span style={{ fontWeight: 700, fontSize: 12, fontFamily: T.sans }}>{e.agent}</span>
-              <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginLeft: "auto" }}>
-                {e.createdAt ? new Date(e.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : e.timestamp || ""}
-              </span>
+          <div key={step.step} style={{ display: "flex", gap: 0 }}>
+            {/* Connector column */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginRight: 13, flexShrink: 0, width: 28 }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                border: `2px solid ${isComplete ? decColor : isActive ? T.orange : T.border}`,
+                background: isComplete ? `${decColor}18` : isActive ? `${T.orange}12` : T.surface,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 13,
+                animation: isActive ? "pulse-ring 1.5s ease infinite" : "none",
+                transition: "all 0.4s",
+                boxShadow: isActive ? `0 0 0 4px ${T.orange}15` : "none",
+              }}>
+                {isComplete
+                  ? <span>{step.icon}</span>
+                  : isActive
+                    ? <span style={{ fontSize: 14, animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>
+                    : <span style={{ opacity: 0.35 }}>{step.icon}</span>
+                }
+              </div>
+              {idx < journeySteps.length - 1 && (
+                <div style={{
+                  width: 2, flex: 1, minHeight: 12,
+                  background: isComplete ? `${decColor}45` : T.border,
+                  transition: "background 0.5s",
+                  margin: "3px 0",
+                }} />
+              )}
             </div>
 
-            {filesConsulted.length > 0 && (
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 5 }}>
-                {filesConsulted.map((f, fi) => <FileBadgeChip key={fi} filename={f} />)}
-                {crossDomain && (
+            {/* Step content */}
+            <div style={{
+              flex: 1,
+              paddingBottom: idx < journeySteps.length - 1 ? 18 : 0,
+              opacity: isUpcoming && hasRun ? 0.42 : isUpcoming ? 0.65 : 1,
+              transition: "opacity 0.4s",
+            }}>
+              {/* Name row */}
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, marginBottom: 5 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, fontFamily: T.sans, color: isComplete ? T.text : isActive ? T.orange : T.dim }}>
+                  {step.name}
+                </span>
+                <span style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, opacity: 0.5 }}>Step {step.step}/7</span>
+                {isActive && (
                   <span style={{
-                    fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.08em",
-                    background: "#FF4D6A22", color: "#FF4D6A", border: "1px solid #FF4D6A55",
-                    borderRadius: 3, padding: "1px 5px",
-                  }}>Cross-domain ✓</span>
+                    fontSize: 9, fontFamily: T.mono, fontWeight: 800, color: T.orange,
+                    letterSpacing: "0.1em", textTransform: "uppercase",
+                    animation: "glow-pulse 1.5s ease infinite",
+                  }}>· Running</span>
+                )}
+                {isComplete && (
+                  <div style={{ marginLeft: "auto" }}>
+                    <DecisionBadge decision={stepData.decision} />
+                  </div>
                 )}
               </div>
-            )}
-            {filesConsulted.length === 0 && crossDomain && (
-              <div style={{ marginBottom: 5 }}>
-                <span style={{
-                  fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.08em",
-                  background: "#FF4D6A22", color: "#FF4D6A", border: "1px solid #FF4D6A55",
-                  borderRadius: 3, padding: "1px 5px",
-                }}>Cross-domain ✓</span>
-              </div>
-            )}
 
-            {e.fileReferenced && (
-              <div style={{ fontSize: 10, color: decColor, fontFamily: T.mono, marginBottom: 4, opacity: 0.85 }}>
-                {e.fileReferenced}
+              {/* Purpose */}
+              <div style={{ fontSize: 11, color: isActive ? T.muted : T.dim, lineHeight: 1.55, marginBottom: isComplete ? 10 : 0 }}>
+                {step.purpose}
               </div>
-            )}
 
-            {e.clauseApplied && (
-              <pre style={{
-                fontSize: 10, fontFamily: T.mono, color: decColor,
-                background: decColor + "12", border: `1px solid ${decColor}33`,
-                borderRadius: 4, padding: "5px 8px", margin: "0 0 5px 0",
-                whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5,
-              }}>{e.clauseApplied}</pre>
-            )}
+              {/* Completed detail */}
+              {isComplete && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {/* Governance files */}
+                  {filesConsulted.length > 0 && (
+                    <div>
+                      <div style={{
+                        fontSize: 9, color: T.dim, fontFamily: T.mono,
+                        letterSpacing: "0.07em", textTransform: "uppercase",
+                        marginBottom: 5, opacity: 0.7,
+                      }}>
+                        Governance context loaded:
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {filesConsulted.map((f, fi) => <FileBadgeChip key={fi} filename={f} />)}
+                        {crossDomain && (
+                          <span style={{
+                            fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.08em",
+                            background: "#FF4D6A22", color: "#FF4D6A", border: "1px solid #FF4D6A55",
+                            borderRadius: 3, padding: "1px 5px",
+                          }}>Cross-domain ✓</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-            {e.apaleoData?.usedMcp && (
-              <div style={{ fontSize: 10, color: "#6366f1", fontFamily: T.mono, marginBottom: 3 }}>
-                via Apaleo MCP{typeof e.apaleoData.toolCallsMade === "number" ? ` · ${e.apaleoData.toolCallsMade} tool call${e.apaleoData.toolCallsMade !== 1 ? "s" : ""}` : ""}
-              </div>
-            )}
-            <div style={{ fontSize: 11, color: T.dim }}>{e.reasoning?.slice(0, 140)}{e.reasoning?.length > 140 ? "…" : ""}</div>
-            <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-              {e.apaleoData?.usedMcp && (
-                <span style={{
-                  fontSize: 8, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.1em",
-                  background: "#6366f1", color: "#fff", borderRadius: 3, padding: "1px 5px",
-                }}>MCP</span>
-              )}
-              {e.exceptionApplied && (
-                <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 700 }}>⚡ EXCEPTION APPLIED</span>
-              )}
-              {e.escalationTarget && (
-                <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 700 }}>↑ ESCALATE → {e.escalationTarget}</span>
+                  {/* Clause applied */}
+                  {stepData.clauseApplied && (
+                    <div style={{
+                      fontSize: 10, fontFamily: T.mono, color: decColor,
+                      background: `${decColor}0d`, border: `1px solid ${decColor}28`,
+                      borderRadius: 4, padding: "5px 9px", lineHeight: 1.5,
+                    }}>
+                      {stepData.clauseApplied.slice(0, 130)}{stepData.clauseApplied.length > 130 ? "…" : ""}
+                    </div>
+                  )}
+
+                  {/* Action taken */}
+                  {stepData.actionProposed && (
+                    <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>
+                      <span style={{ color: T.dim, fontFamily: T.mono, fontSize: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Action taken: </span>
+                      {stepData.actionProposed.slice(0, 150)}{stepData.actionProposed.length > 150 ? "…" : ""}
+                    </div>
+                  )}
+
+                  {/* Witness seal + extras */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                    {stepData.witnessEntryId && (
+                      <span style={{
+                        fontSize: 9, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.04em",
+                        background: `${decColor}10`, color: decColor, border: `1px solid ${decColor}32`,
+                        borderRadius: 4, padding: "2px 9px",
+                      }}>
+                        🕵️ Witness #{String(stepData.witnessEntryId).slice(0, 8)} sealed
+                      </span>
+                    )}
+                    {stepData.exceptionApplied && (
+                      <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 700 }}>⚡ EXCEPTION APPLIED</span>
+                    )}
+                    {stepData.escalationTarget && (
+                      <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 700 }}>↑ ESCALATE → {stepData.escalationTarget}</span>
+                    )}
+                  </div>
+
+                  {/* Insight line */}
+                  <div style={{
+                    fontSize: 10, color: T.orange, fontFamily: T.mono, lineHeight: 1.6,
+                    borderLeft: `2px solid ${T.orange}35`, paddingLeft: 9,
+                  }}>
+                    {step.insight}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -5998,39 +6206,38 @@ function LiveWitnessStream({ entries }) {
 }
 
 function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry }) {
-  const [agentStatuses, setAgentStatuses] = useState({});
-  const [agentLastEntries, setAgentLastEntries] = useState({});
-  const [runningAgents, setRunningAgents] = useState(new Set());
-  const [streamEntries, setStreamEntries] = useState([]);
-  const [scenarioRunning, setScenarioRunning] = useState(false);
-  const [scenarioStep, setScenarioStep] = useState(null);
-  const [scenarioComplete, setScenarioComplete] = useState(false);
-  const [dbEntries, setDbEntries] = useState([]);
-  const [loadingDbEntries, setLoadingDbEntries] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState(null);
+  const [agentLastEntries, setAgentLastEntries]   = useState({});
+  const [runningAgents,    setRunningAgents]       = useState(new Set());
+  const [streamEntries,    setStreamEntries]       = useState([]);
+  const [scenarioRunning,  setScenarioRunning]     = useState(false);
+  const [scenarioComplete, setScenarioComplete]    = useState(false);
+  const [dbEntries,        setDbEntries]           = useState([]);
+  const [loadingDbEntries, setLoadingDbEntries]    = useState(false);
+  const [selectedAgent,    setSelectedAgent]       = useState(null);
+  const [completedSteps,   setCompletedSteps]      = useState({});  // { [stepNum]: stepData }
+  const [activeStepIdx,    setActiveStepIdx]       = useState(-1);  // -1 = none active
+  const [showAdvanced,     setShowAdvanced]        = useState(false);
   const [agentParams, setAgentParams] = useState({
-    availability:  { arrival: new Date().toISOString().split("T")[0], departure: new Date(Date.now() + 86400000).toISOString().split("T")[0], adults: "2" },
-    rate:          { requestedRate: "162", barRate: "180" },
-    reservation:   { action: "retrieve", guestName: "Demo Guest" },
-    checkin:       { guestName: "Demo Guest" },
+    availability:   { arrival: new Date().toISOString().split("T")[0], departure: new Date(Date.now() + 86400000).toISOString().split("T")[0], adults: "2" },
+    rate:           { requestedRate: "162", barRate: "180" },
+    reservation:    { action: "retrieve", guestName: "Demo Guest" },
+    checkin:        { guestName: "Demo Guest" },
     "folio-charge": { chargeAmount: 240, serviceType: "RoomRevenue", chargeName: "Demo Room Charge" },
-    folio:         {},
-    checkout:      { guestName: "Demo Guest", loyaltyTier: "Gold", lateCheckout: "13:00" },
-    revenue:       { date: new Date().toISOString().split("T")[0] },
+    folio:          {},
+    checkout:       { guestName: "Demo Guest", loyaltyTier: "Gold", lateCheckout: "13:00" },
+    revenue:        { date: new Date().toISOString().split("T")[0] },
   });
 
   const hasCredentials = !!propertyId;
-  const hasCompany = !!companyId;
+  const hasCompany     = !!companyId;
+  const hasRun         = scenarioRunning || scenarioComplete || streamEntries.length > 0;
 
   const fetchDbEntries = useCallback(async () => {
     if (!companyId) return;
     setLoadingDbEntries(true);
     try {
       const r = await fetch(`/api/agents/witness?companyId=${companyId}&limit=50`);
-      if (r.ok) {
-        const data = await r.json();
-        setDbEntries(data);
-      }
+      if (r.ok) setDbEntries(await r.json());
     } catch (e) { /* ignore */ }
     setLoadingDbEntries(false);
   }, [companyId]);
@@ -6040,20 +6247,15 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
   const addStreamEntry = useCallback((entry) => {
     setStreamEntries(prev => [entry, ...prev].slice(0, 100));
     const agentDef = AGENT_DEFS.find(a => a.name === entry.agent);
-    if (agentDef) {
-      setAgentLastEntries(prev => ({ ...prev, [agentDef.id]: entry }));
-    }
+    if (agentDef) setAgentLastEntries(prev => ({ ...prev, [agentDef.id]: entry }));
     if (onLogEntry) {
       onLogEntry({
         id: Date.now(),
         timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-        agent: entry.agent,
-        decision: entry.decision,
+        agent: entry.agent, decision: entry.decision,
         fileReferenced: entry.fileReferenced || "",
-        clauseApplied: entry.clauseApplied || "",
-        actionProposed: entry.actionProposed || "",
-        exceptionApplied: entry.exceptionApplied || false,
-        escalationTarget: entry.escalationTarget || null,
+        clauseApplied: entry.clauseApplied || "", actionProposed: entry.actionProposed || "",
+        exceptionApplied: entry.exceptionApplied || false, escalationTarget: entry.escalationTarget || null,
         reasoning: entry.reasoning || "",
       });
     }
@@ -6065,12 +6267,9 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
     if (!agent) return;
     setRunningAgents(prev => new Set([...prev, agentId]));
     try {
-      const params = agentParams[agentId] || {};
-      const body = { propertyId, companyId, ...params };
       const r = await fetch(agent.endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ propertyId, companyId, ...(agentParams[agentId] || {}) }),
       });
       if (r.ok) {
         const data = await r.json();
@@ -6081,52 +6280,39 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
     setRunningAgents(prev => { const n = new Set(prev); n.delete(agentId); return n; });
   }, [hasCredentials, hasCompany, propertyId, companyId, agentParams, addStreamEntry, fetchDbEntries]);
 
-  const SCENARIO_STEPS = [
-    { agentId: "availability",  label: "Step 1/7 — Availability Agent: checking live inventory…" },
-    { agentId: "rate",          label: "Step 2/7 — Rate Agent: evaluating rate request…" },
-    { agentId: "reservation",   label: "Step 3/7 — Reservation Bot: creating guest reservation…" },
-    { agentId: "checkin",       label: "Step 4/7 — Check-In Agent: verifying arrival…" },
-    { agentId: "folio-charge",  label: "Step 5/7 — Folio Charge Agent: posting charges…" },
-    { agentId: "checkout",      label: "Step 6/7 — Checkout Agent: processing departure…" },
-    { agentId: "revenue",       label: "Step 7/7 — Revenue Agent: reconciling revenue…" },
-  ];
-
   const runFullScenario = useCallback(async () => {
     if (!hasCredentials || !hasCompany || scenarioRunning) return;
     setScenarioRunning(true);
     setScenarioComplete(false);
-    setScenarioStep(SCENARIO_STEPS[0].label);
     setStreamEntries([]);
     setAgentLastEntries({});
-    setRunningAgents(new Set([SCENARIO_STEPS[0].agentId]));
+    setCompletedSteps({});
+    setActiveStepIdx(0);
+    setRunningAgents(new Set([JOURNEY_STEPS[0].agentId]));
 
-    // Live step ticker — advances every ~35s while the backend runs all agents
     let stepIdx = 0;
     const ticker = setInterval(() => {
-      stepIdx = Math.min(stepIdx + 1, SCENARIO_STEPS.length - 1);
-      setScenarioStep(SCENARIO_STEPS[stepIdx].label);
-      setRunningAgents(new Set([SCENARIO_STEPS[stepIdx].agentId]));
+      stepIdx = Math.min(stepIdx + 1, JOURNEY_STEPS.length - 1);
+      setActiveStepIdx(stepIdx);
+      setRunningAgents(new Set([JOURNEY_STEPS[stepIdx].agentId]));
     }, 35_000);
 
     try {
       const r = await fetch("/api/agents/scenario/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ propertyId, companyId }),
       });
-
       clearInterval(ticker);
 
       if (r.ok) {
         const data = await r.json();
         setRunningAgents(new Set());
+        setActiveStepIdx(-1);
+        const newCompleted = {};
         for (const step of (data.steps || [])) {
+          newCompleted[step.step] = step;
           const agentDef = AGENT_DEFS.find(a => a.name === step.agent);
-          const entry = {
-            ...step,
-            fileReferenced: agentDef?.policy || "",
-            createdAt: new Date().toISOString(),
-          };
+          const entry = { ...step, fileReferenced: agentDef?.policy || "", createdAt: new Date().toISOString() };
           setStreamEntries(prev => [...prev, entry]);
           if (agentDef) setAgentLastEntries(prev => ({ ...prev, [agentDef.id]: entry }));
           if (onLogEntry) {
@@ -6135,23 +6321,21 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
               timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
               agent: step.agent, decision: step.decision,
               fileReferenced: agentDef?.policy || "",
-              clauseApplied: step.clauseApplied || "",
-              actionProposed: step.actionProposed || "",
-              exceptionApplied: step.exceptionApplied || false,
-              escalationTarget: step.escalationTarget || null,
+              clauseApplied: step.clauseApplied || "", actionProposed: step.actionProposed || "",
+              exceptionApplied: step.exceptionApplied || false, escalationTarget: step.escalationTarget || null,
               reasoning: step.reasoning || "",
             });
           }
         }
-        setScenarioStep(`Scenario complete — ${data.steps?.length || 0} agent decisions logged`);
+        setCompletedSteps(newCompleted);
         setScenarioComplete(true);
         fetchDbEntries();
       }
     } catch (e) {
       clearInterval(ticker);
-      setScenarioStep("Scenario failed — check API credentials");
+      setActiveStepIdx(-1);
+      setRunningAgents(new Set());
     }
-    setRunningAgents(new Set());
     setScenarioRunning(false);
   }, [hasCredentials, hasCompany, propertyId, companyId, scenarioRunning, onLogEntry, fetchDbEntries]);
 
@@ -6161,36 +6345,38 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
     return tb - ta;
   });
 
+  const completedCount = Object.keys(completedSteps).length;
+
   return (
-    <div style={{ padding: "28px 28px 40px", display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* Header */}
+    <div style={{ padding: "24px 28px 48px", display: "flex", flexDirection: "column", gap: 22 }}>
+
+      {/* ── Header ────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
         <div>
           <div style={{ fontWeight: 900, fontSize: 22, letterSpacing: "-0.04em", marginBottom: 6 }}>
-            Live Apaleo Agent Suite
+            VDA-MD Guest Journey · Live
           </div>
-          <div style={{ fontSize: 13, color: T.dim }}>
-            8 AI agents running against live Apaleo sandbox data · policy evaluated before every write · every decision logged to the Witness Stream
+          <div style={{ fontSize: 12, color: T.dim, maxWidth: 520, lineHeight: 1.6 }}>
+            7 AI agents govern a complete hotel stay — each reads its markdown policy before acting, every decision sealed in an immutable Witness Ledger
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
-          {propertyId && (
+          {propertyId ? (
             <div style={{ background: `${T.green}15`, border: `1px solid ${T.green}40`, borderRadius: 8, padding: "6px 14px", fontSize: 11, color: T.green, fontFamily: T.mono }}>
               🏨 {propertyId} · Live
             </div>
-          )}
-          {!propertyId && (
+          ) : (
             <div style={{ background: `${T.amber}15`, border: `1px solid ${T.amber}40`, borderRadius: 8, padding: "6px 14px", fontSize: 11, color: T.amber, fontFamily: T.mono }}>
-              ⚠ No property ID — configure in setup
+              ⚠ No property ID — configure in Setup
             </div>
           )}
           <button
             onClick={runFullScenario}
             disabled={!hasCredentials || !hasCompany || scenarioRunning}
             style={{
-              background: scenarioRunning ? `${T.orange}20` : hasCredentials && hasCompany ? T.orange : T.border,
+              background: scenarioRunning ? `${T.orange}18` : hasCredentials && hasCompany ? T.orange : T.border,
               border: `1px solid ${scenarioRunning ? T.orange : hasCredentials && hasCompany ? T.orange : T.border}`,
-              borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 900,
+              borderRadius: 8, padding: "10px 22px", fontSize: 13, fontWeight: 900,
               color: scenarioRunning ? T.orange : "#fff",
               fontFamily: T.sans, cursor: hasCredentials && hasCompany && !scenarioRunning ? "pointer" : "default",
               display: "flex", alignItems: "center", gap: 8,
@@ -6198,169 +6384,213 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
               transition: "all 0.2s",
             }}
           >
-            {scenarioRunning ? (
-              <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Running…</>
-            ) : (
-              <><span>▶</span> Run Full Scenario</>
-            )}
+            {scenarioRunning
+              ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Running…</>
+              : scenarioComplete
+                ? <><span>↺</span> Run Again</>
+                : <><span>▶</span> Run Full Guest Journey</>
+            }
           </button>
         </div>
       </div>
 
-      {/* Scenario Progress */}
-      {(scenarioRunning || scenarioComplete) && (
+      {/* ── Completion banner ─────────────────────────────────────────── */}
+      {scenarioComplete && (
         <div style={{
-          background: scenarioComplete ? `${T.green}10` : `${T.orange}10`,
-          border: `1px solid ${scenarioComplete ? T.green + "40" : T.orange + "40"}`,
-          borderRadius: 8, padding: "12px 16px",
+          background: `${T.green}10`, border: `1px solid ${T.green}35`,
+          borderRadius: 8, padding: "10px 16px",
           display: "flex", alignItems: "center", gap: 10,
         }}>
-          <span style={{ fontSize: 16 }}>{scenarioComplete ? "✅" : "⟳"}</span>
-          <span style={{ fontSize: 13, color: scenarioComplete ? T.green : T.orange, fontFamily: T.mono }}>
-            {scenarioStep}
+          <span style={{ fontSize: 15 }}>✅</span>
+          <span style={{ fontSize: 12, color: T.green, fontFamily: T.mono, fontWeight: 700 }}>
+            Guest journey complete · {completedCount} agent decisions · all sealed in the Witness Ledger
           </span>
-          {scenarioComplete && (
-            <button onClick={() => { setScenarioComplete(false); setScenarioStep(null); }} style={{
+          <button
+            onClick={() => { setScenarioComplete(false); setCompletedSteps({}); setStreamEntries([]); setActiveStepIdx(-1); }}
+            style={{
               marginLeft: "auto", background: "none", border: `1px solid ${T.border}`,
-              borderRadius: 6, padding: "4px 10px", fontSize: 11, color: T.dim, cursor: "pointer", fontFamily: T.mono,
-            }}>dismiss</button>
-          )}
+              borderRadius: 6, padding: "3px 10px", fontSize: 10, color: T.dim, cursor: "pointer", fontFamily: T.mono,
+            }}
+          >dismiss</button>
         </div>
       )}
 
-      {/* Agent Grid */}
-      <div>
-        <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
-          Agent Status · {AGENT_DEFS.length} agents
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-          {AGENT_DEFS.map(agent => (
-            <div key={agent.id} style={{ cursor: "pointer" }} onClick={() => setSelectedAgent(selectedAgent === agent.id ? null : agent.id)}>
-              <AgentStatusCard
-                agent={agent}
-                status={agentStatuses[agent.id] || "idle"}
-                lastEntry={agentLastEntries[agent.id]}
-                running={runningAgents.has(agent.id)}
-              />
-              {selectedAgent === agent.id && (
-                <div style={{
-                  background: T.surface, border: `1px solid ${T.border}`, borderRadius: "0 0 10px 10px",
-                  padding: "12px 16px", marginTop: -1,
-                }} onClick={e => e.stopPropagation()}>
-                  <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 10 }}>Run {agent.name} against live Apaleo data:</div>
-                  {agent.id === "availability" && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <input value={agentParams.availability.arrival} onChange={e => setAgentParams(p => ({ ...p, availability: { ...p.availability, arrival: e.target.value } }))}
-                        placeholder="Arrival (YYYY-MM-DD)" style={{ flex: 1, minWidth: 130, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
-                      <input value={agentParams.availability.departure} onChange={e => setAgentParams(p => ({ ...p, availability: { ...p.availability, departure: e.target.value } }))}
-                        placeholder="Departure (YYYY-MM-DD)" style={{ flex: 1, minWidth: 130, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
-                    </div>
-                  )}
-                  {agent.id === "rate" && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <input value={agentParams.rate.barRate} onChange={e => setAgentParams(p => ({ ...p, rate: { ...p.rate, barRate: e.target.value } }))}
-                        placeholder="BAR (€)" style={{ flex: 1, minWidth: 100, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
-                      <input value={agentParams.rate.requestedRate} onChange={e => setAgentParams(p => ({ ...p, rate: { ...p.rate, requestedRate: e.target.value } }))}
-                        placeholder="Requested rate (€)" style={{ flex: 1, minWidth: 100, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
-                    </div>
-                  )}
-                  {agent.id === "reservation" && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <select value={agentParams.reservation.action || "retrieve"} onChange={e => setAgentParams(p => ({ ...p, reservation: { ...p.reservation, action: e.target.value } }))}
-                        style={{ flex: 1, minWidth: 120, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
-                        <option value="retrieve">retrieve</option>
-                        <option value="create">create</option>
-                        <option value="modify">modify</option>
-                      </select>
-                      <input value={agentParams.reservation.reservationId || ""} onChange={e => setAgentParams(p => ({ ...p, reservation: { ...p.reservation, reservationId: e.target.value } }))}
-                        placeholder="Reservation ID (optional)" style={{ flex: 2, minWidth: 160, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
-                    </div>
-                  )}
-                  {agent.id === "folio-charge" && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <input type="number" value={agentParams["folio-charge"]?.chargeAmount || 240} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], chargeAmount: Number(e.target.value) } }))}
-                        placeholder="Amount (€)" style={{ flex: 1, minWidth: 100, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
-                      <select value={agentParams["folio-charge"]?.serviceType || "RoomRevenue"} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], serviceType: e.target.value } }))}
-                        style={{ flex: 1, minWidth: 130, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
-                        <option value="RoomRevenue">RoomRevenue</option>
-                        <option value="FoodAndBeverage">FoodAndBeverage</option>
-                        <option value="Spa">Spa</option>
-                        <option value="Parking">Parking</option>
-                        <option value="Other">Other</option>
-                      </select>
-                      <input value={agentParams["folio-charge"]?.chargeName || "Demo Room Charge"} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], chargeName: e.target.value } }))}
-                        placeholder="Charge name" style={{ flex: 2, minWidth: 160, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
-                    </div>
-                  )}
-                  {agent.id === "checkout" && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <select value={agentParams.checkout.loyaltyTier || "Gold"} onChange={e => setAgentParams(p => ({ ...p, checkout: { ...p.checkout, loyaltyTier: e.target.value } }))}
-                        style={{ flex: 1, minWidth: 120, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
-                        <option value="Standard">Standard</option>
-                        <option value="Silver">Silver</option>
-                        <option value="Gold">Gold</option>
-                        <option value="Platinum">Platinum</option>
-                      </select>
-                      <input value={agentParams.checkout.lateCheckout || ""} onChange={e => setAgentParams(p => ({ ...p, checkout: { ...p.checkout, lateCheckout: e.target.value } }))}
-                        placeholder="Late checkout time (e.g. 13:00)" style={{ flex: 2, minWidth: 140, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
-                    </div>
-                  )}
-                  <button
-                    onClick={() => runSingleAgent(agent.id)}
-                    disabled={!hasCredentials || !hasCompany || runningAgents.has(agent.id)}
-                    style={{
-                      background: T.orange, border: "none", borderRadius: 6, padding: "7px 16px",
-                      fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: T.sans,
-                      cursor: hasCredentials && hasCompany ? "pointer" : "default", opacity: hasCredentials && hasCompany ? 1 : 0.5,
-                    }}
-                  >
-                    {runningAgents.has(agent.id) ? "Running…" : `▶ Run ${agent.name}`}
-                  </button>
-                </div>
-              )}
+      {/* ── Two-panel: Journey Timeline + Witness Ledger ──────────────── */}
+      <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
+
+        {/* Left: Journey Timeline (58%) */}
+        <div style={{ flex: "0 0 58%", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "13px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 15 }}>🗺</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Guest Journey · 7 Steps</span>
+            {scenarioRunning && activeStepIdx >= 0 && (
+              <span style={{ fontSize: 10, color: T.orange, fontFamily: T.mono, marginLeft: 4 }}>
+                Step {activeStepIdx + 1}/7 running…
+              </span>
+            )}
+            {scenarioComplete && (
+              <span style={{ fontSize: 10, color: T.green, fontFamily: T.mono, marginLeft: 4 }}>Complete</span>
+            )}
+          </div>
+
+          {!hasRun && (
+            <div style={{ padding: "20px 20px 4px", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.65, maxWidth: 400, margin: "0 auto" }}>
+                See how 7 AI agents governed by markdown policy files handle a complete hotel guest stay — from availability check to revenue reconciliation
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
+          )}
 
-      {/* Witness Stream */}
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
-        <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 15 }}>🕵️</span>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>Live Witness Stream</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: allEntries.length > 0 ? T.green : T.dim, display: "inline-block", animation: allEntries.length > 0 ? "pulse-ring 2s ease infinite" : "none" }} />
-            <span style={{ fontSize: 11, color: allEntries.length > 0 ? T.green : T.dim, fontFamily: T.mono }}>{allEntries.length} decisions</span>
+          <div style={{ padding: "16px 18px" }}>
+            <JourneyTimeline
+              journeySteps={JOURNEY_STEPS}
+              completedSteps={completedSteps}
+              activeStepIdx={activeStepIdx}
+              hasRun={hasRun}
+            />
           </div>
-          <button onClick={fetchDbEntries} disabled={loadingDbEntries} style={{
-            marginLeft: "auto", background: "none", border: `1px solid ${T.border}`,
-            borderRadius: 6, padding: "4px 10px", fontSize: 11, color: T.dim, cursor: "pointer", fontFamily: T.mono,
-          }}>
-            {loadingDbEntries ? "…" : "↺ Refresh"}
-          </button>
         </div>
-        <LiveWitnessStream entries={allEntries} />
+
+        {/* Right: Witness Ledger (42%) */}
+        <div style={{ flex: "0 0 calc(42% - 18px)", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "13px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 9 }}>
+            <span style={{ fontSize: 15 }}>🕵️</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Witness Agent</div>
+              <div style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, marginTop: 1 }}>Immutable audit ledger · every decision sealed</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginLeft: "auto" }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: "50%", display: "inline-block",
+                background: allEntries.length > 0 ? T.green : T.dim,
+                animation: scenarioRunning ? "pulse-ring 1s ease infinite" : allEntries.length > 0 ? "pulse-ring 2s ease infinite" : "none",
+              }} />
+              <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{allEntries.length} entries</span>
+            </div>
+          </div>
+          <div style={{ maxHeight: 620, overflow: "hidden", display: "flex", flexDirection: "column", flex: 1 }}>
+            <WitnessLedger
+              entries={allEntries}
+              runEntries={streamEntries}
+              onRefresh={fetchDbEntries}
+              loading={loadingDbEntries}
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Scenario Steps Legend */}
-      {streamEntries.length > 0 && (
-        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 18px" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>Scenario Steps Completed</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {streamEntries.map((e, i) => {
-              const dc = { PASS: T.green, FAIL: T.red, ESCALATE: T.amber }[e.decision] || T.dim;
-              return (
-                <div key={i} style={{
-                  background: `${dc}15`, border: `1px solid ${dc}40`, borderRadius: 6,
-                  padding: "5px 12px", fontSize: 11, color: dc, fontFamily: T.mono, fontWeight: 700,
-                }}>
-                  {i + 1}. {e.agent} → {e.decision}
+      {/* ── Advanced: Individual Agents ───────────────────────────────── */}
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+        <button
+          onClick={() => setShowAdvanced(v => !v)}
+          style={{
+            width: "100%", background: "none", border: "none", cursor: "pointer",
+            padding: "13px 18px", display: "flex", alignItems: "center", gap: 10,
+            fontFamily: T.sans, color: T.text, textAlign: "left",
+          }}
+        >
+          <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", letterSpacing: "0.1em" }}>Advanced</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Run individual agents</span>
+          <span style={{ marginLeft: "auto", fontSize: 12, color: T.dim }}>{showAdvanced ? "▲" : "▼"}</span>
+        </button>
+
+        {showAdvanced && (
+          <div style={{ borderTop: `1px solid ${T.border}`, padding: "16px 18px" }}>
+            <div style={{ fontSize: 11, color: T.dim, marginBottom: 14, lineHeight: 1.5 }}>
+              Trigger any agent independently — decisions are added to the Witness Ledger above
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+              {AGENT_DEFS.map(agent => (
+                <div key={agent.id} style={{ cursor: "pointer" }} onClick={() => setSelectedAgent(selectedAgent === agent.id ? null : agent.id)}>
+                  <AgentStatusCard
+                    agent={agent}
+                    status="idle"
+                    lastEntry={agentLastEntries[agent.id]}
+                    running={runningAgents.has(agent.id)}
+                  />
+                  {selectedAgent === agent.id && (
+                    <div style={{
+                      background: T.card, border: `1px solid ${T.border}`, borderRadius: "0 0 10px 10px",
+                      padding: "12px 16px", marginTop: -1,
+                    }} onClick={e => e.stopPropagation()}>
+                      <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 10 }}>Run {agent.name} against live Apaleo data:</div>
+                      {agent.id === "availability" && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                          <input value={agentParams.availability.arrival} onChange={e => setAgentParams(p => ({ ...p, availability: { ...p.availability, arrival: e.target.value } }))}
+                            placeholder="Arrival (YYYY-MM-DD)" style={{ flex: 1, minWidth: 130, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                          <input value={agentParams.availability.departure} onChange={e => setAgentParams(p => ({ ...p, availability: { ...p.availability, departure: e.target.value } }))}
+                            placeholder="Departure (YYYY-MM-DD)" style={{ flex: 1, minWidth: 130, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                        </div>
+                      )}
+                      {agent.id === "rate" && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                          <input value={agentParams.rate.barRate} onChange={e => setAgentParams(p => ({ ...p, rate: { ...p.rate, barRate: e.target.value } }))}
+                            placeholder="BAR (€)" style={{ flex: 1, minWidth: 100, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                          <input value={agentParams.rate.requestedRate} onChange={e => setAgentParams(p => ({ ...p, rate: { ...p.rate, requestedRate: e.target.value } }))}
+                            placeholder="Requested rate (€)" style={{ flex: 1, minWidth: 100, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                        </div>
+                      )}
+                      {agent.id === "reservation" && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                          <select value={agentParams.reservation.action || "retrieve"} onChange={e => setAgentParams(p => ({ ...p, reservation: { ...p.reservation, action: e.target.value } }))}
+                            style={{ flex: 1, minWidth: 120, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
+                            <option value="retrieve">retrieve</option>
+                            <option value="create">create</option>
+                            <option value="modify">modify</option>
+                          </select>
+                          <input value={agentParams.reservation.reservationId || ""} onChange={e => setAgentParams(p => ({ ...p, reservation: { ...p.reservation, reservationId: e.target.value } }))}
+                            placeholder="Reservation ID (optional)" style={{ flex: 2, minWidth: 160, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                        </div>
+                      )}
+                      {agent.id === "folio-charge" && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                          <input type="number" value={agentParams["folio-charge"]?.chargeAmount || 240} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], chargeAmount: Number(e.target.value) } }))}
+                            placeholder="Amount (€)" style={{ flex: 1, minWidth: 100, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                          <select value={agentParams["folio-charge"]?.serviceType || "RoomRevenue"} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], serviceType: e.target.value } }))}
+                            style={{ flex: 1, minWidth: 130, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
+                            <option value="RoomRevenue">RoomRevenue</option>
+                            <option value="FoodAndBeverage">FoodAndBeverage</option>
+                            <option value="Spa">Spa</option>
+                            <option value="Parking">Parking</option>
+                            <option value="Other">Other</option>
+                          </select>
+                          <input value={agentParams["folio-charge"]?.chargeName || "Demo Room Charge"} onChange={e => setAgentParams(p => ({ ...p, "folio-charge": { ...p["folio-charge"], chargeName: e.target.value } }))}
+                            placeholder="Charge name" style={{ flex: 2, minWidth: 160, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                        </div>
+                      )}
+                      {agent.id === "checkout" && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                          <select value={agentParams.checkout.loyaltyTier || "Gold"} onChange={e => setAgentParams(p => ({ ...p, checkout: { ...p.checkout, loyaltyTier: e.target.value } }))}
+                            style={{ flex: 1, minWidth: 120, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }}>
+                            <option value="Standard">Standard</option>
+                            <option value="Silver">Silver</option>
+                            <option value="Gold">Gold</option>
+                            <option value="Platinum">Platinum</option>
+                          </select>
+                          <input value={agentParams.checkout.lateCheckout || ""} onChange={e => setAgentParams(p => ({ ...p, checkout: { ...p.checkout, lateCheckout: e.target.value } }))}
+                            placeholder="Late checkout time (e.g. 13:00)" style={{ flex: 2, minWidth: 140, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: T.mono, fontSize: 11 }} />
+                        </div>
+                      )}
+                      <button
+                        onClick={() => runSingleAgent(agent.id)}
+                        disabled={!hasCredentials || !hasCompany || runningAgents.has(agent.id)}
+                        style={{
+                          background: T.orange, border: "none", borderRadius: 6, padding: "7px 16px",
+                          fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: T.sans,
+                          cursor: hasCredentials && hasCompany ? "pointer" : "default",
+                          opacity: hasCredentials && hasCompany ? 1 : 0.5,
+                        }}
+                      >
+                        {runningAgents.has(agent.id) ? "Running…" : `▶ Run ${agent.name}`}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
