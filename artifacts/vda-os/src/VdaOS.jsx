@@ -5913,19 +5913,36 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
       {runEntries.length > 0 && (
         <div style={{
           padding: "7px 14px", borderBottom: `1px solid ${T.border}`,
-          display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
+          display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
           background: `${T.green}07`,
         }}>
+          <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>
+            {entries.length} total
+          </span>
+          <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
           <span style={{ fontSize: 9, color: T.green, fontFamily: T.mono, fontWeight: 800 }}>{passCount} PASS</span>
-          {failCount > 0 && <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 800 }}>{failCount} FAIL</span>}
-          {escalCount > 0 && <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 800 }}>{escalCount} ESCALATE</span>}
-          {pct !== null && (
-            <span style={{
-              marginLeft: "auto", fontSize: 10, color: T.green, fontFamily: T.mono, fontWeight: 800,
-              background: `${T.green}18`, border: `1px solid ${T.green}40`,
-              borderRadius: 5, padding: "2px 9px",
-            }}>{pct}% compliant</span>
+          {failCount > 0 && (
+            <>
+              <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
+              <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 800 }}>{failCount} FAIL</span>
+            </>
           )}
+          {escalCount > 0 && (
+            <>
+              <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
+              <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 800 }}>{escalCount} ESCALATE</span>
+            </>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+            {pct !== null && (
+              <span style={{
+                fontSize: 10, color: T.green, fontFamily: T.mono, fontWeight: 800,
+                background: `${T.green}18`, border: `1px solid ${T.green}40`,
+                borderRadius: 5, padding: "2px 9px",
+              }}>{pct}% PASS</span>
+            )}
+            <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>{runEntries.length} this run</span>
+          </div>
         </div>
       )}
 
@@ -6012,36 +6029,61 @@ const JOURNEY_STEPS = [
   {
     step: 1, agentId: "availability", name: "Availability Agent", icon: "🔍",
     purpose: "Queries live Apaleo inventory for available units and active rate plans for tonight's stay.",
+    narrative: (s) => s.decision === "PASS"
+      ? `Availability confirmed — units found matching the guest's requirements. ${s.actionProposed ? s.actionProposed.slice(0, 80) + (s.actionProposed.length > 80 ? "…" : "") : ""}`
+      : `No availability found for the requested dates — journey halted at source. ${s.actionProposed?.slice(0, 80) || ""}`,
     insight: "No hardcoded availability thresholds — the policy file is the sole arbiter of what 'available' means.",
   },
   {
     step: 2, agentId: "rate", name: "Rate Agent", icon: "💰",
     purpose: "Evaluates a 10% discount request (BAR €180 → €162) against revenue policy thresholds.",
+    narrative: (s) => s.decision === "ESCALATE"
+      ? `Discount request escalated for manager approval — outside agent's delegated authority. ${s.actionProposed?.slice(0, 70) || ""}`
+      : s.decision === "PASS"
+        ? `Discount approved: rate within policy thresholds. ${s.actionProposed?.slice(0, 80) || ""}`
+        : `Discount rejected — requested rate is below the policy floor. ${s.actionProposed?.slice(0, 80) || ""}`,
     insight: "Rate override authority is bounded by SKILL.md — not hardcoded. Change the file, change the behaviour.",
   },
   {
     step: 3, agentId: "reservation", name: "Reservation Bot", icon: "📋",
     purpose: "Creates a booking in Apaleo after policy validation — no PMS write without a PASS decision.",
+    narrative: (s) => s.decision === "PASS"
+      ? `Reservation created in Apaleo — policy PASS was the prerequisite. ${s.actionProposed?.slice(0, 80) || ""}`
+      : `Reservation blocked — mandatory policy check did not pass. ${s.actionProposed?.slice(0, 80) || ""}`,
     insight: "The reservation bot cannot act alone. Every write is policy-gated before Apaleo is touched.",
   },
   {
     step: 4, agentId: "checkin", name: "Check-In Agent", icon: "✅",
     purpose: "Validates 5 mandatory gates (ID, folio, payment, status, arrival) before executing check-in.",
+    narrative: (s) => s.decision === "PASS"
+      ? `All 5 check-in gates passed — guest successfully checked in. ${s.actionProposed?.slice(0, 80) || ""}`
+      : `Check-in blocked: one or more mandatory gates failed. ${s.actionProposed?.slice(0, 80) || ""}`,
     insight: "One failed gate blocks the entire check-in — preventing costly downstream data errors at source.",
   },
   {
     step: 5, agentId: "folio-charge", name: "Folio Charge Agent", icon: "💳",
     purpose: "Posts a room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.",
+    narrative: (s) => s.decision === "PASS"
+      ? `Charge posted to folio under Finance O2C policy. ${s.crossDomainInheritance ? "Cross-domain policy inheritance applied. " : ""}${s.actionProposed?.slice(0, 70) || ""}`
+      : `Charge blocked — did not pass cross-domain finance policy validation. ${s.actionProposed?.slice(0, 70) || ""}`,
     insight: "Shared policy files prevent finance rules being re-invented per property — one source of truth.",
   },
   {
     step: 6, agentId: "checkout", name: "Checkout Agent", icon: "🚪",
     purpose: "Processes departure with Gold loyalty exception evaluation and folio settlement verification.",
+    narrative: (s) => s.exceptionApplied
+      ? `Checkout completed with loyalty exception applied — bounded and auditable. ${s.actionProposed?.slice(0, 70) || ""}`
+      : s.decision === "PASS"
+        ? `Guest checked out, folio settled. ${s.actionProposed?.slice(0, 90) || ""}`
+        : `Checkout blocked — folio unsettled or policy condition not met. ${s.actionProposed?.slice(0, 70) || ""}`,
     insight: "Exceptions are auditable, bounded, and immutable files — no hardcoded loyalty logic in code.",
   },
   {
     step: 7, agentId: "revenue", name: "Revenue Reconciliation", icon: "📊",
     purpose: "Reconciles revenue data and seals the Witness Agent audit trail for the complete guest journey.",
+    narrative: (s) => s.decision === "PASS"
+      ? `Revenue reconciled and Witness trail sealed for the complete guest journey. ${s.actionProposed?.slice(0, 70) || ""}`
+      : `Revenue reconciliation flagged an anomaly — audit entry created for review. ${s.actionProposed?.slice(0, 70) || ""}`,
     insight: "Every decision, every governance file, every outcome — one click away from SOC 2 evidence.",
   },
 ];
@@ -6127,6 +6169,15 @@ function JourneyTimeline({ journeySteps, completedSteps, activeStepIdx, hasRun }
               {/* Completed detail */}
               {isComplete && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {/* Narrative: plain-English outcome */}
+                  <div style={{
+                    fontSize: 11, color: T.muted, lineHeight: 1.6, fontWeight: 500,
+                    background: `${decColor}08`, borderRadius: 5, padding: "6px 9px",
+                    border: `1px solid ${decColor}1a`,
+                  }}>
+                    {step.narrative(stepData)}
+                  </div>
+
                   {/* Governance files */}
                   {filesConsulted.length > 0 && (
                     <div>
@@ -6308,9 +6359,13 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
         const data = await r.json();
         setRunningAgents(new Set());
         setActiveStepIdx(-1);
-        const newCompleted = {};
-        for (const step of (data.steps || [])) {
-          newCompleted[step.step] = step;
+
+        // Reveal each step progressively so the timeline animates one card at a time
+        const sortedSteps = (data.steps || []).sort((a, b) => a.step - b.step);
+        for (let i = 0; i < sortedSteps.length; i++) {
+          if (i > 0) await new Promise(r => setTimeout(r, 380));
+          const step = sortedSteps[i];
+          setCompletedSteps(prev => ({ ...prev, [step.step]: step }));
           const agentDef = AGENT_DEFS.find(a => a.name === step.agent);
           const entry = { ...step, fileReferenced: agentDef?.policy || "", createdAt: new Date().toISOString() };
           setStreamEntries(prev => [...prev, entry]);
@@ -6327,7 +6382,6 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
             });
           }
         }
-        setCompletedSteps(newCompleted);
         setScenarioComplete(true);
         fetchDbEntries();
       }
@@ -6436,7 +6490,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
           {!hasRun && (
             <div style={{ padding: "20px 20px 4px", textAlign: "center" }}>
               <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.65, maxWidth: 400, margin: "0 auto" }}>
-                See how 7 AI agents governed by markdown policy files handle a complete hotel guest stay — from availability check to revenue reconciliation
+                Run the full guest journey to see VDA-MD in action — 7 agents, 7 markdown policies, every decision sealed in an immutable audit ledger
               </div>
             </div>
           )}
