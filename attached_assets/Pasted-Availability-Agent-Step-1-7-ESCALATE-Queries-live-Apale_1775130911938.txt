@@ -1,0 +1,259 @@
+Availability Agent
+Step 1/7
+⚠ ESCALATE
+Queries live Apaleo inventory for available units and active rate plans for tonight's stay.
+No availability found for the requested dates — journey halted at source. Suppress all rate plan offers for VIE property on 2026-04-02 to 2026-04-03 from
+MUST validate that the queried date range falls within the rate plan's validity window as returned by the Rate Plan API before pre…
+Action taken: Suppress all rate plan offers for VIE property on 2026-04-02 to 2026-04-03 from citizen-facing surfaces. Escalate immediately to the Revenue Manager t…
+🕵️ Witness #42 sealed
+↑ ESCALATE → Revenue Manager
+No hardcoded availability thresholds — the policy file is the sole arbiter of what 'available' means.
+💰
+Rate Agent
+Step 2/7
+⚠ ESCALATE
+Evaluates a 10% discount request (BAR €180 → €162) against revenue policy thresholds.
+Discount request escalated for manager approval — outside agent's delegated authority. Rate override request for VIE-APALEO-SGL at €162 (10% below BAR of €18
+Apaleo rate plan ID cannot be resolved to an active property unit type | Revenue Manager + Operations Director
+Action taken: Rate override request for VIE-APALEO-SGL at €162 (10% below BAR of €180) is hard-blocked. The Rate Plan API returned 204 No Content — the rate plan ID…
+🕵️ Witness #43 sealed
+↑ ESCALATE → Revenue Manager + Operations Director
+Rate override authority is bounded by SKILL.md — not hardcoded. Change the file, change the behaviour.
+📋
+Reservation Bot
+Step 3/7
+✗ FAIL
+Creates a booking in Apaleo after policy validation — no PMS write without a PASS decision.
+Reservation blocked — mandatory policy check did not pass. Halt CreateBooking. Three independent blocking failures identified from live API
+MUST NOT use a rate plan retrieved from ListRatePlans if its isActive flag is false or if its validity window does not cover the f…
+Action taken: Halt CreateBooking. Three independent blocking failures identified from live API data: (1) Rate plan VIE-APALEO-SGL has isBookable: false — it is not …
+🕵️ Witness #44 sealed
+↑ ESCALATE → Revenue Manager
+The reservation bot cannot act alone. Every write is policy-gated before Apaleo is touched.
+✅
+Check-In Agent
+Step 4/7
+✗ FAIL
+Validates 5 mandatory gates (ID, folio, payment, status, arrival) before executing check-in.
+Check-in blocked: one or more mandatory gates failed. Halt all check-in processing immediately for 'Demo Guest' at property VIE. No re
+MUST verify reservation status in Apaleo Reservations API before assigning any property unit — fabricated or assumed status is a F…
+Action taken: Halt all check-in processing immediately for 'Demo Guest' at property VIE. No reservation ID was provided or resolvable. Two Apaleo MCP tool calls wer…
+🕵️ Witness #45 sealed
+↑ ESCALATE → Front Office Manager (citizenM Ambassador on duty)
+One failed gate blocks the entire check-in — preventing costly downstream data errors at source.
+💳
+Folio Charge Agent
+Step 5/7
+✗ FAIL
+Posts a room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.
+Charge blocked — did not pass cross-domain finance policy validation. Charge of €240 EUR (RoomRevenue: Demo Room Charge) against property VI
+MUST confirm a valid Apaleo reservation ID is linked, via the Apaleo Reservations API, before posting any folio charge. At citizen…
+Action taken: Charge of €240 EUR (RoomRevenue: Demo Room Charge) against property VIE is hard-blocked. No folio ID was resolved ('none'), making it impossible to co…
+🕵️ Witness #46 sealed
+↑ ESCALATE → Directeur des opérations (Operations Director)
+Shared policy files prevent finance rules being re-invented per property — one source of truth.
+🚪
+Checkout Agent
+Step 6/7
+✗ FAIL
+Processes departure with Gold loyalty exception evaluation and folio settlement verification.
+Checkout blocked — folio unsettled or policy condition not met. Cannot process checkout — no reservation ID
+Reservation ID required for checkout
+Action taken: Cannot process checkout — no reservation ID
+🕵️ Witness #47 sealed
+↑ ESCALATE → Operations Director
+Exceptions are auditable, bounded, and immutable files — no hardcoded loyalty logic in code.
+📊
+Revenue Reconciliation
+Step 7/7
+⚠ ESCALATE
+Reconciles revenue data and seals the Witness Agent audit trail for the complete guest journey.
+Revenue reconciliation flagged an anomaly — audit entry created for review. Immediately escalate to Finance Director and CFO. Three compounding cr
+The agent MUST NOT proceed to variance calculation if any mandatory Reconciliation Gate step (steps 1–6 above) has returned an err…
+Action taken: Immediately escalate to Finance Director and CFO. Three compounding critical conditions were identified from live API data: (1) GetReport returned 0 r…
+🕵️ Witness #48 sealed
+↑ ESCALATE → Finance Director (variance >15% and incomplete dataset); CFO (zero invoices against 49 open folios — unmatched invoice condition); Revenue Manager (rate plan validity gap — all plans expired 2025-12-20, none cover 2026-04-02)
+Every decision, every governance file, every outcome — one click away from SOC 2 evidence.
+🕵️
+Witness Agent
+Immutable audit ledger · every decision sealed
+25 entries
+25 total
+·
+1 PASS
+·
+16 FAIL
+·
+8 ESCALATE
+0% PASS
+7 this run
+🕵️ #48
+Revenue Reconciliation Agent
+⚠ ESCALATE
+Live ListRatePlans confirmed all 11 VIE rate plans expire on 2025-12-20 with no coverage of the 2026-04-02 reconciliatio…
+↑ ESCALATE
+13:54:13
+🕵️ #47
+Checkout Agent
+✗ FAIL
+No reservation ID available from earlier scenario steps
+↑ ESCALATE
+13:54:13
+🕵️ #46
+Folio Charge Agent
+✗ FAIL
+The live ListFolios call to property VIE returned 49 folios, none of which corresponds to the supplied folio identifier …
+↑ ESCALATE
+13:54:12
+🕵️ #45
+Check-In Agent
+✗ FAIL
+Live Apaleo API calls to ListFolios for property VIE returned 49 open folios but zero records matching 'Demo Guest' acro…
+↑ ESCALATE
+13:54:12
+🕵️ #48
+Revenue Reconciliation Agent
+⚠ ESCALATE
+Live ListRatePlans confirmed all 11 VIE rate plans expire on 2025-12-20 with no coverage of the 2026-04-02 reconciliatio…
+MCP
+↑ ESCALATE
+13:54:12
+🕵️ #44
+Reservation Bot
+✗ FAIL
+Live ListRatePlans data confirms VIE-APALEO-SGL returns isBookable: false and its bookingPeriods close on 2025-12-17T11:…
+↑ ESCALATE
+13:54:12
+🕵️ #43
+Rate Agent
+⚠ ESCALATE
+The live ListRatePlans API call for property VIE with rate plan code VIE-APALEO-SGL returned 204 No Content, confirming …
+↑ ESCALATE
+13:54:11
+🕵️ #42
+Availability Agent
+⚠ ESCALATE
+GetAvailableUnitGroups confirms strong physical inventory (50/50 Double units available, 0% occupancy, 0 maintenance exc…
+↑ ESCALATE
+13:54:11
+🕵️ #47
+Checkout Agent
+✗ FAIL
+No reservation ID available from earlier scenario steps
+↑ ESCALATE
+13:53:34
+🕵️ #46
+Folio Charge Agent
+✗ FAIL
+Cross-domain ✓
+The live ListFolios call to property VIE returned 49 folios, none of which corresponds to the supplied folio identifier …
+MCP
+↑ ESCALATE
+13:53:34
+🕵️ #45
+Check-In Agent
+✗ FAIL
+Live Apaleo API calls to ListFolios for property VIE returned 49 open folios but zero records matching 'Demo Guest' acro…
+MCP
+↑ ESCALATE
+13:53:15
+🕵️ #44
+Reservation Bot
+✗ FAIL
+Live ListRatePlans data confirms VIE-APALEO-SGL returns isBookable: false and its bookingPeriods close on 2025-12-17T11:…
+MCP
+↑ ESCALATE
+13:52:42
+🕵️ #43
+Rate Agent
+⚠ ESCALATE
+The live ListRatePlans API call for property VIE with rate plan code VIE-APALEO-SGL returned 204 No Content, confirming …
+MCP
+↑ ESCALATE
+13:52:13
+🕵️ #42
+Availability Agent
+⚠ ESCALATE
+GetAvailableUnitGroups confirms strong physical inventory (50/50 Double units available, 0% occupancy, 0 maintenance exc…
+MCP
+↑ ESCALATE
+13:51:50
+🕵️ #41
+Revenue Reconciliation Agent
+✗ FAIL
+Three compounding gate failures prevent a valid reconciliation outcome: (1) GetReport is not available as an MCP tool in…
+MCP
+↑ ESCALATE
+12:58:02
+🕵️ #40
+Checkout Agent
+✗ FAIL
+No reservation ID available from earlier scenario steps
+↑ ESCALATE
+12:57:26
+🕵️ #39
+Folio Charge Agent
+✗ FAIL
+Cross-domain ✓
+Live ListFolios confirmed 49 open folios across property VIE, but the requesting workflow supplied folio ID 'none' — no …
+MCP
+↑ ESCALATE
+12:57:26
+🕵️ #38
+Check-In Agent
+✗ FAIL
+Gate 1 — Reservation Status Verification: FAIL. ListFolios text_search for 'Demo Guest' at property VIE returned No Cont…
+MCP
+↑ ESCALATE
+12:57:09
+🕵️ #37
+Reservation Bot
+✗ FAIL
+The live ListRatePlans response confirms VIE-APALEO-SGL exists (id: VIE-APALEO-SGL, channelCodes: ['Direct'], unitGroup:…
+MCP
+↑ ESCALATE
+12:56:28
+🕵️ #36
+Rate Agent
+⚠ ESCALATE
+The live Apaleo Rate Plan API call for property VIE with rate plan code VIE-APALEO-SGL returned HTTP 204 No Content — th…
+MCP
+↑ ESCALATE
+12:55:58
+🕵️ #35
+Availability Agent
+⚠ ESCALATE
+GetAvailableUnitGroups confirms 50 sellable Double units at 0% occupancy for 2026-04-02, meaning physical inventory exis…
+MCP
+↑ ESCALATE
+12:55:32
+🕵️ #34
+Witness Agent
+✓ PASS
+System Description generated by System on 2026-04-02T10:51:47.448Z. Hash: 18563-filenameSOC2Syste. 2614 words. 29 govern…
+12:51:47
+🕵️ #12
+Availability Agent
+✗ FAIL
+All three live Apaleo API calls — GetAvailableUnitGroups, ListRatePlans, and ListOffers — returned HTTP 422 errors with …
+MCP
+↑ ESCALATE
+15:46:30
+🕵️ #11
+Availability Agent
+✗ FAIL
+While GetAvailableUnitGroups confirms 50 of 50 Double rooms are physically available (0% occupancy, 0 sold) for 2026-04-…
+MCP
+↑ ESCALATE
+14:40:30
+🕵️ #10
+Availability Agent
+✗ FAIL
+GetAvailableUnitGroups confirms strong physical availability — 50 of 50 Double rooms sellable with 0% occupancy — so uni…
+MCP
+↑ ESCALATE
+14:39:46
+↺ Refresh from database
+
+Advanced
+Run individual agents

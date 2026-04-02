@@ -5903,10 +5903,11 @@ function FileBadgeChip({ filename }) {
 // ── WitnessLedger ────────────────────────────────────────────────────────────
 function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
   const listRef = useRef(null);
-  const passCount  = runEntries.filter(e => e.decision === "PASS").length;
-  const failCount  = runEntries.filter(e => e.decision === "FAIL").length;
-  const escalCount = runEntries.filter(e => e.decision === "ESCALATE").length;
-  const pct = runEntries.length ? Math.round((passCount / runEntries.length) * 100) : null;
+  // Summary stats computed from ALL displayed entries so every metric is consistent
+  const allPassCount  = entries.filter(e => e.decision === "PASS").length;
+  const allFailCount  = entries.filter(e => e.decision === "FAIL").length;
+  const allEscalCount = entries.filter(e => e.decision === "ESCALATE").length;
+  const pct = entries.length ? Math.round((allPassCount / entries.length) * 100) : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -5921,29 +5922,27 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
           </span>
           <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
           <span style={{ fontSize: 9, color: T.green, fontFamily: T.mono, fontWeight: 800 }}>
-            {entries.filter(e => e.decision === "PASS").length} PASS
+            {allPassCount} PASS
           </span>
-          {entries.filter(e => e.decision === "FAIL").length > 0 && (
+          {allFailCount > 0 && (
             <>
               <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
-              <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 800 }}>
-                {entries.filter(e => e.decision === "FAIL").length} FAIL
-              </span>
+              <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 800 }}>{allFailCount} FAIL</span>
             </>
           )}
-          {entries.filter(e => e.decision === "ESCALATE").length > 0 && (
+          {allEscalCount > 0 && (
             <>
               <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
-              <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 800 }}>
-                {entries.filter(e => e.decision === "ESCALATE").length} ESCALATE
-              </span>
+              <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 800 }}>{allEscalCount} ESCALATE</span>
             </>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
             {pct !== null && (
               <span style={{
-                fontSize: 10, color: T.green, fontFamily: T.mono, fontWeight: 800,
-                background: `${T.green}18`, border: `1px solid ${T.green}40`,
+                fontSize: 10, color: pct >= 80 ? T.green : pct >= 50 ? T.amber : T.red,
+                fontFamily: T.mono, fontWeight: 800,
+                background: `${pct >= 80 ? T.green : pct >= 50 ? T.amber : T.red}18`,
+                border: `1px solid ${pct >= 80 ? T.green : pct >= 50 ? T.amber : T.red}40`,
                 borderRadius: 5, padding: "2px 9px",
               }}>{pct}% PASS</span>
             )}
@@ -6401,7 +6400,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
     setScenarioRunning(false);
   }, [hasCredentials, hasCompany, propertyId, companyId, scenarioRunning, onLogEntry, fetchDbEntries]);
 
-  const allEntries = [...streamEntries, ...dbEntries.filter(d => !streamEntries.find(s => s.id === d.id))].sort((a, b) => {
+  const allEntries = [...streamEntries, ...dbEntries.filter(d => !streamEntries.find(s => (s.witnessEntryId ?? s.id) === d.id))].sort((a, b) => {
     const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
     const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
     return tb - ta;
