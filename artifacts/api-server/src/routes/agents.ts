@@ -472,16 +472,46 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
   ];
 
   let toolCallsMade = 0;
-  const MAX_ITERATIONS = 8;
+  const MAX_ITERATIONS = 4; // keep scenario runs fast — 4 rounds max per agent
+
+  // Per-step timeout guard (30 s) — prevents indefinite hangs on slow AI/MCP calls
+  const withStepTimeout = <T>(p: Promise<T>, label: string): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`Step timeout (30 s): ${label}`)), 30_000)
+      ),
+    ]);
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await callAIFull({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages,
-      tools: hasReadTools ? anthropicTools : undefined,
-    });
+    let response: Awaited<ReturnType<typeof callAIFull>>;
+    try {
+      response = await withStepTimeout(
+        callAIFull({
+          model: "claude-haiku-4-5", // use fast model for scenario runs
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages,
+          tools: hasReadTools ? anthropicTools : undefined,
+        }),
+        `${agentName} iteration ${i}`
+      );
+    } catch (timeoutErr) {
+      logger.warn({ agentName, iteration: i, err: String(timeoutErr) }, "Step AI call timed out — returning ESCALATE");
+      return {
+        decision: {
+          decision: "ESCALATE",
+          clauseApplied: "Evaluation timed out — manual review required",
+          actionProposed: "AI evaluation exceeded 30-second limit; escalating for human review",
+          exceptionApplied: false,
+          escalationTarget: "Operations Director",
+          reasoning: `Anthropic API or MCP tool call did not respond within 30 seconds on iteration ${i}.`,
+        },
+        toolCallsMade,
+        usedMcp: toolCallsMade > 0,
+        filesLoaded,
+      };
+    }
 
     if (response.stop_reason === "tool_use") {
       const toolResults: unknown[] = [];
