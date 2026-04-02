@@ -1716,8 +1716,8 @@ MUST NOT call any tool not listed in this manifest.
     // REVENUE RECONCILIATION AGENT — Finance · Reconciliation
     // ──────────────────────────────────────────────────────────────────────────
     {
-      filename: "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.AGENTS.md",
-      filepath: "governance/Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.AGENTS.md",
+      filename: "Hospitality-Finance-Reconciliation-RevenueReconciliation.AGENTS.md",
+      filepath: "governance/Hospitality-Finance-Reconciliation-RevenueReconciliation.AGENTS.md",
       fileType: "AGENTS",
       axis: "horizontal",
       stage: "reconciliation",
@@ -1798,8 +1798,8 @@ The agent MAY summarise discrepancy patterns to aid Revenue Manager review.
 `,
     },
     {
-      filename: "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SOP.md",
-      filepath: "governance/Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SOP.md",
+      filename: "Hospitality-Finance-Reconciliation-RevenueReconciliation.SOP.md",
+      filepath: "governance/Hospitality-Finance-Reconciliation-RevenueReconciliation.SOP.md",
       fileType: "SOP",
       axis: "horizontal",
       stage: "reconciliation",
@@ -1875,8 +1875,8 @@ MUST record fileReferenced as this SOP filename.
 `,
     },
     {
-      filename: "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SKILL.md",
-      filepath: "governance/Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SKILL.md",
+      filename: "Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
+      filepath: "governance/Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
       fileType: "SKILL",
       axis: "horizontal",
       stage: "reconciliation",
@@ -2213,9 +2213,9 @@ router.post("/admin/seed-companies", async (_req, res) => {
         "Hospitality-Revenue-Book-reservation-bot.AGENTS.md",
         "Hospitality-Revenue-Book-reservation-bot.SOP.md",
         "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
-        "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.AGENTS.md",
-        "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SOP.md",
-        "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SKILL.md",
+        "Hospitality-Finance-Reconciliation-RevenueReconciliation.AGENTS.md",
+        "Hospitality-Finance-Reconciliation-RevenueReconciliation.SOP.md",
+        "Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
         "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
         "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
       ];
@@ -2308,9 +2308,9 @@ router.post("/admin/seed-companies", async (_req, res) => {
       "Hospitality-Revenue-Book-reservation-bot.AGENTS.md",
       "Hospitality-Revenue-Book-reservation-bot.SOP.md",
       "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
-      "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.AGENTS.md",
-      "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SOP.md",
-      "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SKILL.md",
+      "Hospitality-Finance-Reconciliation-RevenueReconciliation.AGENTS.md",
+      "Hospitality-Finance-Reconciliation-RevenueReconciliation.SOP.md",
+      "Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
       "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
       "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
     ];

@@ -392,9 +392,10 @@ async function evaluateWithPolicyAndMcp(
   policyKey: string,
   task: string,
   agentToolNames: string[],
-  companyId: number = 0
+  companyId: number = 0,
+  preloaded?: GovernancePolicyResult
 ): Promise<AgenticEvalResult> {
-  const { policyText, filesLoaded, mandatoryEscalate } = await getGovernancePolicyFromFM(companyId, policyKey);
+  const { policyText, filesLoaded, mandatoryEscalate } = preloaded ?? await getGovernancePolicyFromFM(companyId, policyKey);
 
   // VDA-MD §2.1: no governance files → mandatory ESCALATE, no AI call, no MCP call
   if (mandatoryEscalate) {
@@ -1308,6 +1309,31 @@ router.post("/agents/revenue", async (req, res) => {
       return res.status(400).json({ error: "propertyId, companyId required" });
     }
 
+    // VDA-MD §2.1 mandatory preflight: governance check runs BEFORE any Apaleo or AI work.
+    // If governance files are absent, we escalate immediately without touching any external systems.
+    const govResult = await getGovernancePolicyFromFM(Number(companyId), "revenue");
+    if (govResult.mandatoryEscalate) {
+      const govFailDecision: AgentDecision = {
+        decision: "ESCALATE",
+        clauseApplied: VDA_MD_MANDATORY_ESCALATE_CLAUSE,
+        actionProposed: "Governance files must be seeded before this agent can make any decision.",
+        exceptionApplied: false,
+        escalationTarget: "Operations Director",
+        reasoning: "No VDA-MD governance files found for this company+agent. Per §2.1, all decisions are suspended until AGENTS.md, SOP.md, and SKILL.md are present.",
+      };
+      const witnessId = await writeWitnessEntry({
+        companyId: Number(companyId),
+        agent: "Revenue Reconciliation Agent",
+        decision: govFailDecision,
+        fileReferenced: governanceFileReferenced([]),
+        apaleoData: { propertyId, governanceFailure: true, filesLoaded: [] },
+        scenarioRunId,
+        filesConsulted: [],
+        crossDomainInheritance: false,
+      });
+      return res.json({ ...govFailDecision, witnessEntryId: witnessId, filesLoaded: [], propertyId });
+    }
+
     const targetDate = date ?? new Date().toISOString().split("T")[0];
 
     const [reservationsResult, ratePlansResult, revenueResult] = await Promise.allSettled([
@@ -1351,7 +1377,8 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
       "Revenue Reconciliation Agent", "revenue",
       `Reconcile daily revenue for property ${propertyId} on ${targetDate}. ${reservations.length} reservations fetched via REST with total ${totalRevenue} ${currency}. Use GetReport to pull live revenue report, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charge records. Apply revenue-reconciliation-policy variance thresholds.`,
       [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
-      Number(companyId)
+      Number(companyId),
+      govResult  // pass pre-loaded governance to avoid double DB lookup
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
@@ -1360,7 +1387,7 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
       companyId: Number(companyId),
       agent: "Revenue Reconciliation Agent",
       decision,
-      fileReferenced: revFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? revFilesLoaded[0] ?? "revenue-reconciliation-policy.md",
+      fileReferenced: governanceFileReferenced(revFilesLoaded),
       apaleoData,
       scenarioRunId,
       filesConsulted: revFilesLoaded,
@@ -1793,7 +1820,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Revenue Reconciliation Agent", decision: revDecision,
-        fileReferenced: revScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? revScenarioFiles[0] ?? "revenue-reconciliation-policy.md",
+        fileReferenced: governanceFileReferenced(revScenarioFiles),
         apaleoData: { date: today, reservationCount: reservations.count, totalRevenue: total, currency, scenarioReservationId: ids.reservationId, usedMcp: revUsedMcp, toolCallsMade: revToolCalls },
         scenarioRunId,
         filesConsulted: revScenarioFiles,
