@@ -8,8 +8,8 @@
 
 import { Router, type IRouter } from "express";
 import { apaleoFetch } from "../lib/apaleo.js";
-import { db, companies, governanceFiles } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { db, companies, governanceFiles, witnessEntries } from "@workspace/db";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { callAI } from "./ai-proxy.js";
 
 const router: IRouter = Router();
@@ -3041,4 +3041,338 @@ router.post("/admin/seed-company-governance", async (req, res) => {
   });
 });
 
+// ─── POST /api/admin/generate-soc2-sd ─────────────────────────────────────────
+// Generates an AICPA-compliant SOC 2 System Description for a hotel.
+// Stored as governance_files row (fileType: "system-description", nistControl: "SOC2-SD").
+// Witness Agent entry written for every generation — provides Type II provenance trail.
+// Safe to call multiple times — idempotent (upserts by filename+companyId).
+
+router.post("/admin/generate-soc2-sd", async (req, res) => {
+  const { companyId: rawCompanyId, triggeredBy } = req.body as { companyId: unknown; triggeredBy?: string };
+  const companyId = parseInt(String(rawCompanyId), 10);
+  if (isNaN(companyId)) return res.status(400).json({ error: "companyId required" });
+
+  try {
+    const [company] = await db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, companyId));
+    if (!company) return res.status(404).json({ error: "Company not found" });
+
+    const hotelCode = (company as any).apaleoPropertyId || "UNK";
+    const companyName = company.companyName;
+    const brandContext = ((company as any).brandContext as string | undefined) || "";
+
+    // Load all active governance files for this hotel
+    const govFiles = await db
+      .select({
+        filename: governanceFiles.filename,
+        fileType: governanceFiles.fileType,
+        nistControl: governanceFiles.nistControl,
+        agentId: governanceFiles.agentId,
+        domain: governanceFiles.domain,
+        owner: governanceFiles.owner,
+        content: governanceFiles.content,
+        wordCount: governanceFiles.wordCount,
+      })
+      .from(governanceFiles)
+      .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)))
+      .orderBy(governanceFiles.nistControl, governanceFiles.filename);
+
+    // Build structured excerpts (800 chars per file — enough for Claude context without overwhelming)
+    const governanceSummary = govFiles
+      .filter(f => f.content && f.content.length > 100 && f.fileType !== "system-description")
+      .map(f => `### ${f.filename} (${f.fileType} | NIST: ${f.nistControl ?? "N/A"} | Owner: ${f.owner ?? "N/A"})\n${f.content.slice(0, 800)}`)
+      .join("\n\n---\n\n");
+
+    const uniqueAgents  = [...new Set(govFiles.map(f => f.agentId).filter(Boolean))];
+    const uniqueDomains = [...new Set(govFiles.map(f => f.domain).filter(Boolean))];
+    const uniqueOwners  = [...new Set(govFiles.map(f => f.owner).filter(Boolean))];
+    const nistControls  = [...new Set(govFiles.map(f => f.nistControl).filter(Boolean))];
+
+    const systemPrompt = `You are an AICPA-certified SOC 2 Type II report specialist.
+Write formal, complete SOC 2 System Descriptions that will satisfy an external CPA audit.
+Use precise professional language — this is a legal/audit document.
+Every section must contain substantive narrative, not bullet points.
+Include explicit SOC 2 / AICPA / Trust Service Criteria references throughout.
+Output ONLY valid markdown with YAML frontmatter — no preamble, no commentary, no code fences.`;
+
+    const nowIso = new Date().toISOString();
+    const userPrompt = `Generate a complete AICPA SOC 2 System Description for ${companyName} (Property ID: ${hotelCode}).
+
+ENTITY CONTEXT:
+${brandContext.slice(0, 900)}
+
+GOVERNANCE SYSTEM FACTS:
+- Total governance files: ${govFiles.length}
+- AI agents governed: ${uniqueAgents.join(", ")}
+- Operating domains: ${uniqueDomains.join(", ")}
+- NIST SP 800-53 controls: ${nistControls.join(", ")}
+- Named accountable roles: ${uniqueOwners.join(", ")}
+- Core technology stack: Apaleo PMS (API-first), Anthropic Claude (AI), VDA-MK governance framework
+- Compliance framework: GDPR, EU AI Act, ISO 42001, NIST SP 800-53, SOC 2 Type II, ISO 27001
+- Change control: §4 audit signoff enforcement (SOC 2 and NIST standard reductions require named signoff)
+- Audit trail: Witness Agent logs every AI agent decision before execution (tamper-evident)
+- Mandatory file triplet: every agent requires AGENTS.md + SOP.md + SKILL.md (§2.1 enforcement)
+
+GOVERNANCE FILE EXCERPTS (representative samples):
+${governanceSummary.slice(0, 7000)}
+
+Generate the following exact structure — write each section as formal audit narrative prose:
+
+---
+filename: SOC2-SystemDescription-${hotelCode}.SYSTEM-DESC.md
+file_type: system-description
+nist_control: SOC2-SD
+company: ${companyName}
+property_id: ${hotelCode}
+doc_version: 1.0
+generated_at: ${nowIso}
+framework: SOC 2 Type II (AICPA Trust Service Criteria 2017)
+status: draft
+owner: CISO
+soc2_generated: true
+---
+
+# SOC 2 System Description
+## ${companyName} (${hotelCode}) — VDA-MK AI Governance Platform
+
+*Prepared for SOC 2 Type II audit purposes. All information current as of ${nowIso.slice(0, 10)}.*
+
+---
+
+## Section 1: Overview of the Entity and its Services
+
+[Write 3-4 paragraphs describing ${companyName} as a citizenM hotel property, the VDA-MK AI governance platform purpose, the Apaleo PMS as core system, and the principal service commitments to guests]
+
+## Section 2: Principal Service Commitments and System Requirements
+
+[Write 2-3 paragraphs covering: (a) AICPA Trust Service Criteria commitments — Security (CC), Availability (A1); (b) Apaleo API service commitments; (c) VDA-MK governance obligations including mandatory file enforcement]
+
+## Section 3: Components of the System
+
+### 3.1 Infrastructure
+[Apaleo GmbH cloud-hosted PMS infrastructure, Replit cloud hosting, TLS/HTTPS transport, no on-premises data storage]
+
+### 3.2 Software
+[VDA-MK governance framework version, AI agent runtime — Anthropic Claude via API, Apaleo REST APIs (Availability, Reservations, Folio, Unit Management), governance file management system]
+
+### 3.3 People
+[Formal description of ${uniqueOwners.join(", ")} roles and their accountability within the VDA-MK framework — who can approve governance files, who signs off on audit standard changes, who receives ESCALATE decisions]
+
+### 3.4 Procedures
+[VDA-MD §2.1 mandatory file triplet (AGENTS+SOP+SKILL), §3 immutability enforcement for GDPR/EU AI Act/ISO 42001, §4 accountable owner signoff for NIST/SOC 2/ISO 27001 reductions, Witness Agent pre-execution logging]
+
+### 3.5 Data
+[Guest PII (name, email, payment card data) handled via Apaleo; reservation/folio data; Witness Agent audit log entries; governance file versions — classification, retention, and protection rules]
+
+## Section 4: System Boundaries
+
+[Formal description of what is IN scope: AI agent decision layer, governance file system, Apaleo API integrations for ${hotelCode}, Witness Agent audit trail. OUT of scope: physical hotel infrastructure, room hardware, external guest-facing booking channels, payroll systems]
+
+## Section 5: Control Environment
+
+[Narrative describing VDA-MK as the control framework: how governance markdown files function as the sole source of truth, how §3 and §4 guards technically enforce immutability and change control, how the Witness Agent provides pre-execution audit evidence, how the mandatory 3-file enforcement ensures no agent operates without documented policy, and how escalation paths maintain human-in-the-loop accountability]
+
+## Section 6: Trust Service Criteria Controls
+
+### CC6: Logical and Physical Access Controls
+[How AC-2 governance files enforce access control for Apaleo API credentials; minimum-privilege API scope restrictions per agent; CISO escalation paths for access anomalies; audit log of all access decisions via Witness Agent]
+
+### CC7: System Operations and Monitoring
+[How AU-2 event logging governance files specify what the Witness Agent must log; every AI agent decision logged before execution; anomaly escalation paths to Operations Director; SOC 2 Type II operational evidence generated continuously]
+
+### CC8: Change Management
+[How SA-4 acquisition governance files govern all system and vendor changes; §4 signoff enforcement — any reduction of SOC 2 or NIST references requires named accountable owner, recorded in commit history; version history maintained for all governance files]
+
+### CC9: Risk Mitigation
+[How IR-4 incident response governance files govern breach detection, containment, GDPR Article 33 72-hour notification obligation, Apaleo API incident handling, post-incident review requirements]
+
+## Section 7: Complementary User Entity Controls (CUECs)
+
+[Formal list of what ${companyName} operations team MUST do: maintain named CISO and Operations Director; review and approve all governance file changes; provide §4 signoffs for audit standard reductions; monitor Witness Agent audit trail; respond to ESCALATE decisions within defined SLA; ensure Apaleo credentials are rotated per SA-4 policy; conduct quarterly governance file review]
+
+## Section 8: Complementary Subservice Organization Controls
+
+### Apaleo GmbH (Property Management System — Subservice Provider)
+[Apaleo's obligations as data processor under GDPR Article 28: API availability SLA, GDPR-compliant data processing, security certifications, encryption in transit and at rest, access credential management, incident notification obligations]
+
+### Anthropic PBC (AI Model Provider — Subservice Provider)
+[Anthropic's obligations: EU AI Act Article 53 compliance for general-purpose AI models, data processing agreements, model safety commitments, API availability SLA, no training on ${companyName} guest data per terms of service]
+
+## Compliance Baseline
+
+| Trust Service Criterion | VDA-MK Control | NIST SP 800-53 |
+|------------------------|---------------|----------------|
+| CC6 — Logical Access | AC-2 governance files + §4 signoff | AC-2 Account Management |
+| CC7 — System Operations | AU-2 governance files + Witness Agent | AU-2 Event Logging |
+| CC8 — Change Management | SA-4 governance files + §4 enforcement | SA-4 Acquisition Process |
+| CC9 — Risk Mitigation | IR-4 governance files + GDPR Article 33 | IR-4 Incident Handling |
+
+## Audit Evidence References
+
+The following constitute the Type II operational evidence trail:
+- **Witness Agent log**: Tamper-evident record of every AI agent decision, governance clause cited, and decision outcome — logged before execution per VDA-MK §2.1
+- **§4 signoff commit history**: Every reduction of SOC 2, NIST, or ISO 27001 references in governance files is blocked unless a named accountable owner provides explicit signoff, recorded as \`[Audit change signed off by: <name>]\` in the version history
+- **Governance file versions**: Full version history of all AGENTS/SOP/SKILL files with authorship and timestamps
+- **Escalation records**: All ESCALATE decisions recorded in Witness Agent with escalation target, reasoning, and governing clause cited`;
+
+    const content = await callAI({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+
+    const wordCount    = content.split(/\s+/).filter(Boolean).length;
+    const mustCount    = (content.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
+    const mustNotCount = (content.match(/\bMUST NOT\b/g) || []).length;
+    const mayCount     = (content.match(/\bMAY\b/g) || []).length;
+    const contentHash  = `${content.length}-${content.slice(0, 24).replace(/\W/g, "")}`;
+
+    const filename = `SOC2-SystemDescription-${hotelCode}.SYSTEM-DESC.md`;
+    const filepath = `governance/${filename}`;
+
+    // Upsert into governance_files (idempotent)
+    const existing = await db
+      .select({ id: governanceFiles.id })
+      .from(governanceFiles)
+      .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.filename, filename)));
+
+    let fileId: number;
+    if (existing.length > 0) {
+      const [updated] = await db
+        .update(governanceFiles)
+        .set({ content, status: "draft", wordCount, mustCount, mustNotCount, mayCount, isArchived: false, updatedAt: new Date() })
+        .where(eq(governanceFiles.id, existing[0].id))
+        .returning({ id: governanceFiles.id });
+      fileId = updated.id;
+    } else {
+      const [inserted] = await db
+        .insert(governanceFiles)
+        .values({
+          companyId, filename, filepath,
+          fileType: "system-description",
+          axis: "compliance",
+          content,
+          status: "draft",
+          owner: "CISO",
+          domain: "Compliance",
+          agentId: "soc2-sd-agent",
+          normalisationLevel: 3,
+          vendor: "VDA-MK for Apaleo",
+          baseline: true,
+          nistControl: "SOC2-SD",
+          mustCount, mustNotCount, mayCount, wordCount,
+          isArchived: false,
+        })
+        .returning({ id: governanceFiles.id });
+      fileId = inserted.id;
+    }
+
+    // Write Witness Agent provenance entry
+    await db.insert(witnessEntries).values({
+      companyId,
+      agent: "Witness Agent",
+      decision: "PASS",
+      fileReferenced: filename,
+      clauseApplied: "SOC 2 Trust Service Criteria — AICPA System Description generated per SOC 2 Type II requirements. CC6/CC7/CC8/CC9 controls documented.",
+      actionProposed: `SOC 2 System Description generated and stored for ${companyName} (${hotelCode}). File: ${filename}.`,
+      exceptionApplied: false,
+      escalationTarget: null,
+      reasoning: `System Description generated by ${triggeredBy || "System"} on ${new Date().toISOString()}. Hash: ${contentHash}. ${wordCount} words. ${govFiles.length} governance files consulted across ${uniqueAgents.length} agents.`,
+      apaleoData: {
+        event: "soc2_system_description_generated",
+        modelUsed: "claude-sonnet-4-6",
+        fileHash: contentHash,
+        triggeredBy: triggeredBy || "System",
+        wordCount,
+        govFilesUsed: govFiles.length,
+        uniqueAgentsCount: uniqueAgents.length,
+        nistControlsCovered: nistControls,
+        hotelCode,
+        fileId,
+      },
+      scenarioRunId: `soc2-sd-${hotelCode}-${Date.now()}`,
+      filesConsulted: govFiles.map(f => f.filename).slice(0, 20),
+      crossDomainInheritance: false,
+    });
+
+    res.json({ success: true, fileId, filename, wordCount, hotelCode, companyName });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ─── GET /api/admin/soc2-sd-status/:companyId ─────────────────────────────────
+// Returns staleness info for the hotel's SOC 2 System Description.
+// isStale = true when the document has not been regenerated/reviewed in >90 days.
+
+router.get("/admin/soc2-sd-status/:companyId", async (req, res) => {
+  const companyId = parseInt(req.params.companyId, 10);
+  if (isNaN(companyId)) return res.status(400).json({ error: "Invalid companyId" });
+
+  try {
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
+    if (!company) return res.status(404).json({ error: "Company not found" });
+
+    const hotelCode = (company as any).apaleoPropertyId || "UNK";
+    const filename = `SOC2-SystemDescription-${hotelCode}.SYSTEM-DESC.md`;
+
+    const [sdFile] = await db
+      .select({
+        id: governanceFiles.id, filename: governanceFiles.filename,
+        wordCount: governanceFiles.wordCount, updatedAt: governanceFiles.updatedAt,
+        status: governanceFiles.status, signedBy: governanceFiles.signedBy,
+        signedRole: governanceFiles.signedRole, signedAt: governanceFiles.signedAt,
+      })
+      .from(governanceFiles)
+      .where(and(
+        eq(governanceFiles.companyId, companyId),
+        eq(governanceFiles.filename, filename),
+        eq(governanceFiles.isArchived, false)
+      ));
+
+    const recentWitnessEntries = await db
+      .select({
+        id: witnessEntries.id, reasoning: witnessEntries.reasoning,
+        createdAt: witnessEntries.createdAt, apaleoData: witnessEntries.apaleoData,
+        clauseApplied: witnessEntries.clauseApplied,
+      })
+      .from(witnessEntries)
+      .where(and(
+        eq(witnessEntries.companyId, companyId),
+        eq(witnessEntries.fileReferenced, filename)
+      ))
+      .orderBy(desc(witnessEntries.createdAt))
+      .limit(5);
+
+    const lastGeneratedAt = recentWitnessEntries[0]?.createdAt ?? null;
+    const daysSinceGeneration = lastGeneratedAt
+      ? Math.floor((Date.now() - new Date(lastGeneratedAt).getTime()) / 86400000)
+      : null;
+    const isStale = daysSinceGeneration === null ? true : daysSinceGeneration > 90;
+
+    res.json({
+      exists: !!sdFile,
+      fileId: sdFile?.id ?? null,
+      filename,
+      wordCount: sdFile?.wordCount ?? 0,
+      status: sdFile?.status ?? null,
+      signedBy: sdFile?.signedBy ?? null,
+      signedRole: sdFile?.signedRole ?? null,
+      signedAt: sdFile?.signedAt ?? null,
+      lastGeneratedAt,
+      daysSinceGeneration,
+      isStale,
+      recentWitnessEntries,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
 export default router;
+
