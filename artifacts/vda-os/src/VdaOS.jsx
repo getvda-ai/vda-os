@@ -2685,7 +2685,11 @@ function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onS
   useEffect(() => {
     clearInterval(streamRef.current);
     if (cache[sel]) { setDisplayedMd(cache[sel].md); setStatus("done"); }
-    else { setDisplayedMd(""); setStatus("idle"); }
+    else {
+      setDisplayedMd(""); setStatus("idle");
+      // Auto-run: kick off C2MD translation immediately — no button click required
+      handleTranslate();
+    }
     setError(null);
   }, [sel]);
 
