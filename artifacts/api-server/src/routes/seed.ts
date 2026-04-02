@@ -2274,7 +2274,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
   }
 
   // ── C2MD ENRICHMENT PASS ─────────────────────────────────────────────────────
-  // Generate brand-adapted markdown for each of the 20 VDA-MD governance files using
+  // Generate brand-adapted markdown for each of the 23 VDA-MD governance files using
   // Claude (up to 19 calls, shared across all 5 citizenM hotels since they share a brand).
   // Idempotent: files containing C2MD_MARKER are skipped.
   const c2mdLog: string[] = [];
@@ -2397,7 +2397,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
 });
 
 // ─── POST /api/admin/seed-company-governance ─────────────────────────────────
-// Seeds all 20 VDA-MD canonical governance files for a single company (wizard flow).
+// Seeds 23 VDA-MD canonical governance files for a single company (wizard flow).
 // Idempotent — existing canonical files are updated, legacy files archived.
 
 router.post("/admin/seed-company-governance", async (req, res) => {
