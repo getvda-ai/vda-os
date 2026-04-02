@@ -2628,19 +2628,24 @@ function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onS
   const [status, setStatus] = useState("idle");
   const [displayedMd, setDisplayedMd] = useState("");
   const [error, setError] = useState(null);
+  // true while fetching enriched content from the database on first open
+  const [isPrePopulating, setIsPrePopulating] = useState(true);
   const streamRef = useRef(null);
   const ctrl = NIST_CONTROLS[sel];
   const result = cache[sel];
 
-  // Pre-populate cache from enriched governance files already in the File Manager.
-  // Runs once per company load. Only fills controls not already in cache.
+  // ── PRIMARY PATH: Load enriched C2MD content from database ──────────────────
+  // Seed → generateC2MDContent → stored in DB → we read it here.
+  // Files with c2md_generated: true in their content are the DB source of truth.
+  // Runs once per company. After completion, any control not found in DB falls
+  // through to the live API fallback (handleTranslate).
   useEffect(() => {
-    if (!companyId) return;
+    if (!companyId) { setIsPrePopulating(false); return; }
     let cancelled = false;
     (async () => {
       try {
         const listRes = await fetch(`/api/fm/files/${companyId}`);
-        if (!listRes.ok) return;
+        if (!listRes.ok) { setIsPrePopulating(false); return; }
         const files = await listRes.json();
         const newEntries = {};
         for (const controlId of config.nistControls) {
@@ -2656,18 +2661,23 @@ function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onS
             newEntries[controlId] = { md: full.content, filename: full.filename, overall_confidence: 0.97, clauses: [] };
           }
         }
-        if (cancelled || !Object.keys(newEntries).length) return;
-        setCache(prev => ({ ...newEntries, ...prev }));
-        // Also update local display state if the currently selected control was pre-populated
-        if (newEntries[sel] && (status === "idle" || status === "error")) {
-          setDisplayedMd(newEntries[sel].md);
-          setStatus("done");
+        if (!cancelled && Object.keys(newEntries).length) {
+          setCache(prev => ({ ...newEntries, ...prev }));
+          // Show the currently selected control immediately if it was just found
+          if (newEntries[sel]) {
+            setDisplayedMd(newEntries[sel].md);
+            setStatus("done");
+          }
         }
       } catch {}
+      if (!cancelled) setIsPrePopulating(false);
     })();
     return () => { cancelled = true; };
   }, [companyId]);
 
+  // ── FALLBACK: Live API generation via runC2MDTranslation ────────────────────
+  // Only used when the DB has no enriched content for a control (e.g. before seed
+  // enrichment runs). Triggered automatically — no button click required.
   const handleTranslate = async () => {
     if (result || status === "calling" || status === "streaming") return;
     setError(null); setStatus("calling"); setDisplayedMd(""); clearInterval(streamRef.current);
@@ -2682,16 +2692,22 @@ function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onS
     } catch (e) { clearInterval(streamRef.current); setStatus("error"); setError(e.message); }
   };
 
+  // When control selection changes: show from cache (DB or previously generated),
+  // or — once pre-population is done — auto-trigger the live fallback.
   useEffect(() => {
     clearInterval(streamRef.current);
     if (cache[sel]) { setDisplayedMd(cache[sel].md); setStatus("done"); }
-    else {
-      setDisplayedMd(""); setStatus("idle");
-      // Auto-run: kick off C2MD translation immediately — no button click required
-      handleTranslate();
-    }
+    else { setDisplayedMd(""); setStatus("idle"); }
     setError(null);
   }, [sel]);
+
+  // After pre-population completes: if the selected control still has no content,
+  // auto-trigger the live generation fallback (no button click needed).
+  useEffect(() => {
+    if (!isPrePopulating && !cache[sel] && status === "idle") {
+      handleTranslate();
+    }
+  }, [isPrePopulating]);
 
   const isTranslating = status === "calling" || status === "streaming";
   const isDone = status === "done" && result;
@@ -2806,10 +2822,16 @@ function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onS
               </>
             ) : error ? (
               <div style={{ padding: 24, color: T.red, fontFamily: T.mono, fontSize: 13 }}>⚠ {error}</div>
+            ) : isPrePopulating ? (
+              <div style={{ textAlign: "center", paddingTop: 100, color: T.dim }}>
+                <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1.2s linear infinite", display: "inline-block" }}>◎</div>
+                <div style={{ fontSize: 13, fontFamily: T.mono, color: T.muted, marginTop: 8 }}>Loading from database…</div>
+                <div style={{ fontSize: 11, marginTop: 4, color: T.dim }}>{companyName} governance files · C2MD enrichment</div>
+              </div>
             ) : (
               <div style={{ textAlign: "center", paddingTop: 100, color: T.dim }}>
                 <div style={{ fontSize: 36, marginBottom: 16, opacity: 0.4 }}>→</div>
-                <div style={{ fontSize: 14, fontFamily: T.mono, color: T.muted }}>Click → to translate</div>
+                <div style={{ fontSize: 14, fontFamily: T.mono, color: T.muted }}>Generating compliance markdown…</div>
                 <div style={{ fontSize: 12, marginTop: 6, color: T.dim }}>OSCAL + {companyName} brand context → C2MD</div>
               </div>
             )}
