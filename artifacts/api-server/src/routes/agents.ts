@@ -125,509 +125,22 @@ async function mcpOrRest<T>(
 // Each policy is a governance-as-markdown file with mandatory MUST/MUST NOT/MAY
 // clauses, explicit Apaleo API scopes, NIST control references, and escalation paths.
 
-const POLICIES: Record<string, string> = {
-  availability: `---
-title: "Availability Agent Policy"
-type: AGENTS
-control_id: availability-policy
-domain: Revenue
-owner: Head of Revenue
-axis: vertical
-stage: Pre-Arrival
-agent_id: agent-availability-001
-nist_control: AC-2
-baseline: true
-api_scopes:
-  read:
-    - availability.read
-    - rateplans.read-corporate
-    - rates.read
-    - offers.read
-  write: []
----
+// ─── VDA-MD Mandatory Governance Clause ──────────────────────────────────────
+// Returned verbatim as clauseApplied when no governance files are found.
+// Per VDA-MD framework §2.1: a governance file is a mandatory pre-condition
+// for any agent decision. Hardcoded fallback policies have been removed.
+const VDA_MD_MANDATORY_ESCALATE_CLAUSE =
+  "No governance markdown file is loaded for this agent. Per VDA-MD framework §2.1, all agent decisions are suspended until a valid AGENTS.md, SOP.md, and SKILL.md are present. Decision: ESCALATE.";
 
-## Purpose
-Queries live Apaleo availability and rate plan data to determine whether unit groups
-are bookable for requested date ranges, and surfaces active offers to revenue managers.
-
-## Responsibilities
-The agent MUST query live Apaleo unit group availability via the GetAvailableUnitGroups
-MCP tool before making any availability decision — fabricated data is a FAIL.
-The agent MUST retrieve current rate plans via ListRatePlans and active offers via
-ListOffers before responding, to ensure rate context is accurate.
-The agent MUST flag zero availability immediately as FAIL with the reason logged to the
-Witness Stream including property ID, dates, and adult count.
-The agent MUST NOT fabricate or estimate availability — all decisions MUST reference
-real-time Apaleo API responses (NIST AC-2: access to data limited to authorised sources).
-The agent MUST NOT bypass the availability check even if rate plan data is already cached.
-The agent MAY suggest alternative dates if availability is low (below 10% of unit count).
-The agent MAY surface active promotional offers alongside rate plan data.
-
-## Decision Criteria
-- PASS: Units available for the full requested date range with at least one active rate plan
-- FAIL: Zero units available, invalid date range, or arrival date in the past
-- ESCALATE: Availability below 10% of total unit count — Revenue Manager review required
-
-## Escalation Path
-Low-availability escalations route to the Head of Revenue.
-System failures or MCP connectivity issues route to the Operations Director.
-
-## Compliance Baseline
-- NIST AC-2: Data access restricted to availability.read, rateplans.read-corporate,
-  rates.read, offers.read OAuth scopes — no write access granted to this agent
-- NIST AU-2: Every availability decision logged to Witness Stream with full context
-- NIST SA-4: MCP integration governed by Apaleo mcp:tools scope; fallback to REST API
-- NIST IR-4: REST fallback active if MCP unavailable — no single point of failure
-- PCI DSS 7.1: Least-privilege access — read-only scopes only, no payment data access
-- ISO 22301: Business continuity maintained via REST fallback path`,
-
-  rate: `---
-title: "Rate Agent — Rate Override Policy"
-type: AGENTS
-control_id: rate-override-policy
-domain: Revenue
-owner: Head of Revenue
-axis: vertical
-stage: Pre-Arrival
-agent_id: agent-rate-001
-nist_control: AC-2
-baseline: true
-api_scopes:
-  read:
-    - rateplans.read-corporate
-    - rates.read
-    - reports.read
-  write: []
----
-
-## Purpose
-Evaluates rate override requests against the Best Available Rate (BAR) for the
-requested property and date range, enforcing discount thresholds and escalating
-decisions beyond agent authority.
-
-## Responsibilities
-The agent MUST retrieve current rate plans from Apaleo via ListRatePlans before
-evaluating any rate request — no rate decision may be made without live data.
-The agent MUST pull revenue report data via GetReport to benchmark the requested rate
-against current period performance.
-The agent MUST compare the requested rate against the live BAR and calculate the
-discount percentage before applying any policy clause.
-The agent MUST log the override reason, requestor role, governing clause, and
-discount percentage for every rate decision to the Witness Stream (NIST AU-2).
-The agent MUST NOT apply rates below the property floor rate under any circumstance — FAIL.
-The agent MUST NOT approve discounts greater than 10% below BAR without escalation.
-The agent MAY apply BAR or contracted corporate rates without additional approval.
-The agent MAY apply discounts up to 10% below BAR — agent authority, log and PASS.
-
-## Override Thresholds
-- Discount ≤10% below BAR: Agent authority → PASS with log
-- Discount 11–25% below BAR: Revenue Manager approval required → ESCALATE
-- Discount >25% below BAR: Director of Revenue sign-off required → ESCALATE
-- Any complimentary room (100% discount): General Manager approval only → ESCALATE
-
-## Escalation Path
-Discounts 11–25%: Revenue Manager.
-Discounts >25%: Director of Revenue.
-Complimentary: General Manager.
-
-## Compliance Baseline
-- NIST AC-2: Rate data access restricted to rateplans.read-corporate, rates.read,
-  reports.read scopes — no write access granted to this agent
-- NIST AU-2: All rate decisions and override reasoning logged to Witness Stream
-- NIST SA-4: MCP integration verified before each request; REST fallback maintained
-- NIST IR-4: System continues operating via REST if MCP unavailable
-- PCI DSS 7.1: Least-privilege read-only access — no payment or folio data touched
-- ISO 22301: Dual-path (MCP + REST) ensures continuity during integration outages`,
-
-  reservation: `---
-title: "Reservation Bot Policy"
-type: AGENTS
-control_id: reservation-bot-policy
-domain: Operations
-owner: Operations Director
-axis: vertical
-stage: Reservation
-agent_id: agent-reservation-bot-001
-nist_control: AC-2
-baseline: true
-api_scopes:
-  read:
-    - availability.read
-    - rateplans.read-corporate
-    - rates.read
-    - reservations.read
-    - profile:read
-  write:
-    - distribution:reservations.manage
----
-
-## Purpose
-Creates and modifies Apaleo reservations under governance control, ensuring availability,
-valid rate plans, and guest identity are verified before any booking is committed.
-
-## Responsibilities
-The agent MUST verify unit group availability via GetAvailableUnitGroups before creating
-any reservation — creating on zero-availability is a hard FAIL.
-The agent MUST confirm a valid rate plan via ListRatePlans is attached before committing
-any booking.
-The agent MUST verify guest identity via GetGuestProfile before creating or modifying a
-reservation, and log the profile reference in the Witness Stream.
-The agent MUST capture guest name and at least one contact method (email or phone).
-The agent MUST NOT create reservations with past arrival dates — FAIL immediately.
-The agent MUST NOT double-book: the agent MUST check existing reservations for the
-same unit group before committing a new booking.
-The agent MUST NOT execute CreateBooking or AmendReservation until the policy
-evaluation decision is explicitly PASS.
-The agent MAY modify reservation dates if new dates have confirmed availability — PASS with log.
-The agent MAY update guest contact details without additional approval.
-
-## Modification Rules
-- Modifications affecting more than 3 nights: flag for Revenue Manager review → ESCALATE
-- Rate reductions below floor rate: FAIL — do not modify
-
-## Escalation Path
-Double-booking risk or rate disputes: Revenue Manager.
-Identity verification failures: Operations Director.
-
-## Compliance Baseline
-- NIST AC-2: Write access (distribution:reservations.manage) exercised only after PASS;
-  read scopes availability.read, rateplans.read-corporate, rates.read, reservations.read,
-  profile:read are used in evaluation
-- NIST AU-2: Every create/modify/retrieve action logged to Witness Stream with
-  reservation ID, guest name, dates, and rate
-- NIST SA-4: MCP tools used for all data retrieval; REST fallback maintained
-- NIST IR-4: Agent falls back to REST API if MCP session unavailable
-- PCI DSS 7.1: Guest profile access restricted to profile:read — no payment data stored
-- ISO 22301: Dual-path execution ensures reservation capability during MCP outages`,
-
-  checkin: `---
-title: "Check-In Agent Policy"
-type: AGENTS
-control_id: check-in-policy
-domain: Operations
-owner: Operations Director
-axis: vertical
-stage: Check-In
-agent_id: agent-checkin-001
-nist_control: AC-2
-baseline: true
-api_scopes:
-  read:
-    - reservations.read
-    - folios.read
-    - profile:read
-    - payment-accounts.read
-  write:
-    - distribution:reservations.manage
----
-
-## Purpose
-Validates all pre-check-in conditions against live Apaleo data and executes the
-check-in API action only when all five governance gates are satisfied.
-
-## Responsibilities
-The agent MUST retrieve the full reservation record via GetReservation and verify
-status, guest name, and arrival date before proceeding.
-The agent MUST verify guest identity via GetGuestProfile (profile:read scope) —
-name mismatch between profile and reservation is a hard FAIL (Gate 2).
-The agent MUST retrieve open folios via ListFolios and confirm at least one folio
-exists in Open status — missing folio is ESCALATE (Gate 3).
-The agent MUST verify a valid payment method via ListPaymentAccounts (payment-accounts.read
-scope) or confirm folio balance is covered — absent payment is ESCALATE (Gate 4).
-The agent MUST NOT execute the check-in API write until all five gates have been
-evaluated and the policy decision is PASS.
-The agent MUST NOT check in guests whose arrival date is in the future (Gate 5) — FAIL.
-The agent MAY proceed with check-in if Gates 1–5 all return green.
-The agent MAY override Gate 4 (payment) only with Front Office Manager explicit approval
-logged in the Witness Stream.
-
-## Pre-Check-In Validation Gates (ALL required for PASS)
-1. Reservation status MUST be "Confirmed" — FAIL if InHouse, CheckedOut, or any other terminal status
-2. Guest identity MUST match profile record (profile:read) — FAIL if mismatch
-3. Open folio MUST exist — ESCALATE to Front Office Manager if absent
-4. Valid payment method MUST be confirmed (payment-accounts.read) — ESCALATE if absent
-5. Arrival date MUST be today or in the past — FAIL if future date
-
-## Escalation Path
-Gate 3/4 failures: Front Office Manager.
-Identity failures: Operations Director.
-
-## Compliance Baseline
-- NIST AC-2: Write (distribution:reservations.manage) executed only on PASS;
-  read scopes reservations.read, folios.read, profile:read, payment-accounts.read
-  used exclusively in evaluation phase
-- NIST AU-2: Check-in decision logged to Witness Stream with guest name,
-  reservation ID, folio reference, and all five gate outcomes
-- NIST SA-4: MCP tools used for live data retrieval; REST fallback active
-- NIST IR-4: System-level fallback to REST API if MCP session unavailable
-- PCI DSS 7.2: Payment account verification via payment-accounts.read — no raw
-  card data stored or processed by this agent
-- ISO 22301: Five-gate validation ensures no check-in proceeds under unresolved conditions`,
-
-  folio_charge: `---
-title: "Folio Charge Agent Policy"
-type: AGENTS
-control_id: folio-charge-policy
-domain: Finance
-owner: Finance Director
-axis: vertical
-stage: In-Stay
-agent_id: agent-folio-charge-001
-nist_control: AU-2
-baseline: true
-api_scopes:
-  read:
-    - folios.read
-    - payment-accounts.read
-    - invoices.read
-  write:
-    - payment:transactions.manage
----
-
-## Purpose
-Posts charges to guest folios in Apaleo under financial governance controls,
-verifying folio status, payment method, and duplicate-charge prevention before
-any write action is executed.
-
-## Responsibilities
-The agent MUST verify the folio exists and is in Open status via GetFolio before
-posting any charge — posting to a closed folio is a hard FAIL.
-The agent MUST verify an active payment account via ListPaymentAccounts before
-authorising charges — absent payment method is ESCALATE.
-The agent MUST check existing invoices via ListInvoices to prevent duplicate charge
-posting for the same service on the same date.
-The agent MUST include a service type classification for every charge posted.
-The agent MUST NOT post duplicate charges for the same service and date — FAIL.
-The agent MUST NOT post charges exceeding €2,000 without Finance Director approval — ESCALATE.
-The agent MUST NOT execute CreateFolioCharge until the policy decision is explicitly PASS.
-The agent MAY post charges of €500 or less autonomously — PASS with full charge log.
-
-## Charge Threshold Rules
-- Charges ≤€500: Agent authority → PASS, log charge details
-- Charges €500–€2,000: Revenue Manager review required → ESCALATE before posting
-- Charges >€2,000: Finance Director approval required → ESCALATE, do not post
-
-## Escalation Path
-Charges €500–€2,000: Revenue Manager.
-Charges >€2,000: Finance Director.
-Payment account absent: Finance Director.
-
-## Compliance Baseline
-- NIST AC-2: Write (payment:transactions.manage) executed only after PASS;
-  read scopes folios.read, payment-accounts.read, invoices.read used in evaluation
-- NIST AU-2: Every charge posting logged to Witness Stream with folio ID,
-  service type, amount, and governing threshold clause
-- NIST SA-4: MCP tools used for folio and payment verification; REST fallback active
-- NIST IR-4: REST fallback path maintained for all read and write operations
-- PCI DSS 6.4: Service type classification mandatory on all charges — no unclassified
-  transactions permitted
-- ISO 22301: Duplicate-charge prevention via ListInvoices check before every post`,
-
-  folio: `---
-title: "Folio Agent Policy"
-type: AGENTS
-control_id: folio-review-policy
-domain: Finance
-owner: Finance Director
-axis: vertical
-stage: In-Stay
-agent_id: agent-folio-001
-nist_control: AU-2
-baseline: true
-api_scopes:
-  read:
-    - folios.read
-    - invoices.read
-    - payments.read
-    - accounting.read
-  write: []
----
-
-## Purpose
-Performs read-only analysis of guest folios, identifying charge anomalies,
-unclassified items, duplicate entries, and balance overruns — and escalates
-findings per financial governance thresholds.
-
-## Responsibilities
-The agent MUST retrieve the full folio from Apaleo via GetFolio and ListFolios
-before any analysis — no decision may be based on partial or cached data.
-The agent MUST cross-reference charges against invoice records via ListInvoices
-to identify unmatched or duplicate charge entries.
-The agent MUST flag any charge with no service type classification.
-The agent MUST flag any charge appearing more than once for the same service and date.
-The agent MUST flag total folio balance exceeding the pre-authorisation amount.
-The agent MUST log a folio summary to the Witness Stream including total balance,
-charge count, and all flags raised (NIST AU-2).
-The agent MUST NOT modify folio charges under any circumstance — this is a strictly
-read-only agent; any write attempt is a policy violation — FAIL.
-The agent MAY summarise and pass folios with charges ≤€500 with no anomalies.
-The agent MAY retrieve payment history via the payments.read scope to validate
-charge legitimacy during analysis.
-
-## Charge Review Thresholds
-- Charges ≤€500, no anomalies: PASS — summarise and log
-- Charges €500–€2,000 or any anomaly: ESCALATE to supervisor
-- Charges >€2,000 or folio dispute: ESCALATE to Finance Director
-
-## Escalation Path
-Supervisor escalations: Front Office Manager.
-Finance escalations: Finance Director.
-Disputed charges: Always escalate to Front Office Manager.
-
-## Compliance Baseline
-- NIST AC-2: Strictly read-only — scopes folios.read, invoices.read, payments.read,
-  accounting.read; no write scopes granted; modification attempts are policy violations
-- NIST AU-2: Folio analysis summary with all flags logged to Witness Stream on every run
-- NIST SA-4: MCP tools provide live folio data; REST fallback active
-- NIST IR-4: REST API fallback prevents service interruption if MCP unavailable
-- PCI DSS 7.1: Read-only least-privilege access; no card data accessed or stored
-- ISO 22301: Analysis can complete via REST path if MCP session expires`,
-
-  checkout: `---
-title: "Checkout Agent Policy"
-type: AGENTS
-control_id: checkout-policy
-domain: Operations
-owner: Operations Director
-axis: vertical
-stage: Departure
-agent_id: agent-checkout-001
-nist_control: AC-2
-baseline: true
-api_scopes:
-  read:
-    - reservations.read
-    - folios.read
-    - invoices.read
-    - payments.read
-  write:
-    - distribution:reservations.manage
----
-
-## Purpose
-Validates folio settlement, invoice status, and reservation state before executing
-the Apaleo checkout write action, enforcing late-checkout fee policy and ensuring
-zero outstanding balance.
-
-## Responsibilities
-The agent MUST retrieve the full reservation via GetReservation and confirm InHouse
-status — FAIL immediately if reservation is not InHouse.
-The agent MUST retrieve all folios via ListFolios and verify zero outstanding balance
-or confirmed payment method before proceeding.
-The agent MUST check invoice status via ListInvoices to confirm no open disputed
-charges exist on the account.
-The agent MUST NOT execute the CheckOut API write until the policy decision is PASS.
-The agent MUST NOT check out a reservation with unresolved disputed charges — ESCALATE.
-The agent MUST NOT check out a reservation with an outstanding folio balance and no
-confirmed payment method — ESCALATE.
-The agent MAY waive the late-checkout fee for Gold/Platinum loyalty tier guests until
-14:00, logging exception_applied: true to the Witness Stream.
-The agent MAY apply a 50% late-checkout surcharge (14:00–18:00) autonomously — PASS.
-
-## Late Checkout Fee Schedule
-- By 11:00 (standard): No fee → PASS
-- 11:00–14:00 (Gold/Platinum): Fee waived — exception_applied: true → PASS with log
-- 14:00–18:00: 50% of one night rate → PASS, agent may apply
-- After 18:00: Full night rate → PASS, agent may apply
-- Complimentary late checkout: General Manager approval only → ESCALATE
-
-## Folio Settlement Gate (ALL required for PASS)
-- Folio outstanding balance MUST be zero or valid payment method confirmed
-- No outstanding disputed charges on any folio or linked invoice
-- Reservation MUST be InHouse status
-
-## Escalation Path
-Disputed charges or unresolved balance: Front Office Manager.
-Complimentary late checkout: General Manager.
-
-## Compliance Baseline
-- NIST AC-2: Write (distribution:reservations.manage) executed only on PASS;
-  read scopes reservations.read, folios.read, invoices.read, payments.read used in eval
-- NIST AU-2: Checkout decision logged with reservation ID, guest name, departure
-  time, folio status, and any late-checkout exception
-- NIST SA-4: MCP tools used for live reservation and folio retrieval; REST fallback active
-- NIST IR-4: Dual-path execution maintained for all operations
-- PCI DSS 7.2: Payment method verification via folios.read and payments.read before
-  checkout — no raw card data stored by this agent
-- ISO 22301: Settlement gate prevents checkout under unresolved financial conditions`,
-
-  revenue: `---
-title: "Revenue Reconciliation Agent Policy"
-type: AGENTS
-control_id: revenue-reconciliation-policy
-domain: Finance
-owner: CFO / Revenue Director
-axis: horizontal
-stage: Reconciliation
-agent_id: agent-revenue-001
-nist_control: AU-2
-baseline: true
-api_scopes:
-  read:
-    - reports.read
-    - rates.read
-    - rateplans.read-corporate
-    - folios.read
-    - invoices.read
-    - accounting.read
-  write: []
----
-
-## Purpose
-Performs daily revenue reconciliation by comparing actual revenue data from Apaleo
-reports against rate plan expectations per unit group, flagging variances to the
-appropriate financial authority.
-
-## Responsibilities
-The agent MUST pull live revenue report data via GetReport (reports.read scope) for
-the specified property and date before performing any reconciliation.
-The agent MUST retrieve current rate plan expectations via ListRatePlans and cross-
-reference each reservation's actual rate against its contracted rate plan.
-The agent MUST cross-reference folio records via ListFolios and invoice data via
-ListInvoices to identify unmatched folios (no linked reservation).
-The agent MUST compare actual vs expected revenue and calculate the variance percentage
-for each unit group.
-The agent MUST log a full reconciliation summary to the Witness Stream including
-variance percentage, discrepancy types, and all flagged reservation IDs (NIST AU-2).
-The agent MUST NOT modify any financial records — this is a strictly read-only agent.
-The agent MUST NOT issue reconciliation decisions based on cached or estimated data —
-live API data is mandatory for every run.
-The agent MAY pass reconciliation with variance ≤5% as normal operational variance.
-The agent MAY summarise discrepancy patterns to aid Revenue Manager review.
-
-## Variance Thresholds
-- Variance ≤5%: Normal operational variance → PASS
-- Variance 5–15%: Revenue Manager review required → ESCALATE
-- Variance >15%: Immediate Finance Director notification → ESCALATE
-
-## Discrepancy Types
-- Underpayment vs contracted rate: Flag with reservation ID → ESCALATE
-- Overbilling vs rate plan: Flag immediately → ESCALATE
-- Unmatched folios (no linked reservation): Flag for Finance audit → ESCALATE
-
-## Escalation Path
-Variance 5–15%: Revenue Manager.
-Variance >15%: Finance Director.
-Unmatched folios: CFO / Finance audit.
-
-## Compliance Baseline
-- NIST AC-2: Strictly read-only — scopes reports.read, rates.read, rateplans.read-corporate,
-  folios.read, invoices.read, accounting.read; no write access granted
-- NIST AU-2: Full reconciliation log written to Witness Stream on every run including
-  variance %, discrepancy flags, and all affected reservation IDs
-- NIST SA-4: MCP tools used for live report and rate data; REST fallback active
-- NIST IR-4: REST fallback path maintained — reconciliation can complete without MCP
-- PCI DSS 10.2: Audit trail covers all reconciliation decisions and variance flags
-- ISO 22301: Daily reconciliation schedule maintained via REST if MCP unavailable`,
-};
 
 // ─── FM Governance Policy Lookup ─────────────────────────────────────────────
 // Maps policy keys (used internally) to the canonical agentId in the File Manager.
 // Agents load ALL file types (AGENTS + SOP + SKILL) for their agentId, concatenated.
 // Folio and checkout agents also inherit the Finance O2C shared services file.
-// Hardcoded POLICIES above are fallbacks ONLY — used when no live FM files exist.
+// VDA-MD §2.1: governance markdown is MANDATORY — no hardcoded fallback exists.
+// If no FM files are found for a company+agent pair, the system MUST ESCALATE.
 
-const POLICY_AGENT_ID_MAP: Record<string, string | null> = {
+const POLICY_AGENT_ID_MAP: Record<string, string> = {
   availability:  "availability-agent",
   rate:          "rate-agent",
   reservation:   "reservation-bot",
@@ -635,7 +148,7 @@ const POLICY_AGENT_ID_MAP: Record<string, string | null> = {
   folio:         "folio-charge-agent",
   folio_charge:  "folio-charge-agent",
   checkout:      "checkout-agent",
-  revenue:       null, // no FM files — always uses hardcoded fallback
+  revenue:       "revenue-reconciliation-agent",
 };
 
 // Agents that must inherit from Finance O2C shared services (cross-domain inheritance)
@@ -647,79 +160,80 @@ const CROSS_DOMAIN_AGENT_IDS: Record<string, string[]> = {
 interface GovernancePolicyResult {
   policyText: string;
   filesLoaded: string[];
+  mandatoryEscalate?: boolean;
 }
 
 async function getGovernancePolicyFromFM(companyId: number, policyKey: string): Promise<GovernancePolicyResult> {
   const agentId = POLICY_AGENT_ID_MAP[policyKey];
-  if (agentId && companyId) {
-    try {
-      // Load all VDA-MD file types for this agent: AGENTS (charter) + SOP (rules) + SKILL (tools)
-      const rows = await db
+
+  // VDA-MD §2.1: unmapped agent key = governance failure → mandatory ESCALATE
+  if (!agentId) {
+    logger.error({ companyId, policyKey }, "VDA-MD violation: agent key not in POLICY_AGENT_ID_MAP — mandatory ESCALATE");
+    return { policyText: VDA_MD_MANDATORY_ESCALATE_CLAUSE, filesLoaded: [], mandatoryEscalate: true };
+  }
+
+  try {
+    // Load all VDA-MD file types for this agent: AGENTS (charter) + SOP (rules) + SKILL (tools)
+    const rows = await db
+      .select({ content: governanceFiles.content, filename: governanceFiles.filename, fileType: governanceFiles.fileType })
+      .from(governanceFiles)
+      .where(
+        and(
+          eq(governanceFiles.companyId, companyId),
+          eq(governanceFiles.agentId, agentId),
+          eq(governanceFiles.isArchived, false)
+        )
+      )
+      .orderBy(governanceFiles.fileType); // AGENTS → SHARED_SERVICES → SKILL → SOP (alphabetical)
+
+    // Also load cross-domain shared services files if this agent requires them
+    const crossDomainIds = CROSS_DOMAIN_AGENT_IDS[agentId] ?? [];
+    let crossDomainRows: { content: string; filename: string; fileType: string }[] = [];
+    if (crossDomainIds.length > 0) {
+      crossDomainRows = await db
         .select({ content: governanceFiles.content, filename: governanceFiles.filename, fileType: governanceFiles.fileType })
         .from(governanceFiles)
         .where(
           and(
             eq(governanceFiles.companyId, companyId),
-            eq(governanceFiles.agentId, agentId),
-            eq(governanceFiles.isArchived, false)
+            eq(governanceFiles.isArchived, false),
+            inArray(governanceFiles.agentId, crossDomainIds)
           )
-        )
-        .orderBy(governanceFiles.fileType); // AGENTS → SHARED_SERVICES → SKILL → SOP (alphabetical)
-
-      // Also load cross-domain shared services files if this agent requires them
-      const crossDomainIds = CROSS_DOMAIN_AGENT_IDS[agentId] ?? [];
-      let crossDomainRows: { content: string; filename: string; fileType: string }[] = [];
-      if (crossDomainIds.length > 0) {
-        crossDomainRows = await db
-          .select({ content: governanceFiles.content, filename: governanceFiles.filename, fileType: governanceFiles.fileType })
-          .from(governanceFiles)
-          .where(
-            and(
-              eq(governanceFiles.companyId, companyId),
-              eq(governanceFiles.isArchived, false),
-              inArray(governanceFiles.agentId, crossDomainIds)
-            )
-          );
-      }
-
-      const allRows = [...crossDomainRows, ...rows]; // cross-domain first (pre-condition block)
-
-      // Also load active EXCEPTION overlays for this agent (separate from AGENTS/SOP/SKILL)
-      // EXCEPTION files are filtered out of the main rows (which include all fileTypes) and handled specially
-      const baseRows = allRows.filter(r => r.fileType !== "EXCEPTION");
-      const exceptionRows = allRows.filter(r => r.fileType === "EXCEPTION");
-      const filesLoaded = [...baseRows.map(r => r.filename), ...exceptionRows.map(r => r.filename)];
-
-      if (baseRows.length > 0 && baseRows.some(r => r.content && r.content.length > 200)) {
-        let policyText = baseRows
-          .map(r => `## [${r.fileType}] ${r.filename}\n\n${r.content}`)
-          .join("\n\n---\n\n");
-
-        // Append exception overlays after the SOP baseline with a clear section header
-        if (exceptionRows.length > 0) {
-          const exceptionText = exceptionRows
-            .map(r => `### [${r.fileType}] ${r.filename}\n\n${r.content}`)
-            .join("\n\n");
-          policyText += `\n\n---\n\n## Active Exception Overlays\n\nThe following active exception overlay(s) take precedence over the SOP baseline where all activation conditions are met:\n\n${exceptionText}`;
-        }
-
-        logger.info({ companyId, policyKey, agentId, filesLoaded, crossDomain: crossDomainIds.length > 0, exceptionCount: exceptionRows.length }, "Agent loaded multi-file policy from FM governance files");
-        return { policyText, filesLoaded };
-      }
-    } catch (err) {
-      logger.warn({ err, companyId, policyKey }, "FM policy lookup failed — using hardcoded fallback");
+        );
     }
+
+    const allRows = [...crossDomainRows, ...rows]; // cross-domain first (pre-condition block)
+
+    // EXCEPTION files handled separately — filtered out of base policy block
+    const baseRows = allRows.filter(r => r.fileType !== "EXCEPTION");
+    const exceptionRows = allRows.filter(r => r.fileType === "EXCEPTION");
+    const filesLoaded = [...baseRows.map(r => r.filename), ...exceptionRows.map(r => r.filename)];
+
+    // VDA-MD §2.1: no governance files found for this company+agent = mandatory ESCALATE
+    if (baseRows.length === 0 || !baseRows.some(r => r.content && r.content.length > 200)) {
+      logger.error({ companyId, policyKey, agentId, baseRows: baseRows.length }, "VDA-MD violation: no governance files found for this company+agent — mandatory ESCALATE");
+      return { policyText: VDA_MD_MANDATORY_ESCALATE_CLAUSE, filesLoaded: [], mandatoryEscalate: true };
+    }
+
+    let policyText = baseRows
+      .map(r => `## [${r.fileType}] ${r.filename}\n\n${r.content}`)
+      .join("\n\n---\n\n");
+
+    // Append exception overlays after the SOP baseline with a clear section header
+    if (exceptionRows.length > 0) {
+      const exceptionText = exceptionRows
+        .map(r => `### [${r.fileType}] ${r.filename}\n\n${r.content}`)
+        .join("\n\n");
+      policyText += `\n\n---\n\n## Active Exception Overlays\n\nThe following active exception overlay(s) take precedence over the SOP baseline where all activation conditions are met:\n\n${exceptionText}`;
+    }
+
+    logger.info({ companyId, policyKey, agentId, filesLoaded, crossDomain: crossDomainIds.length > 0, exceptionCount: exceptionRows.length }, "Agent loaded multi-file policy from FM governance files");
+    return { policyText, filesLoaded };
+  } catch (err) {
+    // DB error = governance unavailable → mandatory ESCALATE (never fall back to hardcoded policy)
+    logger.error({ err, companyId, policyKey, agentId }, "VDA-MD: FM governance lookup failed — mandatory ESCALATE (no hardcoded fallback)");
+    return { policyText: VDA_MD_MANDATORY_ESCALATE_CLAUSE, filesLoaded: [], mandatoryEscalate: true };
   }
-  const fallback = POLICIES[policyKey];
-  if (!fallback) {
-    logger.warn({ policyKey }, "No policy found in FM or hardcoded POLICIES — agent will run without policy context");
-    return {
-      policyText: `## Policy Not Found\nNo governance file found for policy key: ${policyKey}. Escalate all decisions until a governance file is loaded.`,
-      filesLoaded: [],
-    };
-  }
-  logger.info({ companyId, policyKey }, "Agent using hardcoded fallback policy");
-  return { policyText: fallback, filesLoaded: [] };
 }
 
 // ─── Agent Decision Type ──────────────────────────────────────────────────────
@@ -786,8 +300,22 @@ async function evaluateWithPolicy(
   task: string,
   companyId: number = 0
 ): Promise<AgentDecision> {
-  const { policyText, filesLoaded } = await getGovernancePolicyFromFM(companyId, policyKey);
+  const { policyText, filesLoaded, mandatoryEscalate } = await getGovernancePolicyFromFM(companyId, policyKey);
   void filesLoaded; // available for downstream Witness Agent — used in evaluateWithPolicyAndMcp
+
+  // VDA-MD §2.1: no governance files → mandatory ESCALATE, no AI call
+  if (mandatoryEscalate) {
+    logger.error({ agentName, policyKey, companyId }, "VDA-MD mandatory ESCALATE: no governance files — AI evaluation skipped");
+    return {
+      decision: "ESCALATE",
+      clauseApplied: VDA_MD_MANDATORY_ESCALATE_CLAUSE,
+      actionProposed: "Governance files must be seeded before this agent can make any decision.",
+      exceptionApplied: false,
+      escalationTarget: "Operations Director",
+      reasoning: "No VDA-MD governance files found for this agent and company. Per §2.1, all decisions are suspended until AGENTS.md, SOP.md, and SKILL.md are present.",
+    };
+  }
+
   const aiResponse = await callAI({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
@@ -846,7 +374,25 @@ async function evaluateWithPolicyAndMcp(
   agentToolNames: string[],
   companyId: number = 0
 ): Promise<AgenticEvalResult> {
-  const { policyText, filesLoaded } = await getGovernancePolicyFromFM(companyId, policyKey);
+  const { policyText, filesLoaded, mandatoryEscalate } = await getGovernancePolicyFromFM(companyId, policyKey);
+
+  // VDA-MD §2.1: no governance files → mandatory ESCALATE, no AI call, no MCP call
+  if (mandatoryEscalate) {
+    logger.error({ agentName, policyKey, companyId }, "VDA-MD mandatory ESCALATE: no governance files — AI+MCP evaluation skipped");
+    return {
+      decision: {
+        decision: "ESCALATE",
+        clauseApplied: VDA_MD_MANDATORY_ESCALATE_CLAUSE,
+        actionProposed: "Governance files must be seeded before this agent can make any decision.",
+        exceptionApplied: false,
+        escalationTarget: "Operations Director",
+        reasoning: "No VDA-MD governance files found for this agent and company. Per §2.1, all decisions are suspended until AGENTS.md, SOP.md, and SKILL.md are present.",
+      },
+      toolCallsMade: 0,
+      usedMcp: false,
+      filesLoaded: [],
+    };
+  }
 
   let anthropicTools: Array<{
     name: string;

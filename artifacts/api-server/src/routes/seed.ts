@@ -1713,6 +1713,234 @@ MUST NOT call any tool not listed in this manifest.
     },
 
     // ──────────────────────────────────────────────────────────────────────────
+    // REVENUE RECONCILIATION AGENT — Finance · Reconciliation
+    // ──────────────────────────────────────────────────────────────────────────
+    {
+      filename: "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.AGENTS.md",
+      filepath: "governance/Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.AGENTS.md",
+      fileType: "AGENTS",
+      axis: "horizontal",
+      stage: "reconciliation",
+      journeyStage: "Reconciliation",
+      owner: "CFO",
+      domain: "Finance",
+      agentId: "revenue-reconciliation-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: AGENTS
+agent_id: revenue-reconciliation-agent
+industry: Hospitality
+domain: Finance
+journey_stage_axis: Reconciliation
+value_stream_axis: horizontal
+authored_by: CFO
+consulted: Finance Director, Revenue Manager, Head of Revenue
+informed: General Manager, VP Revenue, CISO
+approved_by: CFO
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: HIGH
+c2md_confidence: 0.93
+nist_control: AU-2, AC-2
+apaleo_api: Reports API, Rate Plan API, Folio API, Invoices API
+---
+
+# Revenue Reconciliation Agent — Charter (AGENTS)
+
+## Purpose
+
+Performs daily revenue reconciliation by comparing actual revenue data from the Apaleo Reports API against rate plan expectations per unit group, flagging variances to the appropriate financial authority. This is a strictly read-only, cross-domain, horizontal agent.
+
+## RACI
+
+| Role | Assignment |
+|------|-----------|
+| Responsible | Revenue Reconciliation Agent |
+| Accountable | CFO / Revenue Director |
+| Consulted | Finance Director, Revenue Manager |
+| Informed | General Manager, Head of Revenue, CISO |
+
+## Agent Scope
+
+- **Domain**: Finance — reconciliation and variance reporting only
+- **Axis**: Horizontal — cross-property, cross-period analysis
+- **Write authority**: NONE — this agent has zero write scopes
+- **Escalation authority**: Revenue Manager (variance 5–15%), Finance Director (variance >15%), CFO (unmatched folios)
+
+## Responsibilities
+
+The agent MUST pull live revenue report data via the Apaleo Reports API (reports.read scope) for the specified property and date before performing any reconciliation.
+The agent MUST retrieve current rate plan expectations via the Rate Plan API (ListRatePlans) and cross-reference each reservation's actual rate against its contracted rate plan.
+The agent MUST cross-reference folio records via the Folio API (ListFolios) and invoice data via the Invoices API (ListInvoices) to identify unmatched folios.
+The agent MUST compare actual vs expected revenue and calculate the variance percentage for each unit group.
+The agent MUST log a full reconciliation summary to the Witness Agent including variance percentage, discrepancy types, and all flagged reservation IDs (NIST AU-2).
+The agent MUST NOT modify any financial records — this is a strictly read-only agent with no write scopes.
+The agent MUST NOT issue reconciliation decisions based on cached or estimated data — live Apaleo API data is mandatory for every run.
+The agent MAY pass reconciliation with variance ≤5% as normal operational variance.
+The agent MAY summarise discrepancy patterns to aid Revenue Manager review.
+
+## Escalation Path
+
+- Variance 5–15%: Revenue Manager
+- Variance >15%: Finance Director (immediate notification)
+- Unmatched folios: CFO / Finance audit
+- System unavailable: Operations Director
+
+## Compliance Baseline
+
+- NIST AC-2: Strictly read-only — scopes reports.read, rates.read, rateplans.read-corporate, folios.read, invoices.read, accounting.read; no write access
+- NIST AU-2: Full reconciliation log written to Witness Agent on every run including variance %, discrepancy flags, and all affected reservation IDs
+- PCI DSS 10.2: Audit trail covers all reconciliation decisions and variance flags
+- ISO 22301: Daily reconciliation maintained via REST if MCP unavailable
+`,
+    },
+    {
+      filename: "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SOP.md",
+      filepath: "governance/Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SOP.md",
+      fileType: "SOP",
+      axis: "horizontal",
+      stage: "reconciliation",
+      journeyStage: "Reconciliation",
+      owner: "CFO",
+      domain: "Finance",
+      agentId: "revenue-reconciliation-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: SOP
+agent_id: revenue-reconciliation-agent
+industry: Hospitality
+domain: Finance
+journey_stage_axis: Reconciliation
+value_stream_axis: horizontal
+authored_by: CFO
+consulted: Finance Director, Revenue Manager
+informed: General Manager, VP Revenue
+approved_by: CFO
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: HIGH
+c2md_confidence: 0.93
+nist_control: AU-2
+---
+
+# Revenue Reconciliation Agent — Standard Operating Procedure (SOP)
+
+## Reconciliation Gate (ALL steps mandatory before any decision)
+
+1. Pull live revenue report from Apaleo Reports API (reports.read) for the target property and date
+2. Retrieve all active rate plans via ListRatePlans (rateplans.read-corporate, rates.read)
+3. Retrieve folio records via ListFolios (folios.read) and cross-reference against reservation IDs
+4. Retrieve invoice data via ListInvoices (invoices.read) to validate charge records
+5. Calculate actual vs expected variance per unit group
+6. Write full reconciliation summary to the Witness Agent (NIST AU-2)
+
+## Mandatory MUST Rules
+
+The agent MUST call GetReport before making any variance calculation — estimated data is a policy violation.
+The agent MUST call ListRatePlans to retrieve the current contracted rate for each unit group before calculating variance.
+The agent MUST cross-reference ListFolios output against reservation IDs — any folio with no linked reservation MUST be flagged for CFO audit.
+The agent MUST write a complete reconciliation summary to the Witness Agent including variance %, date, property ID, rate plan count, and any flagged items.
+The agent MUST NOT modify, post, or delete any financial record — all write operations are outside this agent's scope.
+The agent MUST NOT make a reconciliation decision based on data older than the current run — cached or stale data is a FAIL.
+
+## Variance Threshold Decision Matrix
+
+| Variance | Decision | Action |
+|----------|----------|--------|
+| ≤5% | PASS | Log summary to Witness Agent; no escalation |
+| 5–15% | ESCALATE | Route to Revenue Manager for review |
+| >15% | ESCALATE | Immediate Finance Director notification |
+| Unmatched folios | ESCALATE | CFO / Finance audit required |
+| Overbilling vs rate plan | ESCALATE | Flag reservation IDs immediately |
+| Underpayment vs contracted rate | ESCALATE | Flag with reservation ID |
+
+## Discrepancy Classification
+
+- **Underpayment**: Actual rate < contracted rate plan rate — flag with reservation ID
+- **Overbilling**: Charge exceeds rate plan cap — flag immediately
+- **Unmatched folio**: Folio exists with no linked reservation — CFO audit required
+- **Data unavailable**: Apaleo API returns no data — ESCALATE to Operations Director
+
+## Witness Agent Requirement
+
+MUST record clauseApplied as the exact verbatim rule from this SOP that governed the decision.
+MUST record the variance percentage, discrepancy count, and property ID in the Witness Agent entry.
+MUST record fileReferenced as this SOP filename.
+`,
+    },
+    {
+      filename: "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SKILL.md",
+      filepath: "governance/Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SKILL.md",
+      fileType: "SKILL",
+      axis: "horizontal",
+      stage: "reconciliation",
+      journeyStage: "Reconciliation",
+      owner: "CFO",
+      domain: "Finance",
+      agentId: "revenue-reconciliation-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: SKILL
+agent_id: revenue-reconciliation-agent
+industry: Hospitality
+domain: Finance
+journey_stage_axis: Reconciliation
+value_stream_axis: horizontal
+authored_by: CFO
+consulted: Finance Director, Revenue Manager, CISO
+informed: General Manager, Head of Revenue
+approved_by: CFO
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: HIGH
+c2md_confidence: 0.93
+nist_control: AU-2
+---
+
+# Revenue Reconciliation Agent — Skill Manifest (SKILL)
+
+## Permitted Apaleo MCP Tools
+
+| Tool | OAuth Scope | Purpose |
+|------|-------------|---------|
+| GetReport | reports.read | Pull live revenue report data for reconciliation |
+| ListRatePlans | rateplans.read-corporate, rates.read | Retrieve contracted rate plan expectations |
+| ListFolios | folios.read | Identify unmatched folios (no linked reservation) |
+| ListInvoices | invoices.read | Cross-reference charge records against folios |
+
+## Execution Rules
+
+MUST call GetReport before any variance calculation — fabricated or estimated data is a policy violation.
+MUST call ListRatePlans to verify current rate plan expectations before comparing against actual revenue.
+MUST call ListFolios to identify all folios for the target property and date range.
+MUST call ListInvoices to cross-reference charge records before issuing any discrepancy flag.
+MUST NOT call any write tool — CreateFolioCharge, CheckIn, CheckOut, CreateBooking, or any tool with a write scope is prohibited.
+MUST NOT call any tool not listed in this manifest.
+
+## Prohibited Tools
+
+- CreateFolioCharge — write scope, prohibited for read-only reconciliation agent
+- CheckIn / CheckOut — operations domain, not finance reconciliation scope
+- CreateBooking / AmendReservation — reservations domain, outside scope
+- ListPaymentAccounts — payment data not required for reconciliation
+- GetAvailableUnitGroups — availability domain, not reconciliation scope
+
+## Read-Only Enforcement
+
+This agent operates with zero write scopes. Any attempt to call a write tool MUST be treated as a policy violation and immediately logged to the Witness Agent as FAIL with escalation to the CFO.
+`,
+    },
+
+    // ──────────────────────────────────────────────────────────────────────────
     // FINANCE SHARED SERVICES — O2C Cross-Domain Authority
     // ──────────────────────────────────────────────────────────────────────────
     {
@@ -1936,7 +2164,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
             companyName: prop.companyName,
             websiteUrl: prop.websiteUrl,
             brandContext: prop.brandContext,
-            filesCount: 20,
+            filesCount: 23,
           })
           .where(eq(companies.id, companyId));
         existing.push({ apaleoPropertyId: prop.apaleoPropertyId, companyName: prop.companyName, companyId });
@@ -1949,7 +2177,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
             websiteUrl: prop.websiteUrl,
             industry: "hospitality",
             brandContext: prop.brandContext,
-            filesCount: 20,
+            filesCount: 23,
             savedAt: Date.now(),
             uploadedFiles: null,
             apaleoPropertyId: prop.apaleoPropertyId,
@@ -1985,6 +2213,9 @@ router.post("/admin/seed-companies", async (_req, res) => {
         "Hospitality-Revenue-Book-reservation-bot.AGENTS.md",
         "Hospitality-Revenue-Book-reservation-bot.SOP.md",
         "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
+        "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.AGENTS.md",
+        "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SOP.md",
+        "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SKILL.md",
         "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
         "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
       ];
@@ -2077,6 +2308,9 @@ router.post("/admin/seed-companies", async (_req, res) => {
       "Hospitality-Revenue-Book-reservation-bot.AGENTS.md",
       "Hospitality-Revenue-Book-reservation-bot.SOP.md",
       "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
+      "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.AGENTS.md",
+      "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SOP.md",
+      "Hospitality-Finance-Reconciliation-revenue-reconciliation-agent.SKILL.md",
       "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
       "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
     ];
