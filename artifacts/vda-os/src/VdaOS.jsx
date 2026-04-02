@@ -5910,7 +5910,7 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-      {runEntries.length > 0 && (
+      {entries.length > 0 && (
         <div style={{
           padding: "7px 14px", borderBottom: `1px solid ${T.border}`,
           display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
@@ -5920,17 +5920,23 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
             {entries.length} total
           </span>
           <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
-          <span style={{ fontSize: 9, color: T.green, fontFamily: T.mono, fontWeight: 800 }}>{passCount} PASS</span>
-          {failCount > 0 && (
+          <span style={{ fontSize: 9, color: T.green, fontFamily: T.mono, fontWeight: 800 }}>
+            {entries.filter(e => e.decision === "PASS").length} PASS
+          </span>
+          {entries.filter(e => e.decision === "FAIL").length > 0 && (
             <>
               <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
-              <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 800 }}>{failCount} FAIL</span>
+              <span style={{ fontSize: 9, color: T.red, fontFamily: T.mono, fontWeight: 800 }}>
+                {entries.filter(e => e.decision === "FAIL").length} FAIL
+              </span>
             </>
           )}
-          {escalCount > 0 && (
+          {entries.filter(e => e.decision === "ESCALATE").length > 0 && (
             <>
               <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, opacity: 0.4 }}>·</span>
-              <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 800 }}>{escalCount} ESCALATE</span>
+              <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 800 }}>
+                {entries.filter(e => e.decision === "ESCALATE").length} ESCALATE
+              </span>
             </>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
@@ -5941,7 +5947,9 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
                 borderRadius: 5, padding: "2px 9px",
               }}>{pct}% PASS</span>
             )}
-            <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>{runEntries.length} this run</span>
+            {runEntries.length > 0 && (
+              <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>{runEntries.length} this run</span>
+            )}
           </div>
         </div>
       )}
@@ -5990,7 +5998,7 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
 
               {e.reasoning && (
                 <div style={{ fontSize: 10, color: T.dim, lineHeight: 1.45 }}>
-                  {e.reasoning.slice(0, 110)}{e.reasoning.length > 110 ? "…" : ""}
+                  {e.reasoning.slice(0, 120)}{e.reasoning.length > 120 ? "…" : ""}
                 </div>
               )}
 
