@@ -6031,10 +6031,20 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
   );
 }
 
+// ── Apaleo ID chip labels ─────────────────────────────────────────────────────
+const APALEO_ID_META = {
+  propertyId:    { label: "property",    icon: "🏨" },
+  unitGroupId:   { label: "unit group",  icon: "🛏" },
+  ratePlanId:    { label: "rate plan",   icon: "💰" },
+  reservationId: { label: "reservation", icon: "📋" },
+  folioId:       { label: "folio",       icon: "📄" },
+};
+
 // ── JOURNEY_STEPS ─────────────────────────────────────────────────────────────
 const JOURNEY_STEPS = [
   {
     step: 1, agentId: "availability", name: "Availability Agent", icon: "🔍",
+    artifactKeys: ["unitGroupId", "ratePlanId"],
     purpose: "Queries live Apaleo inventory for available units and active rate plans for tonight's stay.",
     narrative: (s) => s.decision === "PASS"
       ? `Availability confirmed — units found matching the guest's requirements. ${s.actionProposed ? s.actionProposed.slice(0, 80) + (s.actionProposed.length > 80 ? "…" : "") : ""}`
@@ -6043,6 +6053,7 @@ const JOURNEY_STEPS = [
   },
   {
     step: 2, agentId: "rate", name: "Rate Agent", icon: "💰",
+    artifactKeys: ["ratePlanId"],
     purpose: "Evaluates a 10% discount request (BAR €180 → €162) against revenue policy thresholds.",
     narrative: (s) => s.decision === "ESCALATE"
       ? `Discount request escalated for manager approval — outside agent's delegated authority. ${s.actionProposed?.slice(0, 70) || ""}`
@@ -6053,6 +6064,7 @@ const JOURNEY_STEPS = [
   },
   {
     step: 3, agentId: "reservation", name: "Reservation Bot", icon: "📋",
+    artifactKeys: ["unitGroupId", "ratePlanId", "reservationId"],
     purpose: "Creates a booking in Apaleo after policy validation — no PMS write without a PASS decision.",
     narrative: (s) => s.decision === "PASS"
       ? `Reservation created in Apaleo — policy PASS was the prerequisite. ${s.actionProposed?.slice(0, 80) || ""}`
@@ -6061,6 +6073,7 @@ const JOURNEY_STEPS = [
   },
   {
     step: 4, agentId: "checkin", name: "Check-In Agent", icon: "✅",
+    artifactKeys: ["reservationId", "folioId"],
     purpose: "Validates 5 mandatory gates (ID, folio, payment, status, arrival) before executing check-in.",
     narrative: (s) => s.decision === "PASS"
       ? `All 5 check-in gates passed — guest successfully checked in. ${s.actionProposed?.slice(0, 80) || ""}`
@@ -6069,14 +6082,16 @@ const JOURNEY_STEPS = [
   },
   {
     step: 5, agentId: "folio-charge", name: "Folio Charge Agent", icon: "💳",
-    purpose: "Posts a room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.",
+    artifactKeys: ["folioId", "reservationId"],
+    purpose: "Posts a €240 room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.",
     narrative: (s) => s.decision === "PASS"
-      ? `Charge posted to folio under Finance O2C policy. ${s.crossDomainInheritance ? "Cross-domain policy inheritance applied. " : ""}${s.actionProposed?.slice(0, 70) || ""}`
+      ? `€240 charge posted to folio under Finance O2C policy. ${s.crossDomainInheritance ? "Cross-domain policy inheritance applied. " : ""}${s.actionProposed?.slice(0, 70) || ""}`
       : `Charge blocked — did not pass cross-domain finance policy validation. ${s.actionProposed?.slice(0, 70) || ""}`,
     insight: "Shared policy files prevent finance rules being re-invented per property — one source of truth.",
   },
   {
     step: 6, agentId: "checkout", name: "Checkout Agent", icon: "🚪",
+    artifactKeys: ["reservationId", "folioId"],
     purpose: "Processes departure with Gold loyalty exception evaluation and folio settlement verification.",
     narrative: (s) => s.exceptionApplied
       ? `Checkout completed with loyalty exception applied — bounded and auditable. ${s.actionProposed?.slice(0, 70) || ""}`
@@ -6087,6 +6102,7 @@ const JOURNEY_STEPS = [
   },
   {
     step: 7, agentId: "revenue", name: "Revenue Reconciliation", icon: "📊",
+    artifactKeys: ["propertyId", "reservationId", "folioId"],
     purpose: "Reconciles revenue data and seals the Witness Agent audit trail for the complete guest journey.",
     narrative: (s) => s.decision === "PASS"
       ? `Revenue reconciled and Witness trail sealed for the complete guest journey. ${s.actionProposed?.slice(0, 70) || ""}`
@@ -6184,6 +6200,38 @@ function JourneyTimeline({ journeySteps, completedSteps, activeStepIdx, hasRun }
                   }}>
                     {step.narrative(stepData)}
                   </div>
+
+                  {/* Apaleo artifact chips */}
+                  {stepData.apaleoIds && step.artifactKeys?.some(k => stepData.apaleoIds[k]) && (
+                    <div style={{
+                      display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center",
+                      padding: "5px 8px", borderRadius: 5,
+                      background: "#0a1628", border: "1px solid #1e3a5f",
+                    }}>
+                      <span style={{ fontSize: 8, color: "#4a90d9", fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.08em", flexShrink: 0 }}>
+                        APALEO
+                      </span>
+                      {step.artifactKeys.map(k => {
+                        const val = stepData.apaleoIds[k];
+                        if (!val) return null;
+                        const meta = APALEO_ID_META[k] || { label: k, icon: "🔗" };
+                        return (
+                          <span key={k} style={{
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                            fontSize: 9, fontFamily: T.mono, fontWeight: 600,
+                            color: "#7eb8f7",
+                            background: "#112240", border: "1px solid #1e3a5f",
+                            borderRadius: 4, padding: "2px 7px",
+                            maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }} title={`${meta.label}: ${val}`}>
+                            <span style={{ fontSize: 9 }}>{meta.icon}</span>
+                            <span style={{ color: "#4a90d9", fontSize: 8, fontWeight: 700 }}>{meta.label}:</span>
+                            <span>{val}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Governance files */}
                   {filesConsulted.length > 0 && (
