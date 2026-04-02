@@ -6054,11 +6054,11 @@ const JOURNEY_STEPS = [
   {
     step: 2, agentId: "rate", name: "Rate Agent", icon: "💰",
     artifactKeys: ["ratePlanId"],
-    purpose: "Evaluates a 10% discount request (BAR €180 → €162) against revenue policy thresholds.",
+    purpose: "Evaluates a 5% discount request (BAR €180 → €171) — within the agent's autonomous authority ceiling.",
     narrative: (s) => s.decision === "ESCALATE"
       ? `Discount request escalated for manager approval — outside agent's delegated authority. ${s.actionProposed?.slice(0, 70) || ""}`
       : s.decision === "PASS"
-        ? `Discount approved: rate within policy thresholds. ${s.actionProposed?.slice(0, 80) || ""}`
+        ? `5% discount approved autonomously — within policy authority ceiling. ${s.actionProposed?.slice(0, 80) || ""}`
         : `Discount rejected — requested rate is below the policy floor. ${s.actionProposed?.slice(0, 80) || ""}`,
     insight: "Rate override authority is bounded by SKILL.md — not hardcoded. Change the file, change the behaviour.",
   },

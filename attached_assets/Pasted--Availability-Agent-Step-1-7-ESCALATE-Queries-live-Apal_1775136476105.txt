@@ -1,0 +1,99 @@
+🔍
+Availability Agent
+Step 1/7
+⚠ ESCALATE
+Queries live Apaleo inventory for available units and active rate plans for tonight's stay.
+No availability found for the requested dates — journey halted at source. Suppress all 11 rate plans from citizen-facing availability output for 2026-04-0
+APALEO
+🛏
+unit group:
+VIE-SGL
+💰
+rate plan:
+VIE-APALEO-SGL
+MUST validate that the queried date range falls within the rate plan's validity window as returned by the Rate Plan API before pre…
+Action taken: Suppress all 11 rate plans from citizen-facing availability output for 2026-04-02 to 2026-04-03, as every rate plan returned by ListRatePlans carries …
+🕵️ Witness #70 sealed
+↑ ESCALATE → Revenue Manager
+No hardcoded availability thresholds — the policy file is the sole arbiter of what 'available' means.
+💰
+Rate Agent
+Step 2/7
+⚠ ESCALATE
+Evaluates a 10% discount request (BAR €180 → €162) against revenue policy thresholds.
+Discount request escalated for manager approval — outside agent's delegated authority. Halt autonomous rate override. Route immediately to Revenue Manager es
+APALEO
+💰
+rate plan:
+VIE-APALEO-SGL
+MUST escalate to Revenue Manager when: discount request is between 10% and 18% below BAR. Escalation MUST be accompanied by the ci…
+Action taken: Halt autonomous rate override. Route immediately to Revenue Manager escalation queue within 60 seconds. Escalation package must include: Rate Plan ID …
+🕵️ Witness #71 sealed
+↑ ESCALATE → Revenue Manager
+Rate override authority is bounded by SKILL.md — not hardcoded. Change the file, change the behaviour.
+📋
+Reservation Bot
+Step 3/7
+✗ FAIL
+Creates a booking in Apaleo after policy validation — no PMS write without a PASS decision.
+Reservation blocked — mandatory policy check did not pass. Block the CreateBooking call for Demo Guest at property VIE (2026-04-02 → 2026-0
+APALEO
+🛏
+unit group:
+VIE-SGL
+💰
+rate plan:
+VIE-APALEO-SGL
+MUST NOT use a rate plan retrieved from ListRatePlans if its isActive flag is false or if its validity window does not cover the f…
+Action taken: Block the CreateBooking call for Demo Guest at property VIE (2026-04-02 → 2026-04-03) against rate plan VIE-APALEO-SGL. The rate plan exists in Apaleo…
+🕵️ Witness #72 sealed
+↑ ESCALATE → Revenue Manager
+The reservation bot cannot act alone. Every write is policy-gated before Apaleo is touched.
+✅
+Check-In Agent
+Step 4/7
+✗ FAIL
+Validates 5 mandatory gates (ID, folio, payment, status, arrival) before executing check-in.
+Check-in blocked: one or more mandatory gates failed. Check-in workflow terminated at Gate 1 (Reservation Verification). No reservatio
+MUST call GetReservation first — no check-in action may proceed without confirmed reservation status.
+Action taken: Check-in workflow terminated at Gate 1 (Reservation Verification). No reservation ID was supplied, and the live ListFolios API call to property VIE wi…
+🕵️ Witness #73 sealed
+↑ ESCALATE → Front Office Manager (citizenM Ambassador on duty)
+One failed gate blocks the entire check-in — preventing costly downstream data errors at source.
+💳
+Folio Charge Agent
+Step 5/7
+✗ FAIL
+Posts a €240 room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.
+Charge blocked — did not pass cross-domain finance policy validation. Charge of €240 EUR (RoomRevenue: Demo Room Charge) against folio ID 'n
+MUST NOT post folio charges without a matching, confirmed reservation ID in the Apaleo Reservations API. At citizenM Paris (Gare d…
+Action taken: Charge of €240 EUR (RoomRevenue: Demo Room Charge) against folio ID 'none' at property VIE is hard-blocked and rejected. No folio with ID 'none' exist…
+🕵️ Witness #74 sealed
+↑ ESCALATE → Directeur des opérations
+Shared policy files prevent finance rules being re-invented per property — one source of truth.
+🚪
+Checkout Agent
+Step 6/7
+✗ FAIL
+Processes departure with Gold loyalty exception evaluation and folio settlement verification.
+Checkout blocked — folio unsettled or policy condition not met. Cannot process checkout — no reservation ID
+Reservation ID required for checkout
+Action taken: Cannot process checkout — no reservation ID
+🕵️ Witness #75 sealed
+↑ ESCALATE → Operations Director
+Exceptions are auditable, bounded, and immutable files — no hardcoded loyalty logic in code.
+📊
+Revenue Reconciliation
+Step 7/7
+⚠ ESCALATE
+Reconciles revenue data and seals the Witness Agent audit trail for the complete guest journey.
+Revenue reconciliation flagged an anomaly — audit entry created for review. Escalate jointly to Revenue Manager and Finance Director for property
+APALEO
+🏨
+property:
+VIE
+Rate plan validity gap: A folio charge references a rate plan ID that no longer exists or has expired in the Rate Plan API — flag …
+Action taken: Escalate jointly to Revenue Manager and Finance Director for property VIE on reconciliation date 2026-04-02. All 11 active rate plans (VIE-APALEO-SGL,…
+🕵️ Witness #76 sealed
+↑ ESCALATE → Revenue Manager and Finance Director (joint notification)
+Every decision, every governance file, every outcome — one click away from SOC 2 evidence.
