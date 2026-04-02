@@ -1,5 +1,63 @@
 # Workspace
 
+## VDA-MK Framework Principles
+
+VDA-MK (Value Driven AI — Market Knowledge) is the governance framework for this platform. Markdown files are the **sole source of truth** for all agent behaviour. No hardcoded policy fallbacks exist anywhere in the codebase.
+
+### Core Axioms
+
+| § | Principle | Enforcement |
+|---|-----------|-------------|
+| §1 | **Markdown is Law** | Every agent decision is governed entirely by VDA-MD files stored in the database. Hardcoded policy objects are prohibited. |
+| §2.1 | **Mandatory Governance Files** | An agent cannot execute any decision — no AI call, no MCP tool call, no Apaleo API interaction — until all three file types are present: `AGENTS.md`, `SOP.md`, `SKILL.md`. Missing files → immediate ESCALATE enforced at route-level preflight. |
+| §2.2 | **Three-File Architecture** | `AGENTS.md` — agent charter, scope, and RACI matrix. `SOP.md` — operational MUST/MUST NOT/MAY rules with escalation paths. `SKILL.md` — permitted Apaleo MCP tool list and authority limits. |
+| §3 | **Compliance Immutability** | GDPR, EU AI Act, and ISO 42001 references are **immutable** in all governance files. Any edit that reduces the count of these references is rejected at the API layer with HTTP 409. This is enforced in `PUT /fm/file/:id` via `checkComplianceGuards()`. |
+| §4 | **Audit Standard Change Control** | Audit standard references (NIST SP 800-53, SOC 2, ISO 27001) may only be reduced when the **accountable owner** provides a `signedOffBy` field in the save request. Unsigned reductions are rejected with HTTP 409. Approved reductions are recorded verbatim in the version commit message. |
+| §5 | **Witness Agent Non-Negotiable** | Every agent decision — PASS, FAIL, or ESCALATE — writes a tamper-evident Witness Stream entry containing: verbatim `clauseApplied`, `filesConsulted` array, `crossDomainInheritance` flag, and the Apaleo data snapshot used. Governance failure entries carry `fileReferenced: "VDA-MD §2.1 — No governance file"`. |
+| §6 | **Exception Overlay Pattern** | Exceptions extend (never replace) the SOP baseline. An `EXCEPTION.md` file activates only when all stated conditions are met and is cited in the Witness Stream with `exceptionApplied: true` and the verbatim exception clause. |
+| §7 | **Cross-Domain Inheritance** | Agents requiring shared services policy (e.g. Finance O2C) inherit those files as a pre-condition block. Cross-domain files are loaded **only after** the agent's own AGENTS/SOP/SKILL prerequisite is fully satisfied — they cannot substitute for missing agent-specific governance. |
+
+### File Naming Convention
+
+```
+Hospitality-[Domain]-[Stage]-[AgentName].[FileType].md
+```
+
+| Segment | Examples |
+|---------|----------|
+| Domain | Revenue, Operations, Finance |
+| Stage | Pre-Book, Book, Stay, Post-Stay, Reconciliation |
+| AgentName | availability-agent, checkin-agent, RevenueReconciliation |
+| FileType | AGENTS, SOP, SKILL, EXCEPTION |
+
+### 23 Canonical Files per Hotel (5 hotels × 23 = 115 total)
+
+7 agents × 3 file types (AGENTS + SOP + SKILL) = 21, plus 1 Finance O2C Shared, plus 1 EXCEPTION overlay = **23 files**.
+
+| Agent | Domain | Stage |
+|-------|--------|-------|
+| Availability Agent | Revenue | Pre-Book |
+| Rate Agent | Revenue | Book |
+| Reservation Bot | Revenue | Book |
+| Check-In Agent | Operations | Stay |
+| Folio Charge Agent | Operations | Stay |
+| Checkout Agent | Operations | Post-Stay |
+| Revenue Reconciliation Agent | Finance | Reconciliation |
+
+### Compliance Guard Reference
+
+**§3 — Immutable legal terms (hard block, HTTP 409 on reduction):**
+- `GDPR` / General Data Protection Regulation / data subject rights / Article 22
+- `EU AI Act` / Artificial Intelligence Act / GPAI / high-risk AI / prohibited AI
+- `ISO 42001` / AI management system
+
+**§4 — Audit standard terms (require `signedOffBy` to reduce, HTTP 409 if unsigned):**
+- `NIST` / SP 800-53 / any control reference (AC-*, AU-*, IR-*, SA-*, SC-*, RA-*, SI-*)
+- `SOC 2` / SOC2 / AICPA SOC / Trust Service Criteria
+- `ISO 27001` / ISMS / information security management
+
+---
+
 ## Overview
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
