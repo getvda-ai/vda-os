@@ -11,6 +11,7 @@ import { apaleoFetch } from "../lib/apaleo.js";
 import { db, companies, governanceFiles, witnessEntries } from "@workspace/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { callAI } from "./ai-proxy.js";
+import { checkComplianceGuards } from "../lib/complianceGuards.js";
 
 const router: IRouter = Router();
 
@@ -3041,49 +3042,6 @@ router.post("/admin/seed-company-governance", async (req, res) => {
   });
 });
 
-// ─── Inline §3/§4 compliance guard for SOC 2 SD regeneration ────────────────
-// Mirrors the same guard logic in fileManager.ts (not exported from there).
-const SOC2_IMMUTABLE_TERMS: { label: string; pattern: RegExp }[] = [
-  { label: "GDPR",      pattern: /GDPR|General Data Protection Regulation|data subject rights?|Article 22/gi },
-  { label: "EU AI Act", pattern: /EU AI Act|Artificial Intelligence Act|GPAI|high-risk AI|prohibited AI/gi },
-  { label: "ISO 42001", pattern: /ISO 42001|AI management system/gi },
-];
-const SOC2_AUDIT_TERMS: { label: string; pattern: RegExp }[] = [
-  { label: "NIST SP 800-53", pattern: /NIST|SP 800-53|AC-\d+|AU-\d+|IR-\d+|SA-\d+|SC-\d+|RA-\d+|SI-\d+/gi },
-  { label: "SOC 2",          pattern: /SOC 2|SOC2|AICPA SOC|Trust Service Criteria/gi },
-  { label: "ISO 27001",      pattern: /ISO 27001|ISMS|information security management/gi },
-];
-function countSoc2TermMatches(content: string, pattern: RegExp): number {
-  return (content.match(pattern) ?? []).length;
-}
-function checkSoc2ComplianceGuards(
-  existingContent: string,
-  newContent: string,
-  signedOffBy?: string,
-): { allowed: boolean; violations: string[]; hint: string } {
-  const violations: string[] = [];
-  for (const term of SOC2_IMMUTABLE_TERMS) {
-    const before = countSoc2TermMatches(existingContent, term.pattern);
-    const after  = countSoc2TermMatches(newContent, term.pattern);
-    if (before > 0 && after < before) {
-      violations.push(`IMMUTABLE [§3]: "${term.label}" references reduced from ${before} to ${after}. Legal compliance clauses cannot be removed.`);
-    }
-  }
-  if (violations.length > 0) return { allowed: false, violations, hint: "Restore removed §3 compliance clauses (GDPR/EU AI Act/ISO 42001) to proceed." };
-  const auditViolations: string[] = [];
-  for (const term of SOC2_AUDIT_TERMS) {
-    const before = countSoc2TermMatches(existingContent, term.pattern);
-    const after  = countSoc2TermMatches(newContent, term.pattern);
-    if (before > 0 && after < before) {
-      auditViolations.push(`SIGNOFF REQUIRED [§4]: "${term.label}" references reduced from ${before} to ${after}.`);
-    }
-  }
-  if (auditViolations.length > 0 && !signedOffBy) {
-    return { allowed: false, violations: auditViolations, hint: "Reducing audit standard references (NIST/SOC 2/ISO 27001) requires accountable owner signoff. Provide `signedOffBy` in the request body." };
-  }
-  return { allowed: true, violations: [], hint: "" };
-}
-
 // ─── POST /api/admin/generate-soc2-sd ─────────────────────────────────────────
 // Generates an AICPA-compliant SOC 2 System Description for a hotel.
 // Stored as governance_files row (fileType: "system-description", nistControl: "SOC2-SD").
@@ -3296,7 +3254,7 @@ The following constitute the Type II operational evidence trail:
 
     // §3/§4 compliance guard — applied when regenerating an existing document
     if (existingRow?.content) {
-      const guard = checkSoc2ComplianceGuards(existingRow.content, content, signedOffBy);
+      const guard = checkComplianceGuards(existingRow.content, content, signedOffBy);
       if (!guard.allowed) {
         return res.status(409).json({ error: "Compliance guard blocked regeneration", violations: guard.violations, hint: guard.hint });
       }

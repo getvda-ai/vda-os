@@ -2,6 +2,7 @@ import { Router } from "express";
 import { callAI } from "./ai-proxy.js";
 import { db, governanceFiles, governanceFileVersions } from "@workspace/db";
 import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
+import { checkComplianceGuards } from "../lib/complianceGuards.js";
 
 const router = Router();
 
@@ -75,88 +76,9 @@ const MINIMUM_CLAUSE_THRESHOLDS: Record<string, { must: number; mustNot: number;
 const CORE_FILE_TYPES = ["AGENTS", "COMPLIANCE", "SOP"];
 
 // ─── VDA-MK Compliance Guards ─────────────────────────────────────────────────
-// §3 — Legal compliance terms are IMMUTABLE: any edit that reduces the count of
-// these references is a hard block (HTTP 409). Applies to all file types.
-const IMMUTABLE_LEGAL_TERMS: { label: string; pattern: RegExp }[] = [
-  { label: "GDPR",          pattern: /GDPR|General Data Protection Regulation|data subject rights?|Article 22/gi },
-  { label: "EU AI Act",     pattern: /EU AI Act|Artificial Intelligence Act|GPAI|high-risk AI|prohibited AI/gi },
-  { label: "ISO 42001",     pattern: /ISO 42001|AI management system/gi },
-];
-
-// §4 — Audit standard terms require accountable owner signoff to reduce.
-// Client must supply `signedOffBy` in the PUT body; unsigned reductions are rejected.
-const AUDIT_SIGNOFF_TERMS: { label: string; pattern: RegExp }[] = [
-  { label: "NIST SP 800-53", pattern: /NIST|SP 800-53|AC-\d+|AU-\d+|IR-\d+|SA-\d+|SC-\d+|RA-\d+|SI-\d+/gi },
-  { label: "SOC 2",          pattern: /SOC 2|SOC2|AICPA SOC|Trust Service Criteria/gi },
-  { label: "ISO 27001",      pattern: /ISO 27001|ISMS|information security management/gi },
-];
-
-function countTermMatches(content: string, pattern: RegExp): number {
-  return (content.match(pattern) ?? []).length;
-}
-
-interface ComplianceGuardResult {
-  allowed: boolean;
-  violations: string[];
-  hint: string;
-}
-
-/**
- * VDA-MK §3 & §4 compliance guard.
- * Compares existing vs proposed content and rejects:
- *   - Any reduction of IMMUTABLE legal terms (GDPR, EU AI Act, ISO 42001)
- *   - Any reduction of audit standard terms (NIST, SOC 2, ISO 27001) without signedOffBy
- */
-function checkComplianceGuards(
-  existingContent: string,
-  newContent: string,
-  signedOffBy?: string,
-): ComplianceGuardResult {
-  const violations: string[] = [];
-
-  // §3: Hard block — immutable legal compliance terms cannot decrease
-  for (const term of IMMUTABLE_LEGAL_TERMS) {
-    const before = countTermMatches(existingContent, term.pattern);
-    const after  = countTermMatches(newContent, term.pattern);
-    if (before > 0 && after < before) {
-      violations.push(
-        `IMMUTABLE [§3]: "${term.label}" references reduced from ${before} to ${after}. ` +
-        `Legal compliance clauses (GDPR, EU AI Act, ISO 42001) cannot be removed from VDA-MD governance files.`
-      );
-    }
-  }
-
-  if (violations.length > 0) {
-    return {
-      allowed: false,
-      violations,
-      hint: "Restore the removed compliance clauses to proceed. GDPR, EU AI Act, and ISO 42001 references are immutable under VDA-MK §3.",
-    };
-  }
-
-  // §4: Accountable owner signoff required for audit standard reductions
-  const auditViolations: string[] = [];
-  for (const term of AUDIT_SIGNOFF_TERMS) {
-    const before = countTermMatches(existingContent, term.pattern);
-    const after  = countTermMatches(newContent, term.pattern);
-    if (before > 0 && after < before) {
-      auditViolations.push(
-        `SIGNOFF REQUIRED [§4]: "${term.label}" references reduced from ${before} to ${after}.`
-      );
-    }
-  }
-
-  if (auditViolations.length > 0 && !signedOffBy) {
-    return {
-      allowed: false,
-      violations: auditViolations,
-      hint: "Reducing audit standard references (NIST, SOC 2, ISO 27001) requires accountable owner signoff. " +
-            "Provide `signedOffBy` in the request body, or restore the removed references.",
-    };
-  }
-
-  return { allowed: true, violations: [], hint: "" };
-}
+// §3/§4 guard logic lives in ../lib/complianceGuards.ts and is imported above.
+// Both fileManager.ts (PUT file edits) and seed.ts (SOC 2 SD regeneration) share
+// the same canonical implementation to prevent drift.
 
 function countClauses(content: string) {
   const must = (content.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
