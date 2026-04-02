@@ -2693,12 +2693,15 @@ function C2MDStudioTab({ config, companyName, brandContext, cache, setCache, onS
   };
 
   // When control selection changes: show from cache (DB or previously generated),
-  // or — once pre-population is done — auto-trigger the live fallback.
+  // or auto-trigger generation if pre-population already finished with no result.
   useEffect(() => {
     clearInterval(streamRef.current);
-    if (cache[sel]) { setDisplayedMd(cache[sel].md); setStatus("done"); }
-    else { setDisplayedMd(""); setStatus("idle"); }
-    setError(null);
+    if (cache[sel]) { setDisplayedMd(cache[sel].md); setStatus("done"); setError(null); }
+    else {
+      setDisplayedMd(""); setStatus("idle"); setError(null);
+      // Pre-population already finished and no DB content — trigger live fallback immediately
+      if (!isPrePopulating) handleTranslate();
+    }
   }, [sel]);
 
   // After pre-population completes: if the selected control still has no content,

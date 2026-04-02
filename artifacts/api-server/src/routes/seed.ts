@@ -2110,6 +2110,440 @@ Exception override must be re-approved by General Manager if conditions change.
 Finance approval is explicitly not required for fee waivers within the conditions above (folio < €50).
 `,
     },
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // SA-4 — System & Services Acquisition (Apaleo / AI vendor governance)
+    // ──────────────────────────────────────────────────────────────────────────
+    {
+      filename: "Hospitality-Governance-Acquisition-sa4-agent.AGENTS.md",
+      filepath: "governance/Hospitality-Governance-Acquisition-sa4-agent.AGENTS.md",
+      fileType: "AGENTS",
+      axis: "horizontal",
+      stage: "governance",
+      journeyStage: "Governance",
+      owner: "CISO",
+      domain: "System & Services Acquisition",
+      agentId: "sa4-acquisition-agent",
+      normalisationLevel: 4,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "SA-4",
+      content: `---
+file_type: AGENTS
+agent_id: sa4-acquisition-agent
+industry: Hospitality
+domain: System & Services Acquisition
+journey_stage_axis: Governance
+value_stream_axis: horizontal
+authored_by: CISO
+consulted: General Manager, Finance Director, Legal Counsel
+informed: Operations Director, Head of Technology
+approved_by: General Manager
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: HIGH
+c2md_confidence: 0.95
+nist_control: SA-4
+apaleo_api: All APIs (acquisition scope)
+vendor: VDA-MK for Apaleo
+baseline: true
+---
+
+# SA-4 Acquisition Process Agent Charter
+
+## Agent Purpose
+
+Governs the acquisition of all systems, services, and AI components used within the ${companyName} VDA-MK framework. Ensures all third-party integrations — including Apaleo PMS, AI models, and external APIs — meet security, privacy, and governance requirements before activation.
+
+## Scope
+
+All technology acquisitions that interface with citizen data, Apaleo APIs, or AI decision-making pipelines — including vendor onboarding, API integrations, AI model selection, and cloud service procurement.
+
+## Agent Rules
+
+- MUST require security and privacy impact assessment before onboarding any new vendor or API integration
+- MUST verify that all acquired systems support GDPR-compliant data processing agreements (DPA)
+- MUST validate that AI system vendors comply with EU AI Act risk classification requirements before deployment
+- MUST NOT activate any third-party API access to Apaleo data without documented security review
+- MUST maintain a vendor register updated at least annually
+- MUST require contractual security obligations (pen testing, incident notification, data retention limits) for all vendors handling citizen data
+- MUST NOT onboard high-risk AI systems (EU AI Act Article 6) without CISO and General Manager dual sign-off
+- MAY grant provisional access for pilot integrations under a defined 30-day evaluation window with monitoring
+
+## RACI
+
+- **Responsible**: CISO
+- **Accountable**: General Manager
+- **Consulted**: Finance Director, Legal Counsel
+- **Informed**: Operations Director, Head of Technology
+
+## Compliance References
+
+- NIST SP 800-53 SA-4 (Acquisition Process)
+- EU AI Act Article 6 (High-Risk AI Classification)
+- GDPR Article 28 (Processor Agreements)
+- ISO 27001 A.15 (Supplier Relationships)
+`,
+    },
+    {
+      filename: "Hospitality-Governance-Acquisition-sa4-agent.SOP.md",
+      filepath: "governance/Hospitality-Governance-Acquisition-sa4-agent.SOP.md",
+      fileType: "SOP",
+      axis: "horizontal",
+      stage: "governance",
+      journeyStage: "Governance",
+      owner: "CISO",
+      domain: "System & Services Acquisition",
+      agentId: "sa4-acquisition-agent",
+      normalisationLevel: 4,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "SA-4",
+      content: `---
+file_type: SOP
+agent_id: sa4-acquisition-agent
+industry: Hospitality
+domain: System & Services Acquisition
+journey_stage_axis: Governance
+value_stream_axis: horizontal
+authored_by: CISO
+approved_by: General Manager
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: HIGH
+nist_control: SA-4
+vendor: VDA-MK for Apaleo
+baseline: true
+---
+
+# SA-4 Acquisition Process — Standard Operating Procedure
+
+## Step 1: Initiation
+
+When a new system, vendor, or AI component is proposed, the initiating team MUST submit an acquisition request including: proposed vendor, data scope, Apaleo API access required, AI risk classification, and business justification.
+
+## Step 2: Security Review
+
+CISO MUST conduct a security review covering:
+1. Data flows — what citizen data is accessed or stored
+2. Apaleo API permissions required (minimum necessary scope)
+3. EU AI Act risk classification (prohibited / high-risk / limited / minimal)
+4. GDPR Article 28 processor agreement status
+5. Vendor security posture (ISO 27001 / SOC 2 certification)
+
+## Step 3: Contract Requirements
+
+All vendor contracts MUST include:
+- Data Processing Agreement (DPA) compliant with GDPR
+- Security breach notification within 72 hours (GDPR Article 33)
+- Annual penetration testing obligation for systems handling citizen data
+- Right to audit clause
+- Data retention and deletion obligations
+
+## Step 4: Approval
+
+- Standard integrations: CISO approval
+- High-risk AI systems (EU AI Act Article 6): CISO + General Manager dual sign-off
+- Apaleo API write-access: CISO + Operations Director sign-off
+
+## Step 5: Activation and Monitoring
+
+After approval:
+- MUST log vendor in the ${companyName} Vendor Register
+- MUST configure minimum-scope API credentials only
+- MUST set a review date (maximum 12 months)
+- MUST NOT grant production Apaleo access before security review is complete
+
+## Violation Definition
+
+Activating any third-party system or AI component without completing the SA-4 acquisition review = compliance violation requiring immediate CISO notification and access revocation.
+`,
+    },
+    {
+      filename: "Hospitality-Governance-Acquisition-sa4-agent.SKILL.md",
+      filepath: "governance/Hospitality-Governance-Acquisition-sa4-agent.SKILL.md",
+      fileType: "SKILL",
+      axis: "horizontal",
+      stage: "governance",
+      journeyStage: "Governance",
+      owner: "CISO",
+      domain: "System & Services Acquisition",
+      agentId: "sa4-acquisition-agent",
+      normalisationLevel: 4,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "SA-4",
+      content: `---
+file_type: SKILL
+agent_id: sa4-acquisition-agent
+industry: Hospitality
+domain: System & Services Acquisition
+journey_stage_axis: Governance
+value_stream_axis: horizontal
+authored_by: CISO
+approved_by: General Manager
+nist_control: SA-4
+vendor: VDA-MK for Apaleo
+baseline: true
+---
+
+# SA-4 Acquisition Agent — Skill Manifest
+
+## Tool Access
+
+- **Vendor Register API**: Read/write access to the ${companyName} vendor registry
+- **Apaleo Admin Console**: Read-only audit of active API credentials and OAuth scopes
+- **Document Repository**: Read/write access to DPAs, security assessments, and contracts
+- **Witness Agent**: Write access to log all acquisition decisions and sign-offs
+
+## Decision Capabilities
+
+- EU AI Act risk classification lookup (prohibited / high-risk / limited / minimal)
+- GDPR Article 28 DPA compliance check
+- Apaleo API scope analysis (minimum-necessary principle verification)
+- Vendor security posture scoring (ISO 27001 / SOC 2 certification validation)
+
+## Escalation Paths
+
+- High-risk AI acquisition → CISO + General Manager dual sign-off required
+- Apaleo write-access request → CISO + Operations Director sign-off required
+- Vendor DPA missing or expired → Procurement blocked, Legal Counsel notified
+
+## Witness Agent Logging
+
+Every acquisition decision MUST be logged to the Witness Agent with:
+- Vendor name and system scope
+- EU AI Act risk classification applied
+- Approval path taken (standard / dual sign-off)
+- NIST SA-4 clause cited verbatim
+`,
+    },
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // IR-4 — Incident Response (Apaleo operational and security incidents)
+    // ──────────────────────────────────────────────────────────────────────────
+    {
+      filename: "Hospitality-Governance-IncidentResponse-ir4-agent.AGENTS.md",
+      filepath: "governance/Hospitality-Governance-IncidentResponse-ir4-agent.AGENTS.md",
+      fileType: "AGENTS",
+      axis: "horizontal",
+      stage: "governance",
+      journeyStage: "Governance",
+      owner: "CISO",
+      domain: "Incident Response",
+      agentId: "ir4-incident-agent",
+      normalisationLevel: 4,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "IR-4",
+      content: `---
+file_type: AGENTS
+agent_id: ir4-incident-agent
+industry: Hospitality
+domain: Incident Response
+journey_stage_axis: Governance
+value_stream_axis: horizontal
+authored_by: CISO
+consulted: General Manager, Data Protection Officer, Operations Director
+informed: All VDA-MK Agent Owners
+approved_by: General Manager
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: CRITICAL
+c2md_confidence: 0.96
+nist_control: IR-4
+apaleo_api: All APIs (incident scope)
+vendor: VDA-MK for Apaleo
+baseline: true
+---
+
+# IR-4 Incident Handling Agent Charter
+
+## Agent Purpose
+
+Governs detection, containment, eradication, and recovery from security incidents, Apaleo API failures, AI agent errors, and citizen data breaches at ${companyName}. Ensures all incidents are handled consistently, with mandatory GDPR Article 33 notification within 72 hours for data breaches.
+
+## Incident Categories
+
+1. **Security breach**: Unauthorised access to citizen data or Apaleo systems
+2. **AI agent malfunction**: Agent producing incorrect decisions at scale
+3. **Apaleo API failure**: PMS unavailability affecting guest lifecycle operations
+4. **Data integrity failure**: Corrupted folios, reservation records, or governance files
+5. **GDPR violation event**: Citizen data processed without lawful basis
+
+## Agent Rules
+
+- MUST activate incident response within 1 hour of confirmed incident detection
+- MUST notify CISO and General Manager within 2 hours of any Category 1 or 5 incident
+- MUST notify Data Protection Officer (DPO) within 24 hours of any potential GDPR breach
+- MUST submit GDPR Article 33 notification to supervisory authority within 72 hours of confirmed data breach
+- MUST NOT allow affected AI agents to resume autonomous operation until root cause is identified and remediated
+- MUST log all incident timeline entries to the Witness Agent with timestamps
+- MUST NOT delete or modify incident logs — audit trail is immutable
+- MUST conduct post-incident review within 7 days and update relevant governance files
+- MAY impose temporary manual review requirement on affected agent decisions during containment
+
+## RACI
+
+- **Responsible**: CISO
+- **Accountable**: General Manager
+- **Consulted**: Data Protection Officer, Legal Counsel
+- **Informed**: All VDA-MK agent owners, Operations Director
+
+## Compliance References
+
+- NIST SP 800-53 IR-4 (Incident Handling)
+- GDPR Article 33 (Data Breach Notification)
+- EU AI Act Article 9 (Risk Management for High-Risk AI)
+- ISO 27001 A.16 (Information Security Incident Management)
+`,
+    },
+    {
+      filename: "Hospitality-Governance-IncidentResponse-ir4-agent.SOP.md",
+      filepath: "governance/Hospitality-Governance-IncidentResponse-ir4-agent.SOP.md",
+      fileType: "SOP",
+      axis: "horizontal",
+      stage: "governance",
+      journeyStage: "Governance",
+      owner: "CISO",
+      domain: "Incident Response",
+      agentId: "ir4-incident-agent",
+      normalisationLevel: 4,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "IR-4",
+      content: `---
+file_type: SOP
+agent_id: ir4-incident-agent
+industry: Hospitality
+domain: Incident Response
+journey_stage_axis: Governance
+value_stream_axis: horizontal
+authored_by: CISO
+approved_by: General Manager
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: CRITICAL
+nist_control: IR-4
+vendor: VDA-MK for Apaleo
+baseline: true
+---
+
+# IR-4 Incident Handling — Standard Operating Procedure
+
+## Phase 1: Detection & Reporting (0–1 hour)
+
+Any ${companyName} Ambassador or AI agent observing an anomaly MUST:
+1. Log the observation immediately in the Witness Agent with timestamp and description
+2. Notify CISO via emergency contact channel
+3. Preserve all relevant system logs — MUST NOT delete or overwrite
+
+Detection sources include: Witness Agent audit trail anomalies, Apaleo API error rate spikes, citizen complaints, automated monitoring alerts.
+
+## Phase 2: Classification & Containment (1–2 hours)
+
+CISO MUST classify the incident and initiate containment:
+
+| Category | Action |
+|---|---|
+| Security breach (Cat 1) | Revoke affected API credentials, isolate affected systems |
+| AI malfunction (Cat 2) | Suspend affected agents, enable manual review mode |
+| Apaleo API failure (Cat 3) | Activate manual operations fallback, notify Apaleo support |
+| Data integrity (Cat 4) | Freeze affected records, initiate reconciliation |
+| GDPR violation (Cat 5) | Suspend data processing, notify DPO within 24h |
+
+MUST notify General Manager within 2 hours of confirmed Category 1 or 5 incident.
+
+## Phase 3: GDPR Notification (within 72 hours of breach discovery)
+
+For any incident involving citizen personal data:
+1. DPO MUST assess breach risk to citizens' rights and freedoms
+2. If risk is not low: MUST submit GDPR Article 33 notification to supervisory authority
+3. MUST document: nature of breach, categories of data, number of citizens affected, likely consequences, remedial measures
+
+## Phase 4: Eradication & Recovery
+
+- MUST identify and remediate root cause before restoring agent autonomy
+- MUST validate remediation with CISO sign-off
+- MUST restore from last known good governance file version (VDA-MD version control)
+- Apaleo API credentials MUST be rotated after any credential compromise
+
+## Phase 5: Post-Incident Review (within 7 days)
+
+MUST conduct structured post-incident review including:
+- Timeline reconstruction from Witness Agent audit trail
+- Root cause analysis
+- Governance file updates (if policy gaps identified)
+- NIST IR-4 lessons-learned documentation
+
+## Violation Definition
+
+Failure to notify CISO within 1 hour of confirmed incident, or failure to submit GDPR Article 33 notification within 72 hours of a confirmed data breach = regulatory and governance violation.
+`,
+    },
+    {
+      filename: "Hospitality-Governance-IncidentResponse-ir4-agent.SKILL.md",
+      filepath: "governance/Hospitality-Governance-IncidentResponse-ir4-agent.SKILL.md",
+      fileType: "SKILL",
+      axis: "horizontal",
+      stage: "governance",
+      journeyStage: "Governance",
+      owner: "CISO",
+      domain: "Incident Response",
+      agentId: "ir4-incident-agent",
+      normalisationLevel: 4,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "IR-4",
+      content: `---
+file_type: SKILL
+agent_id: ir4-incident-agent
+industry: Hospitality
+domain: Incident Response
+journey_stage_axis: Governance
+value_stream_axis: horizontal
+authored_by: CISO
+approved_by: General Manager
+nist_control: IR-4
+vendor: VDA-MK for Apaleo
+baseline: true
+---
+
+# IR-4 Incident Response Agent — Skill Manifest
+
+## Tool Access
+
+- **Witness Agent**: Read/write — full audit trail access for incident timeline reconstruction
+- **Apaleo Admin Console**: Credential revocation, API rate monitoring, system health status
+- **Governance File Manager**: Read/write — update governance files post-incident
+- **Alert System**: Write — trigger escalation notifications to CISO, DPO, General Manager
+- **Version Control**: Read — access historical governance file versions for rollback
+
+## Decision Capabilities
+
+- Incident classification (Category 1–5) based on data scope and Apaleo impact
+- GDPR breach risk assessment (likelihood and severity to citizen rights)
+- AI agent suspension trigger (pause autonomous decisions, enable manual mode)
+- Apaleo credential revocation (emergency access termination)
+- Post-incident governance file amendment (with CISO sign-off)
+
+## Escalation Paths
+
+- Category 1/5 incident → CISO + General Manager immediate notification
+- GDPR breach suspected → DPO notification within 24 hours
+- Confirmed GDPR breach → Supervisory authority notification within 72 hours (Article 33)
+- AI agent malfunction at scale → All affected agents suspended, manual review mandatory
+
+## Witness Agent Logging
+
+Every incident phase transition MUST be logged to the Witness Agent with:
+- Incident category and severity
+- Actions taken and by whom
+- NIST IR-4 clause cited verbatim
+- Timestamps at each phase boundary
+- Post-incident review outcome and governance file changes made
+`,
+    },
   ];
 
   return files.map(f => {
@@ -2218,6 +2652,12 @@ router.post("/admin/seed-companies", async (_req, res) => {
         "Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
         "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
         "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
+        "Hospitality-Governance-Acquisition-sa4-agent.AGENTS.md",
+        "Hospitality-Governance-Acquisition-sa4-agent.SOP.md",
+        "Hospitality-Governance-Acquisition-sa4-agent.SKILL.md",
+        "Hospitality-Governance-IncidentResponse-ir4-agent.AGENTS.md",
+        "Hospitality-Governance-IncidentResponse-ir4-agent.SOP.md",
+        "Hospitality-Governance-IncidentResponse-ir4-agent.SKILL.md",
       ];
       for (const name of CANONICAL) {
         await db
@@ -2313,6 +2753,12 @@ router.post("/admin/seed-companies", async (_req, res) => {
       "Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
       "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
       "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
+      "Hospitality-Governance-Acquisition-sa4-agent.AGENTS.md",
+      "Hospitality-Governance-Acquisition-sa4-agent.SOP.md",
+      "Hospitality-Governance-Acquisition-sa4-agent.SKILL.md",
+      "Hospitality-Governance-IncidentResponse-ir4-agent.AGENTS.md",
+      "Hospitality-Governance-IncidentResponse-ir4-agent.SOP.md",
+      "Hospitality-Governance-IncidentResponse-ir4-agent.SKILL.md",
     ];
 
     // Load all canonical governance files for all 5 hotels
@@ -2444,6 +2890,12 @@ router.post("/admin/enrich-c2md", async (req, res) => {
       "Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
       "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
       "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
+      "Hospitality-Governance-Acquisition-sa4-agent.AGENTS.md",
+      "Hospitality-Governance-Acquisition-sa4-agent.SOP.md",
+      "Hospitality-Governance-Acquisition-sa4-agent.SKILL.md",
+      "Hospitality-Governance-IncidentResponse-ir4-agent.AGENTS.md",
+      "Hospitality-Governance-IncidentResponse-ir4-agent.SOP.md",
+      "Hospitality-Governance-IncidentResponse-ir4-agent.SKILL.md",
     ];
 
     const allFiles = await db
