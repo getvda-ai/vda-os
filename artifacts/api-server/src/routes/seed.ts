@@ -3041,14 +3041,58 @@ router.post("/admin/seed-company-governance", async (req, res) => {
   });
 });
 
+// ─── Inline §3/§4 compliance guard for SOC 2 SD regeneration ────────────────
+// Mirrors the same guard logic in fileManager.ts (not exported from there).
+const SOC2_IMMUTABLE_TERMS: { label: string; pattern: RegExp }[] = [
+  { label: "GDPR",      pattern: /GDPR|General Data Protection Regulation|data subject rights?|Article 22/gi },
+  { label: "EU AI Act", pattern: /EU AI Act|Artificial Intelligence Act|GPAI|high-risk AI|prohibited AI/gi },
+  { label: "ISO 42001", pattern: /ISO 42001|AI management system/gi },
+];
+const SOC2_AUDIT_TERMS: { label: string; pattern: RegExp }[] = [
+  { label: "NIST SP 800-53", pattern: /NIST|SP 800-53|AC-\d+|AU-\d+|IR-\d+|SA-\d+|SC-\d+|RA-\d+|SI-\d+/gi },
+  { label: "SOC 2",          pattern: /SOC 2|SOC2|AICPA SOC|Trust Service Criteria/gi },
+  { label: "ISO 27001",      pattern: /ISO 27001|ISMS|information security management/gi },
+];
+function countSoc2TermMatches(content: string, pattern: RegExp): number {
+  return (content.match(pattern) ?? []).length;
+}
+function checkSoc2ComplianceGuards(
+  existingContent: string,
+  newContent: string,
+  signedOffBy?: string,
+): { allowed: boolean; violations: string[]; hint: string } {
+  const violations: string[] = [];
+  for (const term of SOC2_IMMUTABLE_TERMS) {
+    const before = countSoc2TermMatches(existingContent, term.pattern);
+    const after  = countSoc2TermMatches(newContent, term.pattern);
+    if (before > 0 && after < before) {
+      violations.push(`IMMUTABLE [§3]: "${term.label}" references reduced from ${before} to ${after}. Legal compliance clauses cannot be removed.`);
+    }
+  }
+  if (violations.length > 0) return { allowed: false, violations, hint: "Restore removed §3 compliance clauses (GDPR/EU AI Act/ISO 42001) to proceed." };
+  const auditViolations: string[] = [];
+  for (const term of SOC2_AUDIT_TERMS) {
+    const before = countSoc2TermMatches(existingContent, term.pattern);
+    const after  = countSoc2TermMatches(newContent, term.pattern);
+    if (before > 0 && after < before) {
+      auditViolations.push(`SIGNOFF REQUIRED [§4]: "${term.label}" references reduced from ${before} to ${after}.`);
+    }
+  }
+  if (auditViolations.length > 0 && !signedOffBy) {
+    return { allowed: false, violations: auditViolations, hint: "Reducing audit standard references (NIST/SOC 2/ISO 27001) requires accountable owner signoff. Provide `signedOffBy` in the request body." };
+  }
+  return { allowed: true, violations: [], hint: "" };
+}
+
 // ─── POST /api/admin/generate-soc2-sd ─────────────────────────────────────────
 // Generates an AICPA-compliant SOC 2 System Description for a hotel.
 // Stored as governance_files row (fileType: "system-description", nistControl: "SOC2-SD").
 // Witness Agent entry written for every generation — provides Type II provenance trail.
 // Safe to call multiple times — idempotent (upserts by filename+companyId).
+// §3/§4 guards enforced on regeneration: reducing compliance references blocks unless signedOffBy.
 
 router.post("/admin/generate-soc2-sd", async (req, res) => {
-  const { companyId: rawCompanyId, triggeredBy } = req.body as { companyId: unknown; triggeredBy?: string };
+  const { companyId: rawCompanyId, signedOffBy } = req.body as { companyId: unknown; signedOffBy?: string };
   const companyId = parseInt(String(rawCompanyId), 10);
   if (isNaN(companyId)) return res.status(400).json({ error: "companyId required" });
 
@@ -3059,9 +3103,17 @@ router.post("/admin/generate-soc2-sd", async (req, res) => {
       .where(eq(companies.id, companyId));
     if (!company) return res.status(404).json({ error: "Company not found" });
 
-    const hotelCode = (company as any).apaleoPropertyId || "UNK";
+    const hotelCode   = company.apaleoPropertyId ?? "UNK";
     const companyName = company.companyName;
-    const brandContext = ((company as any).brandContext as string | undefined) || "";
+    const brandContext = company.brandContext ?? "";
+
+    const filename = `SOC2-SystemDescription-${hotelCode}.SYSTEM-DESC.md`;
+
+    // Fetch existing SD content early (needed for §3/§4 guard on regeneration)
+    const [existingRow] = await db
+      .select({ id: governanceFiles.id, content: governanceFiles.content })
+      .from(governanceFiles)
+      .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.filename, filename), eq(governanceFiles.isArchived, false)));
 
     // Load all active governance files for this hotel
     const govFiles = await db
@@ -3079,13 +3131,19 @@ router.post("/admin/generate-soc2-sd", async (req, res) => {
       .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)))
       .orderBy(governanceFiles.nistControl, governanceFiles.filename);
 
-    // Build structured excerpts (800 chars per file — enough for Claude context without overwhelming)
-    const governanceSummary = govFiles
-      .filter(f => f.content && f.content.length > 100 && f.fileType !== "system-description")
-      .map(f => `### ${f.filename} (${f.fileType} | NIST: ${f.nistControl ?? "N/A"} | Owner: ${f.owner ?? "N/A"})\n${f.content.slice(0, 800)}`)
+    // Agent definitions: AGENTS.md files represent the canonical agent definitions in VDA-MK
+    const agentDefFiles = govFiles.filter(f => f.fileType === "AGENTS" && f.content && f.content.length > 50);
+    const agentDefSummary = agentDefFiles
+      .map(f => `### ${f.filename} (agentId: ${f.agentId ?? "N/A"})\n${f.content.slice(0, 600)}`)
       .join("\n\n---\n\n");
 
-    const uniqueAgents  = [...new Set(govFiles.map(f => f.agentId).filter(Boolean))];
+    // Build structured excerpts for remaining file types (SOP, SKILL, COMPLIANCE, etc.)
+    const governanceSummary = govFiles
+      .filter(f => f.content && f.content.length > 100 && f.fileType !== "system-description" && f.fileType !== "AGENTS")
+      .map(f => `### ${f.filename} (${f.fileType} | NIST: ${f.nistControl ?? "N/A"} | Owner: ${f.owner ?? "N/A"})\n${f.content.slice(0, 600)}`)
+      .join("\n\n---\n\n");
+
+    const uniqueAgents  = [...new Set(agentDefFiles.map(f => f.agentId).filter(Boolean))];
     const uniqueDomains = [...new Set(govFiles.map(f => f.domain).filter(Boolean))];
     const uniqueOwners  = [...new Set(govFiles.map(f => f.owner).filter(Boolean))];
     const nistControls  = [...new Set(govFiles.map(f => f.nistControl).filter(Boolean))];
@@ -3105,6 +3163,7 @@ ${brandContext.slice(0, 900)}
 
 GOVERNANCE SYSTEM FACTS:
 - Total governance files: ${govFiles.length}
+- AI agent definitions loaded: ${agentDefFiles.length} (canonical AGENTS.md files)
 - AI agents governed: ${uniqueAgents.join(", ")}
 - Operating domains: ${uniqueDomains.join(", ")}
 - NIST SP 800-53 controls: ${nistControls.join(", ")}
@@ -3115,8 +3174,11 @@ GOVERNANCE SYSTEM FACTS:
 - Audit trail: Witness Agent logs every AI agent decision before execution (tamper-evident)
 - Mandatory file triplet: every agent requires AGENTS.md + SOP.md + SKILL.md (§2.1 enforcement)
 
-GOVERNANCE FILE EXCERPTS (representative samples):
-${governanceSummary.slice(0, 7000)}
+AGENT DEFINITIONS (canonical AGENTS.md files — each agent's formal identity, capabilities, and constraints):
+${agentDefSummary.slice(0, 3000)}
+
+GOVERNANCE FILE EXCERPTS (SOP/SKILL/COMPLIANCE — representative samples):
+${governanceSummary.slice(0, 4000)}
 
 Generate the following exact structure — write each section as formal audit narrative prose:
 
@@ -3230,21 +3292,23 @@ The following constitute the Type II operational evidence trail:
     const mayCount     = (content.match(/\bMAY\b/g) || []).length;
     const contentHash  = `${content.length}-${content.slice(0, 24).replace(/\W/g, "")}`;
 
-    const filename = `SOC2-SystemDescription-${hotelCode}.SYSTEM-DESC.md`;
     const filepath = `governance/${filename}`;
 
-    // Upsert into governance_files (idempotent)
-    const existing = await db
-      .select({ id: governanceFiles.id })
-      .from(governanceFiles)
-      .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.filename, filename)));
+    // §3/§4 compliance guard — applied when regenerating an existing document
+    if (existingRow?.content) {
+      const guard = checkSoc2ComplianceGuards(existingRow.content, content, signedOffBy);
+      if (!guard.allowed) {
+        return res.status(409).json({ error: "Compliance guard blocked regeneration", violations: guard.violations, hint: guard.hint });
+      }
+    }
 
+    // Upsert into governance_files (idempotent)
     let fileId: number;
-    if (existing.length > 0) {
+    if (existingRow) {
       const [updated] = await db
         .update(governanceFiles)
         .set({ content, status: "draft", wordCount, mustCount, mustNotCount, mayCount, isArchived: false, updatedAt: new Date() })
-        .where(eq(governanceFiles.id, existing[0].id))
+        .where(eq(governanceFiles.id, existingRow.id))
         .returning({ id: governanceFiles.id });
       fileId = updated.id;
     } else {
@@ -3280,12 +3344,12 @@ The following constitute the Type II operational evidence trail:
       actionProposed: `SOC 2 System Description generated and stored for ${companyName} (${hotelCode}). File: ${filename}.`,
       exceptionApplied: false,
       escalationTarget: null,
-      reasoning: `System Description generated by ${triggeredBy || "System"} on ${new Date().toISOString()}. Hash: ${contentHash}. ${wordCount} words. ${govFiles.length} governance files consulted across ${uniqueAgents.length} agents.`,
+      reasoning: `System Description generated by ${signedOffBy || "System"} on ${new Date().toISOString()}. Hash: ${contentHash}. ${wordCount} words. ${govFiles.length} governance files consulted across ${uniqueAgents.length} agents (${agentDefFiles.length} AGENTS.md definitions loaded).`,
       apaleoData: {
         event: "soc2_system_description_generated",
         modelUsed: "claude-sonnet-4-6",
         fileHash: contentHash,
-        triggeredBy: triggeredBy || "System",
+        signedOffBy: signedOffBy || "System",
         wordCount,
         govFilesUsed: govFiles.length,
         uniqueAgentsCount: uniqueAgents.length,
@@ -3317,7 +3381,7 @@ router.get("/admin/soc2-sd-status/:companyId", async (req, res) => {
     const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
     if (!company) return res.status(404).json({ error: "Company not found" });
 
-    const hotelCode = (company as any).apaleoPropertyId || "UNK";
+    const hotelCode = company.apaleoPropertyId ?? "UNK";
     const filename = `SOC2-SystemDescription-${hotelCode}.SYSTEM-DESC.md`;
 
     const [sdFile] = await db
