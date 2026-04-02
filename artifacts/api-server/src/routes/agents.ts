@@ -163,6 +163,16 @@ interface GovernancePolicyResult {
   mandatoryEscalate?: boolean;
 }
 
+/**
+ * Returns the canonical SOP filename from a loaded file list for witness-entry attribution.
+ * When filesLoaded is empty (governance failure), returns the VDA-MD §2.1 sentinel string
+ * so witness entries never imply a real SOP file was consulted when governance was absent.
+ */
+function governanceFileReferenced(filesLoaded: string[]): string {
+  if (filesLoaded.length === 0) return "VDA-MD §2.1 — No governance file";
+  return filesLoaded.find(f => f.endsWith('.SOP.md')) ?? filesLoaded[0];
+}
+
 async function getGovernancePolicyFromFM(companyId: number, policyKey: string): Promise<GovernancePolicyResult> {
   const agentId = POLICY_AGENT_ID_MAP[policyKey];
 
@@ -172,8 +182,12 @@ async function getGovernancePolicyFromFM(companyId: number, policyKey: string): 
     return { policyText: VDA_MD_MANDATORY_ESCALATE_CLAUSE, filesLoaded: [], mandatoryEscalate: true };
   }
 
+  // VDA-MD §2.1: these three file types are mandatory for any agent to operate
+  const REQUIRED_TYPES = ["AGENTS", "SOP", "SKILL"] as const;
+
   try {
-    // Load all VDA-MD file types for this agent: AGENTS (charter) + SOP (rules) + SKILL (tools)
+    // Step 1: Load agent-specific governance files (AGENTS + SOP + SKILL + EXCEPTION)
+    // Prerequisite check runs on THESE rows only — cross-domain files must not mask missing agent governance.
     const rows = await db
       .select({ content: governanceFiles.content, filename: governanceFiles.filename, fileType: governanceFiles.fileType })
       .from(governanceFiles)
@@ -184,9 +198,23 @@ async function getGovernancePolicyFromFM(companyId: number, policyKey: string): 
           eq(governanceFiles.isArchived, false)
         )
       )
-      .orderBy(governanceFiles.fileType); // AGENTS → SHARED_SERVICES → SKILL → SOP (alphabetical)
+      .orderBy(governanceFiles.fileType); // AGENTS → SKILL → SOP (alphabetical)
 
-    // Also load cross-domain shared services files if this agent requires them
+    // Step 2: Enforce mandatory file-type precondition on agent-specific rows ONLY
+    const agentBaseRows = rows.filter(r => r.fileType !== "EXCEPTION");
+    const agentExceptionRows = rows.filter(r => r.fileType === "EXCEPTION");
+    const presentTypes = new Set(agentBaseRows.filter(r => r.content && r.content.length > 200).map(r => r.fileType));
+    const missingTypes = REQUIRED_TYPES.filter(t => !presentTypes.has(t));
+
+    if (missingTypes.length > 0) {
+      logger.error(
+        { companyId, policyKey, agentId, missingTypes, presentTypes: [...presentTypes] },
+        "VDA-MD §2.1 violation: required governance file type(s) missing for this company+agent — mandatory ESCALATE"
+      );
+      return { policyText: VDA_MD_MANDATORY_ESCALATE_CLAUSE, filesLoaded: [], mandatoryEscalate: true };
+    }
+
+    // Step 3: Prerequisite satisfied — now load cross-domain shared services files (if any)
     const crossDomainIds = CROSS_DOMAIN_AGENT_IDS[agentId] ?? [];
     let crossDomainRows: { content: string; filename: string; fileType: string }[] = [];
     if (crossDomainIds.length > 0) {
@@ -202,18 +230,10 @@ async function getGovernancePolicyFromFM(companyId: number, policyKey: string): 
         );
     }
 
-    const allRows = [...crossDomainRows, ...rows]; // cross-domain first (pre-condition block)
-
-    // EXCEPTION files handled separately — filtered out of base policy block
-    const baseRows = allRows.filter(r => r.fileType !== "EXCEPTION");
-    const exceptionRows = allRows.filter(r => r.fileType === "EXCEPTION");
+    // Cross-domain files prepended (pre-condition block), agent files follow
+    const baseRows = [...crossDomainRows.filter(r => r.fileType !== "EXCEPTION"), ...agentBaseRows];
+    const exceptionRows = agentExceptionRows; // exceptions are always agent-scoped
     const filesLoaded = [...baseRows.map(r => r.filename), ...exceptionRows.map(r => r.filename)];
-
-    // VDA-MD §2.1: no governance files found for this company+agent = mandatory ESCALATE
-    if (baseRows.length === 0 || !baseRows.some(r => r.content && r.content.length > 200)) {
-      logger.error({ companyId, policyKey, agentId, baseRows: baseRows.length }, "VDA-MD violation: no governance files found for this company+agent — mandatory ESCALATE");
-      return { policyText: VDA_MD_MANDATORY_ESCALATE_CLAUSE, filesLoaded: [], mandatoryEscalate: true };
-    }
 
     let policyText = baseRows
       .map(r => `## [${r.fileType}] ${r.filename}\n\n${r.content}`)
@@ -572,7 +592,7 @@ router.post("/agents/availability", async (req, res) => {
       companyId: Number(companyId),
       agent: "Availability Agent",
       decision,
-      fileReferenced: availFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? availFilesLoaded[0] ?? "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
+      fileReferenced: governanceFileReferenced(availFilesLoaded),
       apaleoData,
       scenarioRunId,
       filesConsulted: availFilesLoaded,
@@ -625,7 +645,7 @@ router.post("/agents/rate", async (req, res) => {
       companyId: Number(companyId),
       agent: "Rate Agent",
       decision,
-      fileReferenced: filesLoaded.find(f => f.endsWith('.SOP.md')) ?? filesLoaded[0] ?? "Hospitality-Revenue-Book-rate-agent.SOP.md",
+      fileReferenced: governanceFileReferenced(filesLoaded),
       apaleoData,
       scenarioRunId,
       filesConsulted: filesLoaded,
@@ -820,7 +840,7 @@ router.post("/agents/reservation", async (req, res) => {
       companyId: Number(companyId),
       agent: "Reservation Bot",
       decision,
-      fileReferenced: resvFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? resvFilesLoaded[0] ?? "Hospitality-Revenue-Book-reservation-bot.SOP.md",
+      fileReferenced: governanceFileReferenced(resvFilesLoaded),
       apaleoData,
       scenarioRunId,
       filesConsulted: resvFilesLoaded,
@@ -946,7 +966,7 @@ router.post("/agents/checkin", async (req, res) => {
       companyId: Number(companyId),
       agent: "Check-In Agent",
       decision,
-      fileReferenced: checkinFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? checkinFilesLoaded[0] ?? "Hospitality-Operations-Stay-checkin-agent.SOP.md",
+      fileReferenced: governanceFileReferenced(checkinFilesLoaded),
       apaleoData,
       scenarioRunId,
       filesConsulted: checkinFilesLoaded,
@@ -1002,7 +1022,7 @@ router.post("/agents/folio", async (req, res) => {
       companyId: Number(companyId),
       agent: "Folio Agent",
       decision,
-      fileReferenced: folioFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? folioFilesLoaded[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+      fileReferenced: governanceFileReferenced(folioFilesLoaded),
       apaleoData,
       scenarioRunId,
       filesConsulted: folioFilesLoaded,
@@ -1130,7 +1150,7 @@ router.post("/agents/folio-charge", async (req, res) => {
       companyId: Number(companyId),
       agent: "Folio Charge Agent",
       decision,
-      fileReferenced: folioChargeFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? folioChargeFilesLoaded[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+      fileReferenced: governanceFileReferenced(folioChargeFilesLoaded),
       apaleoData,
       scenarioRunId,
       filesConsulted: folioChargeFilesLoaded,
@@ -1251,8 +1271,8 @@ router.post("/agents/checkout", async (req, res) => {
 
     // When an exception governed the outcome, cite the EXCEPTION.md file; otherwise cite SOP
     const checkoutFileRef = decision.exceptionApplied
-      ? (checkoutFilesLoaded.find(f => f.endsWith('.EXCEPTION.md')) ?? checkoutFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md")
-      : (checkoutFilesLoaded.find(f => f.endsWith('.SOP.md')) ?? checkoutFilesLoaded[0] ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md");
+      ? (checkoutFilesLoaded.find(f => f.endsWith('.EXCEPTION.md')) ?? governanceFileReferenced(checkoutFilesLoaded))
+      : governanceFileReferenced(checkoutFilesLoaded);
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
       agent: "Checkout Agent",
@@ -1430,7 +1450,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Availability Agent", decision,
-        fileReferenced: availScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? availScenarioFiles[0] ?? "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
+        fileReferenced: governanceFileReferenced(availScenarioFiles),
         apaleoData: { propertyId, arrival: today, departure: tomorrow, unitGroups: unitGroups.slice(0, 3), usedMcp: availUsedMcp, toolCallsMade: availToolCalls },
         scenarioRunId,
         filesConsulted: availScenarioFiles,
@@ -1450,7 +1470,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       );
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
-        fileReferenced: rateScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? rateScenarioFiles[0] ?? "Hospitality-Revenue-Book-rate-agent.SOP.md",
+        fileReferenced: governanceFileReferenced(rateScenarioFiles),
         apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls },
         scenarioRunId,
         filesConsulted: rateScenarioFiles,
@@ -1528,7 +1548,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Reservation Bot", decision,
-        fileReferenced: resvScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? resvScenarioFiles[0] ?? "Hospitality-Revenue-Book-reservation-bot.SOP.md",
+        fileReferenced: governanceFileReferenced(resvScenarioFiles),
         apaleoData: { createdId, writeExecuted, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls },
         scenarioRunId,
         filesConsulted: resvScenarioFiles,
@@ -1601,7 +1621,7 @@ router.post("/agents/scenario/run", async (req, res) => {
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Check-In Agent", decision: ciDecision,
-        fileReferenced: ciScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? ciScenarioFiles[0] ?? "Hospitality-Operations-Stay-checkin-agent.SOP.md",
+        fileReferenced: governanceFileReferenced(ciScenarioFiles),
         apaleoData: { reservationId, checkinExecuted, folioId: folioFromCheckin, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls },
         scenarioRunId,
         filesConsulted: ciScenarioFiles,
@@ -1663,7 +1683,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       };
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Folio Charge Agent", decision: fcDecision,
-        fileReferenced: fcScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? fcScenarioFiles[0] ?? "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+        fileReferenced: governanceFileReferenced(fcScenarioFiles),
         apaleoData: fcWitnessApaleoData,
         scenarioRunId,
         filesConsulted: fcScenarioFiles,
@@ -1723,8 +1743,8 @@ router.post("/agents/scenario/run", async (req, res) => {
         const coTotalOutstanding = folios.reduce((s: number, f: ApaleoFolio) => s + (f.outstandingAmount?.amount ?? 0), 0);
         const coCurrency = folios[0]?.totalAmount?.currency ?? "EUR";
         const coFileRef = coDecision.exceptionApplied
-          ? (coScenarioFiles.find(f => f.endsWith('.EXCEPTION.md')) ?? coScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md")
-          : (coScenarioFiles.find(f => f.endsWith('.SOP.md')) ?? coScenarioFiles[0] ?? "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md");
+          ? (coScenarioFiles.find(f => f.endsWith('.EXCEPTION.md')) ?? governanceFileReferenced(coScenarioFiles))
+          : governanceFileReferenced(coScenarioFiles);
         const wid = await writeWitnessEntry({
           companyId: Number(companyId), agent: "Checkout Agent", decision: coDecision,
           fileReferenced: coFileRef,
@@ -1742,7 +1762,7 @@ router.post("/agents/scenario/run", async (req, res) => {
         };
         const wid = await writeWitnessEntry({
           companyId: Number(companyId), agent: "Checkout Agent", decision,
-          fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+          fileReferenced: governanceFileReferenced([]),
           apaleoData: { reservationId: undefined, checkoutExecuted: false },
           scenarioRunId,
           filesConsulted: [],
