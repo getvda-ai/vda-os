@@ -6045,7 +6045,7 @@ const JOURNEY_STEPS = [
   {
     step: 1, agentId: "availability", name: "Availability Agent", icon: "🔍",
     artifactKeys: ["unitGroupId", "ratePlanId"],
-    purpose: "Queries live Apaleo inventory for available units and active rate plans for tonight's stay.",
+    purpose: "Queries live Apaleo inventory for available units and active rate plans for the upcoming stay.",
     narrative: (s) => s.decision === "PASS"
       ? `Availability confirmed — units found matching the guest's requirements. ${s.actionProposed ? s.actionProposed.slice(0, 80) + (s.actionProposed.length > 80 ? "…" : "") : ""}`
       : `No availability found for the requested dates — journey halted at source. ${s.actionProposed?.slice(0, 80) || ""}`,
@@ -6083,9 +6083,9 @@ const JOURNEY_STEPS = [
   {
     step: 5, agentId: "folio-charge", name: "Folio Charge Agent", icon: "💳",
     artifactKeys: ["folioId", "reservationId"],
-    purpose: "Posts a €240 room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.",
+    purpose: "Posts an €89 room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.",
     narrative: (s) => s.decision === "PASS"
-      ? `€240 charge posted to folio under Finance O2C policy. ${s.crossDomainInheritance ? "Cross-domain policy inheritance applied. " : ""}${s.actionProposed?.slice(0, 70) || ""}`
+      ? `€89 charge posted to folio under Finance O2C policy. ${s.crossDomainInheritance ? "Cross-domain policy inheritance applied. " : ""}${s.actionProposed?.slice(0, 70) || ""}`
       : `Charge blocked — did not pass cross-domain finance policy validation. ${s.actionProposed?.slice(0, 70) || ""}`,
     insight: "Shared policy files prevent finance rules being re-invented per property — one source of truth.",
   },

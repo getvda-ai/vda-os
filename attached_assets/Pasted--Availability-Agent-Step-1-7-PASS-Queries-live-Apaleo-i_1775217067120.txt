@@ -1,0 +1,123 @@
+
+Availability Agent
+Step 1/7
+✓ PASS
+Queries live Apaleo inventory for available units and active rate plans for tonight's stay.
+Availability confirmed — units found matching the guest's requirements. Live availability audit completed for property VIE. Unit group VIE-SGL returned …
+APALEO
+🛏
+unit group:
+VIE-SGL
+💰
+rate plan:
+VIE-VDADEMO-SGL
+MUST query the Apaleo Availability API for live unit inventory before confirming any availability response — fabricated or cached …
+Action taken: Live availability audit completed for property VIE. Unit group VIE-SGL returned 48 available units on 2026-04-10 (2 occupied by confirmed booking HLPA…
+🕵️ Witness #231 sealed
+No hardcoded availability thresholds — the policy file is the sole arbiter of what 'available' means.
+💰
+Rate Agent
+Step 2/7
+✓ PASS
+Evaluates a 5% discount request (BAR €180 → €171) — within the agent's autonomous authority ceiling.
+5% discount approved autonomously — within policy authority ceiling. Apply rate override: €171 EUR per night (5.00% discount below BAR of €180 EUR).
+APALEO
+💰
+rate plan:
+VIE-VDADEMO-SGL
+MAY apply autonomous rate overrides within the 0–9% below BAR band without Revenue Manager notification, provided all MUST conditi…
+Action taken: Apply rate override: €171 EUR per night (5.00% discount below BAR of €180 EUR). Rate plan VIE-VDADEMO-SGL confirmed active and bookable. Guest Tier 1 …
+🕵️ Witness #232 sealed
+Rate override authority is bounded by SKILL.md — not hardcoded. Change the file, change the behaviour.
+📋
+Reservation Bot
+Step 3/7
+✓ PASS
+Creates a booking in Apaleo after policy validation — no PMS write without a PASS decision.
+Reservation created in Apaleo — policy PASS was the prerequisite. Reservation HLPATIGJ-1 verified and confirmed in Apaleo (pre-flight created). Re
+APALEO
+🛏
+unit group:
+VIE-SGL
+💰
+rate plan:
+VIE-VDADEMO-SGL
+📋
+reservation:
+HLPATIGJ-1
+MUST verify unit type availability via the Apaleo Availability API before creating or committing any reservation.
+Action taken: Reservation HLPATIGJ-1 verified and confirmed in Apaleo (pre-flight created). Reservation HLPATIGJ-1 for Demo Guest at property VIE, unit group VIE-SG…
+🕵️ Witness #233 sealed
+The reservation bot cannot act alone. Every write is policy-gated before Apaleo is touched.
+✅
+Check-In Agent
+Step 4/7
+✓ PASS
+Validates 5 mandatory gates (ID, folio, payment, status, arrival) before executing check-in.
+All 5 check-in gates passed — guest successfully checked in. Check-in executed → InHouse (MCP). Execute CheckIn tool to transition reservatio
+APALEO
+📋
+reservation:
+HLPATIGJ-1
+📄
+folio:
+HLPATIGJ-1-1
+MUST update Apaleo reservation status to IN_HOUSE upon successful check-in — no citizen is considered checked in until this state …
+Action taken: Check-in executed → InHouse (MCP). Execute CheckIn tool to transition reservation HLPATIGJ-1 status from Confirmed to IN_HOUSE in Apaleo Reservations …
+🕵️ Witness #234 sealed
+One failed gate blocks the entire check-in — preventing costly downstream data errors at source.
+💳
+Folio Charge Agent
+Step 5/7
+✓ PASS
+Posts a €240 room revenue charge to the guest folio, inheriting cross-domain Finance O2C policy.
+€240 charge posted to folio under Finance O2C policy. Charge €240 EUR posted to folio HLPATIGJ-1-1 (MCP). Post €89 RoomReven
+APALEO
+📄
+folio:
+HLPATIGJ-1-1
+📋
+reservation:
+HLPATIGJ-1
+MUST confirm a valid Apaleo reservation ID is linked, via the Apaleo Reservations API, before posting any folio charge.
+Action taken: Charge €240 EUR posted to folio HLPATIGJ-1-1 (MCP). Post €89 RoomRevenue charge to folio HLPATIGJ-1-1 via Apaleo Folio API under autonomous agent auth…
+🕵️ Witness #235 sealed
+Shared policy files prevent finance rules being re-invented per property — one source of truth.
+🚪
+Checkout Agent
+Step 6/7
+✓ PASS
+Processes departure with Gold loyalty exception evaluation and folio settlement verification.
+Checkout completed with loyalty exception applied — bounded and auditable. Checkout executed → CheckedOut (MCP). Execute checkout via Apaleo Rese
+APALEO
+📋
+reservation:
+HLPATIGJ-1
+📄
+folio:
+HLPATIGJ-1-1
+Gold loyalty tier citizens are permitted a complimentary late checkout extension to 13:00, waiving the standard €30 late checkout …
+Action taken: Checkout executed → CheckedOut (MCP). Execute checkout via Apaleo Reservations API with status transition to CHECKED_OUT. Apply Gold loyalty late chec…
+🕵️ Witness #236 sealed
+⚡ EXCEPTION APPLIED
+Exceptions are auditable, bounded, and immutable files — no hardcoded loyalty logic in code.
+📊
+Revenue Reconciliation
+Step 7/7
+✓ PASS
+Reconciles revenue data and seals the Witness Agent audit trail for the complete guest journey.
+Revenue reconciled and Witness trail sealed for the complete guest journey. Record reconciliation summary to Witness Agent: property VIE, date 202
+APALEO
+🏨
+property:
+VIE
+📋
+reservation:
+HLPATIGJ-1
+📄
+folio:
+HLPATIGJ-1-1
+The agent MAY pass reconciliation with a variance ≤5% as normal operational variance, consistent with citizenM's accepted toleranc…
+Action taken: Record reconciliation summary to Witness Agent: property VIE, date 2026-04-03, folio charge €89 EUR (RoomRevenue, Demo Room Rate Supplement) under rat…
+🕵️ Witness #237 sealed
+Every decision, every governance file, every outcome — one click away from SOC 2 evidence.

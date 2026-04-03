@@ -1889,7 +1889,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
             () => apaleoRequest<Record<string, unknown>>(`/finance/v1/folios/${folioId}/charges`, "POST", chargeBody)
           );
           chargePosted = true;
-          fcDecision.actionProposed = `Charge €240 EUR posted to folio ${folioId} (${usedMcp ? "MCP" : "REST"}). ${fcDecision.actionProposed}`;
+          fcDecision.actionProposed = `Charge €89 EUR posted to folio ${folioId} (${usedMcp ? "MCP" : "REST"}). ${fcDecision.actionProposed}`;
         } catch (e: unknown) {
           fcDecision.actionProposed = `Charge attempted: ${e instanceof Error ? e.message : String(e)}. ${fcDecision.actionProposed}`;
         }
@@ -1898,7 +1898,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       // Log cross-domain inheritance explicitly in witness evidence for scenario step 5
       const fcCrossdomainFile = fcScenarioFiles.find(f => f.toLowerCase().includes("shared-o2c") || f.toLowerCase().includes("finance-o2c"));
       const fcWitnessApaleoData: Record<string, unknown> = {
-        folioId, chargePosted, chargeAmount: 240, currency: "EUR", usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls,
+        folioId, chargePosted, chargeAmount: 89, currency: "EUR", usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls,
         ...(fcCrossdomainFile ? { crossDomainInheritance: true, inheritedPolicyFile: fcCrossdomainFile } : {}),
       };
       const wid = await writeWitnessEntry({
