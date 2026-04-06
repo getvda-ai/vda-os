@@ -6,3 +6,9 @@ id = "0ghxzZysM67Vw6V4FYoR8"
 uri = "file://README.md"
 type = "text"
 title = "VDA-MD Framework — README.md (updated)"
+
+[[outputs]]
+id = "sewKoLcQD5dU-44Vuywd5"
+uri = "file://exports/vda-mk-platform-report.txt"
+type = "text"
+title = "VDA-MK Platform Report"

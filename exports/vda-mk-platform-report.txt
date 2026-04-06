@@ -1,0 +1,619 @@
+================================================================================
+VDA-MK PLATFORM — COMPLETE TECHNICAL & FUNCTIONAL REPORT
+Value Driven AI — Management Kit | Powered by Apaleo
+Generated: April 2026
+================================================================================
+
+
+WHAT THE PLATFORM IS
+================================================================================
+
+VDA-MK (Value Driven AI — Management Kit) is a hospitality AI governance
+operating system built on top of the Apaleo Property Management System. Its
+central thesis is that Markdown is the sole source of truth for all AI agent
+behaviour. No business logic for agent decisions is hardcoded in the
+application — every threshold, every authority boundary, every compliance rule,
+every exception condition lives in a markdown governance file stored in a
+PostgreSQL database and loaded at runtime.
+
+The platform is built as a pnpm monorepo with three services running
+concurrently:
+
+  Service                        Stack                  Purpose
+  ─────────────────────────────────────────────────────────────────────────────
+  artifacts/vda-os               React + Vite           Full-stack frontend —
+                                                        governance hub, demo,
+                                                        file manager, agents
+  artifacts/api-server           Node.js + Express +    All agent logic, Apaleo
+                                 TypeScript             integration, AI proxy,
+                                                        MCP proxy, seed
+  artifacts/mockup-sandbox       Vite                   Design prototyping
+                                                        environment
+
+
+THE FIVE HOTELS
+================================================================================
+
+The platform is pre-configured for five citizenM hotel properties, each
+identified by a short property code that maps to a real Apaleo sandbox property:
+
+  Hotel                  Code    Apaleo Property ID    Database Company ID
+  ─────────────────────────────────────────────────────────────────────────────
+  citizenM Vienna        VIE     VIE                   7
+  citizenM Paris         PAR     PAR                   6
+  citizenM Munich        MUC     MUC                   5
+  citizenM London        LND     LND                   4
+  citizenM Berlin        BER     BER                   3
+
+Each hotel is a fully independent governance domain in the database. All 5
+share the same canonical file set but each maintains its own governance files,
+witness audit trail, version history, and agent configuration.
+
+
+THE GOVERNANCE FRAMEWORK (VDA-MD)
+================================================================================
+
+The platform is built around VDA-MD — a framework where Markdown files govern
+AI agent behaviour. The architecture is described as "Governance-as-Code."
+
+
+THE FOUR MANDATORY FILE TYPES
+-------------------------------
+
+Every agent at every hotel requires exactly three mandatory files. A missing
+file causes an immediate ESCALATE decision before any AI or API is invoked
+(§2.1 enforcement):
+
+  AGENTS.md (Agent Charter)
+    Defines the agent's identity, scope of authority, RACI ownership structure,
+    inheritance hierarchy, and which value stream axis it belongs to.
+
+  SOP.md (Standard Operating Procedure)
+    Contains all MUST, MUST NOT, and MAY clauses that govern agent decisions —
+    the machine-readable rulebook.
+
+  SKILL.md (Skill Manifest)
+    Explicitly lists every Apaleo MCP tool the agent is permitted to call,
+    including OAuth scope restrictions.
+
+  EXCEPTION.md (Exception Overlay)
+    Optional conditional overrides for specific scenarios (e.g., Gold loyalty
+    tier late checkout waiver). These extend the SOP without replacing it.
+
+
+FILE NAMING CONVENTION
+-----------------------
+
+  Hospitality-[Domain]-[Stage]-[AgentName].[FileType].md
+
+Examples:
+  Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md
+  Hospitality-Operations-Stay-checkin-agent.SOP.md
+  Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md
+  Hospitality-Finance-Shared-O2C-folio-charge-authority.md
+
+
+YAML FRONTMATTER FOR MACHINE READABILITY
+-----------------------------------------
+
+Every governance file includes a structured YAML frontmatter block:
+
+  ---
+  file_type: AGENTS | SOP | SKILL | EXCEPTION
+  agent_id: checkin-agent
+  journey_stage_axis: Stay
+  value_stream_axis: vertical
+  authored_by: Operations Director
+  approved_by: General Manager
+  risk_level: HIGH
+  c2md_confidence: 0.94
+  nist_control: AC-2, AU-2
+  ---
+
+
+THE CANONICAL 29-FILE STACK PER HOTEL
+---------------------------------------
+
+Each of the 5 hotels is seeded with the same canonical set of governance files
+covering all 8 agents. The total per hotel is approximately 29 files (3
+mandatory per agent × 8 agents, plus shared cross-domain and exception files).
+These are stored in the governance_files table and served by the File Manager.
+
+
+THE EIGHT AI AGENTS
+================================================================================
+
+Each agent is a standalone API endpoint that follows an identical execution
+pipeline:
+
+  1. Governance Pre-flight
+     Load AGENTS.md + SOP.md + SKILL.md. If any file missing → immediate
+     ESCALATE, no AI called.
+
+  2. Live Data Retrieval
+     Call Apaleo via MCP tools (primary) or REST fallback to get current state.
+
+  3. Policy Evaluation
+     Send governance text + live data to Claude (Anthropic). Claude must return
+     a structured JSON decision and copy the exact policy clause that governed
+     its decision.
+
+  4. Action Execution
+     Write operations against Apaleo are ONLY executed if the decision is PASS.
+
+  5. Witness Seal
+     Every outcome, regardless of decision, is written to the witness_entries
+     table.
+
+
+AGENT REFERENCE TABLE
+-----------------------
+
+  Agent                    Stage        Domain        Key Apaleo MCP Tools
+  ─────────────────────────────────────────────────────────────────────────────
+  Availability Agent       Pre-Book     Revenue       GetAvailableUnitGroups,
+                                                      ListRatePlans, ListOffers
+  Rate Agent               Book         Revenue       ListRatePlans, GetReport
+  Reservation Bot          Book         Revenue       CreateBooking,
+                                                      AmendReservation,
+                                                      GetGuestProfile
+  Check-In Agent           Stay         Operations    CheckIn, GetReservation,
+                                                      ListFolios,
+                                                      ListPaymentAccounts
+  Folio Charge Agent       Stay         Finance       CreateFolioCharge,
+                                                      GetFolio, ListFolios
+  Folio Agent              Stay         Finance       GetFolio, ListFolios,
+                                                      ListInvoices
+  Checkout Agent           Post-Stay    Operations    CheckOut, GetReservation,
+                                                      ListFolios
+  Revenue Reconciliation   Post-Stay    Finance       GetReport, ListRatePlans,
+                                                      ListFolios
+
+
+DECISION AUTHORITY
+-------------------
+
+  Availability Agent:
+    Confirms unit availability against live inventory
+
+  Rate Agent:
+    Autonomous rate override ≤9% below BAR; escalates above
+
+  Reservation Bot:
+    Creates or amends reservations after PASS
+
+  Check-In Agent:
+    5-gate validation (ID, folio, payment, status, arrival date)
+
+  Folio Charge Agent:
+    Posts charges under Finance O2C cross-domain policy (autonomous <€200;
+    sign-off required ≥€200)
+
+  Checkout Agent:
+    Processes departure with loyalty exception evaluation and folio settlement
+    verification
+
+  Revenue Reconciliation:
+    Cross-references actual vs expected revenue; ≤5% variance = autonomous PASS
+
+
+CROSS-DOMAIN POLICY INHERITANCE
+---------------------------------
+
+Two agents automatically inherit additional shared governance files before their
+own SOP is loaded:
+
+  Folio Charge Agent:
+    Prepends Hospitality-Finance-Shared-O2C-folio-charge-authority.md —
+    enforces enterprise-wide financial thresholds.
+
+  Checkout Agent:
+    Also inherits the Finance O2C shared policy for folio settlement validation.
+
+This is defined in CROSS_DOMAIN_AGENT_IDS in agents.ts — if the agent ID
+appears in that map, the system concatenates the shared policy files ahead of
+the agent's own SOP.
+
+
+LIVE APALEO INTEGRATION — HOW IT ACTUALLY WORKS
+================================================================================
+
+
+AUTHENTICATION: OAUTH2 CLIENT CREDENTIALS
+-------------------------------------------
+
+The platform authenticates to Apaleo using the OAuth2 Client Credentials Grant:
+
+  Token endpoint:    https://identity.apaleo.com/connect/token
+  Credentials:       APALEO_CLIENT_ID and APALEO_CLIENT_SECRET
+                     (stored as environment secrets, never in code)
+  Token caching:     Tokens are cached in memory. The system checks expiry on
+                     every request and refreshes within 30 seconds of expiration.
+  Scopes:            availability.read, reservations.read,
+                     reservations.manage, finance.read, finance.manage,
+                     distribution:reservations.manage, and others.
+
+
+THE MCP PROXY
+--------------
+
+The Model Context Protocol (MCP) is Apaleo's standardised interface for AI
+model tool-calling. The platform runs a transparent MCP proxy at /api/mcp that:
+
+  - Accepts JSON-RPC requests (and SSE streaming) from agents
+  - Injects the current Apaleo Bearer token into every request automatically
+  - Forwards to https://mcp.apaleo.com/mcp
+  - Manages Mcp-Session-Id headers for stateful MCP sessions
+  - Returns tool results to the calling agent
+
+This means agents call Apaleo tools exactly as an AI model would in a
+production deployment — the platform is not simulating this; it is using
+Apaleo's actual MCP interface.
+
+
+THE apaleoRequest FUNCTION
+----------------------------
+
+When MCP is unavailable or a direct REST call is needed, agents use a typed
+apaleoRequest helper in agents.ts that:
+
+  - Automatically fetches and injects the Bearer token
+  - Builds query strings from typed parameter objects
+  - Handles 204 No Content responses gracefully
+  - Throws descriptive errors with HTTP status and body on failure
+
+
+APALEO API SURFACES USED
+--------------------------
+
+  Availability API   /availability/v1/unit-groups
+    Check live room availability for given dates/adults
+
+  Inventory API      /inventory/v1/properties, /unit-groups, /units
+    List properties, room categories, individual unit statuses
+
+  Booking API        /booking/v1/bookings (POST)
+    Create group and transient bookings
+
+  Booking API        /booking/v1/reservations (GET)
+    Retrieve reservation lists by status, property
+
+  Finance API        /finance/v1/folios (GET)
+    List folios for a reservation
+
+  Finance API        /finance/v1/folios/{id}/charges (POST)
+    Post charges to a guest folio (executed only on PASS)
+
+  Rate Plan API      /rateplan/v1/rate-plans (GET)
+    Retrieve active rate plans for a property
+
+  Rate Plan API      /rateplan/v1/rate-plans/{id}/rates (PUT)
+    Set nightly rates on a rate plan (used by demo setup)
+
+  Reports API        /reports/v1/revenue
+    Pull revenue performance data for reconciliation
+
+  Operations API     /operations/v1/maintenances
+    Maintenance/housekeeping status (displayed in live stats bar)
+
+
+THE DEMO RESERVATION PATTERN
+------------------------------
+
+The platform uses a dedicated Apaleo rate plan per hotel as the anchor for all
+demo runs:
+
+  Pattern:     {propertyId}-VDADEMO-SGL  (e.g., VIE-VDADEMO-SGL)
+  Settings:    isBookable: true, single adult occupancy
+
+Before any demo scenario, the platform:
+
+  1. Sets 60 days of nightly rates (€175/night) on this plan via the
+     Rates PUT endpoint
+  2. Creates a fresh Confirmed booking 7 days in the future under a demo
+     booker profile (Maria Schmidt, demo@vda-mk.com)
+  3. Resolves the folio for that booking automatically
+  4. All 7 agents in the scenario then operate against this guaranteed live
+     Apaleo data — no mocked responses anywhere in the pipeline
+
+
+THE 7-STEP SCENARIO (LIVE DEMO)
+================================================================================
+
+The centrepiece interactive demo runs a complete guest journey through all 7
+agents in sequence against live Apaleo data:
+
+  Step 1 — Availability Agent
+    Calls GetAvailableUnitGroups against Apaleo — returns real unit count
+    (e.g., "49 units available on 2026-04-10")
+
+  Step 2 — Rate Agent
+    Calls ListRatePlans — evaluates a 5% discount request (BAR €180 → €171),
+    approves autonomously under the 9% policy ceiling
+
+  Step 3 — Reservation Bot
+    Calls GetGuestProfile — verifies demo reservation exists in Apaleo,
+    confirms booking identity
+
+  Step 4 — Check-In Agent
+    Calls CheckIn via MCP — transitions reservation status from Confirmed to
+    InHouse in Apaleo live
+
+  Step 5 — Folio Charge Agent
+    Calls CreateFolioCharge via MCP — posts an €89 RoomRevenue charge to the
+    real folio in Apaleo
+
+  Step 6 — Checkout Agent
+    Calls CheckOut via MCP — transitions to CheckedOut; applies Gold loyalty
+    exception (late checkout to 13:00, €30 fee waived)
+
+  Step 7 — Revenue Reconciliation
+    Calls GetReport or ListFolios — reconciles folio charge vs rate plan
+    expectation, seals audit trail
+
+Every step produces a Witness Entry sealed in the database with: agent name,
+decision (PASS/FAIL/ESCALATE), reasoning, the exact policy clause that governed
+the decision, the governance files consulted, and any Apaleo data used.
+
+
+THE WITNESS AGENT AUDIT TRAIL
+================================================================================
+
+Every agent decision — successful or not — is written to the witness_entries
+table. Each entry records:
+
+  agent              Which agent made the decision
+  decision           PASS, FAIL, or ESCALATE
+  reasoning          Claude's natural-language explanation
+  clauseApplied      The verbatim MUST/MAY clause from the governance markdown
+                     that governed the outcome
+  fileReferenced     The governance file name the clause came from
+  filesConsulted     Array of all governance files loaded during evaluation
+  actionProposed     What action the agent proposed (e.g., "Execute CheckIn
+                     via MCP")
+  escalationTarget   Who should be notified if ESCALATE
+  apaleoData         JSON blob of the live Apaleo data context used
+                     (reservation IDs, folio IDs, rate plan IDs, amounts)
+  exceptionApplied   Boolean — whether an EXCEPTION.md overlay changed the
+                     outcome
+
+The Witness Agent tab in the UI shows this log in real time, auto-refreshing,
+with colour-coded PASS/FAIL/ESCALATE badges.
+
+
+THE FILE MANAGER
+================================================================================
+
+The File Manager is the governance document repository. For each hotel it shows
+all 29 canonical markdown files, organised by agent and file type. Users can:
+
+  View and read any file's full markdown content
+
+  Edit files — but every save runs a compliance guard that checks for:
+    - Minimum MUST/MUST NOT clause counts (reducing below the seeded baseline
+      requires sign-off)
+    - Presence of required NIST control references (AC-2, AU-2, etc.)
+    - ISO 42001 and SOC 2 keyword preservation
+    - Broken cross-references between files
+
+  Sign off on changes — a named accountable role must formally sign governance
+  updates
+
+  Version history — every edit creates a new row in governance_file_versions
+  with commit message and author
+
+  Regenerate files via the C2MD engine — Claude rewrites the file using
+  brand-specific voice and terminology while preserving all compliance clauses
+
+THE COMPLIANCE GUARD (CRITICAL CONTROL):
+  If a content edit would reduce the number of MUST clauses, remove a NIST
+  reference, or delete an ISO 42001 citation, the API rejects the save with a
+  409 Conflict and lists the specific violations. The markdown cannot be
+  weakened without a formal named sign-off.
+
+
+THE C2MD STUDIO (COMPLIANCE-TO-MARKDOWN)
+================================================================================
+
+C2MD converts raw regulatory controls into property-specific, brand-voiced
+governance markdown. The process:
+
+  1. User selects a target agent and file type (SOP, SKILL, AGENTS)
+  2. User provides the source regulatory reference (e.g., "NIST SP 800-53
+     AC-2 Account Management")
+  3. The system loads the hotel's brand context (extracted from setup wizard)
+  4. Claude generates a markdown governance file using citizenM terminology,
+     operational context, and authentic brand voice — while embedding all
+     required MUST/MUST NOT/MAY normative language and NIST cross-references
+  5. The generated file is saved to the File Manager with c2md_generated: true
+     in the frontmatter
+
+
+THE EXCEPTION ENGINE
+================================================================================
+
+The Exception Engine manages EXCEPTION.md files that overlay the base SOP for
+specific conditions. Current active exceptions include:
+
+  Gold Loyalty Late Checkout:
+    Gold tier guests may check out up to 13:00 without the standard €30 fee.
+    Defined in Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md
+    and applied automatically by the Checkout Agent when the guest tier is Gold.
+
+The engine UI allows creating new exception conditions with:
+  - Trigger condition
+  - Exception rule
+  - Approval level required
+  - Effective date range
+
+
+THE SOC 2 SYSTEM DESCRIPTION GENERATOR
+================================================================================
+
+The SOC 2 SD tab auto-generates the System Description section required for a
+SOC 2 Type II audit report. It:
+
+  - Enumerates all AI agents operating on the platform for the property
+  - Cross-references each agent's governance files with the relevant Trust
+    Services Criteria (CC6.1, CC6.2, CC7.1, etc.)
+  - Generates a formatted System Description section confirming that all AI
+    decisions are governed, auditable, and compliant
+  - Output is suitable for pasting directly into an auditor's SOC 2 report
+    template
+
+
+COMPLIANCE FRAMEWORK COVERAGE
+================================================================================
+
+The platform asserts compliance alignment across four frameworks, with evidence
+embedded in governance file content:
+
+  GDPR
+    Data subject identity verification at reservation stage, booker vs guest
+    data separation, personal data processing clauses in SOP files.
+
+  EU AI Act
+    Auditability (Witness Agent trail), human escalation paths (ESCALATE
+    decision), risk classification per agent in AGENTS.md frontmatter.
+
+  ISO 42001
+    AI management system references in frontmatter (iso_42001_control fields),
+    governance lifecycle (author → review → sign-off → version).
+
+  SOC 2 Type II
+    Automated system description generation, immutable audit log (witness
+    entries), file version history, compliance guard preventing unauthorized
+    policy weakening.
+
+  NIST SP 800-53
+    AC-2 (Account Management), AU-2 (Event Logging), AU-12 (Audit Record
+    Generation) referenced in every governance file's frontmatter and content.
+
+
+THE SETUP WIZARD (BRAND CONTEXT INGESTION)
+================================================================================
+
+When adding a new hotel property, the wizard:
+
+  1. Takes the property website URL and Apaleo Property ID
+  2. Optionally accepts uploaded SOPs, operating manuals, or brand guidelines
+     (PDF/DOCX)
+  3. Runs a Claude-powered extraction that identifies: guest terminology
+     (e.g., "citizen" vs "guest"), staff roles (e.g., "ambassador" vs
+     "receptionist"), brand voice characteristics, and property-specific systems
+  4. Stores this brand context in the companies table as brandContext
+  5. Uses this context in all subsequent C2MD regeneration so governance files
+     sound authentically citizenM rather than generic
+
+
+DATABASE SCHEMA SUMMARY
+================================================================================
+
+  Table                        Purpose
+  ─────────────────────────────────────────────────────────────────────────────
+  companies                    Hotel properties — name, website, Apaleo property
+                               ID, brand context, uploaded file metadata
+
+  governance_files             All 29+ governance markdown files per hotel —
+                               content, frontmatter metadata, must/may clause
+                               counts, sign-off records
+
+  governance_file_versions     Full version history of every governance file
+                               edit — content snapshot, commit message, author,
+                               timestamp
+
+  witness_entries              Complete audit log of every agent decision —
+                               agent, decision, clause applied, governance files
+                               consulted, Apaleo data context
+
+  conversations                Chat session records for the AI setup assistant
+
+  messages                     Individual messages within setup conversations
+
+
+API SERVER ROUTES SUMMARY
+================================================================================
+
+  /api/agents/:agentType/evaluate
+    Evaluates a specific task for an agent. Loads mandatory governance files,
+    fetches live data from Apaleo (via MCP or REST), uses Claude to make a
+    PASS/FAIL/ESCALATE decision.
+
+  /api/agents/scenario/run
+    Executes the full 7-step hospitality lifecycle scenario.
+
+  /api/agents/witness
+    Retrieves the audit trail of agent decisions.
+
+  /api/fm/files/:companyId
+    Lists all active governance files for a company.
+
+  /api/fm/file/:id (GET/PUT/POST)
+    Retrieves or updates a specific governance file. PUT runs the compliance
+    guard.
+
+  /api/fm/sign/:id
+    Records a formal sign-off on a policy by an authorized role.
+
+  /api/fm/compliance-check
+    Analyzes markdown content for required keywords and clause counts.
+
+  /api/fm/integrity-check
+    Checks for broken cross-references between markdown files.
+
+  /api/admin/seed-companies
+    Idempotently creates hotel entries and generates their initial 29-file
+    governance stack using Claude.
+
+  /api/admin/seed-demo-data
+    Creates live sandbox reservations in the Apaleo environment.
+
+  /api/mcp (ALL methods)
+    Transparent MCP proxy to Apaleo's MCP server. Injects Bearer token,
+    manages sessions, supports SSE streaming.
+
+  /api/ai-proxy
+    Secure wrapper for calling Anthropic Claude. Centralises logging and
+    ensures decision response formatting.
+
+
+WHAT MAKES THIS ARCHITECTURALLY SIGNIFICANT
+================================================================================
+
+1. ZERO HARDCODED BUSINESS LOGIC IN AGENTS
+   Change a MUST clause in a markdown file → the agent's behaviour changes on
+   the next request, with no code deployment. This is verified in production:
+   adding a new exception to EXCEPTION.md changes the Checkout Agent's decision
+   in real time.
+
+2. LIVE APALEO DATA AT EVERY STEP
+   The platform does not simulate or mock. Every agent call hits the real Apaleo
+   sandbox MCP endpoint. Witness entries contain real Apaleo reservation IDs,
+   folio IDs, and rate plan IDs that can be independently verified in the Apaleo
+   sandbox portal.
+
+3. COMPLIANCE IMMUTABILITY
+   The compliance guard means governance files cannot be weakened by a rogue
+   edit — the system enforces that the markdown always maintains its minimum
+   compliance posture, with any reduction requiring a formal named sign-off.
+
+4. AUDITABILITY AS A FIRST-CLASS FEATURE
+   The Witness Agent trail is not a log file — it is structured relational data
+   that includes the exact policy clause, the exact governance file, and the
+   exact Apaleo data state at decision time. This is directly consumable by an
+   auditor.
+
+5. THE VDA-MD §2.1 ENFORCEMENT RULE
+   If any of the three mandatory files (AGENTS.md, SOP.md, SKILL.md) are
+   missing for an agent/hotel pair, the system immediately returns ESCALATE
+   without calling Claude or Apaleo. The AI cannot operate outside its
+   governance envelope.
+
+
+================================================================================
+Platform: VDA-MK v1.0
+Stack: React/Vite · Node.js/Express · PostgreSQL · Drizzle ORM ·
+       Anthropic Claude 3.5 · Apaleo MCP · pnpm monorepo
+Hotels: BER (Berlin) · LND (London) · MUC (Munich) · PAR (Paris) · VIE (Vienna)
+Compliance: GDPR · EU AI Act · ISO 42001 · SOC 2 Type II · NIST SP 800-53
+================================================================================
