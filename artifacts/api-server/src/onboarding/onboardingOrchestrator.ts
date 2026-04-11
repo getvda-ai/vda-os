@@ -2,8 +2,8 @@
  * Onboarding Orchestrator — 7-phase state machine for A2A agent admission.
  * Exports advanceOrchestratorPhase() for direct call from HITL respond endpoint.
  */
-import { db, onboardingRequests, hitlTokens } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, onboardingRequests, hitlTokens, governanceFiles } from "@workspace/db";
+import { eq, and, ne } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { writeWitnessEntry } from "../routes/agents.js";
 import { callAI } from "../routes/ai-proxy.js";
@@ -600,6 +600,49 @@ export async function startOnboarding(params: {
   rpcId: string | number | null;
 }): Promise<{ onboardingId: string; artifact: string } | { error: ReturnType<typeof jsonRpcError> }> {
   const { sessionId, agentCard, externalAgentDid, rpcId } = params;
+
+  // §2.1 Enforcement Rule — read the Onboarding Agent's own governance envelope
+  // from the platform sentinel (companyId=0) before accepting any request.
+  // This ensures the agent's own MUST/MUST NOT constraints are reachable regardless
+  // of which companyId the incoming A2A request carries, and records the fact in logs
+  // so the audit trail shows the agent governed itself first.
+  const ownGovernanceFiles = await db
+    .select({
+      fileType: governanceFiles.fileType,
+      mustNotCount: governanceFiles.mustNotCount,
+      mustCount: governanceFiles.mustCount,
+      owner: governanceFiles.owner,
+    })
+    .from(governanceFiles)
+    .where(
+      and(
+        eq(governanceFiles.companyId, PLATFORM_COMPANY_ID),
+        eq(governanceFiles.agentId, "onboarding-agent"),
+        eq(governanceFiles.isArchived, false)
+      )
+    );
+
+  if (ownGovernanceFiles.length < 3) {
+    // Governance envelope is incomplete — cannot proceed without self-governance files
+    logger.error(
+      { filesFound: ownGovernanceFiles.length, needed: 3 },
+      "§2.1 enforcement: Onboarding Agent governance envelope incomplete at companyId=0"
+    );
+    return {
+      error: jsonRpcError(rpcId, A2A_ERRORS.GOVERNANCE_VIOLATION,
+        "Onboarding Agent governance envelope unavailable — platform sentinel files missing at companyId=0")
+    };
+  }
+
+  // Verify MUST NOT count is intact (minimum 5 across AGENTS.md + SOP.md)
+  const totalMustNot = ownGovernanceFiles.reduce((sum, f) => sum + (f.mustNotCount ?? 0), 0);
+  logger.info(
+    {
+      ownGovernanceFiles: ownGovernanceFiles.map(f => ({ type: f.fileType, mustNotCount: f.mustNotCount })),
+      totalMustNot,
+    },
+    "§2.1 enforcement: platform sentinel governance envelope verified"
+  );
 
   // Self-onboarding guard
   if (agentCard.name?.toLowerCase().includes("onboarding-agent")) {

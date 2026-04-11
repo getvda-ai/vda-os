@@ -3,7 +3,7 @@
  * Reads governance files and witness entries from DB only.
  */
 import { db, governanceFiles, witnessEntries } from "@workspace/db";
-import { eq, and, gte, ilike } from "drizzle-orm";
+import { eq, and, gte, ne } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -128,7 +128,9 @@ export async function analyseImpactDelta(
 
   logger.info({ agentName, incomingSkills }, "Impact delta analysis started");
 
-  // Load all SKILL.md files for existing agents
+  // Load all SKILL.md files for existing property agents.
+  // Exclude companyId=0 (platform sentinel) — the Onboarding Agent's own SKILL.md
+  // lives there and must not appear as a conflict candidate against incoming skills.
   const skillFiles = await db
     .select({
       agentId: governanceFiles.agentId,
@@ -142,11 +144,15 @@ export async function analyseImpactDelta(
     .where(
       and(
         eq(governanceFiles.fileType, "SKILL"),
-        eq(governanceFiles.isArchived, false)
+        eq(governanceFiles.isArchived, false),
+        ne(governanceFiles.companyId, 0)   // exclude platform sentinel
       )
     );
 
-  // Load all SOP.md files for MAY clause analysis
+  // Load all SOP.md files for MAY clause analysis.
+  // Exclude companyId=0 — Onboarding Agent SOP MAY clauses (commit_via_pr, etc.)
+  // are platform-internal and must not activate as "unexercised permissions" for
+  // incoming property agents.
   const sopFiles = await db
     .select({
       agentId: governanceFiles.agentId,
@@ -160,11 +166,14 @@ export async function analyseImpactDelta(
     .where(
       and(
         eq(governanceFiles.fileType, "SOP"),
-        eq(governanceFiles.isArchived, false)
+        eq(governanceFiles.isArchived, false),
+        ne(governanceFiles.companyId, 0)   // exclude platform sentinel
       )
     );
 
-  // Load all AGENTS.md files for RACI analysis
+  // Load all AGENTS.md files for RACI analysis.
+  // Exclude companyId=0 — the Onboarding Agent's domain is "Governance" (platform),
+  // not a property domain, so it must not pollute domain-owner intersection detection.
   const agentsMdFiles = await db
     .select({
       agentId: governanceFiles.agentId,
@@ -176,7 +185,8 @@ export async function analyseImpactDelta(
     .where(
       and(
         eq(governanceFiles.fileType, "AGENTS"),
-        eq(governanceFiles.isArchived, false)
+        eq(governanceFiles.isArchived, false),
+        ne(governanceFiles.companyId, 0)   // exclude platform sentinel
       )
     );
 

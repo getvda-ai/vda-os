@@ -7451,8 +7451,46 @@ function AgentOnboardingTab({ companyId }) {
                         ))}
                       </div>
 
-                      {/* Rollback button */}
-                      {req.status === "onboarded" && (
+                      {/* Rollback controls
+                           Three distinct states:
+                           - status === "committing"  → button hidden (Phase 7 in progress, PR not yet created)
+                           - status === "onboarded" + prUrl exists → PR created but may not be merged yet;
+                             rollback closes the open PR + revokes VC, NOT a post-merge revert operation
+                           - status === "onboarded" + no prUrl → no GitHub integration; deregister only
+                      */}
+                      {req.status === "committing" && (
+                        <div style={{ background: T.amber + "10", border: `1px solid ${T.amber}30`, borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
+                          <span style={{ color: T.amber, fontWeight: 700 }}>Phase 7 in progress</span>
+                          <span style={{ color: T.dim }}> — governance files committing, VC issuing. Rollback available after this phase completes.</span>
+                        </div>
+                      )}
+                      {req.status === "onboarded" && req.prUrl && (
+                        <div style={{ background: T.amber + "08", border: `1px solid ${T.amber}20`, borderRadius: 8, padding: "10px 14px" }}>
+                          <div style={{ fontSize: 11, color: T.amber, fontWeight: 700, fontFamily: T.mono, marginBottom: 6 }}>⚠ PR EXISTS — MAY NOT BE MERGED</div>
+                          <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.6, marginBottom: 10 }}>
+                            Rollback here closes the open PR and revokes the VC — this is <strong>not</strong> a post-merge revert.
+                            If the PR has already been merged on GitHub, you must also manually revert the merge commit in the governance repo.
+                          </div>
+                          {rollbackId === req.id ? (
+                            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                              <input placeholder="X-Compliance-Officer-Key" value={rollbackKey} onChange={e => setRollbackKey(e.target.value)}
+                                style={{ flex: 1, minWidth: 200, background: T.surface, border: `1px solid ${T.red}40`, borderRadius: 6, padding: "6px 10px", fontSize: 12, color: T.text, fontFamily: T.mono }} />
+                              <button onClick={doRollback} disabled={rollbackLoading || !rollbackKey}
+                                style={{ background: T.red, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#fff", cursor: "pointer" }}>
+                                {rollbackLoading ? "Rolling back…" : "Close PR + Revoke VC"}
+                              </button>
+                              <button onClick={() => { setRollbackId(null); setRollbackKey(""); }}
+                                style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, color: T.dim, cursor: "pointer" }}>Cancel</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setRollbackId(req.id)}
+                              style={{ background: `${T.red}20`, border: `1px solid ${T.red}40`, borderRadius: 6, padding: "6px 14px", fontSize: 12, color: T.red, cursor: "pointer" }}>
+                              Close PR + Revoke VC →
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {req.status === "onboarded" && !req.prUrl && (
                         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                           {rollbackId === req.id ? (
                             <>
@@ -7460,7 +7498,7 @@ function AgentOnboardingTab({ companyId }) {
                                 style={{ flex: 1, background: T.surface, border: `1px solid ${T.red}40`, borderRadius: 6, padding: "6px 10px", fontSize: 12, color: T.text, fontFamily: T.mono }} />
                               <button onClick={doRollback} disabled={rollbackLoading || !rollbackKey}
                                 style={{ background: T.red, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#fff", cursor: "pointer" }}>
-                                {rollbackLoading ? "Rolling back…" : "Confirm Rollback"}
+                                {rollbackLoading ? "Rolling back…" : "Deregister + Revoke VC"}
                               </button>
                               <button onClick={() => { setRollbackId(null); setRollbackKey(""); }}
                                 style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, color: T.dim, cursor: "pointer" }}>Cancel</button>
