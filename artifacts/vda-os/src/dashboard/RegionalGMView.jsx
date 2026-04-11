@@ -111,22 +111,19 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
       fetch("/api/dashboard/chain-health").then((r) => r.json()).catch(() => null),
     ]);
 
-    const hitlByCompany = {};
-    for (const token of hitlResult.pending ?? []) {
-      const cid = token.companyId;
-      if (cid) {
-        hitlByCompany[cid] = [...(hitlByCompany[cid] ?? []), token];
-      }
-    }
+    // HITL tokens are platform-level (onboarding pipeline) — not scoped to individual hotels.
+    // Surface total pending count as a cluster-level alert rather than per-property breakdown.
+    const pendingHitlTotal = (hitlResult.pending ?? []).length;
 
     return {
       hotels: HOTELS.map((h, i) => ({
         ...h,
         phases: phasesResults[i]?.phases ?? [],
         metrics: metricsResults[i] ?? {},
-        pending: hitlByCompany[h.companyId] ?? [],
+        pending: [], // onboarding HITL is platform-scoped, not hotel-scoped
       })),
       allPending: hitlResult.pending ?? [],
+      pendingHitlTotal,
       exceptionsExpiringSoon: expiryResult?.exceptions_expiring_soon ?? 0,
     };
   }, 30000);
@@ -137,6 +134,17 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
 
   // Cross-property alerts
   const alerts = [];
+
+  // Cluster-level: pending onboarding HITL approvals
+  const pendingHitlTotal = data?.pendingHitlTotal ?? 0;
+  if (pendingHitlTotal > 0) {
+    alerts.push({
+      type: "hitl",
+      hotel: null,
+      msg: `${pendingHitlTotal} onboarding HITL approval${pendingHitlTotal > 1 ? "s" : ""} awaiting decision — platform-level`,
+      severity: "#f59e0b",
+    });
+  }
 
   // Chain-level: exceptions expiring in the next 30 days
   const expiringCount = data?.exceptionsExpiringSoon ?? 0;

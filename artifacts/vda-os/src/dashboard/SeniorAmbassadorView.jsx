@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { usePoll, useSecondsAgo } from "./useDashboard.js";
 import DecisionCard from "./DecisionCard.jsx";
+import ShadowReviewRow from "./ShadowReviewRow.jsx";
 
 const DM = { fontFamily: "'DM Sans', sans-serif" };
 
@@ -103,6 +104,7 @@ function AgentStatusCard({ phase: phaseRow }) {
 
 export default function SeniorAmbassadorView({ companyId }) {
   const [resolvedTokens, setResolvedTokens] = useState(new Set());
+  const [reviewedShadows, setReviewedShadows] = useState(new Set());
 
   // HITL pending — 10s poll (time-sensitive)
   const {
@@ -140,10 +142,15 @@ export default function SeniorAmbassadorView({ companyId }) {
 
   const pending = (hitlData?.pending ?? []).filter((p) => !resolvedTokens.has(p.token));
   const activatedAgents = (phasesData?.phases ?? []).filter((p) => p.phase !== "not_activated");
-  const shadows = shiftData?.shadow_reviews ?? [];
+  const allShadows = shiftData?.shadow_reviews ?? [];
+  const shadows = allShadows.filter((s) => !reviewedShadows.has(String(s.witnessId)));
 
   const handleDecision = (token, outcome) => {
     setResolvedTokens((prev) => new Set([...prev, token]));
+  };
+
+  const handleShadowReviewed = (witnessId) => {
+    setReviewedShadows((prev) => new Set([...prev, String(witnessId)]));
   };
 
   return (
@@ -212,7 +219,49 @@ export default function SeniorAmbassadorView({ companyId }) {
         </div>
       </div>
 
-      {/* Section C — Agent status */}
+      {/* Section C — Shadow review queue (crawl-phase decisions) */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
+          <h3 style={{ ...DM, fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Shadow reviews</h3>
+          {shadows.length > 0 && (
+            <span style={{
+              fontSize: 11, fontWeight: 700, background: "#60a5fa", color: "#000",
+              borderRadius: "50%", minWidth: 20, height: 20,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px",
+            }}>
+              {shadows.length}
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 4 }}>crawl-phase decisions awaiting your yes/no</span>
+        </div>
+
+        {shiftLoading && !shiftData ? (
+          <div style={{ color: "#6b7280", fontSize: 13 }}>Loading…</div>
+        ) : shadows.length === 0 ? (
+          <EmptyCard
+            icon="✓"
+            title="No unreviewed shadow decisions"
+            subtitle="All crawl-phase decisions from this shift have been reviewed"
+          />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {shadows.map((s) => (
+              <ShadowReviewRow
+                key={s.witnessId}
+                witnessId={s.witnessId}
+                agentId={s.agentId ?? s.agent}
+                decision={s.decision}
+                clauseApplied={s.clauseApplied}
+                actionProposed={s.actionProposed}
+                apaleoDataContext={s.apaleoData}
+                onReviewed={handleShadowReviewed}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Section D — Agent status */}
       <div>
         <SectionHeader title="Agent status" />
         {phasesLoading && !phasesData ? (

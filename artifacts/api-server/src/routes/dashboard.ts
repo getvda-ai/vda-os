@@ -58,7 +58,7 @@ router.get("/dashboard/phases", async (req, res) => {
       ...p,
       agreementRate: p.agreementRate !== null ? Number(p.agreementRate) : null,
       overrideRate: p.overrideRate !== null ? Number(p.overrideRate) : null,
-      potentialAutonomousDecisions: passByAgent[p.agentId] ?? 0,
+      potential_autonomous_decisions: passByAgent[p.agentId] ?? 0,
     }));
 
     res.json({ phases: enriched });

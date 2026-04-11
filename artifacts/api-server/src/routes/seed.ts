@@ -434,17 +434,19 @@ const CITIZENM_PROPERTIES = [
 // This seed is idempotent — existing rows for a (company, agent) pair are NOT overwritten.
 
 const PHASE_SEED: Record<string, Array<{ agentId: string; phase: string; agreementRate: string | null }>> = {
+  // BER — most advanced: all 9 agents in RUN
   BER: [
     { agentId: "availability-agent",            phase: "run",   agreementRate: "97" },
-    { agentId: "rate-agent",                    phase: "run",   agreementRate: "95" },
-    { agentId: "revenue-reconciliation-agent",  phase: "run",   agreementRate: "93" },
+    { agentId: "rate-agent",                    phase: "run",   agreementRate: "96" },
+    { agentId: "revenue-reconciliation-agent",  phase: "run",   agreementRate: "95" },
     { agentId: "checkout-agent",                phase: "run",   agreementRate: "96" },
     { agentId: "folio-agent",                   phase: "run",   agreementRate: "94" },
     { agentId: "check-in-agent",                phase: "run",   agreementRate: "95" },
-    { agentId: "reservation-bot",               phase: "walk",  agreementRate: "91" },
-    { agentId: "folio-charge-agent",            phase: "crawl", agreementRate: "83" },
-    { agentId: "onboarding-agent",              phase: "crawl", agreementRate: "78" },
+    { agentId: "reservation-bot",               phase: "run",   agreementRate: "93" },
+    { agentId: "folio-charge-agent",            phase: "run",   agreementRate: "92" },
+    { agentId: "onboarding-agent",              phase: "run",   agreementRate: "91" },
   ],
+  // LND — mid: 1 run, 2 walk, 2 crawl; 4 not activated (implicit)
   LND: [
     { agentId: "availability-agent",            phase: "run",   agreementRate: "95" },
     { agentId: "rate-agent",                    phase: "walk",  agreementRate: "90" },
@@ -452,15 +454,18 @@ const PHASE_SEED: Record<string, Array<{ agentId: string; phase: string; agreeme
     { agentId: "checkout-agent",                phase: "crawl", agreementRate: "82" },
     { agentId: "folio-agent",                   phase: "crawl", agreementRate: "79" },
   ],
+  // MUC — early adopter: 2 crawl only
   MUC: [
     { agentId: "availability-agent",            phase: "crawl", agreementRate: "77" },
     { agentId: "rate-agent",                    phase: "crawl", agreementRate: "74" },
   ],
-  PAR: [], // blank slate — no agents activated
+  // PAR — blank slate: no agents activated
+  PAR: [],
+  // VIE — run/walk/crawl staircase: 3 run, 1 walk, 2 crawl
   VIE: [
     { agentId: "availability-agent",            phase: "run",   agreementRate: "94" },
     { agentId: "rate-agent",                    phase: "run",   agreementRate: "92" },
-    { agentId: "revenue-reconciliation-agent",  phase: "walk",  agreementRate: "89" },
+    { agentId: "revenue-reconciliation-agent",  phase: "run",   agreementRate: "90" },
     { agentId: "checkout-agent",                phase: "walk",  agreementRate: "87" },
     { agentId: "folio-agent",                   phase: "crawl", agreementRate: "81" },
     { agentId: "check-in-agent",                phase: "crawl", agreementRate: "76" },
@@ -2884,9 +2889,10 @@ router.post("/admin/seed-companies", async (_req, res) => {
         log.push(`${prop.apaleoPropertyId}: ${filesInserted} governance files seeded`);
       }
 
-      // Seed agent_phases — idempotent: skip existing (company_id, agent_id) pairs
+      // Seed agent_phases — upsert: insert or update to match canonical PHASE_SEED spec
       const phasesToSeed = PHASE_SEED[prop.apaleoPropertyId] ?? [];
       let phasesInserted = 0;
+      let phasesUpdated = 0;
       for (const p of phasesToSeed) {
         const existing = await db
           .select({ id: agentPhases.id })
@@ -2907,10 +2913,24 @@ router.post("/admin/seed-companies", async (_req, res) => {
             notes: `Seeded by seed-companies (${prop.apaleoPropertyId})`,
           });
           phasesInserted++;
+        } else {
+          // Update to match canonical spec (phase and agreementRate may have changed)
+          await db.update(agentPhases)
+            .set({
+              phase: p.phase,
+              agreementRate: p.agreementRate,
+              phaseChangedAt: new Date(),
+              notes: `Seeded by seed-companies (${prop.apaleoPropertyId}) — updated`,
+            })
+            .where(and(
+              eq(agentPhases.companyId, companyId),
+              eq(agentPhases.agentId, p.agentId),
+            ));
+          phasesUpdated++;
         }
       }
       if (phasesToSeed.length > 0) {
-        log.push(`${prop.apaleoPropertyId}: ${phasesInserted} agent_phases seeded (${phasesToSeed.length - phasesInserted} already existed)`);
+        log.push(`${prop.apaleoPropertyId}: ${phasesInserted} agent_phases inserted, ${phasesUpdated} updated to match spec`);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

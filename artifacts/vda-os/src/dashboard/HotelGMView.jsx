@@ -77,7 +77,7 @@ export default function HotelGMView({ companyId, onOpenTab }) {
   const nextAgentId = CANONICAL_ORDER.find((id) => !activatedIds.has(id));
   let nextAgent = null;
   if (nextAgentId) {
-    const passCount = phases.find((p) => p.agentId === nextAgentId)?.potentialAutonomousDecisions ?? 0;
+    const passCount = phases.find((p) => p.agentId === nextAgentId)?.potential_autonomous_decisions ?? 0;
     nextAgent = {
       agentId: nextAgentId,
       potentialAutonomous: passCount,
