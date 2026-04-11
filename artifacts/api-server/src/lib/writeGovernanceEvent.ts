@@ -1,45 +1,33 @@
-import { db, witnessEntries } from "@workspace/db";
+import { writeWitnessEntry, type WitnessEntryInput, type AgentDecision } from "../routes/agents.js";
 
-export interface GovernanceEventInput {
-  companyId: number;
-  agent: string;
+export type GovernanceEventInput = Omit<WitnessEntryInput, "decision"> & {
   eventCategory: string;
-  decision?: string;
-  fileReferenced?: string;
+  decision?: AgentDecision["decision"];
   clauseApplied?: string;
   actionProposed?: string;
-  exceptionApplied?: boolean;
-  escalationTarget?: string | null;
   reasoning?: string;
-  apaleoData?: Record<string, unknown>;
-  scenarioRunId?: string;
-  filesConsulted?: string[];
-  crossDomainInheritance?: boolean;
-  credentialVerified?: boolean;
-  governanceFileHash?: string | null;
-}
+};
 
 export async function writeGovernanceEvent(fields: GovernanceEventInput): Promise<number> {
-  const [row] = await db
-    .insert(witnessEntries)
-    .values({
-      companyId: fields.companyId,
-      agent: fields.agent,
+  const entry: WitnessEntryInput = {
+    companyId: fields.companyId,
+    agent: fields.agent,
+    fileReferenced: fields.fileReferenced,
+    apaleoData: fields.apaleoData,
+    scenarioRunId: fields.scenarioRunId,
+    filesConsulted: fields.filesConsulted,
+    crossDomainInheritance: fields.crossDomainInheritance,
+    credentialVerified: fields.credentialVerified,
+    governanceFileHash: fields.governanceFileHash,
+    eventCategory: fields.eventCategory,
+    decision: {
       decision: fields.decision ?? "INFO",
-      fileReferenced: fields.fileReferenced ?? null,
-      clauseApplied: fields.clauseApplied ?? null,
-      actionProposed: fields.actionProposed ?? null,
-      exceptionApplied: fields.exceptionApplied ?? false,
-      escalationTarget: fields.escalationTarget ?? null,
-      reasoning: fields.reasoning ?? null,
-      apaleoData: fields.apaleoData ?? null,
-      scenarioRunId: fields.scenarioRunId ?? null,
-      filesConsulted: fields.filesConsulted ?? null,
-      crossDomainInheritance: fields.crossDomainInheritance ?? false,
-      credentialVerified: fields.credentialVerified ?? false,
-      governanceFileHash: fields.governanceFileHash ?? null,
-      eventCategory: fields.eventCategory,
-    })
-    .returning({ id: witnessEntries.id });
-  return row.id;
+      clauseApplied: fields.clauseApplied ?? "",
+      actionProposed: fields.actionProposed ?? "",
+      exceptionApplied: false,
+      escalationTarget: null,
+      reasoning: fields.reasoning ?? "",
+    },
+  };
+  return writeWitnessEntry(entry);
 }

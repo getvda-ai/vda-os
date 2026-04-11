@@ -266,7 +266,7 @@ export async function getGovernancePolicyFromFM(companyId: number, policyKey: st
 // ─── Agent Decision Type ──────────────────────────────────────────────────────
 
 export interface AgentDecision {
-  decision: "PASS" | "FAIL" | "ESCALATE";
+  decision: "PASS" | "FAIL" | "ESCALATE" | "INFO";
   clauseApplied: string;
   actionProposed: string;
   exceptionApplied: boolean;
