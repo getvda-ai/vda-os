@@ -6,6 +6,8 @@ export type GovernanceEventInput = Omit<WitnessEntryInput, "decision"> & {
   clauseApplied?: string;
   actionProposed?: string;
   reasoning?: string;
+  exceptionApplied?: boolean;
+  escalationTarget?: string | null;
 };
 
 export async function writeGovernanceEvent(fields: GovernanceEventInput): Promise<number> {
@@ -24,8 +26,8 @@ export async function writeGovernanceEvent(fields: GovernanceEventInput): Promis
       decision: fields.decision ?? "INFO",
       clauseApplied: fields.clauseApplied ?? "",
       actionProposed: fields.actionProposed ?? "",
-      exceptionApplied: false,
-      escalationTarget: null,
+      exceptionApplied: fields.exceptionApplied ?? false,
+      escalationTarget: fields.escalationTarget ?? null,
       reasoning: fields.reasoning ?? "",
     },
   };

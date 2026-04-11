@@ -10,9 +10,10 @@
  */
 
 import cron from "node-cron";
-import { db, agentCredentials, governanceFiles, witnessEntries } from "@workspace/db";
+import { db, agentCredentials, governanceFiles } from "@workspace/db";
 import { eq, and, lt, sql } from "drizzle-orm";
 import { rotatePlatformIssuer, issueAgentCredential } from "./agentCredentialIssuer.js";
+import { writeGovernanceEvent } from "./writeGovernanceEvent.js";
 import { logger } from "./logger.js";
 
 let _started = false;
@@ -66,21 +67,17 @@ async function writeRotationWitnessEntry(
   decision: "PASS" | "ESCALATE",
   reason: string
 ): Promise<void> {
-  await db.insert(witnessEntries).values({
+  await writeGovernanceEvent({
     companyId,
     agent: agentId,
+    eventCategory: "AGENT_LIFECYCLE",
     decision,
     fileReferenced: "VDA-MK Credential Rotation — 23h Schedule",
     clauseApplied: "VDA-MD §7: Agent Identity must be cryptographically verified and rotated on schedule",
     actionProposed: reason,
-    exceptionApplied: false,
     reasoning: reason,
     apaleoData: { rotated_at: new Date().toISOString(), event_type: "credential_rotation" },
-    scenarioRunId: null,
-    filesConsulted: null,
-    crossDomainInheritance: false,
     credentialVerified: decision === "PASS",
-    governanceFileHash: null,
   });
 }
 

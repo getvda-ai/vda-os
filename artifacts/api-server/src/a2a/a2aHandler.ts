@@ -1,9 +1,10 @@
 import type { Request, Response } from "express";
 import {
   evaluateWithPolicy,
-  writeWitnessEntry,
   getGovernancePolicyFromFM,
 } from "../routes/agents.js";
+import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
+import { validateA2ATaskResponse, getA2AValidationErrors } from "./a2aResponseValidator.js";
 import {
   createTask,
   getTask,
@@ -74,34 +75,28 @@ async function handleTasksSend(
 
   // Witness: session started (first task only)
   if (newSession) {
-    await writeWitnessEntry({
+    await writeGovernanceEvent({
       companyId,
       agent: agentId,
-      decision: {
-        decision: "PASS",
-        clauseApplied: "A2A session initiated — first task received in this sessionId",
-        actionProposed: `New A2A session ${sessionId} started`,
-        exceptionApplied: false,
-        escalationTarget: null,
-        reasoning: `External agent (DID: ${externalAgentDid ?? "unknown"}) opened session ${sessionId} with ${agentId}`,
-      },
+      eventCategory: "A2A_PROTOCOL",
+      decision: "PASS",
+      clauseApplied: "A2A session initiated — first task received in this sessionId",
+      actionProposed: `New A2A session ${sessionId} started`,
+      reasoning: `External agent (DID: ${externalAgentDid ?? "unknown"}) opened session ${sessionId} with ${agentId}`,
       fileReferenced: "a2a_protocol",
       apaleoData: { event_type: "a2a_session_started", sessionId, externalAgentDid, taskId: task.id },
     });
   }
 
   // Witness: task received
-  await writeWitnessEntry({
+  await writeGovernanceEvent({
     companyId,
     agent: agentId,
-    decision: {
-      decision: "PASS",
-      clauseApplied: "A2A task received and queued for governance evaluation",
-      actionProposed: `Process A2A task ${task.id}`,
-      exceptionApplied: false,
-      escalationTarget: null,
-      reasoning: `External agent submitted task: ${instruction.slice(0, 100)}`,
-    },
+    eventCategory: "A2A_PROTOCOL",
+    decision: "PASS",
+    clauseApplied: "A2A task received and queued for governance evaluation",
+    actionProposed: `Process A2A task ${task.id}`,
+    reasoning: `External agent submitted task: ${instruction.slice(0, 100)}`,
     fileReferenced: "a2a_protocol",
     apaleoData: { event_type: "a2a_task_received", taskId: task.id, sessionId, externalAgentDid, inputPreview: instruction.slice(0, 100) },
   });
@@ -126,17 +121,15 @@ async function handleTasksSend(
 
   if (governance.mandatoryEscalate) {
     await updateTask(task.id, { statusState: "failed", errorMessage: "§2.1 governance files missing" });
-    await writeWitnessEntry({
+    await writeGovernanceEvent({
       companyId,
       agent: agentId,
-      decision: {
-        decision: "ESCALATE",
-        clauseApplied: "Per VDA-MD §2.1, all agent decisions are suspended until AGENTS.md, SOP.md, and SKILL.md are present",
-        actionProposed: "Reject A2A task — governance files missing",
-        exceptionApplied: false,
-        escalationTarget: "Operations Director",
-        reasoning: "Mandatory governance files not found for this agent/company pair",
-      },
+      eventCategory: "A2A_PROTOCOL",
+      decision: "ESCALATE",
+      clauseApplied: "Per VDA-MD §2.1, all agent decisions are suspended until AGENTS.md, SOP.md, and SKILL.md are present",
+      actionProposed: "Reject A2A task — governance files missing",
+      escalationTarget: "Operations Director",
+      reasoning: "Mandatory governance files not found for this agent/company pair",
       fileReferenced: "VDA-MD §2.1 — No governance file",
       apaleoData: { event_type: "a2a_task_failed", taskId: task.id, reason: "governance_violation" },
     });
@@ -162,10 +155,16 @@ async function handleTasksSend(
   const fileRef = fileReferenced(governance.filesLoaded);
 
   // Write governance decision witness entry
-  await writeWitnessEntry({
+  await writeGovernanceEvent({
     companyId,
     agent: agentId,
-    decision,
+    eventCategory: "A2A_PROTOCOL",
+    decision: decision.decision,
+    clauseApplied: decision.clauseApplied,
+    actionProposed: decision.actionProposed,
+    reasoning: decision.reasoning,
+    exceptionApplied: decision.exceptionApplied,
+    escalationTarget: decision.escalationTarget ?? undefined,
     fileReferenced: fileRef,
     filesConsulted: governance.filesLoaded,
     credentialVerified: true,
@@ -193,7 +192,26 @@ async function handleTasksSend(
 
   const completed = await updateTask(task.id, { statusState: "completed", outputArtifacts: artifacts });
 
-  return jsonRpcResult(rpcId, { ...completed, artifacts });
+  const responsePayload = { ...completed, artifacts };
+
+  // Ajv A2A schema validation — non-blocking: emit witness entry on failure, return response either way
+  if (!validateA2ATaskResponse(responsePayload)) {
+    const validationErrors = getA2AValidationErrors();
+    logger.warn({ taskId: task.id, validationErrors }, "[A2A] Response failed A2A schema validation");
+    writeGovernanceEvent({
+      companyId,
+      agent: agentId,
+      eventCategory: "A2A_PROTOCOL",
+      decision: "FAIL",
+      clauseApplied: "A2A Protocol §3: Task response must conform to A2A JSON schema",
+      actionProposed: `A2A schema validation failed for task ${task.id}`,
+      reasoning: `Response payload did not satisfy A2A task response schema: ${validationErrors}`,
+      fileReferenced: "a2a_protocol",
+      apaleoData: { event_type: "a2a_schema_validation_failed", taskId: task.id, validationErrors },
+    }).catch(err => logger.warn({ err }, "[A2A] Failed to write schema validation witness entry"));
+  }
+
+  return jsonRpcResult(rpcId, responsePayload);
 }
 
 // tasks/get
@@ -226,17 +244,14 @@ async function handleTasksCancel(
 
   const cancelled = await cancelTask(String(p.id));
 
-  await writeWitnessEntry({
+  await writeGovernanceEvent({
     companyId,
     agent: agentId,
-    decision: {
-      decision: "PASS",
-      clauseApplied: "A2A task cancelled by requesting external agent",
-      actionProposed: `Cancel task ${p.id}`,
-      exceptionApplied: false,
-      escalationTarget: null,
-      reasoning: "External agent requested cancellation",
-    },
+    eventCategory: "A2A_PROTOCOL",
+    decision: "PASS",
+    clauseApplied: "A2A task cancelled by requesting external agent",
+    actionProposed: `Cancel task ${p.id}`,
+    reasoning: "External agent requested cancellation",
     fileReferenced: "a2a_protocol",
     apaleoData: { event_type: "a2a_task_cancelled", taskId: p.id },
   });

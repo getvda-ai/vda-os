@@ -3,6 +3,7 @@ import { callAI } from "./ai-proxy.js";
 import { db, governanceFiles, governanceFileVersions } from "@workspace/db";
 import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
 import { checkComplianceGuards } from "../lib/complianceGuards.js";
+import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 
 const router = Router();
 
@@ -338,6 +339,17 @@ router.put("/fm/file/:id", async (req, res) => {
     if (content && existingFile.content) {
       const guard = checkComplianceGuards(existingFile.content, content, signedOffBy as string | undefined);
       if (!guard.allowed) {
+        writeGovernanceEvent({
+          companyId: existingFile.companyId ?? companyId ?? 0,
+          agent: "compliance-guard",
+          eventCategory: "COMPLIANCE_BOUNDARY",
+          decision: "FAIL",
+          fileReferenced: `governance-file:${existingFile.id}`,
+          clauseApplied: "VDA-MK §3 & §4: Immutability and change control constraints violated",
+          actionProposed: `Reject update to governance file ${existingFile.id} — compliance guard triggered`,
+          reasoning: guard.violations.join("; "),
+          apaleoData: { event_type: "compliance_guard_rejection", fileId: existingFile.id, violations: guard.violations, hint: guard.hint },
+        }).catch(() => {});
         return res.status(409).json({
           error: "VDA-MK compliance guard rejected this update",
           violations: guard.violations,

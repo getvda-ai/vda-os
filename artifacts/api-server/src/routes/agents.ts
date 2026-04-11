@@ -24,6 +24,33 @@ const router = Router();
 
 const APALEO_API_BASE = "https://api.apaleo.com";
 
+// ─── Cross-Domain Governance Event Helper ─────────────────────────────────────
+// Emits a secondary COMPLIANCE_BOUNDARY/INFO witness entry when cross-domain
+// governance files from a shared-services agent were applied. Called directly
+// (not via writeGovernanceEvent) to avoid an import cycle: writeGovernanceEvent
+// imports writeWitnessEntry from this file.
+async function emitCrossDomainGovernanceEvent(companyId: number, agent: string): Promise<void> {
+  try {
+    await writeWitnessEntry({
+      companyId,
+      agent,
+      eventCategory: "COMPLIANCE_BOUNDARY",
+      decision: {
+        decision: "INFO",
+        clauseApplied: "VDA-MK §5: Cross-domain governance files from a shared services agent were applied",
+        actionProposed: "Cross-domain governance inheritance applied to this decision",
+        exceptionApplied: false,
+        escalationTarget: null,
+        reasoning: "Agent decision used governance files inherited from a cross-domain shared services agent",
+      },
+      fileReferenced: "VDA-MK Cross-Domain Governance Inheritance",
+      apaleoData: { event_type: "cross_domain_inheritance_invoked" },
+    });
+  } catch (err) {
+    logger.warn({ err }, "[Witness] Failed to emit cross-domain governance event");
+  }
+}
+
 // ─── Typed Apaleo Request Client ──────────────────────────────────────────────
 
 async function apaleoRequest<T>(
@@ -644,6 +671,9 @@ router.post("/agents/availability", requireAgentCredential("availability-agent")
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    if (hasCrossDomainFiles(availFilesLoaded)) {
+      void emitCrossDomainGovernanceEvent(Number(companyId), "Availability Agent");
+    }
 
     return res.json({
       ...decision, witnessEntryId: witnessId,
@@ -699,6 +729,9 @@ router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, re
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    if (hasCrossDomainFiles(filesLoaded)) {
+      void emitCrossDomainGovernanceEvent(Number(companyId), "Rate Agent");
+    }
 
     return res.json({
       ...decision, witnessEntryId: witnessId,
@@ -896,6 +929,9 @@ router.post("/agents/reservation", requireAgentCredential("reservation-bot"), as
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    if (hasCrossDomainFiles(resvFilesLoaded)) {
+      void emitCrossDomainGovernanceEvent(Number(companyId), "Reservation Bot");
+    }
 
     return res.json({
       ...decision, witnessEntryId: witnessId,
@@ -1024,6 +1060,9 @@ router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    if (hasCrossDomainFiles(checkinFilesLoaded)) {
+      void emitCrossDomainGovernanceEvent(Number(companyId), "Check-In Agent");
+    }
 
     return res.json({
       ...decision, witnessEntryId: witnessId,
@@ -1082,6 +1121,9 @@ router.post("/agents/folio", requireAgentCredential("folio-agent"), async (req, 
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    if (hasCrossDomainFiles(folioFilesLoaded)) {
+      void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Agent");
+    }
 
     return res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId, usedMcp, toolCallsMade, filesLoaded: folioFilesLoaded });
   } catch (err: unknown) {
@@ -1212,6 +1254,9 @@ router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent")
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    if (hasCrossDomainFiles(folioChargeFilesLoaded)) {
+      void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Charge Agent");
+    }
 
     return res.json({
       ...decision, witnessEntryId: witnessId,
@@ -1341,6 +1386,9 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    if (hasCrossDomainFiles(checkoutFilesLoaded)) {
+      void emitCrossDomainGovernanceEvent(Number(companyId), "Checkout Agent");
+    }
 
     return res.json({
       ...decision, witnessEntryId: witnessId,
@@ -1452,6 +1500,9 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    if (hasCrossDomainFiles(revFilesLoaded)) {
+      void emitCrossDomainGovernanceEvent(Number(companyId), "Revenue Reconciliation Agent");
+    }
 
     return res.json({
       ...decision, witnessEntryId: witnessId,
@@ -1662,6 +1713,9 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
         filesConsulted: availScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(availScenarioFiles),
       });
+      if (hasCrossDomainFiles(availScenarioFiles)) {
+        void emitCrossDomainGovernanceEvent(Number(companyId), "Availability Agent");
+      }
       results.push({ step: 1, agent: "Availability Agent", ...decision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
 
@@ -1695,6 +1749,9 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
         filesConsulted: rateScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(rateScenarioFiles),
       });
+      if (hasCrossDomainFiles(rateScenarioFiles)) {
+        void emitCrossDomainGovernanceEvent(Number(companyId), "Rate Agent");
+      }
       results.push({ step: 2, agent: "Rate Agent", ...rateDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
 
@@ -1779,6 +1836,9 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
         filesConsulted: resvScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(resvScenarioFiles),
       });
+      if (hasCrossDomainFiles(resvScenarioFiles)) {
+        void emitCrossDomainGovernanceEvent(Number(companyId), "Reservation Bot");
+      }
       results.push({ step: 3, agent: "Reservation Bot", ...decision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
 
@@ -1859,6 +1919,9 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
         filesConsulted: ciScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(ciScenarioFiles),
       });
+      if (hasCrossDomainFiles(ciScenarioFiles)) {
+        void emitCrossDomainGovernanceEvent(Number(companyId), "Check-In Agent");
+      }
       results.push({ step: 4, agent: "Check-In Agent", ...ciDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
 
@@ -1938,6 +2001,9 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
         filesConsulted: fcScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(fcScenarioFiles),
       });
+      if (hasCrossDomainFiles(fcScenarioFiles)) {
+        void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Charge Agent");
+      }
       results.push({ step: 5, agent: "Folio Charge Agent", ...fcDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
 
@@ -1995,6 +2061,9 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
           filesConsulted: coScenarioFiles,
           crossDomainInheritance: hasCrossDomainFiles(coScenarioFiles),
         });
+        if (hasCrossDomainFiles(coScenarioFiles)) {
+          void emitCrossDomainGovernanceEvent(Number(companyId), "Checkout Agent");
+        }
         results.push({ step: 6, agent: "Checkout Agent", ...coDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
       }
     }
@@ -2043,6 +2112,9 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
         filesConsulted: revScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(revScenarioFiles),
       });
+      if (hasCrossDomainFiles(revScenarioFiles)) {
+        void emitCrossDomainGovernanceEvent(Number(companyId), "Revenue Reconciliation Agent");
+      }
       results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
 

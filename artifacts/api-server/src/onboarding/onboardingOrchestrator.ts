@@ -5,7 +5,7 @@
 import { db, onboardingRequests, hitlTokens, governanceFiles } from "@workspace/db";
 import { eq, and, ne } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
-import { writeWitnessEntry } from "../routes/agents.js";
+import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { callAI } from "../routes/ai-proxy.js";
 import { analyseImpactDelta, type AgentCard } from "./impactDeltaAnalyser.js";
 import { generateCandidateFiles, validateCandidateFiles } from "./candidateFileGenerator.js";
@@ -75,17 +75,14 @@ async function witnessOnboarding(
   data: Record<string, unknown>
 ) {
   try {
-    await writeWitnessEntry({
+    await writeGovernanceEvent({
       companyId: PLATFORM_COMPANY_ID,
       agent: "onboarding-agent",
-      decision: {
-        decision: "PASS",
-        clauseApplied: `Onboarding Agent §${eventType}`,
-        actionProposed: data.actionProposed as string ?? eventType,
-        exceptionApplied: false,
-        escalationTarget: null,
-        reasoning: data.reasoning as string ?? `Onboarding lifecycle event: ${eventType}`,
-      },
+      eventCategory: "AGENT_LIFECYCLE",
+      decision: (data.decision as "PASS" | "FAIL" | "ESCALATE" | "INFO" | undefined) ?? "PASS",
+      clauseApplied: `Onboarding Agent §${eventType}`,
+      actionProposed: data.actionProposed as string ?? eventType,
+      reasoning: data.reasoning as string ?? `Onboarding lifecycle event: ${eventType}`,
       fileReferenced: "AGENTS.md",
       apaleoData: { event_type: eventType, ...data },
       credentialVerified: true,

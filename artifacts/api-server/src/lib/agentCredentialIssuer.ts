@@ -337,6 +337,20 @@ export async function verifyAgentVc(
       const currentHash = await computeGovernanceHash(companyId, vcAgentId);
       if (currentHash !== null && vcGovHash !== currentHash) {
         logger.warn({ vcAgentId, companyId, vcGovHash, currentHash }, "[VC] Governance hash mismatch — governance files changed since credential was issued");
+        // Lazy import to avoid circular dependency (writeGovernanceEvent → routes/agents → agentCredentialIssuer)
+        const { writeGovernanceEvent } = await import("./writeGovernanceEvent.js");
+        writeGovernanceEvent({
+          companyId: typeof companyId === "number" ? companyId : Number(companyId),
+          agent: vcAgentId,
+          eventCategory: "FRAMEWORK_INTEGRITY",
+          decision: "FAIL",
+          fileReferenced: "VDA-MK Verifiable Credential — Governance Hash",
+          clauseApplied: "VDA-MD §6: Agent credentials must reflect current governance file hash",
+          actionProposed: `Reject credential for ${vcAgentId} — governance hash mismatch`,
+          reasoning: `Stored hash ${vcGovHash ?? "null"} does not match current hash ${currentHash} — governance files changed since credential was issued`,
+          apaleoData: { event_type: "vc_hash_mismatch", agentId: vcAgentId, storedHash: vcGovHash, currentHash },
+          credentialVerified: false,
+        }).catch(err => logger.warn({ err }, "[VC] Failed to write hash mismatch governance event"));
         return {
           verified: false,
           agentId: vcAgentId,
