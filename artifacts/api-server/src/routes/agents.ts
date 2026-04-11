@@ -1528,6 +1528,7 @@ router.get("/agents/witness/integrity-metrics", async (req, res) => {
           eq(governanceFiles.companyId, cId),
           eq(governanceFiles.fileType, "EXCEPTION"),
           eq(governanceFiles.isArchived, false),
+          eq(governanceFiles.status, "live"),
         )),
     ]);
 

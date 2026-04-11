@@ -5351,7 +5351,11 @@ function FrameworkIntegrityPanel({ companyId }) {
   const [lastRefresh, setLastRefresh] = useState(null);
 
   const refresh = useCallback(async () => {
-    if (!companyId) return;
+    if (!companyId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const [mRes, eRes] = await Promise.all([
         fetch(`/api/agents/witness/integrity-metrics?companyId=${companyId}`),
@@ -5448,7 +5452,12 @@ function FrameworkIntegrityPanel({ companyId }) {
       {/* Collapsible body */}
       {!collapsed && (
         <div style={{ padding: "0 18px 18px" }}>
-          {/* Metric cards */}
+          {!companyId ? (
+            <div style={{ padding: "20px 0", fontSize: 13, color: T.dim, fontFamily: T.mono }}>
+              Select a hotel to view framework integrity metrics.
+            </div>
+          ) : (
+          <>{/* Metric cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }}>
             {metricCards.map(card => (
               <div key={card.label} style={{
@@ -5502,6 +5511,8 @@ function FrameworkIntegrityPanel({ companyId }) {
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       )}
     </div>
@@ -5550,8 +5561,8 @@ function WitnessAgentTab({ log, config, companyName, isSeeded, companyId }) {
         </div>
       </div>
 
-      {/* Framework Integrity Panel */}
-      {companyId && <FrameworkIntegrityPanel companyId={companyId} />}
+      {/* Framework Integrity Panel — always visible */}
+      <FrameworkIntegrityPanel companyId={companyId} />
 
       {/* Sample data banner */}
       {isSeeded && (
@@ -5616,7 +5627,7 @@ function WitnessAgentTab({ log, config, companyName, isSeeded, companyId }) {
                 <span style={{ color: T.dim, fontSize: 11, flexShrink: 0 }}>{e.timestamp ?? (e.createdAt ? new Date(e.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—")}</span>
                 <span style={{ color: T.orange, fontWeight: 700 }}>{e.agent}</span>
                 <DecisionBadge decision={e.decision} />
-                {e.eventCategory && <CategoryBadge category={e.eventCategory} />}
+                <CategoryBadge category={e.eventCategory} />
                 {e.exceptionApplied && <Tag color={T.purple}>⚡ Exception Applied</Tag>}
                 {e.escalationTarget && <Tag color={T.amber}>↳ {e.escalationTarget}</Tag>}
               </div>
