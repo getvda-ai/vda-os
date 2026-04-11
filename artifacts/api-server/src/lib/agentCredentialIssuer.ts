@@ -11,14 +11,31 @@ import { Ed25519Signature2020 } from "@digitalbazaar/ed25519-signature-2020";
 import { Ed25519VerificationKey2020 } from "@digitalbazaar/ed25519-verification-key-2020";
 import * as vc from "@digitalbazaar/vc";
 import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { db, agentCredentials, governanceFiles } from "@workspace/db";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { vcDocumentLoader, VDA_CONTEXT_URL } from "./vcDocumentLoader.js";
 import { logger } from "./logger.js";
 
-// ─── Platform Issuer Key (singleton, rotated by scheduler) ───────────────────
-// Held in memory only — all issued VCs carry the issuer's DID for verification.
-// The secret key never leaves the process. Agent keys are ephemeral per credential.
+// ─── Credential storage directory ─────────────────────────────────────────────
+// agent-credentials/ is gitignored — contains issuer keypair and issued VCs.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// When compiled, files land in dist/ — go one level up to reach api-server/agent-credentials/
+const CRED_DIR = join(__dirname, "../agent-credentials");
+
+function ensureCredDir(): void {
+  if (!existsSync(CRED_DIR)) {
+    mkdirSync(CRED_DIR, { recursive: true });
+  }
+}
+
+const ISSUER_KEYPAIR_PATH = join(CRED_DIR, "issuer-keypair.json");
+
+// ─── Platform Issuer Key (persisted to disk, rotated by scheduler) ────────────
+// On startup: load from issuer-keypair.json if present, otherwise generate and save.
+// Agent keys are ephemeral per credential; only the platform issuer key is persisted.
 
 interface PlatformIssuerKey {
   key: Ed25519VerificationKey2020;
@@ -30,18 +47,41 @@ let _platformIssuer: PlatformIssuerKey | null = null;
 
 export async function getPlatformIssuer(): Promise<PlatformIssuerKey> {
   if (!_platformIssuer) {
-    _platformIssuer = await rotatePlatformIssuer();
+    _platformIssuer = await loadOrGeneratePlatformIssuer();
   }
   return _platformIssuer;
 }
 
+async function loadOrGeneratePlatformIssuer(): Promise<PlatformIssuerKey> {
+  ensureCredDir();
+  if (existsSync(ISSUER_KEYPAIR_PATH)) {
+    try {
+      const saved = JSON.parse(readFileSync(ISSUER_KEYPAIR_PATH, "utf-8")) as Record<string, unknown>;
+      const key = await Ed25519VerificationKey2020.from(saved as Parameters<typeof Ed25519VerificationKey2020.from>[0]);
+      const did = `did:key:${key.fingerprint()}`;
+      key.id = `${did}#${key.fingerprint()}`;
+      key.controller = did;
+      logger.info({ did }, "[VC] Platform issuer key loaded from disk");
+      return { key, did, createdAt: new Date((saved["createdAt"] as string) ?? Date.now()) };
+    } catch (err) {
+      logger.warn({ err }, "[VC] Could not load issuer keypair from disk — generating new one");
+    }
+  }
+  return rotatePlatformIssuer();
+}
+
 export async function rotatePlatformIssuer(): Promise<PlatformIssuerKey> {
+  ensureCredDir();
   const key = await Ed25519VerificationKey2020.generate();
   const did = `did:key:${key.fingerprint()}`;
   key.id = `${did}#${key.fingerprint()}`;
   key.controller = did;
-  _platformIssuer = { key, did, createdAt: new Date() };
-  logger.info({ did }, "[VC] Platform issuer key rotated");
+  const createdAt = new Date();
+  _platformIssuer = { key, did, createdAt };
+  // Persist keypair to disk (excluded from git via .gitignore)
+  const exported = await key.export({ publicKey: true, privateKey: true });
+  writeFileSync(ISSUER_KEYPAIR_PATH, JSON.stringify({ ...exported, createdAt: createdAt.toISOString() }, null, 2));
+  logger.info({ did }, "[VC] Platform issuer key rotated and saved to disk");
   return _platformIssuer;
 }
 
@@ -172,6 +212,24 @@ export async function issueAgentCredential(
     { agentId, companyId, did: agentDid, credentialId: row.id },
     "[VC] Agent credential issued"
   );
+
+  // Persist issued VC to disk (gitignored) — one file per agent+company, overwritten on re-issue
+  try {
+    ensureCredDir();
+    const credFile = join(CRED_DIR, `${companyId}-${agentId}.json`);
+    writeFileSync(credFile, JSON.stringify({
+      credentialId: row.id,
+      agentId,
+      companyId,
+      did: agentDid,
+      governanceFileHash,
+      issuedAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      signedVc,
+    }, null, 2));
+  } catch (err) {
+    logger.warn({ err, agentId, companyId }, "[VC] Could not write credential file (non-fatal)");
+  }
 
   // Encode as base64url for transport in Authorization: Bearer header
   const vcBase64url = Buffer.from(JSON.stringify(signedVc)).toString("base64url");

@@ -18,7 +18,7 @@ import {
   getActiveCredential,
   listCredentialsForCompany,
 } from "../lib/agentCredentialIssuer.js";
-import { verifyAgentCredentialMiddleware } from "../lib/verifyAgentCredential.js";
+import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
 
 const router = Router();
 
@@ -595,7 +595,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
 
 // ─── Availability Agent ───────────────────────────────────────────────────────
 
-router.post("/agents/availability", verifyAgentCredentialMiddleware, async (req, res) => {
+router.post("/agents/availability", requireAgentCredential("availability-agent"), async (req, res) => {
   try {
     const {
       propertyId,
@@ -654,7 +654,7 @@ router.post("/agents/availability", verifyAgentCredentialMiddleware, async (req,
 
 // ─── Rate Agent ───────────────────────────────────────────────────────────────
 
-router.post("/agents/rate", verifyAgentCredentialMiddleware, async (req, res) => {
+router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, res) => {
   try {
     const { propertyId, requestedRate, barRate, ratePlanId, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -723,7 +723,7 @@ interface CreatedReservation {
   id: string;
 }
 
-router.post("/agents/reservation", verifyAgentCredentialMiddleware, async (req, res) => {
+router.post("/agents/reservation", requireAgentCredential("reservation-bot"), async (req, res) => {
   try {
     const {
       propertyId, action = "retrieve", reservationId,
@@ -908,7 +908,7 @@ router.post("/agents/reservation", verifyAgentCredentialMiddleware, async (req, 
 
 // ─── Check-In Agent ───────────────────────────────────────────────────────────
 
-router.post("/agents/checkin", verifyAgentCredentialMiddleware, async (req, res) => {
+router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (req, res) => {
   try {
     const { propertyId, reservationId, guestName, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1034,7 +1034,7 @@ router.post("/agents/checkin", verifyAgentCredentialMiddleware, async (req, res)
 
 // ─── Folio Agent (read-only analysis) ────────────────────────────────────────
 
-router.post("/agents/folio", verifyAgentCredentialMiddleware, async (req, res) => {
+router.post("/agents/folio", requireAgentCredential("folio-charge-agent"), async (req, res) => {
   try {
     const { propertyId, reservationId, folioId, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1097,7 +1097,7 @@ interface FolioChargeBody {
   serviceDate?: string;
 }
 
-router.post("/agents/folio-charge", verifyAgentCredentialMiddleware, async (req, res) => {
+router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent"), async (req, res) => {
   try {
     const { propertyId, folioId, chargeAmount, currency = "EUR", serviceType = "Other", chargeName, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1222,7 +1222,7 @@ router.post("/agents/folio-charge", verifyAgentCredentialMiddleware, async (req,
 
 // ─── Checkout Agent ───────────────────────────────────────────────────────────
 
-router.post("/agents/checkout", verifyAgentCredentialMiddleware, async (req, res) => {
+router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async (req, res) => {
   try {
     const { propertyId, reservationId, guestName, loyaltyTier, lateCheckout, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1351,7 +1351,7 @@ router.post("/agents/checkout", verifyAgentCredentialMiddleware, async (req, res
 
 // ─── Revenue Reconciliation Agent ─────────────────────────────────────────────
 
-router.post("/agents/revenue", verifyAgentCredentialMiddleware, async (req, res) => {
+router.post("/agents/revenue", requireAgentCredential("revenue-reconciliation-agent"), async (req, res) => {
   try {
     const { propertyId, date, companyId, scenarioRunId } = req.body as {
       propertyId: string;

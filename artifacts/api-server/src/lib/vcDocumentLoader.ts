@@ -4,25 +4,44 @@
  * Required contexts are bundled inline; any unrecognised URL throws.
  *
  * Requirement B: static, offline-capable loader for all VC operations.
+ *
+ * Bundled contexts (all served from memory, zero network I/O):
+ *   - https://www.w3.org/2018/credentials/v1      (W3C VC Data Model v1)
+ *   - https://w3id.org/security/suites/ed25519-2020/v1  (Ed25519Signature2020)
+ *   - https://w3id.org/security/multikey/v1        (Multikey — did:key resolution)
+ *   - https://w3id.org/did/v1                      (DID Core v1)
+ *   - https://vda-mk.com/credentials/v1            (VDA-MK custom vocabulary)
+ *   - did:key:* DID documents                      (synthetic, no network)
  */
 
 import { Ed25519Signature2020 } from "@digitalbazaar/ed25519-signature-2020";
-import * as vc from "@digitalbazaar/vc";
 
-// ─── VDA-MK Custom Vocabulary ─────────────────────────────────────────────────
-export const VDA_CONTEXT_URL = "https://vda-mk.com/credentials/v1";
-const VDA_CONTEXT = {
+// ─── W3C Verifiable Credentials Data Model v1 — statically bundled ────────────
+// Source: https://www.w3.org/2018/credentials/v1 (stable, extracted from @digitalbazaar/vc)
+const W3C_CREDENTIALS_V1_URL = "https://www.w3.org/2018/credentials/v1";
+const W3C_CREDENTIALS_V1_CONTEXT = {"@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","VerifiableCredential":{"@id":"https://www.w3.org/2018/credentials#VerifiableCredential","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","cred":"https://www.w3.org/2018/credentials#","sec":"https://w3id.org/security#","xsd":"http://www.w3.org/2001/XMLSchema#","credentialSchema":{"@id":"cred:credentialSchema","@type":"@id","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","cred":"https://www.w3.org/2018/credentials#","JsonSchemaValidator2018":"cred:JsonSchemaValidator2018"}},"credentialStatus":{"@id":"cred:credentialStatus","@type":"@id"},"credentialSubject":{"@id":"cred:credentialSubject","@type":"@id"},"evidence":{"@id":"cred:evidence","@type":"@id"},"expirationDate":{"@id":"cred:expirationDate","@type":"xsd:dateTime"},"holder":{"@id":"cred:holder","@type":"@id"},"issued":{"@id":"cred:issued","@type":"xsd:dateTime"},"issuer":{"@id":"cred:issuer","@type":"@id"},"issuanceDate":{"@id":"cred:issuanceDate","@type":"xsd:dateTime"},"proof":{"@id":"sec:proof","@type":"@id","@container":"@graph"},"refreshService":{"@id":"cred:refreshService","@type":"@id","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","cred":"https://www.w3.org/2018/credentials#","ManualRefreshService2018":"cred:ManualRefreshService2018"}},"termsOfUse":{"@id":"cred:termsOfUse","@type":"@id"},"validFrom":{"@id":"cred:validFrom","@type":"xsd:dateTime"},"validUntil":{"@id":"cred:validUntil","@type":"xsd:dateTime"}}},"VerifiablePresentation":{"@id":"https://www.w3.org/2018/credentials#VerifiablePresentation","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","cred":"https://www.w3.org/2018/credentials#","sec":"https://w3id.org/security#","holder":{"@id":"cred:holder","@type":"@id"},"proof":{"@id":"sec:proof","@type":"@id","@container":"@graph"},"verifiableCredential":{"@id":"cred:verifiableCredential","@type":"@id","@container":"@graph"}}},"EcdsaSecp256k1Signature2019":{"@id":"https://w3id.org/security#EcdsaSecp256k1Signature2019","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","sec":"https://w3id.org/security#","xsd":"http://www.w3.org/2001/XMLSchema#","challenge":"sec:challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"xsd:dateTime"},"domain":"sec:domain","expires":{"@id":"sec:expiration","@type":"xsd:dateTime"},"jws":"sec:jws","nonce":"sec:nonce","proofPurpose":{"@id":"sec:proofPurpose","@type":"@vocab","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","sec":"https://w3id.org/security#","assertionMethod":{"@id":"sec:assertionMethod","@type":"@id","@container":"@set"},"authentication":{"@id":"sec:authenticationMethod","@type":"@id","@container":"@set"}}},"proofValue":"sec:proofValue","verificationMethod":{"@id":"sec:verificationMethod","@type":"@id"}}},"EcdsaSecp256r1Signature2019":{"@id":"https://w3id.org/security#EcdsaSecp256r1Signature2019","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","sec":"https://w3id.org/security#","xsd":"http://www.w3.org/2001/XMLSchema#","challenge":"sec:challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"xsd:dateTime"},"domain":"sec:domain","expires":{"@id":"sec:expiration","@type":"xsd:dateTime"},"jws":"sec:jws","nonce":"sec:nonce","proofPurpose":{"@id":"sec:proofPurpose","@type":"@vocab","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","sec":"https://w3id.org/security#","assertionMethod":{"@id":"sec:assertionMethod","@type":"@id","@container":"@set"},"authentication":{"@id":"sec:authenticationMethod","@type":"@id","@container":"@set"}}},"proofValue":"sec:proofValue","verificationMethod":{"@id":"sec:verificationMethod","@type":"@id"}}},"Ed25519Signature2018":{"@id":"https://w3id.org/security#Ed25519Signature2018","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","sec":"https://w3id.org/security#","xsd":"http://www.w3.org/2001/XMLSchema#","challenge":"sec:challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"xsd:dateTime"},"domain":"sec:domain","expires":{"@id":"sec:expiration","@type":"xsd:dateTime"},"jws":"sec:jws","nonce":"sec:nonce","proofPurpose":{"@id":"sec:proofPurpose","@type":"@vocab","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","sec":"https://w3id.org/security#","assertionMethod":{"@id":"sec:assertionMethod","@type":"@id","@container":"@set"},"authentication":{"@id":"sec:authenticationMethod","@type":"@id","@container":"@set"}}},"proofValue":"sec:proofValue","verificationMethod":{"@id":"sec:verificationMethod","@type":"@id"}}},"RsaSignature2018":{"@id":"https://w3id.org/security#RsaSignature2018","@context":{"@version":1.1,"@protected":true,"challenge":"sec:challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"xsd:dateTime"},"domain":"sec:domain","expires":{"@id":"sec:expiration","@type":"xsd:dateTime"},"jws":"sec:jws","nonce":"sec:nonce","proofPurpose":{"@id":"sec:proofPurpose","@type":"@vocab","@context":{"@version":1.1,"@protected":true,"id":"@id","type":"@type","sec":"https://w3id.org/security#","assertionMethod":{"@id":"sec:assertionMethod","@type":"@id","@container":"@set"},"authentication":{"@id":"sec:authenticationMethod","@type":"@id","@container":"@set"}}},"proofValue":"sec:proofValue","verificationMethod":{"@id":"sec:verificationMethod","@type":"@id"}}},"proof":{"@id":"https://w3id.org/security#proof","@type":"@id","@container":"@graph"}}};
+
+// ─── DID Core v1 — minimal static context ─────────────────────────────────────
+// Covers the base DID vocabulary; did:key documents are generated synthetically below.
+const DID_V1_URL = "https://w3id.org/did/v1";
+const DID_V1_CONTEXT = {
   "@context": {
     "@version": 1.1,
-    "@vocab": "https://vda-mk.com/ns#",
-    agentId: "https://vda-mk.com/ns#agentId",
-    companyId: "https://vda-mk.com/ns#companyId",
-    governanceFileHash: "https://vda-mk.com/ns#governanceFileHash",
-    domainOwner: "https://vda-mk.com/ns#domainOwner",
-    permittedSkills: "https://vda-mk.com/ns#permittedSkills",
-    eventType: "https://vda-mk.com/ns#eventType",
-    issuedFor: "https://vda-mk.com/ns#issuedFor",
-    rotationSchedule: "https://vda-mk.com/ns#rotationSchedule",
+    "id": "@id",
+    "type": "@type",
+    "did": "https://www.w3.org/ns/did#",
+    "sec": "https://w3id.org/security#",
+    "controller": { "@id": "sec:controller", "@type": "@id" },
+    "verificationMethod": { "@id": "sec:verificationMethod", "@type": "@id", "@container": "@set" },
+    "authentication": { "@id": "sec:authenticationMethod", "@type": "@id", "@container": "@set" },
+    "assertionMethod": { "@id": "sec:assertionMethod", "@type": "@id", "@container": "@set" },
+    "keyAgreement": { "@id": "sec:keyAgreement", "@type": "@id", "@container": "@set" },
+    "capabilityInvocation": { "@id": "sec:capabilityInvocationMethod", "@type": "@id", "@container": "@set" },
+    "capabilityDelegation": { "@id": "sec:capabilityDelegationMethod", "@type": "@id", "@container": "@set" },
+    "publicKeyJwk": { "@id": "sec:publicKeyJwk", "@type": "@json" },
+    "publicKeyMultibase": "sec:publicKeyMultibase",
+    "service": { "@id": "did:service", "@type": "@id" },
+    "serviceEndpoint": { "@id": "did:serviceEndpoint", "@type": "@id" },
   },
 };
 
@@ -56,6 +75,23 @@ const MULTIKEY_CONTEXT = {
   },
 };
 
+// ─── VDA-MK Custom Vocabulary ─────────────────────────────────────────────────
+export const VDA_CONTEXT_URL = "https://vda-mk.com/credentials/v1";
+const VDA_CONTEXT = {
+  "@context": {
+    "@version": 1.1,
+    "@vocab": "https://vda-mk.com/ns#",
+    agentId: "https://vda-mk.com/ns#agentId",
+    companyId: "https://vda-mk.com/ns#companyId",
+    governanceFileHash: "https://vda-mk.com/ns#governanceFileHash",
+    domainOwner: "https://vda-mk.com/ns#domainOwner",
+    permittedSkills: "https://vda-mk.com/ns#permittedSkills",
+    eventType: "https://vda-mk.com/ns#eventType",
+    issuedFor: "https://vda-mk.com/ns#issuedFor",
+    rotationSchedule: "https://vda-mk.com/ns#rotationSchedule",
+  },
+};
+
 // ─── Document Loader ───────────────────────────────────────────────────────────
 
 interface LoadedDocument {
@@ -65,9 +101,9 @@ interface LoadedDocument {
 }
 
 export async function vcDocumentLoader(url: string): Promise<LoadedDocument> {
-  // W3C Credentials v1 — bundled inside @digitalbazaar/vc
-  if (url === "https://www.w3.org/2018/credentials/v1") {
-    return vc.defaultDocumentLoader(url) as Promise<LoadedDocument>;
+  // W3C Credentials v1 — statically bundled (no network call)
+  if (url === W3C_CREDENTIALS_V1_URL) {
+    return { contextUrl: null, documentUrl: url, document: W3C_CREDENTIALS_V1_CONTEXT };
   }
 
   // Ed25519Signature2020 context — bundled inside @digitalbazaar/ed25519-signature-2020
@@ -77,6 +113,11 @@ export async function vcDocumentLoader(url: string): Promise<LoadedDocument> {
       documentUrl: url,
       document: Ed25519Signature2020.CONTEXT as Record<string, unknown>,
     };
+  }
+
+  // DID Core v1 — statically bundled
+  if (url === DID_V1_URL) {
+    return { contextUrl: null, documentUrl: url, document: DID_V1_CONTEXT };
   }
 
   // Multikey context — needed for did:key verification method resolution
@@ -124,6 +165,6 @@ export async function vcDocumentLoader(url: string): Promise<LoadedDocument> {
   }
 
   throw new Error(
-    `[vcDocumentLoader] Network access blocked — unknown context URL: ${url}`
+    `[vcDocumentLoader] Network access blocked — no static bundle for: ${url}`
   );
 }

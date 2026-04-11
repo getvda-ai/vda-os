@@ -46,15 +46,18 @@ function unauthorised(
  * Steps:
  * 1. Extract bearer token — 401 if missing
  * 2. Decode base64url → JSON VC — 401 if malformed
- * 3. Verify Ed25519Signature2020 proof — 401 if invalid
- * 4. Check VC expiration — 401 if expired
- * 5. Recompute governance hash (AGENTS+SKILL) — 401 if mismatch
- * 6. Set req.vcVerified + req.vcPayload, call next()
+ * 3. Tenant binding: credentialSubject.companyId must equal request.companyId — 401 if mismatch
+ * 4. Verify Ed25519Signature2020 proof — 401 if invalid
+ * 5. Check VC expiration — 401 if expired
+ * 6. Recompute governance hash (AGENTS+SKILL) — 401 if mismatch
+ * 7. (If expectedAgentId provided) Verify credentialSubject.agentId matches route agent — 401 if mismatch
+ * 8. Set req.vcVerified + req.vcPayload, call next()
  */
-export async function verifyAgentCredentialMiddleware(
+async function runVerification(
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
+  expectedAgentId?: string
 ): Promise<void> {
   req.vcVerified = false;
   req.vcPayload = null;
@@ -82,10 +85,10 @@ export async function verifyAgentCredentialMiddleware(
     return;
   }
 
-  // Extract companyId from request body for hash recomputation
+  // Extract companyId from request body for hash recomputation and tenant binding
   const companyId = Number((req.body as Record<string, unknown>)["companyId"] ?? 0) || undefined;
 
-  // Steps 3–5: cryptographic verification + expiry + hash comparison
+  // Steps 3–6: cryptographic verification + tenant binding + expiry + hash comparison
   let result: VerificationResult;
   try {
     result = await verifyAgentVc(rawVc, companyId);
@@ -106,9 +109,60 @@ export async function verifyAgentCredentialMiddleware(
     return;
   }
 
+  // Step 7: per-route agent identity binding — reject cross-agent credential replay
+  if (expectedAgentId) {
+    if (!result.agentId) {
+      logger.warn({ expectedAgentId, companyId }, "[VC-Middleware] Credential missing agentId claim");
+      unauthorised(res, "MISSING_AGENT_ID", null, "Credential missing agentId in credentialSubject");
+      return;
+    }
+    if (result.agentId !== expectedAgentId) {
+      logger.warn(
+        { expectedAgentId, vcAgentId: result.agentId, companyId },
+        "[VC-Middleware] Cross-agent credential replay blocked"
+      );
+      unauthorised(
+        res,
+        "AGENT_ID_MISMATCH",
+        result.agentId,
+        `Credential issued for agent '${result.agentId}' but presented to '${expectedAgentId}' endpoint`
+      );
+      return;
+    }
+  }
+
   // All checks passed
   req.vcVerified = true;
   req.vcPayload = result;
-  logger.info({ agentId: result.agentId, companyId: result.companyId }, "[VC-Middleware] Credential accepted");
+  logger.info({ agentId: result.agentId, companyId: result.companyId, expectedAgentId }, "[VC-Middleware] Credential accepted");
   return next();
+}
+
+/**
+ * Generic middleware (no per-route agent binding).
+ * Use requireAgentCredential(agentId) for individual routes instead.
+ */
+export async function verifyAgentCredentialMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  return runVerification(req, res, next);
+}
+
+/**
+ * Route-specific middleware factory.
+ * Verifies the credential AND enforces that credentialSubject.agentId === expectedAgentId.
+ * This prevents cross-agent credential replay within the same company.
+ *
+ * Usage: router.post("/agents/checkout", requireAgentCredential("checkout-agent"), handler)
+ */
+export function requireAgentCredential(expectedAgentId: string) {
+  return function agentCredentialGuard(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    return runVerification(req, res, next, expectedAgentId);
+  };
 }
