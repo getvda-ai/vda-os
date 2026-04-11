@@ -8402,6 +8402,7 @@ export default function VdaOS() {
   const [saving, setSaving] = useState(false);
   const [c2mdCache, setC2mdCache] = useState({}); // persists across tab switches
   const fmNavigateRef = useRef(null); // ref for FileManagerTab's file navigation fn
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const apaleoPropertyId = setup?.apaleoPropertyId || null;
   const { stats: apaleoStats, loading: statsLoading } = useApaleoStats(screen === "hub" ? apaleoPropertyId : null);
@@ -8629,9 +8630,10 @@ export default function VdaOS() {
             </div>
           )}
 
-          {/* Nav */}
+          {/* Nav — primary bar: Dashboard always visible + Advanced toggle */}
           <div style={{ background: "#08090c", borderBottom: `1px solid ${T.border}`, padding: "0 28px", display: "flex", gap: 0, alignItems: "stretch" }}>
-            {tabs.map(t => (
+            {/* Dashboard — always visible */}
+            {tabs.filter(t => t.id === "dashboard").map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
                 padding: "12px 18px", background: "none", border: "none",
                 borderBottom: `2px solid ${tab === t.id ? T.orange : "transparent"}`,
@@ -8643,10 +8645,53 @@ export default function VdaOS() {
                 <span>{t.icon}</span> {t.label}
               </button>
             ))}
+
+            {/* Divider */}
+            <div style={{ width: 1, height: 32, background: T.border, alignSelf: "center", margin: "0 4px" }} />
+
+            {/* Advanced toggle — opens/closes the secondary row */}
+            <button
+              onClick={() => {
+                setAdvancedOpen(o => !o);
+                // If closing advanced and current tab is not dashboard, reset to dashboard
+                if (advancedOpen && tab !== "dashboard") setTab("dashboard");
+              }}
+              style={{
+                padding: "12px 16px", background: "none", border: "none",
+                borderBottom: `2px solid ${advancedOpen ? T.blue : "transparent"}`,
+                color: advancedOpen ? T.blue : T.dim,
+                cursor: "pointer", fontSize: 13, fontWeight: advancedOpen ? 700 : 400,
+                fontFamily: T.sans, transition: "all 0.2s",
+                display: "flex", gap: 6, alignItems: "center",
+              }}
+            >
+              ⚙ Advanced
+              <span style={{ fontSize: 10, opacity: 0.7 }}>{advancedOpen ? "▲" : "▼"}</span>
+            </button>
+
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, padding: "0 8px" }}>
               <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{config.icon} Powered by Apaleo</span>
             </div>
           </div>
+
+          {/* Advanced sub-nav — collapsed by default */}
+          {advancedOpen && (
+            <div style={{ background: "#060709", borderBottom: `1px solid ${T.border}`, padding: "0 28px", display: "flex", gap: 0, alignItems: "stretch", overflowX: "auto" }}>
+              {tabs.filter(t => t.id !== "dashboard").map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)} style={{
+                  padding: "10px 16px", background: "none", border: "none",
+                  borderBottom: `2px solid ${tab === t.id ? T.orange : "transparent"}`,
+                  color: tab === t.id ? T.orange : T.dim,
+                  cursor: "pointer", fontSize: 12, fontWeight: tab === t.id ? 700 : 400,
+                  fontFamily: T.sans, transition: "all 0.2s",
+                  display: "flex", gap: 6, alignItems: "center",
+                  whiteSpace: "nowrap", flexShrink: 0,
+                }}>
+                  <span>{t.icon}</span> {t.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Content */}
           {tab === "dashboard"   && <DashboardTab companyId={setup.id} onOpenTab={setTab} />}

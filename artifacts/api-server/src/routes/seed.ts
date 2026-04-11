@@ -8,7 +8,7 @@
 
 import { Router, type IRouter } from "express";
 import { apaleoFetch } from "../lib/apaleo.js";
-import { db, companies, governanceFiles, witnessEntries } from "@workspace/db";
+import { db, companies, governanceFiles, witnessEntries, agentPhases } from "@workspace/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { callAI } from "./ai-proxy.js";
 import { checkComplianceGuards } from "../lib/complianceGuards.js";
@@ -422,6 +422,50 @@ const CITIZENM_PROPERTIES = [
     brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Vienna is in the heart of the Austrian capital, close to Stephansdom and the Ringstrasse. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
   },
 ];
+
+// ─── Agent Phase Progression — differentiated per hotel ───────────────────────
+// Scratchpad canon: BER=3 (most advanced), LND=4 (mid), MUC=5 (two crawl),
+//                   PAR=6 (blank slate), VIE=7 (run/walk/crawl progression).
+// CANONICAL_ORDER: availability-agent, rate-agent, revenue-reconciliation-agent,
+//   checkout-agent, folio-agent, check-in-agent, reservation-bot,
+//   folio-charge-agent, onboarding-agent.
+//
+// agreementRate: numeric, null = not yet enough data to compute.
+// This seed is idempotent — existing rows for a (company, agent) pair are NOT overwritten.
+
+const PHASE_SEED: Record<string, Array<{ agentId: string; phase: string; agreementRate: string | null }>> = {
+  BER: [
+    { agentId: "availability-agent",            phase: "run",   agreementRate: "97" },
+    { agentId: "rate-agent",                    phase: "run",   agreementRate: "95" },
+    { agentId: "revenue-reconciliation-agent",  phase: "run",   agreementRate: "93" },
+    { agentId: "checkout-agent",                phase: "run",   agreementRate: "96" },
+    { agentId: "folio-agent",                   phase: "run",   agreementRate: "94" },
+    { agentId: "check-in-agent",                phase: "run",   agreementRate: "95" },
+    { agentId: "reservation-bot",               phase: "walk",  agreementRate: "91" },
+    { agentId: "folio-charge-agent",            phase: "crawl", agreementRate: "83" },
+    { agentId: "onboarding-agent",              phase: "crawl", agreementRate: "78" },
+  ],
+  LND: [
+    { agentId: "availability-agent",            phase: "run",   agreementRate: "95" },
+    { agentId: "rate-agent",                    phase: "walk",  agreementRate: "90" },
+    { agentId: "revenue-reconciliation-agent",  phase: "walk",  agreementRate: "88" },
+    { agentId: "checkout-agent",                phase: "crawl", agreementRate: "82" },
+    { agentId: "folio-agent",                   phase: "crawl", agreementRate: "79" },
+  ],
+  MUC: [
+    { agentId: "availability-agent",            phase: "crawl", agreementRate: "77" },
+    { agentId: "rate-agent",                    phase: "crawl", agreementRate: "74" },
+  ],
+  PAR: [], // blank slate — no agents activated
+  VIE: [
+    { agentId: "availability-agent",            phase: "run",   agreementRate: "94" },
+    { agentId: "rate-agent",                    phase: "run",   agreementRate: "92" },
+    { agentId: "revenue-reconciliation-agent",  phase: "walk",  agreementRate: "89" },
+    { agentId: "checkout-agent",                phase: "walk",  agreementRate: "87" },
+    { agentId: "folio-agent",                   phase: "crawl", agreementRate: "81" },
+    { agentId: "check-in-agent",                phase: "crawl", agreementRate: "76" },
+  ],
+};
 
 // Marker written into YAML frontmatter by the C2MD enrichment pass.
 // Used for idempotency — files that already contain this string are skipped.
@@ -2838,6 +2882,35 @@ router.post("/admin/seed-companies", async (_req, res) => {
       } else {
         created.push({ apaleoPropertyId: prop.apaleoPropertyId, companyName: prop.companyName, companyId, filesSeeded: filesInserted });
         log.push(`${prop.apaleoPropertyId}: ${filesInserted} governance files seeded`);
+      }
+
+      // Seed agent_phases — idempotent: skip existing (company_id, agent_id) pairs
+      const phasesToSeed = PHASE_SEED[prop.apaleoPropertyId] ?? [];
+      let phasesInserted = 0;
+      for (const p of phasesToSeed) {
+        const existing = await db
+          .select({ id: agentPhases.id })
+          .from(agentPhases)
+          .where(and(
+            eq(agentPhases.companyId, companyId),
+            eq(agentPhases.agentId, p.agentId),
+          ));
+        if (existing.length === 0) {
+          await db.insert(agentPhases).values({
+            companyId,
+            agentId: p.agentId,
+            phase: p.phase,
+            activatedAt: new Date(),
+            phaseChangedAt: new Date(),
+            agreementRate: p.agreementRate,
+            overrideRate: null,
+            notes: `Seeded by seed-companies (${prop.apaleoPropertyId})`,
+          });
+          phasesInserted++;
+        }
+      }
+      if (phasesToSeed.length > 0) {
+        log.push(`${prop.apaleoPropertyId}: ${phasesInserted} agent_phases seeded (${phasesToSeed.length - phasesInserted} already existed)`);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

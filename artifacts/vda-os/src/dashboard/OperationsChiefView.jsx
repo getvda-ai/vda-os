@@ -1,5 +1,4 @@
 import { usePoll, useSecondsAgo } from "./useDashboard.js";
-import AgentStaircase, { CANONICAL_ORDER } from "./AgentStaircase.jsx";
 
 const DM = { fontFamily: "'DM Sans', sans-serif" };
 
@@ -10,6 +9,53 @@ const HOTELS = [
   { companyId: 6, code: "PAR", name: "citizenM Paris" },
   { companyId: 7, code: "VIE", name: "citizenM Vienna" },
 ];
+
+const CANONICAL_ORDER = [
+  "availability-agent",
+  "rate-agent",
+  "revenue-reconciliation-agent",
+  "checkout-agent",
+  "folio-agent",
+  "check-in-agent",
+  "reservation-bot",
+  "folio-charge-agent",
+  "onboarding-agent",
+];
+
+const AGENT_SHORT = {
+  "availability-agent":           "Availability",
+  "rate-agent":                   "Rate",
+  "revenue-reconciliation-agent": "Rev Rec",
+  "checkout-agent":               "Checkout",
+  "folio-agent":                  "Folio",
+  "check-in-agent":               "Check-In",
+  "reservation-bot":              "Res Bot",
+  "folio-charge-agent":           "Folio Chg",
+  "onboarding-agent":             "Onboarding",
+};
+
+const PHASE_COLORS = {
+  run:           { color: "#4ade80", bg: "#14532d", label: "R" },
+  walk:          { color: "#f59e0b", bg: "#451a03", label: "W" },
+  crawl:         { color: "#60a5fa", bg: "#0f2744", label: "C" },
+  not_activated: { color: "#374151", bg: "transparent", label: "—" },
+};
+
+function PhaseDot({ phase }) {
+  const pc = PHASE_COLORS[phase] ?? PHASE_COLORS.not_activated;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      width: 24, height: 24, borderRadius: 4,
+      background: phase !== "not_activated" ? pc.bg : "transparent",
+      color: pc.color,
+      fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+      border: phase === "not_activated" ? "1.5px dashed #1e2130" : `1px solid ${pc.color}40`,
+    }}>
+      {pc.label}
+    </span>
+  );
+}
 
 function StatCard({ label, value, color, subtitle }) {
   return (
@@ -45,6 +91,17 @@ export default function OperationsChiefView() {
   const chain = chainData ?? {};
   const agentsPhase = chain.agents_by_phase ?? {};
   const lastCheck = chain.last_integrity_check;
+
+  // Build the per-property × per-agent matrix
+  const matrix = CANONICAL_ORDER.map((agentId) => {
+    const row = {};
+    for (const hotel of HOTELS) {
+      const phases = allPhasesData?.[hotel.companyId] ?? [];
+      const found = phases.find((p) => p.agentId === agentId);
+      row[hotel.companyId] = found?.phase ?? "not_activated";
+    }
+    return { agentId, row };
+  });
 
   return (
     <div style={{ ...DM, padding: "24px 28px", maxWidth: 1100 }}>
@@ -103,17 +160,61 @@ export default function OperationsChiefView() {
         )}
       </div>
 
-      {/* Section C — Adoption progress — chain */}
+      {/* Section C — Adoption progress: 9 agents × 5 properties */}
       <div>
-        <h3 style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: "0 0 12px" }}>Adoption progress — chain</h3>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: "0 0 4px" }}>
+          Adoption progress — all properties
+        </h3>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14 }}>
+          R = RUN &nbsp;·&nbsp; W = WALK &nbsp;·&nbsp; C = CRAWL &nbsp;·&nbsp; — = not activated
+        </div>
         {(chainLoading && !chainData) || (phasesLoading && !allPhasesData) ? (
           <div style={{ color: "#6b7280", fontSize: 13 }}>Loading chain data…</div>
         ) : (
           <div style={{
             background: "#111318", border: "1px solid #1e2130",
-            borderRadius: 10, padding: "16px 20px",
+            borderRadius: 10, overflow: "auto",
           }}>
-            <AgentStaircase allPhases={allPhasesData ?? {}} />
+            {/* Header row */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "180px repeat(5, 1fr)",
+              borderBottom: "1px solid #1e2130",
+              padding: "8px 16px",
+              background: "#0d0f14",
+            }}>
+              <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
+                AGENT
+              </div>
+              {HOTELS.map((h) => (
+                <div key={h.companyId} style={{
+                  fontSize: 10, color: "#9ca3af", fontWeight: 700, letterSpacing: "0.06em",
+                  textAlign: "center", fontFamily: "'DM Mono', monospace",
+                }}>
+                  {h.code}
+                </div>
+              ))}
+            </div>
+
+            {/* Agent rows */}
+            {matrix.map(({ agentId, row }, idx) => (
+              <div key={agentId} style={{
+                display: "grid",
+                gridTemplateColumns: "180px repeat(5, 1fr)",
+                padding: "10px 16px",
+                borderBottom: idx < matrix.length - 1 ? "1px solid #1e2130" : "none",
+                alignItems: "center",
+              }}>
+                <div style={{ fontSize: 12, color: "#e5e7eb", fontWeight: 500 }}>
+                  {AGENT_SHORT[agentId] ?? agentId}
+                </div>
+                {HOTELS.map((h) => (
+                  <div key={h.companyId} style={{ display: "flex", justifyContent: "center" }}>
+                    <PhaseDot phase={row[h.companyId]} />
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         )}
       </div>

@@ -99,7 +99,7 @@ function PropertyCard({ hotel, phases, metrics, pending, isSelected, onClick }) 
 
 export default function RegionalGMView({ companyId, onSelectCompany }) {
   const { data, loading, lastUpdated } = usePoll(async () => {
-    const [phasesResults, metricsResults, hitlResult] = await Promise.all([
+    const [phasesResults, metricsResults, hitlResult, expiryResult] = await Promise.all([
       Promise.all(HOTELS.map((h) =>
         fetch(`/api/dashboard/phases?companyId=${h.companyId}`).then((r) => r.json())
       )),
@@ -107,6 +107,8 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
         fetch(`/api/agents/witness/integrity-metrics?companyId=${h.companyId}`).then((r) => r.json())
       )),
       fetch("/api/hitl/pending").then((r) => r.json()),
+      // Fetch exceptions expiring soon from chain-health (covers all hotels)
+      fetch("/api/dashboard/chain-health").then((r) => r.json()).catch(() => null),
     ]);
 
     const hitlByCompany = {};
@@ -125,6 +127,7 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
         pending: hitlByCompany[h.companyId] ?? [],
       })),
       allPending: hitlResult.pending ?? [],
+      exceptionsExpiringSoon: expiryResult?.exceptions_expiring_soon ?? 0,
     };
   }, 30000);
 
@@ -134,14 +137,26 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
 
   // Cross-property alerts
   const alerts = [];
+
+  // Chain-level: exceptions expiring in the next 30 days
+  const expiringCount = data?.exceptionsExpiringSoon ?? 0;
+  if (expiringCount > 0) {
+    alerts.push({
+      type: "expiry",
+      hotel: null,
+      msg: `${expiringCount} exception${expiringCount > 1 ? "s" : ""} expiring within 30 days — review before auto-revert`,
+      severity: "#a855f7",
+    });
+  }
+
   for (const hotel of hotels) {
     const intFailed = Number(hotel.metrics?.integrityFailuresAllTime ?? 0) > 0;
-    if (intFailed) alerts.push({ type: "integrity", hotel, msg: `Integrity check failed at ${hotel.name}` });
+    if (intFailed) alerts.push({ type: "integrity", hotel, msg: `Integrity check failed at ${hotel.name}`, severity: "#f87171" });
 
     const lowRate = hotel.phases.filter((p) => p.phase === "crawl" && Number(p.agreementRate ?? 100) < 80);
     for (const lp of lowRate) {
       const agentLabel = lp.agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-      alerts.push({ type: "agreement", hotel, msg: `${hotel.code}: ${agentLabel} agreement rate below 80% (${lp.agreementRate}%)` });
+      alerts.push({ type: "agreement", hotel, msg: `${hotel.code}: ${agentLabel} agreement rate below 80% (${lp.agreementRate}%)`, severity: "#f59e0b" });
     }
   }
 
@@ -188,7 +203,7 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
             {alerts.map((alert, idx) => (
               <div key={idx} style={{
                 background: "#111318", border: "1px solid #1e2130",
-                borderLeft: `3px solid ${alert.type === "integrity" ? "#f87171" : "#f59e0b"}`,
+                borderLeft: `3px solid ${alert.severity ?? "#f59e0b"}`,
                 borderRadius: 8, padding: "12px 16px",
                 display: "flex", alignItems: "center", gap: 10,
               }}>

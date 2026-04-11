@@ -94,13 +94,13 @@ export default function ShadowReviewRow({
         </div>
       </div>
 
-      {/* Buttons */}
+      {/* Buttons — minHeight 52px for accessibility touch targets */}
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <button
           disabled={loading || done}
           onClick={() => handleReview(true)}
           style={{
-            minHeight: 36, minWidth: 52,
+            minHeight: 52, minWidth: 60,
             background: "#14532d", border: "1px solid #4ade80",
             borderRadius: 6, color: "#4ade80",
             fontSize: 12, fontWeight: 700,
@@ -116,7 +116,7 @@ export default function ShadowReviewRow({
           disabled={loading || done}
           onClick={() => handleReview(false)}
           style={{
-            minHeight: 36, minWidth: 52,
+            minHeight: 52, minWidth: 60,
             background: "#450a0a", border: "1px solid #f87171",
             borderRadius: 6, color: "#f87171",
             fontSize: 12, fontWeight: 700,

@@ -9,7 +9,7 @@
  */
 import { Router } from "express";
 import { db, agentPhases, witnessEntries, governanceFiles } from "@workspace/db";
-import { eq, and, gte, sql, isNull, not, inArray, desc, lt } from "drizzle-orm";
+import { eq, and, gte, lte, sql, isNull, not, inArray, desc, lt } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { logger } from "../lib/logger.js";
 
@@ -91,6 +91,18 @@ router.get("/dashboard/shift-summary", async (req, res) => {
       )
       .orderBy(desc(witnessEntries.createdAt));
 
+    // Crawl-phase agents for this company — shadow review only applies to crawl
+    const crawlRows = await db
+      .select({ agentId: agentPhases.agentId })
+      .from(agentPhases)
+      .where(
+        and(
+          eq(agentPhases.companyId, companyId),
+          eq(agentPhases.phase, "crawl"),
+        ),
+      );
+    const crawlAgents = new Set(crawlRows.map((r) => r.agentId));
+
     let autonomous_count = 0;
     let escalated_count = 0;
     let shadow_count = 0;
@@ -101,14 +113,15 @@ router.get("/dashboard/shift-summary", async (req, res) => {
       else if (e.decision === "ESCALATE") escalated_count++;
       else if (e.decision === "INFO") {
         const ap = e.apaleoData as Record<string, unknown> | null;
-        if (ap?.event_type === "shadow_decision") {
+        // Shadow review: crawl-phase agents only
+        if (ap?.event_type === "shadow_decision" && crawlAgents.has(e.agent)) {
           shadow_count++;
           raw_shadow.push(e);
         }
       }
     }
 
-    // Anti-join: find IDs of shadow decisions that have already been reviewed
+    // Anti-join: unreviewed = no COMPLIANCE_BOUNDARY/INFO entry with matching reviewed_decision_witness_id
     const shadowIds = raw_shadow.map((e) => String(e.id));
     let reviewedIds = new Set<string>();
 
@@ -126,7 +139,8 @@ router.get("/dashboard/shift-summary", async (req, res) => {
 
       for (const re of reviewedEntries) {
         const ap = re.apaleoData as Record<string, unknown> | null;
-        if (ap?.event_type === "shadow_review_response" && ap.reviewed_decision_witness_id) {
+        // Any COMPLIANCE_BOUNDARY/INFO entry with a reviewed_decision_witness_id counts as a review
+        if (ap?.reviewed_decision_witness_id) {
           reviewedIds.add(String(ap.reviewed_decision_witness_id));
         }
       }
@@ -193,7 +207,10 @@ router.get("/dashboard/chain-health", async (_req, res) => {
       );
     const guard_violations_today = Number(guardRows[0]?.count ?? 0);
 
-    // Exceptions expiring soon (within 30 days)
+    // Exceptions expiring soon (within 30 days, not already expired)
+    // expiresAt is stored as text in ISO 8601 format — cast to date for comparison
+    const todayIso = new Date().toISOString().split("T")[0];
+    const thirtyDaysIso = thirtyDaysFromNow.toISOString().split("T")[0];
     const expiryRows = await db
       .select({ count: sql<string>`count(*)` })
       .from(governanceFiles)
@@ -203,9 +220,10 @@ router.get("/dashboard/chain-health", async (_req, res) => {
           eq(governanceFiles.isArchived, false),
           not(isNull(governanceFiles.expiresAt)),
           inArray(governanceFiles.companyId, COMPANIES),
+          sql`${governanceFiles.expiresAt} >= ${todayIso}`,
+          sql`${governanceFiles.expiresAt} <= ${thirtyDaysIso}`,
         ),
       );
-    // expiresAt is stored as text — do a rough count for now
     const exceptions_expiring_soon = Number(expiryRows[0]?.count ?? 0);
 
     // Last integrity check

@@ -70,11 +70,15 @@ export default function AmbassadorView({ companyId, onOpenTab }) {
   } = usePoll(async () => {
     const r = await fetch("/api/hitl/pending");
     const d = await r.json();
-    const filtered = (d.pending ?? []).filter((p) =>
-      !companyId || true
-    );
+    // Only show tokens that belong to this hotel's company (companyId match in payload)
+    // Fall back to showing all if companyId is not set or token has no companyId field.
+    const filtered = (d.pending ?? []).filter((p) => {
+      if (!companyId) return true;
+      const tokenCompany = p.companyId ?? p.payload?.companyId;
+      return !tokenCompany || Number(tokenCompany) === Number(companyId);
+    });
     if (hitlList === null) setHitlList(filtered);
-    return d;
+    return { ...d, pending: filtered };
   }, 30000);
 
   const shiftAgo = useSecondsAgo(shiftUpdated);
