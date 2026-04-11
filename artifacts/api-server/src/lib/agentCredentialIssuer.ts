@@ -33,6 +33,41 @@ function ensureCredDir(): void {
 
 const ISSUER_KEYPAIR_PATH = join(CRED_DIR, "issuer-keypair.json");
 
+// ─── Stable per-agent keypair (one DID per {companyId, agentId} pair) ────────
+// The DID is stable across re-issuances; only the signed VC changes.
+// Keypair file: agent-credentials/{companyId}-{agentId}.keypair.json
+
+async function loadOrGenerateAgentKeypair(
+  companyId: number,
+  agentId: string
+): Promise<Ed25519VerificationKey2020> {
+  ensureCredDir();
+  const keypairPath = join(CRED_DIR, `${companyId}-${agentId}.keypair.json`);
+
+  if (existsSync(keypairPath)) {
+    try {
+      const saved = JSON.parse(readFileSync(keypairPath, "utf-8")) as Parameters<typeof Ed25519VerificationKey2020.from>[0];
+      const key = await Ed25519VerificationKey2020.from(saved);
+      const did = `did:key:${key.fingerprint()}`;
+      key.id = `${did}#${key.fingerprint()}`;
+      key.controller = did;
+      return key;
+    } catch (err) {
+      logger.warn({ err, companyId, agentId }, "[VC] Could not load agent keypair — regenerating");
+    }
+  }
+
+  // Generate a new keypair and persist it (stable DID from now on)
+  const key = await Ed25519VerificationKey2020.generate();
+  const did = `did:key:${key.fingerprint()}`;
+  key.id = `${did}#${key.fingerprint()}`;
+  key.controller = did;
+  const exported = await key.export({ publicKey: true, privateKey: true });
+  writeFileSync(keypairPath, JSON.stringify(exported, null, 2));
+  logger.info({ did, agentId, companyId }, "[VC] New stable agent keypair generated and saved");
+  return key;
+}
+
 // ─── Platform Issuer Key (persisted to disk, rotated by scheduler) ────────────
 // On startup: load from issuer-keypair.json if present, otherwise generate and save.
 // Agent keys are ephemeral per credential; only the platform issuer key is persisted.
@@ -151,9 +186,9 @@ export async function issueAgentCredential(
       )
     );
 
-  // Generate a fresh per-agent key pair (agent's own DID identity)
-  // Note: only the public key is stored — no secret key retention needed.
-  const agentKey = await Ed25519VerificationKey2020.generate();
+  // Load or generate a STABLE per-agent keypair (reused across re-issuances)
+  // DID is deterministic per {companyId, agentId} — only public key stored in DB
+  const agentKey = await loadOrGenerateAgentKeypair(companyId, agentId);
   const agentDid = `did:key:${agentKey.fingerprint()}`;
 
   // Compute governance hash for AGENTS + SKILL files only
@@ -166,6 +201,7 @@ export async function issueAgentCredential(
   const expiresAt = new Date(now.getTime() + ttlHours * 3600 * 1000);
 
   // Build the credential — all custom fields inside credentialSubject (Requirement C)
+  // Claim names use snake_case per VDA-MK VC schema contract
   const credential = {
     "@context": [
       "https://www.w3.org/2018/credentials/v1",
@@ -178,13 +214,13 @@ export async function issueAgentCredential(
     expirationDate: expiresAt.toISOString(),
     credentialSubject: {
       id: agentDid,
-      agentId,
-      companyId: String(companyId),
-      governanceFileHash: governanceFileHash ?? "NO_GOVERNANCE_FILES",
-      domainOwner,
-      permittedSkills,
-      issuedFor: "VDA-MK Apaleo Agent Runtime",
-      rotationSchedule: "23h",
+      agent_id: agentId,
+      company_id: String(companyId),
+      governance_file_hash: governanceFileHash ?? "NO_GOVERNANCE_FILES",
+      domain_owner: domainOwner,
+      permitted_skills: permittedSkills,
+      issued_for: "VDA-MK Apaleo Agent Runtime",
+      rotation_schedule: "23h",
     },
   };
 
@@ -274,15 +310,16 @@ export async function verifyAgentVc(
     }
 
     const subject = rawVc.credentialSubject as Record<string, unknown> | undefined;
-    const vcAgentId = subject?.agentId as string | undefined;
-    const vcCompanyId = subject?.companyId as string | undefined;
-    const vcGovHash = subject?.governanceFileHash as string | undefined;
+    // Claims use snake_case per VDA-MK VC schema contract
+    const vcAgentId = (subject?.agent_id ?? subject?.agentId) as string | undefined;
+    const vcCompanyId = (subject?.company_id ?? subject?.companyId) as string | undefined;
+    const vcGovHash = (subject?.governance_file_hash ?? subject?.governanceFileHash) as string | undefined;
     const vcExpiry = rawVc.expirationDate as string | undefined;
 
     // 2. Tenant binding check — VC must be issued for the same company as the request
     if (companyId !== undefined) {
       if (!vcCompanyId) {
-        return { verified: false, agentId: vcAgentId, error: "Credential missing companyId claim", reason: "MISSING_COMPANY_ID" };
+        return { verified: false, agentId: vcAgentId, error: "Credential missing company_id claim", reason: "MISSING_COMPANY_ID" };
       }
       if (String(companyId) !== String(vcCompanyId)) {
         logger.warn({ requestCompanyId: companyId, vcCompanyId, vcAgentId }, "[VC] Company ID mismatch — cross-hotel replay attempt blocked");

@@ -8,6 +8,9 @@ out-tsc
 .expo
 .expo-shared
 
+# Agent VC credentials store (contains key material — never commit)
+artifacts/api-server/agent-credentials/
+
 # dependencies
 node_modules
 

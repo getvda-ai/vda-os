@@ -48,6 +48,7 @@ async function getAllGovernanceAgentPairs(): Promise<{ agentId: string; companyI
     .where(
       and(
         eq(governanceFiles.isArchived, false),
+        eq(governanceFiles.fileType, "AGENTS"),
         sql`${governanceFiles.agentId} IS NOT NULL`
       )
     );
@@ -74,7 +75,7 @@ async function writeRotationWitnessEntry(
     actionProposed: reason,
     exceptionApplied: false,
     reasoning: reason,
-    apaleoData: { rotatedAt: new Date().toISOString(), eventType: "credential_rotation" },
+    apaleoData: { rotated_at: new Date().toISOString(), event_type: "credential_rotation" },
     scenarioRunId: null,
     filesConsulted: null,
     crossDomainInheritance: false,

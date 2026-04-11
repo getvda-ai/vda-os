@@ -81,14 +81,14 @@ const VDA_CONTEXT = {
   "@context": {
     "@version": 1.1,
     "@vocab": "https://vda-mk.com/ns#",
-    agentId: "https://vda-mk.com/ns#agentId",
-    companyId: "https://vda-mk.com/ns#companyId",
-    governanceFileHash: "https://vda-mk.com/ns#governanceFileHash",
-    domainOwner: "https://vda-mk.com/ns#domainOwner",
-    permittedSkills: "https://vda-mk.com/ns#permittedSkills",
-    eventType: "https://vda-mk.com/ns#eventType",
-    issuedFor: "https://vda-mk.com/ns#issuedFor",
-    rotationSchedule: "https://vda-mk.com/ns#rotationSchedule",
+    agent_id: "https://vda-mk.com/ns#agent_id",
+    company_id: "https://vda-mk.com/ns#company_id",
+    governance_file_hash: "https://vda-mk.com/ns#governance_file_hash",
+    domain_owner: "https://vda-mk.com/ns#domain_owner",
+    permitted_skills: "https://vda-mk.com/ns#permitted_skills",
+    event_type: "https://vda-mk.com/ns#event_type",
+    issued_for: "https://vda-mk.com/ns#issued_for",
+    rotation_schedule: "https://vda-mk.com/ns#rotation_schedule",
   },
 };
 
