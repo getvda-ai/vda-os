@@ -45,11 +45,12 @@ export default function ShadowReviewRow({
     if (loading || done) return;
     setLoading(true);
     try {
-      await fetch("/api/dashboard/shadow-review", {
+      const resp = await fetch("/api/dashboard/shadow-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ witnessId, agentId, companyId: apaleoDataContext?.companyId, agreed }),
       });
+      if (!resp.ok) throw new Error(`Shadow review failed: ${resp.status}`);
       setDone(true);
       setTimeout(() => onReviewed?.(witnessId, agreed), 350);
     } catch (err) {

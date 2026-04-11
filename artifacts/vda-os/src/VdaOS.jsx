@@ -8337,6 +8337,13 @@ const DASHBOARD_ROLES = [
 
 function DashboardTab({ companyId, onOpenTab }) {
   const [role, setRole] = useState("senior_ambassador");
+  // viewCompanyId allows Regional GM to drill into a specific hotel via Hotel GM view
+  const [viewCompanyId, setViewCompanyId] = useState(companyId);
+
+  const handleSelectCompany = (cid) => {
+    setViewCompanyId(cid);
+    setRole("hotel_gm");
+  };
 
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "calc(100vh - 116px)", background: "#07080a" }}>
@@ -8387,10 +8394,10 @@ function DashboardTab({ companyId, onOpenTab }) {
       </div>
 
       {/* Role view */}
-      {role === "ambassador"        && <AmbassadorView       companyId={companyId} onOpenTab={onOpenTab} />}
-      {role === "senior_ambassador" && <SeniorAmbassadorView companyId={companyId} />}
-      {role === "hotel_gm"          && <HotelGMView          companyId={companyId} onOpenTab={onOpenTab} />}
-      {role === "regional_gm"       && <RegionalGMView       companyId={companyId} />}
+      {role === "ambassador"        && <AmbassadorView       companyId={viewCompanyId} onOpenTab={onOpenTab} />}
+      {role === "senior_ambassador" && <SeniorAmbassadorView companyId={viewCompanyId} />}
+      {role === "hotel_gm"          && <HotelGMView          companyId={viewCompanyId} onOpenTab={onOpenTab} />}
+      {role === "regional_gm"       && <RegionalGMView       companyId={viewCompanyId} onSelectCompany={handleSelectCompany} />}
       {role === "operations_chief"  && <OperationsChiefView  />}
     </div>
   );
