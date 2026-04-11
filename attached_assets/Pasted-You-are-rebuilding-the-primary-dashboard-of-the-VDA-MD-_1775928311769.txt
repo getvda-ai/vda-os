@@ -1,0 +1,353 @@
+You are rebuilding the primary dashboard of the VDA-MD platform (VdaOS.jsx) 
+from a tab-based technical interface into a role-based card dashboard. The 
+existing platform is production-validated and all existing tabs (Journey Map, 
+Live Demo, C2MD Studio, Witness Agent, File Manager, etc.) must be preserved 
+and remain fully functional — they move to a secondary navigation, not deleted.
+
+THE CORE CHANGE: The landing page is no longer the Journey Map tab. It is a 
+role-aware primary dashboard that shows each user exactly what needs their 
+attention right now, based on their role in the citizenM operational hierarchy.
+
+EXISTING CODEBASE:
+- React + Vite frontend in artifacts/vda-os/src/VdaOS.jsx
+- Node.js/Express API in artifacts/api-server/src/
+- PostgreSQL via Drizzle ORM
+- Dark theme already established — keep it
+- Five hotel properties: BER(3), LND(4), MUC(5), PAR(6), VIE(7)
+- Company selector already exists in the UI — preserve it
+
+EXISTING API ENDPOINTS TO WIRE INTO THE DASHBOARD:
+  GET /api/hitl/pending                           — pending HITL decisions
+  POST /api/hitl/respond/:token                   — approve/reject a decision
+  GET /api/agents/witness?companyId=&limit=       — witness entries / decisions
+  GET /api/witness/integrity-metrics?companyId=   — 4 integrity metric counts
+  GET /api/witness/framework-events?companyId=    — recent framework events
+  GET /api/agents/credentials/list?companyId=     — agent credentials + hashes
+  GET /api/fm/files/:companyId                    — governance files
+  GET /api/a2a/onboarding (tasks/get)             — onboarding requests
+
+NEW TABLE REQUIRED — agent_phases
+Add to lib/db/src/schema/:
+  agent_phases table:
+  - id (uuid PK)
+  - company_id (integer)
+  - agent_id (varchar) — the 9 canonical agent IDs
+  - phase (varchar: 'not_activated' | 'crawl' | 'walk' | 'run')
+  - activated_at (timestamptz nullable)
+  - phase_changed_at (timestamptz)
+  - agreement_rate (numeric nullable — % Senior Ambassador agreement in crawl)
+  - override_rate (numeric nullable — % GM override in walk)
+  - notes (text nullable)
+  Run db:push. Seed with realistic demo data for VIE:
+    availability-agent: run
+    rate-agent: run
+    revenue-reconciliation-agent: run
+    checkout-agent: walk (agreement_rate: 87)
+    check-in-agent: crawl (agreement_rate: 72)
+    folio-agent: not_activated
+    reservation-bot: not_activated
+    folio-charge-agent: not_activated
+    onboarding-agent: not_activated
+
+NEW API ENDPOINTS:
+  GET  /api/dashboard/phases?companyId=
+    Returns all agent_phases rows for a company
+  GET  /api/dashboard/shift-summary?companyId=
+    Returns last 8 hours of witness_entries grouped as:
+    { autonomous_count, escalated_count, shadow_count, 
+      shadow_reviews: [{decision, agent_id, clause_applied, 
+                       apaleoData, witnessId}] }
+    autonomous = PASS decisions where no HITL was triggered
+    escalated  = ESCALATE decisions
+    shadow     = INFO decisions from crawl-mode agents
+  GET  /api/dashboard/chain-health
+    Returns across all companies:
+    { properties_live, agents_by_phase: {run,walk,crawl}, 
+      guard_violations_today, exceptions_expiring_soon,
+      last_integrity_check: {timestamp, result} }
+  POST /api/dashboard/shadow-review
+    Body: { witnessId, agentId, companyId, agreed: boolean }
+    Records the Senior Ambassador's shadow review response
+    Writes a COMPLIANCE_BOUNDARY/INFO witness entry:
+    { event_type: "shadow_review_response", agreed, agent_id, 
+      reviewed_decision_witness_id }
+
+WHAT TO BUILD:
+
+1. ROLE STATE — add to existing VdaOS.jsx state
+   const [role, setRole] = useState('senior_ambassador')
+   Roles: 'ambassador' | 'senior_ambassador' | 'hotel_gm' | 
+          'regional_gm' | 'operations_chief'
+   Role is session state only — not persisted. Default: 'senior_ambassador'
+   The company selector already in the UI remains unchanged.
+
+2. NEW PRIMARY LAYOUT — restructure VdaOS.jsx navigation
+
+   TOP BAR (keep existing): property name, live indicator, 
+   compliance badges (NIST SP 800-53, GDPR, EU AI Act), company selector
+
+   ROLE SWITCHER BAR (new, below top bar):
+   "Viewing as:" label then 5 role buttons:
+   Ambassador | Senior Ambassador | Hotel GM | Regional GM | Operations Chief
+   Active role button has coloured text:
+   - Ambassador: slate/gray
+   - Senior Ambassador: amber (#f59e0b)
+   - Hotel GM: blue (#3b82f6)
+   - Regional GM: purple (#8b5cf6)
+   - Operations Chief: emerald (#10b981)
+
+   CONTENT AREA: shows the active role dashboard (see below)
+
+   SECONDARY NAV (replaces current tab row):
+   Move all existing tabs to a collapsible secondary nav bar below 
+   the role switcher, labelled "Advanced" with a chevron toggle.
+   Default: collapsed. When expanded: shows all existing tabs as 
+   before. All existing tab functionality preserved exactly.
+   This means the Journey Map, Live Demo, C2MD Studio, Exception 
+   Engine, Witness Agent, A2MD Normaliser, SOC 2 SD, Agent 
+   Credentials, A2A Protocol, Agent Onboarding, File Manager tabs 
+   all remain accessible but are not the primary interface.
+
+3. FIVE ROLE DASHBOARD VIEWS
+
+   ── VIEW 1: AMBASSADOR ──────────────────────────────────────
+   Fetches: GET /api/dashboard/shift-summary
+   
+   Section A: "Needs your attention"
+   - If HITL pending decisions exist for this property: 
+     show DecisionCard components (see component spec below)
+   - If none: show a clear state card 
+     ("Nothing needs your attention — agents are handling your shift")
+   
+   Section B: "This shift" — 3 stat cards in a row
+   - Autonomous decisions (green number)
+   - Escalated to you (amber number, 0 if none)
+   - Shadow reviews waiting (blue number)
+   
+   Section C: "Would you have done the same?" 
+   (only shown if shadow_reviews.length > 0)
+   - List of shadow review rows (max 5):
+     Each row: PASS/FAIL badge | agent name | plain English description 
+     of what the agent would have done | "✓ Yes" and "✗ No" buttons
+   - Yes/No calls POST /api/dashboard/shadow-review
+   - On response: row fades out and count decrements
+
+   ── VIEW 2: SENIOR AMBASSADOR ───────────────────────────────
+   Fetches: GET /api/hitl/pending + GET /api/dashboard/shift-summary
+             + GET /api/dashboard/phases
+   
+   Section A: "Needs your attention" with count badge
+   - Pending HITL decision cards (from /api/hitl/pending)
+   - If none: clear state card
+   
+   Section B: "This shift" — 3 stat cards
+   (same as Ambassador view)
+   
+   Section C: "Agent status" — card grid
+   - One card per activated agent (phase !== 'not_activated')
+   - Each card: agent name | phase pill (RUN/WALK/CRAWL) | 
+     last decision time | agreement rate with progress bar
+   - Phase pill colours: RUN=green, WALK=amber, CRAWL=blue
+   - Agreement rate bar colour matches phase colour
+
+   ── VIEW 3: HOTEL GM ────────────────────────────────────────
+   Fetches: GET /api/dashboard/phases + GET /api/witness/integrity-metrics
+             + GET /api/agents/witness?limit=10 + GET /api/hitl/pending
+   
+   Section A: "Property health" — 5 stat cards in a row
+   - Agents in run (green)
+   - Agents in walk (amber)
+   - Agents in crawl (blue)
+   - Guard rejections today (white — from integrity metrics)
+   - Active exceptions (purple — from integrity metrics)
+   
+   Section B: "Agent activation — staircase"
+   - Ordered list of all 9 agents in the canonical activation sequence
+   - Each row: position number | agent name | phase pills
+   - Phase pills: CRAWL / WALK / RUN — each filled if reached, 
+     outlined/dashed if not yet reached
+   - Not-yet-activated agents shown at reduced opacity
+   - Below the staircase: a callout showing next agent to activate
+     with the self-generating business case stat:
+     "In the last 30 days there were [N] decisions this agent 
+     could have handled. [M] would have been autonomous."
+     Compute from witness_entries for the relevant agent types.
+   
+   Section C: "Yesterday's decisions" — digest list
+   - Last 24h of witness_entries for this company
+   - Each row: decision badge | agent name | plain English of 
+     clause_applied | timestamp
+   - Max 8 rows. "View full Witness trail →" link opens the 
+     existing Witness Agent tab
+
+   ── VIEW 4: REGIONAL GM ─────────────────────────────────────
+   Fetches: For each company (all 5): GET /api/dashboard/phases 
+             + GET /api/witness/integrity-metrics + GET /api/hitl/pending
+   
+   Section A: "Your properties" — card grid
+   - One card per citizenM property (all 5)
+   - Each card: property name | health badge (Healthy/Review/Alert) |
+     meta line (N agents · M pending · K guard events today) |
+     agent phase pills (count per phase)
+   - Health badge logic:
+     Healthy = 0 guard rejections + 0 pending HITL > 30 min old
+     Review  = exception expiring < 30 days OR pending HITL > 30 min
+     Alert   = guard rejection in last 24h OR integrity check fail
+   - Clicking a card switches the company selector to that property
+   
+   Section B: "Cross-property alerts"
+   - Exceptions expiring across any property in next 30 days
+   - Any integrity check failures
+   - Properties where agreement rate dropped below 80% (crawl phase)
+   - Empty state: "No cross-property issues to review"
+
+   ── VIEW 5: OPERATIONS CHIEF ────────────────────────────────
+   Fetches: GET /api/dashboard/chain-health
+             + GET /api/dashboard/phases (for each company)
+   
+   Section A: "Chain-wide governance health" — 6 stat cards
+   - Properties live | Agents in run | Agents in walk | 
+     Agents in crawl | Guard violations today | Exceptions expiring
+   
+   Section B: "Integrity check — last run"
+   - Single row showing last integrity check result across all properties
+   - Timestamp | PASS/FAIL | number of envelopes verified
+   
+   Section C: "Adoption progress — chain"
+   - One row per canonical agent
+   - Each row: agent name | breakdown across all properties 
+     (e.g. "3 × RUN  2 × WALK  1 × CRAWL  1 × not activated")
+   - Shown in the canonical activation sequence order
+
+4. DECISION CARD COMPONENT — DecisionCard.jsx
+   (used in Ambassador and Senior Ambassador views for HITL items)
+   
+   Props: { token, agentId, companyId, whatTriggered, clauseApplied, 
+            riskLevel, recommendedAction, dataContext, onDecision }
+   
+   Layout (mobile-first, max 480px wide on desktop):
+   - Top: coloured left border (amber for ESCALATE, blue for EXCEPTION)
+   - Tag pill: "ESCALATE" or "EXCEPTION" in matching colour
+   - Title: plain English of what happened (one sentence)
+   - Body: "What triggered this" in plain language
+   - Clause box: monospace display of the exact governance clause
+     (background: slightly lighter than card, left border accent)
+   - Risk level: low/medium/high badge
+   - Agent recommendation: "Approve" or "Reject" with one-line rationale
+   - Two full-width CTA buttons:
+     APPROVE (green background, green text)
+     REJECT (red background, red text)
+   - Calling POST /api/hitl/respond/:token with { outcome, reason }
+   - On response: card animates out (fade + slide up), 
+     parent state updates, count decrements
+   - If response is "approved" and there is a resumable agent task:
+     show a brief success toast "Decision logged — agent proceeding"
+   - Loading state during POST: buttons disabled, spinner
+   
+   MOBILE BEHAVIOUR:
+   On viewport < 640px:
+   - Cards stack full width
+   - The two CTA buttons are large touch targets (min 52px height)
+   - Clause box truncates to 3 lines with "show more" expand
+   - Font size scales up slightly for readability
+
+5. SHADOW REVIEW COMPONENT — ShadowReviewRow.jsx
+   (used in Ambassador view for crawl-phase shadow decisions)
+   
+   Props: { witnessId, agentId, decision, clauseApplied, 
+            apaleoDataContext, onReviewed }
+   
+   Layout:
+   - Decision badge (PASS/FAIL in appropriate colour)
+   - Agent name
+   - Plain English description of what the agent would have done
+     (derive from clause_applied — show the human-readable action, 
+     not the raw clause text)
+   - "Would you have done the same?" prompt
+   - Two small buttons: "✓ Yes" (green) "✗ No" (red)
+   - On click: POST /api/dashboard/shadow-review, 
+     row fades out, onReviewed callback fires
+
+6. STAIRCASE COMPONENT — AgentStaircase.jsx
+   (used in Hotel GM and Operations Chief views)
+   
+   Props: { phases, companyId } (or { allPhases } for chain view)
+   
+   The 9 canonical agent IDs in activation order:
+   ['availability-agent', 'rate-agent', 'revenue-reconciliation-agent',
+    'checkout-agent', 'folio-agent', 'check-in-agent', 
+    'reservation-bot', 'folio-charge-agent', 'onboarding-agent']
+   
+   Display names mapping:
+   availability-agent → 'Availability Agent'
+   rate-agent → 'Rate Agent'
+   revenue-reconciliation-agent → 'Revenue Reconciliation'
+   checkout-agent → 'Checkout Agent'
+   folio-agent → 'Folio Agent'
+   check-in-agent → 'Check-In Agent'
+   reservation-bot → 'Reservation Bot'
+   folio-charge-agent → 'Folio Charge Agent'
+   onboarding-agent → 'Onboarding Agent'
+   
+   For each agent row:
+   - Position number (1-9)
+   - Display name
+   - Three phase indicators: CRAWL | WALK | RUN
+     Each indicator: filled pill if that phase has been reached,
+     dashed outline if not yet reached
+   - For not_activated agents: full row at 40% opacity
+
+7. STYLING CONSTANTS
+   Keep the existing dark theme. Add these to the existing CSS/Tailwind:
+   
+   Font: Import DM Sans (400, 500, 600) and DM Mono (400, 500) 
+   from Google Fonts. Use DM Sans as the primary font for dashboard
+   views. DM Mono for clause text and governance file references.
+   
+   Role colours (for active role button and section accents):
+   ambassador:         #94a3b8 (slate)
+   senior_ambassador:  #f59e0b (amber)
+   hotel_gm:           #3b82f6 (blue)
+   regional_gm:        #8b5cf6 (purple)
+   operations_chief:   #10b981 (emerald)
+   
+   Phase colours:
+   run:   #4ade80 (green)  background: #14532d
+   walk:  #f59e0b (amber)  background: #451a03
+   crawl: #60a5fa (blue)   background: #0f2744
+   
+   Card background: #111318
+   Card border: #1e2130
+   Shell background: #0d0f14
+   Secondary text: #6b7280
+
+8. POLLING
+   All dashboard views poll their data every 30 seconds using 
+   setInterval with cleanup on unmount (useEffect pattern).
+   Senior Ambassador view polls HITL pending every 10 seconds
+   (decision cards are time-sensitive).
+   Show a subtle "last updated X seconds ago" timestamp at the 
+   bottom of each section that has live data.
+
+9. EMPTY STATES
+   Every section that can be empty must have a designed empty state:
+   - Pending decisions: green checkmark + "All clear — no pending decisions"
+   - Shadow reviews: "No shadow reviews — all decisions reviewed"
+   - Cross-property alerts: "No issues across your cluster"
+   - Yesterday's decisions: "No decisions recorded in the last 24 hours"
+   Empty states use the card container but with dashed border.
+
+CONSTRAINTS:
+- Do NOT remove or break any existing tab functionality
+- Do NOT change any existing API routes — only add new ones
+- The company selector must continue to work across all views
+- All existing VdaOS.jsx features remain accessible via the 
+  collapsed "Advanced" secondary nav
+- The top bar compliance badges (NIST, GDPR, EU AI Act) stay
+- Mobile-first for DecisionCard and ShadowReviewRow components
+- The role switcher is a UI concept — no authentication. Any user 
+  can switch to any role. Document this clearly in a README note.
+- Polling must use cleanup functions to prevent memory leaks
+- The agent_phases seed data for VIE must match the staircase 
+  example shown in the design partner proposal document
+- DM Sans and DM Mono must load from Google Fonts CDN
