@@ -1492,8 +1492,9 @@ router.get("/agents/witness/integrity-metrics", async (req, res) => {
   try {
     const { companyId } = req.query as Record<string, string>;
     if (!companyId) return res.status(400).json({ error: "companyId required" });
-
     const cId = Number(companyId);
+    if (!Number.isInteger(cId) || cId < 0) return res.status(400).json({ error: "companyId must be a non-negative integer" });
+
     const now = new Date();
     const minus24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const minus7d  = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -1552,16 +1553,21 @@ router.get("/agents/witness/framework-events", async (req, res) => {
   try {
     const { companyId, limit = "10" } = req.query as Record<string, string>;
     if (!companyId) return res.status(400).json({ error: "companyId required" });
+    const cId = Number(companyId);
+    if (!Number.isInteger(cId) || cId < 0) return res.status(400).json({ error: "companyId must be a non-negative integer" });
+    const limitNum = Math.min(Math.max(1, Number(limit) || 10), 50);
+
+    const FRAMEWORK_CATEGORIES = ["FRAMEWORK_INTEGRITY", "COMPLIANCE_BOUNDARY", "AGENT_LIFECYCLE"] as const;
 
     const entries = await db
       .select()
       .from(witnessEntries)
       .where(and(
-        eq(witnessEntries.companyId, Number(companyId)),
-        inArray(witnessEntries.eventCategory as Parameters<typeof inArray>[0], ["FRAMEWORK_INTEGRITY", "COMPLIANCE_BOUNDARY", "AGENT_LIFECYCLE"]),
+        eq(witnessEntries.companyId, cId),
+        sql`${witnessEntries.eventCategory} = ANY(ARRAY[${sql.join(FRAMEWORK_CATEGORIES.map(c => sql`${c}`), sql`, `)}])`,
       ))
       .orderBy(desc(witnessEntries.createdAt))
-      .limit(Math.min(Number(limit), 50));
+      .limit(limitNum);
 
     return res.json(entries);
   } catch (err: unknown) {
