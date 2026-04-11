@@ -123,16 +123,16 @@ router.get("/dashboard/shift-summary", async (req, res) => {
     const raw_shadow: typeof entries = [];
 
     for (const e of entries) {
-      if (e.decision === "PASS" && !e.escalationTarget) autonomous_count++;
-      else if (e.decision === "ESCALATE") escalated_count++;
-      else {
-        const ap = e.apaleoData as Record<string, unknown> | null;
-        // Shadow review: event_type key only — no decision value restriction,
-        // since shadow decisions may carry any decision value (PASS/FAIL/INFO).
-        if (ap?.event_type === "shadow_decision" && crawlAgents.has(toSlugLocal(e.agent))) {
-          shadow_count++;
-          raw_shadow.push(e);
-        }
+      const ap = e.apaleoData as Record<string, unknown> | null;
+      // Check shadow_decision FIRST — shadow entries may carry any decision value (PASS/FAIL/INFO).
+      // Must not be consumed by the autonomous/escalated branch before the event_type is inspected.
+      if (ap?.event_type === "shadow_decision" && crawlAgents.has(toSlugLocal(e.agent))) {
+        shadow_count++;
+        raw_shadow.push(e);
+      } else if (e.decision === "PASS" && !e.escalationTarget) {
+        autonomous_count++;
+      } else if (e.decision === "ESCALATE") {
+        escalated_count++;
       }
     }
 
