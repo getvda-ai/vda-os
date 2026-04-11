@@ -431,7 +431,7 @@ const CITIZENM_PROPERTIES = [
 //   folio-charge-agent, onboarding-agent.
 //
 // agreementRate: numeric, null = not yet enough data to compute.
-// This seed is idempotent — existing rows for a (company, agent) pair are NOT overwritten.
+// Upsert behaviour: existing (companyId, agentId) rows are updated to match the canonical spec.
 
 // Canonical agent IDs — all 9 must have explicit rows per hotel (not_activated for those not yet adopted)
 const CANONICAL_AGENTS = [
@@ -474,14 +474,13 @@ const PHASE_SEED: Record<string, Array<{ agentId: string; phase: string; agreeme
   ],
   // PAR — blank slate: no agents activated
   PAR: [],
-  // VIE — run/walk/crawl staircase: 3 run, 1 walk, 2 crawl
+  // VIE — run/walk/crawl staircase: 3 run, 1 walk, 1 crawl; 4 not_activated
   VIE: [
     { agentId: "availability-agent",            phase: "run",   agreementRate: "94" },
     { agentId: "rate-agent",                    phase: "run",   agreementRate: "92" },
     { agentId: "revenue-reconciliation-agent",  phase: "run",   agreementRate: "90" },
     { agentId: "checkout-agent",                phase: "walk",  agreementRate: "87" },
-    { agentId: "folio-agent",                   phase: "crawl", agreementRate: "81" },
-    { agentId: "check-in-agent",                phase: "crawl", agreementRate: "76" },
+    { agentId: "check-in-agent",                phase: "crawl", agreementRate: "72" },
   ],
 };
 

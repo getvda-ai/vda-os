@@ -99,7 +99,12 @@ router.get("/dashboard/shift-summary", async (req, res) => {
       )
       .orderBy(desc(witnessEntries.createdAt));
 
-    // Crawl-phase agents for this company — shadow review only applies to crawl
+    // Crawl-phase agents for this company — shadow review only applies to crawl.
+    // Normalize to slug so both "Check-in Agent" and "check-in-agent" match correctly.
+    function toSlugLocal(name: string): string {
+      return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    }
+
     const crawlRows = await db
       .select({ agentId: agentPhases.agentId })
       .from(agentPhases)
@@ -109,7 +114,8 @@ router.get("/dashboard/shift-summary", async (req, res) => {
           eq(agentPhases.phase, "crawl"),
         ),
       );
-    const crawlAgents = new Set(crawlRows.map((r) => r.agentId));
+    // Build slug-keyed set so matches work regardless of agent name format in witness entries
+    const crawlAgents = new Set(crawlRows.map((r) => toSlugLocal(r.agentId)));
 
     let autonomous_count = 0;
     let escalated_count = 0;
@@ -119,10 +125,11 @@ router.get("/dashboard/shift-summary", async (req, res) => {
     for (const e of entries) {
       if (e.decision === "PASS" && !e.escalationTarget) autonomous_count++;
       else if (e.decision === "ESCALATE") escalated_count++;
-      else if (e.decision === "INFO") {
+      else {
         const ap = e.apaleoData as Record<string, unknown> | null;
-        // Shadow review: crawl-phase agents only
-        if (ap?.event_type === "shadow_decision" && crawlAgents.has(e.agent)) {
+        // Shadow review: event_type key only — no decision value restriction,
+        // since shadow decisions may carry any decision value (PASS/FAIL/INFO).
+        if (ap?.event_type === "shadow_decision" && crawlAgents.has(toSlugLocal(e.agent))) {
           shadow_count++;
           raw_shadow.push(e);
         }
