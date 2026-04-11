@@ -1,0 +1,357 @@
+You are extending the Witness Agent audit system in the VDA-MD Framework 
+running on Replit. The Witness Agent currently records agent decisions 
+(PASS/FAIL/ESCALATE) to the witness_entries table. This task extends it 
+to record everything that affects how agents are allowed to behave — not 
+just the decisions agents make, but the governance changes, framework 
+integrity events, lifecycle transitions, and compliance boundary crossings 
+that determine what agents are permitted to do in the first place.
+
+The following are already built and live:
+- witness_entries table with: id, company_id, agent_id, decision, 
+  clause_applied, governance_file, files_consulted, escalation_target,
+  apaleo_data, credential_verified, governance_file_hash, created_at
+- Compliance Guard: rejects governance file saves that reduce MUST counts,
+  remove NIST references, or delete ISO 42001 citations (returns 409 Conflict)
+- W3C VC layer: 23-hour rotation, governance file hash binding, 
+  credential_verified and governance_file_hash already in witness_entries
+- A2A Protocol: JSON-RPC 2.0, Agent Card registry, a2a_tasks table,
+  event_types a2a_task_received/completed/failed/cancelled/session_started
+  already written to witness_entries
+- Onboarding Agent: 7-phase orchestration, onboarding_requests table,
+  agent_onboarded/agent_offboarded/impact_delta_complete etc already 
+  written to witness_entries
+- ESM api-server, PostgreSQL via Drizzle ORM
+
+THIS TASK: Add an event_category field to witness_entries and ensure every 
+system component writes categorised, structured Witness entries for all 
+events that affect agent behaviour. No existing Witness entry format changes.
+All additions are additive.
+
+WHAT TO BUILD:
+
+1. DATABASE SCHEMA EXTENSION (lib/db/src/schema/witnessEntries.ts)
+
+   Add one new column to witness_entries:
+   event_category (varchar, nullable, default null)
+
+   The nullable default means all existing entries remain valid —
+   no backfill required. New entries written after this task
+   must always include event_category.
+
+   Run db:push to apply.
+
+   Valid event_category values — define as a TypeScript const enum
+   in artifacts/api-server/src/lib/witnessCategories.ts:
+
+   AGENT_DECISION        — existing decision events (PASS/FAIL/ESCALATE)
+                           existing entries remain null; new entries 
+                           written after this task use this category
+   AGENT_LIFECYCLE       — agent created, modified, deprecated, onboarded,
+                           offboarded, credential rotated, hash mismatch
+   FRAMEWORK_INTEGRITY   — Compliance Guard events (rejection and override),
+                           governance file hash verification, schema 
+                           validation failures
+   COMPLIANCE_BOUNDARY   — exception lifecycle, cross-domain inheritance,
+                           HITL outcomes, authority threshold crossings
+   A2A_PROTOCOL          — all existing a2a_ event_types, now categorised
+   ONBOARDING            — all existing onboarding_ event_types, now 
+                           categorised
+   DATA_GOVERNANCE       — future use for Governed Data Bridge exports/imports
+                           define now, no implementation required in this task
+
+   Export this enum from the api-server so all modules import from one place.
+
+2. UPDATED writeWitnessEntry FUNCTION
+
+   The existing writeWitnessEntry function in agents.ts accepts a 
+   WitnessEntryInput interface. Add event_category as an optional field
+   to WitnessEntryInput (optional for backwards compatibility — existing
+   callers do not break).
+
+   Create a new strict variant: writeGovernanceEvent() in 
+   artifacts/api-server/src/lib/witnessGovernanceEvents.ts
+
+   writeGovernanceEvent requires event_category — it will not compile 
+   without it. This is the function all new Witness entries in this task
+   use. Existing agent decision entries continue using writeWitnessEntry.
+
+   writeGovernanceEvent signature:
+   writeGovernanceEvent({
+     event_category: WitnessCategory,  // required
+     event_type: string,               // required — specific event name
+     company_id: number,               // required
+     agent_id: string,                 // required
+     decision: "PASS" | "FAIL" | "ESCALATE" | "INFO",  // INFO is new
+     details: Record<string, unknown>, // required — all event-specific fields
+                                       // stored in existing apaleo_data jsonb
+     governance_file?: string,
+     credential_verified?: boolean,
+     governance_file_hash?: string
+   })
+
+   INFO is a new decision value — add it to the decision column's 
+   accepted values via a DB migration. INFO is used for events that 
+   are not agent decisions but must be recorded (lifecycle events, 
+   integrity checks, data governance). It does not trigger escalation.
+
+3. COMPLIANCE GUARD WITNESS EVENTS
+   (extend artifacts/api-server/src/routes/agents.ts or wherever 
+   Compliance Guard enforcement lives)
+
+   The Compliance Guard currently returns 409 Conflict silently from 
+   the audit trail perspective. Add writeGovernanceEvent calls at two 
+   points:
+
+   On rejection (409 fired):
+   writeGovernanceEvent({
+     event_category: FRAMEWORK_INTEGRITY,
+     event_type: "compliance_guard_rejection",
+     decision: "FAIL",
+     details: {
+       attempted_by: (user or agent making the save attempt),
+       file: (governance file path attempted),
+       violations: (array of specific violations — which MUST count 
+                   reduced, which NIST reference removed etc),
+       before_must_count: number,
+       after_must_count: number,
+       before_must_not_count: number,
+       after_must_not_count: number
+     }
+   })
+
+   On override (save that required CFO/CEO signoff proceeded):
+   writeGovernanceEvent({
+     event_category: FRAMEWORK_INTEGRITY,
+     event_type: "compliance_guard_override",
+     decision: "PASS",
+     details: {
+       approved_by: string,
+       file: string,
+       before_must_count: number,
+       after_must_count: number,
+       change_justification: string
+     }
+   })
+
+4. GOVERNANCE FILE HASH VERIFICATION JOB
+   (artifacts/api-server/src/lib/governanceIntegrityCheck.ts)
+
+   Create a scheduled job using node-cron that runs every 6 hours.
+   For every governance file in the DB:
+   - Recompute SHA-256 of current content
+   - Compare against the governance_file_hash stored in the most 
+     recent VC for that (companyId, agentId) pair
+   - If match: write INFO entry, event_type: "integrity_check_passed"
+   - If mismatch: write FAIL entry, event_type: "integrity_check_failed",
+     decision: "ESCALATE", details include: file, stored_hash, 
+     computed_hash, last_vc_issued_at
+   
+   A mismatch means a governance file was changed outside the normal 
+   PR/approval flow — this is the highest severity framework integrity 
+   event. The ESCALATE decision routes to the file's owner field from 
+   YAML front matter.
+
+   Import and start this scheduler from the api-server main entry point
+   alongside the existing credential rotation scheduler.
+
+5. AGENT LIFECYCLE EVENTS
+   
+   Wire writeGovernanceEvent calls for agent lifecycle transitions.
+   These events do not exist yet in the codebase — add them at the 
+   appropriate points:
+
+   In seedOnboardingAgent.ts and any other seed files:
+   event_type: "agent_governance_files_seeded"
+   event_category: AGENT_LIFECYCLE
+   decision: INFO
+   details: { files_seeded: ["AGENTS.md", "SOP.md", "SKILL.md"],
+              agent_id, company_id }
+
+   In agentCredentialIssuer.ts (Add-on 1) — credential rotation already 
+   writes a Witness entry. Update it to use writeGovernanceEvent with:
+   event_category: AGENT_LIFECYCLE
+   (event_type "credential_rotation" already exists — add category only)
+
+   In verifyAgentCredential.ts — hash mismatch currently returns 401.
+   Also write:
+   event_category: AGENT_LIFECYCLE
+   event_type: "credential_hash_mismatch_detected"
+   decision: "ESCALATE"
+   details: { agent_id, company_id, stored_hash, computed_hash,
+              vc_issued_at, mismatch_detected_at }
+
+   In onboardingOrchestrator.ts — agent_onboarded and agent_offboarded 
+   already write Witness entries. Update to use writeGovernanceEvent with:
+   event_category: AGENT_LIFECYCLE
+   (event_types already correct — add category only)
+
+6. COMPLIANCE BOUNDARY EVENTS
+
+   Wire writeGovernanceEvent calls for compliance boundary crossings.
+
+   Exception lifecycle — in the exception management routes 
+   (wherever EXCEPTION.md approval routing happens):
+   
+   event_type: "exception_proposed"
+   event_category: COMPLIANCE_BOUNDARY
+   decision: INFO
+   details: { exception_file, proposed_by, baseline_rule, 
+              business_justification, proposed_expiry }
+
+   event_type: "exception_approved"
+   event_category: COMPLIANCE_BOUNDARY  
+   decision: PASS
+   details: { exception_file, approved_by, risk_level, expiry_date }
+
+   event_type: "exception_rejected"
+   event_category: COMPLIANCE_BOUNDARY
+   decision: FAIL
+   details: { exception_file, rejected_by, reason }
+
+   event_type: "exception_expiry_warning"
+   event_category: COMPLIANCE_BOUNDARY
+   decision: INFO
+   details: { exception_file, expires_at, days_remaining: 30,
+              owner_notified: true }
+
+   event_type: "exception_expired_baseline_reinstated"
+   event_category: COMPLIANCE_BOUNDARY
+   decision: INFO
+   details: { exception_file, expired_at, baseline_file }
+
+   HITL outcomes — in hitlDecisionEndpoint (Add-on 3):
+   Update existing Witness entries to use writeGovernanceEvent with:
+   event_category: COMPLIANCE_BOUNDARY
+   (event_type "hitl_decision" already exists — add category only)
+
+   Cross-domain inheritance — in the agent decision pipeline wherever
+   cross-domain checks are performed:
+   event_type: "cross_domain_inheritance_invoked"
+   event_category: COMPLIANCE_BOUNDARY
+   decision: PASS or FAIL
+   details: { vertical_agent, shared_service_domain, 
+              permission_granted: boolean,
+              governing_file, threshold_applied }
+
+7. A2A AND ONBOARDING CATEGORY BACKFILL FOR NEW ENTRIES
+
+   All existing a2a_ event_types written in a2aHandler.ts:
+   Update writeWitnessEntry calls to writeGovernanceEvent with
+   event_category: A2A_PROTOCOL
+   No other changes — event_types, decision values, details unchanged.
+
+   All existing onboarding_ event_types written in 
+   onboardingOrchestrator.ts:
+   Update writeWitnessEntry calls to writeGovernanceEvent with
+   event_category: ONBOARDING
+   No other changes.
+
+   Note: existing DB records have event_category = null. This is 
+   correct and expected. Do not backfill existing records.
+
+8. SCHEMA VALIDATION WITNESS EVENTS (Ajv — Output Layer)
+
+   Add Ajv schema validation to A2A task response objects as part 
+   of this task. This makes the Output layer description accurate:
+   "Structured JSON-RPC responses with Ajv schema validation."
+
+   Install: npm install ajv@8 ajv-formats (if not already present)
+
+   Create artifacts/api-server/src/lib/a2aResponseValidator.ts:
+   - Define JSON Schema (draft-07) for the A2A Task response object:
+     {
+       id: string (uuid format),
+       sessionId: string (uuid format),
+       status: { state: enum ["submitted","working","completed",
+                              "failed","cancelled"] },
+       message: { role: enum ["user","agent"], 
+                  parts: array of { type: string, text: string } },
+       artifacts: array of { index: integer, 
+                             parts: array of { type: string, text: string },
+                             lastChunk: boolean }
+     }
+   - Initialise Ajv with { strict: true, allErrors: true }
+   - Add ajv-formats for uuid format validation
+   - Export validateA2ATaskResponse(task) → { valid, errors }
+
+   In a2aHandler.ts — before returning any task result from tasks/send:
+   - Call validateA2ATaskResponse(taskResult)
+   - If invalid: write writeGovernanceEvent with:
+     event_category: FRAMEWORK_INTEGRITY
+     event_type: "a2a_response_schema_validation_failed"
+     decision: "FAIL"
+     details: { task_id, agent_id, validation_errors, raw_response }
+     Then return JSON-RPC error -32603 Internal error
+   - If valid: proceed with normal response
+
+9. DASHBOARD UI ADDITIONS (add to existing React dashboard VdaOS.jsx)
+
+   Extend the existing Witness Agent trail tab with two additions:
+
+   Event Category Filter:
+   - Add a filter bar above the existing Witness log table
+   - Dropdown: All Categories | Agent Decision | Agent Lifecycle | 
+     Framework Integrity | Compliance Boundary | A2A Protocol | 
+     Onboarding | Data Governance
+   - Selecting a category filters the table to that category only
+   - Entries with event_category = null appear under "Agent Decision"
+     (backwards compatible display for existing records)
+   - Filter state persists in component state, not URL
+
+   Framework Integrity Panel:
+   - New collapsible panel above the Witness log table, 
+     always visible on the Witness Agent tab
+   - Shows four live metric cards (polling every 30 seconds):
+     
+     Integrity Checks Passed (last 24h)
+     — count of integrity_check_passed entries
+     — green if > 0, amber if 0
+     
+     Integrity Check Failures
+     — count of integrity_check_failed entries (all time)
+     — green if 0, red if > 0 (any failure is significant)
+     
+     Compliance Guard Rejections (last 7 days)
+     — count of compliance_guard_rejection entries
+     — green if 0, amber if 1-3, red if > 3
+     
+     Active Exceptions
+     — count of exception_approved minus exception_expired entries
+     — neutral display, no colour threshold
+   
+   - Below the metric cards: a "Recent Framework Events" list showing 
+     the last 10 entries where event_category IN 
+     (FRAMEWORK_INTEGRITY, COMPLIANCE_BOUNDARY, AGENT_LIFECYCLE)
+     ordered by created_at desc
+   - Each entry shows: event_category badge | event_type | 
+     decision badge | agent_id | created_at
+   - Clicking an entry expands to show full details jsonb content
+
+CONSTRAINTS:
+- event_category column is nullable — no backfill of existing records,
+  no migration of existing data, no breaking changes to existing queries
+- INFO decision value requires a DB migration — add it to the decision
+  column check constraint or enum. Confirm this does not break existing
+  queries that filter on decision IN ('PASS','FAIL','ESCALATE')
+- writeGovernanceEvent is additive — writeWitnessEntry continues to 
+  work unchanged for all existing callers
+- The governance integrity check cron job runs every 6 hours — do not
+  run it at startup (first run would produce a flood of INFO entries
+  before the system has warmed up). Schedule first run at 6 hours 
+  after startup.
+- Ajv validation on A2A responses is synchronous — do not make it 
+  async. The validation adds negligible latency and must not be 
+  awaited in a way that could timeout
+- The Framework Integrity Panel polls every 30 seconds — use the 
+  existing polling pattern already established in the dashboard 
+  (setInterval with cleanup on unmount)
+- Data Governance category is defined in the enum but has no 
+  implementation in this task — it is reserved for the Governed 
+  Data Bridge task that follows
+- Do not implement the Governed Data Bridge, production data copy,
+  or sandbox ingestion in this task — those are separate tasks
+- node-cron is already installed (Add-on 1) — do not reinstall
+- Cross-domain inheritance events should only be written if the 
+  cross-domain check is already explicitly coded in the agent 
+  decision pipeline. Do not add cross-domain detection logic — 
+  only add the Witness call at existing check points
