@@ -6371,16 +6371,61 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
     if (!hasCredentials || !hasCompany) return;
     const agent = AGENT_DEFS.find(a => a.id === agentId);
     if (!agent) return;
+
+    // Map UI agentId to the canonical agent credential ID used in governance files
+    const AGENT_CRED_ID_MAP = {
+      availability: "availability-agent",
+      rate: "rate-agent",
+      reservation: "reservation-bot",
+      checkin: "check-in-agent",
+      "folio-charge": "folio-charge-agent",
+      folio: "folio-charge-agent",
+      checkout: "checkout-agent",
+      revenue: "revenue-reconciliation-agent",
+    };
+    const credAgentId = AGENT_CRED_ID_MAP[agentId] || agentId;
+
     setRunningAgents(prev => new Set([...prev, agentId]));
     try {
+      // Fetch active credential for this agent — auto-issue if missing
+      let vcBase64url = null;
+      try {
+        const credRes = await fetch(`/api/agents/credentials/active?agentId=${credAgentId}&companyId=${companyId}`);
+        if (credRes.ok) {
+          const credData = await credRes.json();
+          // The stored signedVc can be encoded as base64url for transport
+          if (credData.signedVc) {
+            vcBase64url = btoa(JSON.stringify(credData.signedVc))
+              .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+          }
+        } else {
+          // Auto-issue a credential for this agent
+          const issueRes = await fetch("/api/agents/credentials/issue", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agentId: credAgentId, companyId }),
+          });
+          if (issueRes.ok) {
+            const issued = await issueRes.json();
+            vcBase64url = issued.vcBase64url;
+          }
+        }
+      } catch (e) { /* credential fetch failed — will get 401 from server */ }
+
+      const headers = { "Content-Type": "application/json" };
+      if (vcBase64url) headers["Authorization"] = `Bearer ${vcBase64url}`;
+
       const r = await fetch(agent.endpoint, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers,
         body: JSON.stringify({ propertyId, companyId, ...(agentParams[agentId] || {}) }),
       });
       if (r.ok) {
         const data = await r.json();
         addStreamEntry({ ...data, agent: agent.name, fileReferenced: agent.policy, createdAt: new Date().toISOString() });
         fetchDbEntries();
+      } else if (r.status === 401) {
+        const err = await r.json();
+        console.warn("[VDA-MK] Agent credential rejected:", err);
       }
     } catch (e) { /* ignore */ }
     setRunningAgents(prev => { const n = new Set(prev); n.delete(agentId); return n; });
@@ -6775,7 +6820,7 @@ function AgentCredentialsTab({ companyId, companyName }) {
     try {
       const r = await fetch("/api/agents/credentials/verify", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vc: cred.signedVc || null }),
+        body: JSON.stringify({ vc: cred.signedVc || null, companyId: cred.companyId }),
       });
       const d = await r.json();
       setVerifyResults(p => ({ ...p, [cred.id]: d }));
@@ -6784,7 +6829,7 @@ function AgentCredentialsTab({ companyId, companyName }) {
     }
   };
 
-  // Map agentId → active credential
+  // Map agentId → active credential (most recent non-revoked, with server status)
   const activeCreds = {};
   for (const c of credentials) {
     if (!c.revoked) {
@@ -6793,6 +6838,12 @@ function AgentCredentialsTab({ companyId, companyName }) {
       }
     }
   }
+
+  // Status computed server-side and returned in the credentials list
+  const getCredStatus = (cred) => {
+    if (!cred) return "none";
+    return cred.status || (new Date(cred.expiresAt) < new Date() ? "Expired" : "Valid");
+  };
 
   const isExpired = (cred) => cred && new Date(cred.expiresAt) < new Date();
 
@@ -6845,13 +6896,21 @@ function AgentCredentialsTab({ companyId, companyName }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 14, marginBottom: 32 }}>
         {AGENT_CREDENTIAL_DEFS.map(def => {
           const cred = activeCreds[def.agentId];
-          const expired = isExpired(cred);
-          const status = !cred ? "none" : expired ? "expired" : "active";
-          const statusColor = { none: T.dim, expired: T.amber, active: T.green }[status];
+          const credStatus = getCredStatus(cred);
+          const hasActiveCred = cred && credStatus !== "Expired";
+          const statusColorMap = {
+            none: T.dim,
+            "Valid": T.green,
+            "Expiring-Soon": T.amber,
+            "Expired": T.red,
+            "Hash-Mismatch": T.red,
+            "Revoked": T.red,
+          };
+          const statusColor = statusColorMap[credStatus] ?? T.dim;
           const vr = cred ? verifyResults[cred.id] : null;
 
           return (
-            <div key={def.agentId} style={{ background: T.card, border: `1px solid ${status === "active" ? T.green + "30" : T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+            <div key={def.agentId} style={{ background: T.card, border: `1px solid ${credStatus === "Valid" ? T.green + "30" : credStatus === "Hash-Mismatch" || credStatus === "Expired" ? T.red + "30" : T.border}`, borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <span style={{ fontSize: 20 }}>{def.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -6859,11 +6918,11 @@ function AgentCredentialsTab({ companyId, companyName }) {
                   <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{def.agentId}</div>
                 </div>
                 <span style={{ fontSize: 10, fontWeight: 700, background: statusColor + "20", color: statusColor, border: `1px solid ${statusColor}40`, borderRadius: 4, padding: "3px 8px", fontFamily: T.mono, textTransform: "uppercase" }}>
-                  {status}
+                  {credStatus === "none" ? "NO CREDENTIAL" : credStatus.toUpperCase()}
                 </span>
               </div>
 
-              {cred && !expired && (
+              {cred && hasActiveCred && (
                 <div style={{ background: T.surface, borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 10, fontFamily: T.mono, color: T.dim, lineHeight: 1.7 }}>
                   <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                     <span style={{ color: T.purple, minWidth: 50 }}>DID</span>
@@ -6871,20 +6930,29 @@ function AgentCredentialsTab({ companyId, companyName }) {
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <span style={{ color: T.purple, minWidth: 50 }}>Hash</span>
-                    <span style={{ wordBreak: "break-all", color: T.amber }}>{cred.governanceFileHash ? cred.governanceFileHash.slice(0, 16) + "…" : "no governance files"}</span>
+                    <span style={{ wordBreak: "break-all", color: credStatus === "Hash-Mismatch" ? T.red : T.amber }}>
+                      {cred.governanceFileHash ? cred.governanceFileHash.slice(0, 16) + "…" : "no governance files"}
+                      {credStatus === "Hash-Mismatch" && " ⚠ MISMATCH"}
+                    </span>
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <span style={{ color: T.purple, minWidth: 50 }}>Exp</span>
-                    <span>{fmtTime(cred.expiresAt)}</span>
+                    <span style={{ color: credStatus === "Expiring-Soon" ? T.amber : T.dim }}>{fmtTime(cred.expiresAt)}{credStatus === "Expiring-Soon" && " ⚠"}</span>
                   </div>
                   {vr && !vr.loading && (
                     <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                       <span style={{ color: T.purple, minWidth: 50 }}>Sig</span>
                       <span style={{ color: vr.verified ? T.green : T.red, fontWeight: 700 }}>
-                        {vr.verified ? "✓ VALID" : `✗ ${vr.error?.slice(0, 40) || "INVALID"}`}
+                        {vr.verified ? "✓ VALID" : `✗ ${(vr.reason || vr.error || "INVALID").slice(0, 40)}`}
                       </span>
                     </div>
                   )}
+                </div>
+              )}
+
+              {credStatus === "Hash-Mismatch" && (
+                <div style={{ background: T.red + "15", border: `1px solid ${T.red}30`, borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 10, color: T.red, fontFamily: T.mono }}>
+                  Governance files changed since credential was issued. Re-issue required before agent can run.
                 </div>
               )}
 
@@ -6892,11 +6960,11 @@ function AgentCredentialsTab({ companyId, companyName }) {
                 <button
                   onClick={() => issueCredential(def)}
                   disabled={issuing[def.agentId]}
-                  style={{ flex: 1, background: status === "active" ? T.surface : T.purple, border: `1px solid ${status === "active" ? T.border : "transparent"}`, borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, color: status === "active" ? T.text : "#fff", cursor: "pointer", opacity: issuing[def.agentId] ? 0.6 : 1 }}
+                  style={{ flex: 1, background: credStatus === "Valid" ? T.surface : T.purple, border: `1px solid ${credStatus === "Valid" ? T.border : "transparent"}`, borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, color: credStatus === "Valid" ? T.text : "#fff", cursor: "pointer", opacity: issuing[def.agentId] ? 0.6 : 1 }}
                 >
-                  {issuing[def.agentId] ? "Issuing…" : status === "active" ? "↺ Re-issue" : "Issue VC"}
+                  {issuing[def.agentId] ? "Issuing…" : credStatus === "Valid" ? "↺ Re-issue" : credStatus === "Hash-Mismatch" ? "↺ Re-issue (Required)" : "Issue VC"}
                 </button>
-                {cred && !expired && (
+                {cred && hasActiveCred && (
                   <button
                     onClick={() => verifyCredential(cred)}
                     disabled={vr?.loading}
@@ -6936,7 +7004,8 @@ function AgentCredentialsTab({ companyId, companyName }) {
               <tbody>
                 {credentials.map(c => {
                   const expired = new Date(c.expiresAt) < new Date();
-                  const statusColor = c.revoked ? T.red : expired ? T.amber : T.green;
+                  const rowStatus = c.revoked ? "Revoked" : c.status || (expired ? "Expired" : "Valid");
+                  const statusColor = { Valid: T.green, "Expiring-Soon": T.amber, Expired: T.red, "Hash-Mismatch": T.red, Revoked: T.red }[rowStatus] ?? T.dim;
                   const vr = verifyResults[c.id];
                   return (
                     <React.Fragment key={c.id}>
@@ -6947,7 +7016,9 @@ function AgentCredentialsTab({ companyId, companyName }) {
                         <td style={{ padding: "8px 12px", color: T.dim }}>{fmtTime(c.issuedAt)}</td>
                         <td style={{ padding: "8px 12px", color: expired ? T.amber : T.dim }}>{fmtTime(c.expiresAt)}</td>
                         <td style={{ padding: "8px 12px" }}>
-                          <span style={{ color: statusColor, fontWeight: 700, fontSize: 10 }}>{c.revoked ? `REVOKED (${c.revokedReason || ""})` : expired ? "EXPIRED" : "ACTIVE"}</span>
+                          <span style={{ color: statusColor, fontWeight: 700, fontSize: 10 }}>
+                            {c.revoked ? `REVOKED (${c.revokedReason || ""})` : c.status || (expired ? "EXPIRED" : "VALID")}
+                          </span>
                         </td>
                         <td style={{ padding: "8px 12px" }}>
                           <button

@@ -639,6 +639,8 @@ router.post("/agents/availability", verifyAgentCredentialMiddleware, async (req,
       scenarioRunId,
       filesConsulted: availFilesLoaded,
       crossDomainInheritance: hasCrossDomainFiles(availFilesLoaded),
+      credentialVerified: req.vcVerified,
+      governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
     res.json({
@@ -692,6 +694,8 @@ router.post("/agents/rate", verifyAgentCredentialMiddleware, async (req, res) =>
       scenarioRunId,
       filesConsulted: filesLoaded,
       crossDomainInheritance: hasCrossDomainFiles(filesLoaded),
+      credentialVerified: req.vcVerified,
+      governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
     res.json({
@@ -887,6 +891,8 @@ router.post("/agents/reservation", verifyAgentCredentialMiddleware, async (req, 
       scenarioRunId,
       filesConsulted: resvFilesLoaded,
       crossDomainInheritance: hasCrossDomainFiles(resvFilesLoaded),
+      credentialVerified: req.vcVerified,
+      governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
     res.json({
@@ -1013,6 +1019,8 @@ router.post("/agents/checkin", verifyAgentCredentialMiddleware, async (req, res)
       scenarioRunId,
       filesConsulted: checkinFilesLoaded,
       crossDomainInheritance: hasCrossDomainFiles(checkinFilesLoaded),
+      credentialVerified: req.vcVerified,
+      governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
     res.json({
@@ -1069,6 +1077,8 @@ router.post("/agents/folio", verifyAgentCredentialMiddleware, async (req, res) =
       scenarioRunId,
       filesConsulted: folioFilesLoaded,
       crossDomainInheritance: hasCrossDomainFiles(folioFilesLoaded),
+      credentialVerified: req.vcVerified,
+      governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
     res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId, usedMcp, toolCallsMade, filesLoaded: folioFilesLoaded });
@@ -1197,6 +1207,8 @@ router.post("/agents/folio-charge", verifyAgentCredentialMiddleware, async (req,
       scenarioRunId,
       filesConsulted: folioChargeFilesLoaded,
       crossDomainInheritance: hasCrossDomainFiles(folioChargeFilesLoaded),
+      credentialVerified: req.vcVerified,
+      governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
     res.json({
@@ -1324,6 +1336,8 @@ router.post("/agents/checkout", verifyAgentCredentialMiddleware, async (req, res
       scenarioRunId,
       filesConsulted: checkoutFilesLoaded,
       crossDomainInheritance: hasCrossDomainFiles(checkoutFilesLoaded),
+      credentialVerified: req.vcVerified,
+      governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
     res.json({
@@ -1433,6 +1447,8 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
       scenarioRunId,
       filesConsulted: revFilesLoaded,
       crossDomainInheritance: hasCrossDomainFiles(revFilesLoaded),
+      credentialVerified: req.vcVerified,
+      governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
     res.json({
@@ -2066,7 +2082,7 @@ router.post("/agents/credentials/issue", async (req, res) => {
       expiresAt: result.expiresAt,
       governanceFileHash: result.governanceFileHash,
       signedVc: result.signedVc,
-      vcBase64: Buffer.from(JSON.stringify(result.signedVc)).toString("base64"),
+      vcBase64url: result.vcBase64url,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -2105,9 +2121,10 @@ router.post("/agents/credentials/verify", async (req, res) => {
     }
     const parsed =
       typeof rawVc === "string"
-        ? (JSON.parse(Buffer.from(rawVc, "base64").toString("utf-8")) as Record<string, unknown>)
+        ? (JSON.parse(Buffer.from(rawVc, "base64url").toString("utf-8")) as Record<string, unknown>)
         : (rawVc as Record<string, unknown>);
-    const result = await verifyAgentVc(parsed);
+    const companyId = Number(req.body?.companyId ?? 0) || undefined;
+    const result = await verifyAgentVc(parsed, companyId);
     res.json(result);
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });

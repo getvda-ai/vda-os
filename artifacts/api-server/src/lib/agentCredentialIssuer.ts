@@ -12,12 +12,13 @@ import { Ed25519VerificationKey2020 } from "@digitalbazaar/ed25519-verification-
 import * as vc from "@digitalbazaar/vc";
 import { createHash } from "node:crypto";
 import { db, agentCredentials, governanceFiles } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { vcDocumentLoader, VDA_CONTEXT_URL } from "./vcDocumentLoader.js";
 import { logger } from "./logger.js";
 
 // ─── Platform Issuer Key (singleton, rotated by scheduler) ───────────────────
-// Stored in memory only — all issued VCs carry the public key in the DID.
+// Held in memory only — all issued VCs carry the issuer's DID for verification.
+// The secret key never leaves the process. Agent keys are ephemeral per credential.
 
 interface PlatformIssuerKey {
   key: Ed25519VerificationKey2020;
@@ -44,9 +45,11 @@ export async function rotatePlatformIssuer(): Promise<PlatformIssuerKey> {
   return _platformIssuer;
 }
 
-// ─── Governance File Hash ─────────────────────────────────────────────────────
+// ─── Governance File Hash (AGENTS.md + SKILL.md binding) ─────────────────────
+// Requirement: hash binds agentId+companyId to exactly the AGENTS and SKILL files.
+// Any change to those files invalidates issued credentials (Hash-Mismatch).
 
-export async function getGovernanceFileHash(
+export async function computeGovernanceHash(
   companyId: number,
   agentId: string
 ): Promise<string | null> {
@@ -57,6 +60,7 @@ export async function getGovernanceFileHash(
       and(
         eq(governanceFiles.companyId, companyId),
         eq(governanceFiles.agentId, agentId),
+        inArray(governanceFiles.fileType, ["AGENTS", "SKILL"]),
         eq(governanceFiles.isArchived, false)
       )
     );
@@ -85,6 +89,7 @@ export interface IssuedCredentialResult {
   credentialId: number;
   did: string;
   signedVc: Record<string, unknown>;
+  vcBase64url: string;
   expiresAt: Date;
   governanceFileHash: string | null;
 }
@@ -107,11 +112,12 @@ export async function issueAgentCredential(
     );
 
   // Generate a fresh per-agent key pair (agent's own DID identity)
+  // Note: only the public key is stored — no secret key retention needed.
   const agentKey = await Ed25519VerificationKey2020.generate();
   const agentDid = `did:key:${agentKey.fingerprint()}`;
 
-  // Get governance file hash for this agent
-  const governanceFileHash = await getGovernanceFileHash(companyId, agentId);
+  // Compute governance hash for AGENTS + SKILL files only
+  const governanceFileHash = await computeGovernanceHash(companyId, agentId);
 
   // Platform issuer signs the credential
   const issuer = await getPlatformIssuer();
@@ -138,25 +144,22 @@ export async function issueAgentCredential(
       domainOwner,
       permittedSkills,
       issuedFor: "VDA-MK Apaleo Agent Runtime",
-      rotationSchedule: "24h",
+      rotationSchedule: "23h",
     },
   };
 
   const suite = new Ed25519Signature2020({ key: issuer.key });
   const signedVc = await vc.issue({ credential, suite, documentLoader: vcDocumentLoader });
 
-  // Export agent key for storage (stored encrypted in DB for verification)
-  const agentKeyExport = await agentKey.export({ publicKey: true, secretKey: true });
-
-  // Persist to database
+  // Persist to database — only public key stored (no secret key)
   const [row] = await db
     .insert(agentCredentials)
     .values({
       agentId,
       companyId,
       did: agentDid,
-      publicKeyMultibase: String(agentKeyExport.publicKeyMultibase ?? ""),
-      secretKeyMultibase: String(agentKeyExport.secretKeyMultibase ?? ""),
+      publicKeyMultibase: agentKey.fingerprint(),
+      secretKeyMultibase: "", // intentionally empty — not stored
       issuedAt: now,
       expiresAt,
       signedVc: signedVc as Record<string, unknown>,
@@ -170,10 +173,14 @@ export async function issueAgentCredential(
     "[VC] Agent credential issued"
   );
 
+  // Encode as base64url for transport in Authorization: Bearer header
+  const vcBase64url = Buffer.from(JSON.stringify(signedVc)).toString("base64url");
+
   return {
     credentialId: row.id,
     did: agentDid,
     signedVc: signedVc as Record<string, unknown>,
+    vcBase64url,
     expiresAt,
     governanceFileHash,
   };
@@ -188,12 +195,15 @@ export interface VerificationResult {
   governanceFileHash?: string;
   expiresAt?: string;
   error?: string;
+  reason?: string;
 }
 
 export async function verifyAgentVc(
-  rawVc: Record<string, unknown>
+  rawVc: Record<string, unknown>,
+  companyId?: number
 ): Promise<VerificationResult> {
   try {
+    // 1. Cryptographic proof verification (Ed25519Signature2020)
     const result = await vc.verifyCredential({
       credential: rawVc,
       suite: new Ed25519Signature2020(),
@@ -201,22 +211,49 @@ export async function verifyAgentVc(
     });
 
     if (!result.verified) {
-      const errMsg = (result.error as { errors?: { message?: string }[] })?.errors?.[0]?.message ?? "Unknown error";
-      return { verified: false, error: errMsg };
+      const errMsg = (result.error as { errors?: { message?: string }[] })?.errors?.[0]?.message ?? "Signature invalid";
+      return { verified: false, error: errMsg, reason: "SIGNATURE_INVALID" };
     }
 
     const subject = rawVc.credentialSubject as Record<string, unknown> | undefined;
+    const vcAgentId = subject?.agentId as string | undefined;
+    const vcCompanyId = subject?.companyId as string | undefined;
+    const vcGovHash = subject?.governanceFileHash as string | undefined;
+    const vcExpiry = rawVc.expirationDate as string | undefined;
+
+    // 2. Expiration check
+    if (vcExpiry && new Date(vcExpiry) < new Date()) {
+      return { verified: false, agentId: vcAgentId, companyId: vcCompanyId, expiresAt: vcExpiry, error: "Credential expired", reason: "EXPIRED" };
+    }
+
+    // 3. Governance hash check — recompute AGENTS + SKILL hash and compare
+    if (vcAgentId && companyId !== undefined) {
+      const currentHash = await computeGovernanceHash(companyId, vcAgentId);
+      if (currentHash !== null && vcGovHash !== currentHash) {
+        logger.warn({ vcAgentId, companyId, vcGovHash, currentHash }, "[VC] Governance hash mismatch — governance files changed since credential was issued");
+        return {
+          verified: false,
+          agentId: vcAgentId,
+          companyId: vcCompanyId,
+          governanceFileHash: vcGovHash,
+          expiresAt: vcExpiry,
+          error: "Governance files changed since credential was issued",
+          reason: "HASH_MISMATCH",
+        };
+      }
+    }
+
     return {
       verified: true,
-      agentId: subject?.agentId as string | undefined,
-      companyId: subject?.companyId as string | undefined,
-      governanceFileHash: subject?.governanceFileHash as string | undefined,
-      expiresAt: rawVc.expirationDate as string | undefined,
+      agentId: vcAgentId,
+      companyId: vcCompanyId,
+      governanceFileHash: vcGovHash,
+      expiresAt: vcExpiry,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn({ err }, "[VC] Verification threw exception");
-    return { verified: false, error: message };
+    return { verified: false, error: message, reason: "VERIFICATION_ERROR" };
   }
 }
 
@@ -242,10 +279,29 @@ export async function getActiveCredential(
   return row ?? null;
 }
 
-// ─── List all credentials for a company ──────────────────────────────────────
+// ─── Credential status helpers ────────────────────────────────────────────────
+
+type CredentialStatus = "Valid" | "Expiring-Soon" | "Expired" | "Hash-Mismatch" | "Revoked";
+
+export async function computeCredentialStatus(
+  cred: typeof agentCredentials.$inferSelect
+): Promise<CredentialStatus> {
+  if (cred.revoked) return "Revoked";
+  const now = new Date();
+  if (new Date(cred.expiresAt) < now) return "Expired";
+  // Recompute governance hash against current DB content
+  const currentHash = await computeGovernanceHash(cred.companyId, cred.agentId);
+  if (currentHash !== null && cred.governanceFileHash !== currentHash) return "Hash-Mismatch";
+  // Expiring within 2 hours
+  const twoHoursFromNow = new Date(now.getTime() + 2 * 3600_000);
+  if (new Date(cred.expiresAt) < twoHoursFromNow) return "Expiring-Soon";
+  return "Valid";
+}
+
+// ─── List all credentials for a company (with computed status) ────────────────
 
 export async function listCredentialsForCompany(companyId: number) {
-  return db
+  const rows = await db
     .select({
       id: agentCredentials.id,
       agentId: agentCredentials.agentId,
@@ -257,8 +313,20 @@ export async function listCredentialsForCompany(companyId: number) {
       revoked: agentCredentials.revoked,
       revokedAt: agentCredentials.revokedAt,
       revokedReason: agentCredentials.revokedReason,
+      signedVc: agentCredentials.signedVc,
     })
     .from(agentCredentials)
     .where(eq(agentCredentials.companyId, companyId))
     .orderBy(desc(agentCredentials.issuedAt));
+
+  // Attach recomputed status to each credential
+  const withStatus = await Promise.all(
+    rows.map(async (r) => ({
+      ...r,
+      status: await computeCredentialStatus(r as typeof agentCredentials.$inferSelect),
+      currentGovernanceHash: await computeGovernanceHash(r.companyId, r.agentId),
+    }))
+  );
+
+  return withStatus;
 }

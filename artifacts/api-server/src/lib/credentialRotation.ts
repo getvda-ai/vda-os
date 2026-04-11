@@ -1,23 +1,26 @@
 /**
  * credentialRotation.ts
- * Cron scheduler that rotates the platform issuer key every 24 hours
- * and re-issues credentials for all active agents.
+ * Credential lifecycle management:
+ * - Every hour: revoke expired credentials
+ * - Every 23 hours: rotate platform issuer key + re-issue for ALL distinct
+ *   (agentId, companyId) pairs found in governance_files table
+ *   (not just pairs with existing DB credentials)
  *
- * Runs on startup after DB is ready. Safe to call multiple times.
+ * Each rotation writes a Witness Agent entry: credential_rotation PASS/ESCALATE.
  */
 
 import cron from "node-cron";
-import { db, agentCredentials, companies } from "@workspace/db";
-import { eq, and, lt } from "drizzle-orm";
+import { db, agentCredentials, governanceFiles, witnessEntries } from "@workspace/db";
+import { eq, and, lt, sql } from "drizzle-orm";
 import { rotatePlatformIssuer, issueAgentCredential } from "./agentCredentialIssuer.js";
 import { logger } from "./logger.js";
 
 let _started = false;
+let _rotationTimer: NodeJS.Timeout | null = null;
 
-/**
- * Revoke credentials that have passed their expiresAt timestamp.
- */
-async function revokeExpiredCredentials(): Promise<void> {
+// ─── Revoke expired credentials ───────────────────────────────────────────────
+
+async function revokeExpiredCredentials(): Promise<number> {
   const now = new Date();
   const result = await db
     .update(agentCredentials)
@@ -27,41 +30,109 @@ async function revokeExpiredCredentials(): Promise<void> {
         eq(agentCredentials.revoked, false),
         lt(agentCredentials.expiresAt, now)
       )
-    );
-  void result;
-  logger.info("[VC-Rotation] Expired credentials revoked");
+    )
+    .returning({ id: agentCredentials.id });
+  logger.info({ count: result.length }, "[VC-Rotation] Expired credentials revoked");
+  return result.length;
 }
 
-/**
- * Re-issue credentials for all active agents across all companies.
- * Called after platform issuer rotation so all VCs carry the new issuer DID.
- */
-async function reissueAllAgentCredentials(): Promise<void> {
-  // Find all unique (agentId, companyId) pairs that have non-revoked credentials
-  const active = await db
+// ─── Get all distinct (agentId, companyId) pairs from governance_files ─────────
+
+async function getAllGovernanceAgentPairs(): Promise<{ agentId: string; companyId: number }[]> {
+  const rows = await db
     .selectDistinct({
-      agentId: agentCredentials.agentId,
-      companyId: agentCredentials.companyId,
+      agentId: governanceFiles.agentId,
+      companyId: governanceFiles.companyId,
     })
-    .from(agentCredentials)
-    .where(eq(agentCredentials.revoked, false));
+    .from(governanceFiles)
+    .where(
+      and(
+        eq(governanceFiles.isArchived, false),
+        sql`${governanceFiles.agentId} IS NOT NULL`
+      )
+    );
 
-  logger.info({ count: active.length }, "[VC-Rotation] Re-issuing credentials");
+  return rows
+    .filter((r) => r.agentId !== null && r.companyId !== null)
+    .map((r) => ({ agentId: r.agentId as string, companyId: r.companyId as number }));
+}
 
-  for (const { agentId, companyId } of active) {
-    try {
-      await issueAgentCredential({ agentId, companyId, ttlHours: 24 });
-    } catch (err) {
-      logger.error({ err, agentId, companyId }, "[VC-Rotation] Failed to re-issue credential");
+// ─── Write credential_rotation witness entry ──────────────────────────────────
+
+async function writeRotationWitnessEntry(
+  agentId: string,
+  companyId: number,
+  decision: "PASS" | "ESCALATE",
+  reason: string
+): Promise<void> {
+  await db.insert(witnessEntries).values({
+    companyId,
+    agent: agentId,
+    decision,
+    fileReferenced: "VDA-MK Credential Rotation — 23h Schedule",
+    clauseApplied: "VDA-MD §7: Agent Identity must be cryptographically verified and rotated on schedule",
+    actionProposed: reason,
+    exceptionApplied: false,
+    reasoning: reason,
+    apaleoData: { rotatedAt: new Date().toISOString(), eventType: "credential_rotation" },
+    scenarioRunId: null,
+    filesConsulted: null,
+    crossDomainInheritance: false,
+    credentialVerified: decision === "PASS",
+    governanceFileHash: null,
+  });
+}
+
+// ─── Full rotation cycle ──────────────────────────────────────────────────────
+
+async function runRotationCycle(): Promise<void> {
+  logger.info("[VC-Rotation] 23h rotation cycle starting");
+
+  try {
+    // 1. Rotate platform issuer key
+    await rotatePlatformIssuer();
+
+    // 2. Revoke expired
+    await revokeExpiredCredentials();
+
+    // 3. Find all distinct (agentId, companyId) pairs with governance files
+    const pairs = await getAllGovernanceAgentPairs();
+    logger.info({ count: pairs.length }, "[VC-Rotation] Re-issuing credentials for governance pairs");
+
+    let passCount = 0;
+    let escalateCount = 0;
+
+    for (const { agentId, companyId } of pairs) {
+      try {
+        await issueAgentCredential({ agentId, companyId, ttlHours: 24 });
+        await writeRotationWitnessEntry(
+          agentId,
+          companyId,
+          "PASS",
+          `Credential rotated successfully. New 24h VC issued with updated governance hash.`
+        );
+        passCount++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error({ err, agentId, companyId }, "[VC-Rotation] Failed to re-issue credential");
+        await writeRotationWitnessEntry(
+          agentId,
+          companyId,
+          "ESCALATE",
+          `Credential rotation failed: ${msg}. Manual intervention required.`
+        );
+        escalateCount++;
+      }
     }
+
+    logger.info({ passCount, escalateCount }, "[VC-Rotation] 23h rotation cycle complete");
+  } catch (err) {
+    logger.error({ err }, "[VC-Rotation] Rotation cycle failed critically");
   }
 }
 
-/**
- * Start the credential rotation scheduler.
- * - Every hour: revoke expired credentials.
- * - Every 24 hours (at midnight UTC): rotate platform issuer key + re-issue all.
- */
+// ─── Scheduler ────────────────────────────────────────────────────────────────
+
 export function startCredentialRotationScheduler(): void {
   if (_started) return;
   _started = true;
@@ -75,18 +146,14 @@ export function startCredentialRotationScheduler(): void {
     }
   });
 
-  // Daily midnight UTC: rotate issuer key + re-issue
-  cron.schedule("0 0 * * *", async () => {
-    try {
-      logger.info("[VC-Rotation] Daily rotation starting");
-      await rotatePlatformIssuer();
-      await revokeExpiredCredentials();
-      await reissueAllAgentCredentials();
-      logger.info("[VC-Rotation] Daily rotation complete");
-    } catch (err) {
-      logger.error({ err }, "[VC-Rotation] Daily rotation failed");
-    }
-  });
+  // Every 23 hours (using setTimeout loop — more reliable than cron for non-24h intervals)
+  const scheduleNextRotation = (): void => {
+    _rotationTimer = setTimeout(async () => {
+      await runRotationCycle();
+      scheduleNextRotation();
+    }, 23 * 60 * 60 * 1000);
+  };
+  scheduleNextRotation();
 
-  logger.info("[VC-Rotation] Credential rotation scheduler started");
+  logger.info("[VC-Rotation] Credential rotation scheduler started (23h rotation cycle, hourly cleanup)");
 }
