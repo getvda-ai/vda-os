@@ -4,3 +4,5 @@ export * from "./governanceFileVersions";
 export * from "./witnessEntries";
 export * from "./agentCredentials";
 export * from "./a2aTasks";
+export * from "./onboardingRequests";
+export * from "./hitlTokens";

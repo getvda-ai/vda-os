@@ -7079,6 +7079,567 @@ function AgentCredentialsTab({ companyId, companyName }) {
 }
 
 // ─────────────────────────────────────────────
+// AGENT ONBOARDING TAB
+// ─────────────────────────────────────────────
+
+const STATUS_COLORS_OB = {
+  received: "#3b82f6", analysing: "#8b5cf6", generating_files: "#8b5cf6",
+  awaiting_first_hitl: "#f59e0b", sandbox: "#f59e0b", awaiting_second_hitl: "#f59e0b",
+  committing: "#10b981", onboarded: "#10b981", rejected: "#ef4444",
+  failed: "#ef4444", rolled_back: "#6b7280",
+};
+const PHASE_MAP_OB = {
+  received: 1, analysing: 2, generating_files: 3,
+  awaiting_first_hitl: 4, sandbox: 5, awaiting_second_hitl: 6,
+  committing: 7, onboarded: 7, rejected: 0, failed: 0, rolled_back: 0,
+};
+
+function PhaseBar({ status }) {
+  const phase = PHASE_MAP_OB[status] ?? 0;
+  const phases = ["Received","Analysing","Files","HITL 1","Sandbox","HITL 2","Commit"];
+  if (phase === 0) return (
+    <div style={{ fontSize: 11, color: T.red, fontFamily: T.mono }}>{status === "rejected" ? "REJECTED" : status === "rolled_back" ? "ROLLED BACK" : "FAILED"}</div>
+  );
+  return (
+    <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
+      {phases.map((label, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <div style={{
+            width: 20, height: 20, borderRadius: "50%", fontSize: 9, fontWeight: 700,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: i + 1 <= phase ? T.orange : T.surface,
+            border: `1px solid ${i + 1 === phase ? T.orange : T.border}`,
+            color: i + 1 <= phase ? "#fff" : T.dim,
+          }}>{i + 1}</div>
+          {i < 6 && <div style={{ width: 10, height: 1, background: i + 1 < phase ? T.orange : T.border }} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ImpactDeltaSection({ report }) {
+  if (!report) return <div style={{ color: T.dim, fontSize: 12 }}>Impact delta pending…</div>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {report.friction_removed?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: T.green, fontFamily: T.mono, marginBottom: 6 }}>FRICTION REMOVED</div>
+          {report.friction_removed.map((f, i) => (
+            <div key={i} style={{ background: T.green + "10", border: `1px solid ${T.green}30`, borderRadius: 6, padding: "8px 12px", fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: T.green, fontWeight: 700 }}>{f.escalations_per_week}/wk</span> escalations on <code style={{ color: T.muted, fontFamily: T.mono }}>{f.affected_agent}</code> resolved by <code style={{ color: T.green, fontFamily: T.mono }}>{f.resolving_skill}</code>
+            </div>
+          ))}
+        </div>
+      )}
+      {report.value_added?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: T.blue, fontFamily: T.mono, marginBottom: 6 }}>VALUE ADDED</div>
+          {report.value_added.map((v, i) => (
+            <div key={i} style={{ background: T.blue + "10", border: `1px solid ${T.blue}30`, borderRadius: 6, padding: "8px 12px", fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: T.blue }}>{v.type}</span>: {v.description}
+            </div>
+          ))}
+        </div>
+      )}
+      {report.conflicts?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, marginBottom: 6 }}>CONFLICTS ({report.conflicts.length})</div>
+          {report.conflicts.map((c, i) => (
+            <div key={i} style={{ background: (c.type === "must_not_boundary" ? T.red : T.amber) + "10", border: `1px solid ${(c.type === "must_not_boundary" ? T.red : T.amber)}30`, borderRadius: 6, padding: "8px 12px", fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: c.type === "must_not_boundary" ? T.red : T.amber, fontWeight: 700 }}>{c.type}</span>: <code style={{ fontFamily: T.mono }}>{c.skill}</code> overlaps with <code style={{ fontFamily: T.mono }}>{c.existing_agent}</code> → <span style={{ color: T.dim }}>{c.resolution}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {report.auto_removed_skills?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 6 }}>AUTO-REMOVED SKILLS</div>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
+            {report.auto_removed_skills.join(", ")} — duplicate skills automatically removed
+          </div>
+        </div>
+      )}
+      {report.raci_exceptions?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono, marginBottom: 6 }}>RACI EXCEPTIONS</div>
+          {report.raci_exceptions.map((r, i) => (
+            <div key={i} style={{ background: T.amber + "10", border: `1px solid ${T.amber}30`, borderRadius: 6, padding: "8px 12px", fontSize: 12, marginBottom: 4 }}>
+              Intersection <code style={{ fontFamily: T.mono }}>{r.intersection}</code> — both owners notified: {r.candidate_owners.join(", ")}
+            </div>
+          ))}
+        </div>
+      )}
+      {report.affected_files?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 6 }}>AFFECTED FILES ({report.files_to_create} create, {report.files_to_modify} modify)</div>
+          {report.affected_files.map((f, i) => <div key={i} style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>• {f}</div>)}
+        </div>
+      )}
+      {report.friction_removed?.length === 0 && report.value_added?.length === 0 && report.conflicts?.length === 0 && (
+        <div style={{ color: T.dim, fontSize: 12, fontStyle: "italic" }}>No Witness log history yet — friction metrics will populate after 30 days of agent activity.</div>
+      )}
+    </div>
+  );
+}
+
+function AgentOnboardingTab({ companyId }) {
+  const [subTab, setSubTab] = useState("queue");
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedRow, setExpandedRow] = useState(null);
+  const [expandedSection, setExpandedSection] = useState({});
+  const [pending, setPending] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [respondingToken, setRespondingToken] = useState(null);
+  const [testerCard, setTesterCard] = useState("");
+  const [testerVc, setTesterVc] = useState("");
+  const [testerLoading, setTesterLoading] = useState(false);
+  const [testerResult, setTesterResult] = useState(null);
+  const [rollbackId, setRollbackId] = useState(null);
+  const [rollbackKey, setRollbackKey] = useState("");
+  const [rollbackLoading, setRollbackLoading] = useState(false);
+
+  const fetchRequests = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/onboarding");
+      if (r.ok) { const d = await r.json(); setRequests((d.requests || []).reverse()); }
+    } catch { /* silent */ }
+    setLoading(false);
+  }, []);
+
+  const fetchPending = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      const r = await fetch("/api/hitl/pending");
+      if (r.ok) { const d = await r.json(); setPending(d.pending || []); }
+    } catch { /* silent */ }
+    setPendingLoading(false);
+  }, []);
+
+  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  useEffect(() => { if (subTab === "approvals") fetchPending(); }, [subTab, fetchPending]);
+
+  // Poll pending every 15s when on approvals tab
+  useEffect(() => {
+    if (subTab !== "approvals") return;
+    const t = setInterval(fetchPending, 15000);
+    return () => clearInterval(t);
+  }, [subTab, fetchPending]);
+
+  const respond = async (token, outcome) => {
+    setRespondingToken(token);
+    try {
+      await fetch(`/api/hitl/respond/${token}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outcome, decided_by: "Dashboard User" }),
+      });
+      await fetchPending();
+      await fetchRequests();
+    } catch { /* silent */ }
+    setRespondingToken(null);
+  };
+
+  const submitTesterRequest = async () => {
+    if (!testerCard || !testerVc) return;
+    setTesterLoading(true); setTesterResult(null);
+    try {
+      const r = await fetch("/api/a2a/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${testerVc}` },
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 1, method: "tasks/send",
+          params: {
+            id: crypto.randomUUID(), sessionId: crypto.randomUUID(),
+            message: { role: "user", parts: [{ type: "text", text: testerCard }] },
+          },
+        }),
+      });
+      const d = await r.json();
+      setTesterResult(d);
+      await fetchRequests();
+    } catch (e) { setTesterResult({ error: String(e) }); }
+    setTesterLoading(false);
+  };
+
+  const doRollback = async () => {
+    if (!rollbackId || !rollbackKey) return;
+    setRollbackLoading(true);
+    try {
+      const r = await fetch(`/api/onboarding/${rollbackId}/rollback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Compliance-Officer-Key": rollbackKey },
+        body: JSON.stringify({ reason: "Manual rollback via dashboard" }),
+      });
+      const d = await r.json();
+      alert(JSON.stringify(d, null, 2));
+      setRollbackId(null); setRollbackKey("");
+      await fetchRequests();
+    } catch (e) { alert(String(e)); }
+    setRollbackLoading(false);
+  };
+
+  // Aggregate analytics
+  const analytics = requests.reduce((acc, req) => {
+    if (req.status === "onboarded" && req.impactDeltaReport) {
+      const r = req.impactDeltaReport;
+      acc.frictionRemoved += (r.friction_removed || []).reduce((s, f) => s + (f.escalations_per_week || 0), 0);
+      acc.mayClauses += (r.value_added || []).filter(v => v.type === "may_clause_activated").length;
+      acc.gapsClosed += (r.value_added || []).filter(v => v.type === "cross_domain_gap_closed").length;
+      acc.autoRemoved += (r.auto_removed_skills || []).length;
+      acc.raciExceptions += (r.raci_exceptions || []).length;
+    }
+    return acc;
+  }, { frictionRemoved: 0, mayClauses: 0, gapsClosed: 0, autoRemoved: 0, raciExceptions: 0 });
+
+  const subTabs = [
+    { id: "queue", label: "Onboarding Queue" },
+    { id: "approvals", label: `HITL Approvals${pending.length > 0 ? ` (${pending.length})` : ""}` },
+    { id: "analytics", label: "Impact Analytics" },
+    { id: "tester", label: "Protocol Tester" },
+  ];
+
+  const toggleSection = (rowId, section) => {
+    const key = `${rowId}-${section}`;
+    setExpandedSection(p => ({ ...p, [key]: !p[key] }));
+  };
+  const isSectionOpen = (rowId, section) => expandedSection[`${rowId}-${section}`];
+
+  return (
+    <div style={{ padding: "28px 32px", maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Agent Onboarding</div>
+        <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6 }}>7-phase governed admission pipeline · W3C VC trust layer · dual HITL gates · sandbox eval · GitHub PR</div>
+        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+          {[{l:"Phase 1–7 Workflow",c:T.blue},{l:"Dual HITL Gates",c:T.orange},{l:"5-Scenario Sandbox",c:T.purple},{l:"Self-Referential",c:T.green}].map(b => (
+            <span key={b.l} style={{ fontSize: 10, fontWeight: 700, background: b.c + "20", color: b.c, border: `1px solid ${b.c}40`, borderRadius: 4, padding: "3px 8px", fontFamily: T.mono }}>{b.l}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, marginBottom: 24 }}>
+        {subTabs.map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)} style={{
+            padding: "9px 18px", background: "none", border: "none",
+            borderBottom: `2px solid ${subTab === t.id ? T.orange : "transparent"}`,
+            color: subTab === t.id ? T.orange : T.dim,
+            cursor: "pointer", fontSize: 13, fontWeight: subTab === t.id ? 700 : 400, fontFamily: T.sans,
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ─── Onboarding Queue ─── */}
+      {subTab === "queue" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: T.dim }}>{requests.length} total request{requests.length !== 1 ? "s" : ""}</div>
+            <button onClick={fetchRequests} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>Refresh</button>
+          </div>
+          {loading && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
+          {requests.length === 0 && !loading && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>
+              No onboarding requests yet — use the Protocol Tester to submit a test request.
+            </div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {requests.map(req => {
+              const card = req.agentCard || {};
+              const statusColor = STATUS_COLORS_OB[req.status] ?? T.dim;
+              const isExpanded = expandedRow === req.id;
+              const candidate = req.candidateFiles || null;
+              return (
+                <div key={req.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                  {/* Row header */}
+                  <div onClick={() => setExpandedRow(isExpanded ? null : req.id)} style={{ padding: "14px 18px", cursor: "pointer", display: "grid", gridTemplateColumns: "200px 1fr 180px 90px", gap: 12, alignItems: "center" }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{card.name ?? "Unknown"}</div>
+                    <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{req.externalAgentDid ?? "—"}</div>
+                    <PhaseBar status={req.status} />
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, background: statusColor + "20", color: statusColor, border: `1px solid ${statusColor}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono }}>{req.status}</span>
+                      <span style={{ color: T.dim, fontSize: 12 }}>{isExpanded ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+
+                  {/* Expanded detail */}
+                  {isExpanded && (
+                    <div style={{ borderTop: `1px solid ${T.border}`, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+                      {/* Metadata row */}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, fontSize: 11, color: T.dim, fontFamily: T.mono }}>
+                        <div>ID: <span style={{ color: T.muted }}>{req.id.slice(0,12)}…</span></div>
+                        <div>Session: <span style={{ color: T.muted }}>{req.sessionId?.slice(0,12)}…</span></div>
+                        <div>Created: <span style={{ color: T.muted }}>{new Date(req.createdAt).toLocaleString("en-GB")}</span></div>
+                        {req.evalPassRate && <div>Eval pass rate: <span style={{ color: parseFloat(req.evalPassRate) >= 0.95 ? T.green : T.red, fontWeight: 700 }}>{(parseFloat(req.evalPassRate) * 100).toFixed(1)}%</span></div>}
+                        {req.prUrl && <div>PR: <a href={req.prUrl} target="_blank" rel="noreferrer" style={{ color: T.blue }}>View PR #{req.prNumber}</a></div>}
+                      </div>
+
+                      {/* Agent Card */}
+                      <div>
+                        <button onClick={() => toggleSection(req.id, "card")} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.dim, cursor: "pointer", fontFamily: T.mono }}>
+                          {isSectionOpen(req.id, "card") ? "▲" : "▼"} Agent Card JSON
+                        </button>
+                        {isSectionOpen(req.id, "card") && (
+                          <pre style={{ background: "#0a0b0f", borderRadius: 6, padding: 12, fontSize: 11, color: T.muted, marginTop: 8, overflowX: "auto", maxHeight: 200 }}>
+                            {JSON.stringify(req.agentCard, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+
+                      {/* Impact Delta Report */}
+                      <div>
+                        <button onClick={() => toggleSection(req.id, "delta")} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.dim, cursor: "pointer", fontFamily: T.mono }}>
+                          {isSectionOpen(req.id, "delta") ? "▲" : "▼"} Impact Delta Report
+                        </button>
+                        {isSectionOpen(req.id, "delta") && (
+                          <div style={{ marginTop: 12 }}>
+                            <ImpactDeltaSection report={req.impactDeltaReport} />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Candidate Files */}
+                      {candidate && (
+                        <div>
+                          <button onClick={() => toggleSection(req.id, "files")} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.dim, cursor: "pointer", fontFamily: T.mono }}>
+                            {isSectionOpen(req.id, "files") ? "▲" : "▼"} Candidate Files
+                          </button>
+                          {isSectionOpen(req.id, "files") && (
+                            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                              {["agents_md","sop_md","skill_md","exception_md"].filter(k => candidate[k]).map(k => (
+                                <div key={k}>
+                                  <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 4 }}>{k.replace("_"," ").toUpperCase()}</div>
+                                  <pre style={{ background: "#0a0b0f", borderRadius: 6, padding: 12, fontSize: 11, color: T.muted, overflowX: "auto", maxHeight: 200 }}>{candidate[k]}</pre>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Eval results */}
+                      {req.evalPassRate && (
+                        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
+                          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 8 }}>SANDBOX EVAL RESULTS</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <div style={{ flex: 1, background: T.bg, borderRadius: 4, height: 8, overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: `${parseFloat(req.evalPassRate) * 100}%`, background: parseFloat(req.evalPassRate) >= 0.95 ? T.green : T.red, borderRadius: 4 }} />
+                            </div>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: parseFloat(req.evalPassRate) >= 0.95 ? T.green : T.red }}>
+                              {(parseFloat(req.evalPassRate) * 100).toFixed(1)}%
+                            </span>
+                            <span style={{ fontSize: 12, color: T.dim }}>of 5 scenarios</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* HITL status */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        {[{ label: "First HITL Gate", token: req.firstHitlToken, outcome: req.firstHitlOutcome, at: req.firstHitlDecidedAt },
+                          { label: "Second HITL Gate", token: req.secondHitlToken, outcome: req.secondHitlOutcome, at: req.secondHitlDecidedAt }].map(h => (
+                          <div key={h.label} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, fontSize: 11, fontFamily: T.mono }}>
+                            <div style={{ color: T.dim, marginBottom: 4 }}>{h.label}</div>
+                            {h.token ? (
+                              <>
+                                <div style={{ color: h.outcome === "approved" ? T.green : h.outcome === "rejected" ? T.red : T.amber }}>
+                                  {h.outcome ?? "Pending"}
+                                </div>
+                                {h.at && <div style={{ color: T.dim }}>{new Date(h.at).toLocaleString("en-GB")}</div>}
+                              </>
+                            ) : <div style={{ color: T.dim }}>Not issued yet</div>}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Rollback button */}
+                      {req.status === "onboarded" && (
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          {rollbackId === req.id ? (
+                            <>
+                              <input placeholder="X-Compliance-Officer-Key" value={rollbackKey} onChange={e => setRollbackKey(e.target.value)}
+                                style={{ flex: 1, background: T.surface, border: `1px solid ${T.red}40`, borderRadius: 6, padding: "6px 10px", fontSize: 12, color: T.text, fontFamily: T.mono }} />
+                              <button onClick={doRollback} disabled={rollbackLoading || !rollbackKey}
+                                style={{ background: T.red, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#fff", cursor: "pointer" }}>
+                                {rollbackLoading ? "Rolling back…" : "Confirm Rollback"}
+                              </button>
+                              <button onClick={() => { setRollbackId(null); setRollbackKey(""); }}
+                                style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, color: T.dim, cursor: "pointer" }}>Cancel</button>
+                            </>
+                          ) : (
+                            <button onClick={() => setRollbackId(req.id)}
+                              style={{ background: `${T.red}20`, border: `1px solid ${T.red}40`, borderRadius: 6, padding: "6px 14px", fontSize: 12, color: T.red, cursor: "pointer" }}>
+                              Rollback Agent
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ─── HITL Approvals ─── */}
+      {subTab === "approvals" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: T.dim }}>{pending.length} pending · refreshes every 15s</div>
+            <button onClick={fetchPending} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>Refresh</button>
+          </div>
+          <div style={{ fontSize: 11, color: T.dim, marginBottom: 16, fontStyle: "italic" }}>
+            RACI exceptions are non-blocking — acknowledging notifies the domain owner without affecting the approval gate.
+          </div>
+          {pendingLoading && pending.length === 0 && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
+          {pending.length === 0 && !pendingLoading && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>No pending approvals.</div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {pending.map(p => {
+              const isRaci = p.cardType === "raci_notification";
+              const payload = p.payload || {};
+              const isResponding = respondingToken === p.token;
+              return (
+                <div key={p.token} style={{ background: T.surface, border: `1px solid ${isRaci ? T.amber : T.orange}40`, borderRadius: 10, padding: 18 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{p.agent_name ?? payload.agent_name ?? "Unknown Agent"}</div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, background: (isRaci ? T.amber : T.orange) + "20", color: isRaci ? T.amber : T.orange, border: `1px solid ${(isRaci ? T.amber : T.orange)}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono }}>
+                          {isRaci ? "FOR INFORMATION" : `PHASE ${p.phase} APPROVAL`}
+                        </span>
+                        <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>Token: {p.token.slice(0, 12)}…</span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: T.dim }}>{new Date(p.createdAt).toLocaleString("en-GB")}</div>
+                  </div>
+                  <div style={{ fontSize: 13, color: T.muted, marginBottom: 12, lineHeight: 1.6 }}>
+                    {payload.summary ?? payload.message ?? "Decision card payload"}
+                  </div>
+                  {payload.risk_level && (
+                    <div style={{ fontSize: 11, marginBottom: 12, display: "flex", gap: 8 }}>
+                      <span style={{ color: T.dim }}>Risk: </span>
+                      <span style={{ color: payload.risk_level === "high" ? T.red : payload.risk_level === "medium" ? T.amber : T.green, fontWeight: 700 }}>{payload.risk_level}</span>
+                      {payload.recommended_action && <><span style={{ color: T.dim }}>· Recommended: </span><span style={{ color: payload.recommended_action === "Approve" ? T.green : T.red, fontWeight: 700 }}>{payload.recommended_action}</span></>}
+                    </div>
+                  )}
+                  {payload.eval_pass_rate !== undefined && (
+                    <div style={{ fontSize: 12, color: T.dim, marginBottom: 12 }}>
+                      Sandbox eval: <span style={{ color: payload.eval_pass_rate >= 0.95 ? T.green : T.red, fontWeight: 700 }}>{(payload.eval_pass_rate * 100).toFixed(1)}%</span> pass rate · {payload.statement}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {isRaci ? (
+                      <button onClick={() => respond(p.token, "acknowledged")} disabled={isResponding}
+                        style={{ background: `${T.amber}20`, border: `1px solid ${T.amber}40`, borderRadius: 6, padding: "7px 16px", fontSize: 12, color: T.amber, cursor: "pointer" }}>
+                        {isResponding ? "…" : "Acknowledged"}
+                      </button>
+                    ) : (
+                      <>
+                        <button onClick={() => respond(p.token, "approved")} disabled={isResponding}
+                          style={{ background: T.green, border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
+                          {isResponding ? "…" : "Approve →"}
+                        </button>
+                        <button onClick={() => respond(p.token, "rejected")} disabled={isResponding}
+                          style={{ background: `${T.red}20`, border: `1px solid ${T.red}40`, borderRadius: 6, padding: "7px 16px", fontSize: 12, color: T.red, cursor: "pointer" }}>
+                          {isResponding ? "…" : "Reject"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Impact Analytics ─── */}
+      {subTab === "analytics" && (
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 20 }}>Aggregate Impact — All Onboarded Agents</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
+            {[
+              { label: "Friction Removed", value: `${analytics.frictionRemoved.toFixed(1)}/wk`, color: T.green, desc: "escalations/week resolved by onboarded agents" },
+              { label: "MAY Clauses Activated", value: analytics.mayClauses, color: T.blue, desc: "unexercised governance permissions now active" },
+              { label: "Cross-Domain Gaps Closed", value: analytics.gapsClosed, color: T.purple, desc: "cross-domain inheritance gaps resolved" },
+              { label: "Skills Auto-Removed", value: analytics.autoRemoved, color: T.dim, desc: "duplicate skills automatically deduplicated" },
+              { label: "RACI Exceptions Raised", value: analytics.raciExceptions, color: T.amber, desc: "cross-domain ambiguities surfaced and notified" },
+              { label: "Agents Onboarded", value: requests.filter(r => r.status === "onboarded").length, color: T.orange, desc: "total agents admitted to VDA-MD framework" },
+            ].map(m => (
+              <div key={m.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 18 }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: m.color, fontFamily: T.mono, marginBottom: 6 }}>{m.value}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{m.label}</div>
+                <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.5 }}>{m.desc}</div>
+              </div>
+            ))}
+          </div>
+          {requests.filter(r => r.status === "onboarded").length === 0 && (
+            <div style={{ color: T.dim, fontSize: 13, textAlign: "center", fontStyle: "italic" }}>
+              Metrics will populate as agents are onboarded and begin generating Witness log entries.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Protocol Tester ─── */}
+      {subTab === "tester" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Submit Onboarding Request</div>
+            <div style={{ fontSize: 11, color: T.red, fontFamily: T.mono, marginBottom: 16, fontWeight: 700 }}>⚠ DEVELOPMENT TOOL — creates a real onboarding_requests record</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 5 }}>AGENT CARD JSON (paste the full Agent Card)</label>
+                <textarea value={testerCard} onChange={e => setTesterCard(e.target.value)} rows={12}
+                  placeholder={`{\n  "name": "My Test Agent",\n  "description": "A test agent for onboarding",\n  "url": "https://example.com/a2a",\n  "version": "1.0.0",\n  "capabilities": { "streaming": false, "pushNotifications": false },\n  "skills": [\n    { "id": "test_skill", "name": "Test Skill", "description": "Does something" }\n  ]\n}`}
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 12, color: T.text, fontFamily: T.mono, resize: "vertical", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 5 }}>BEARER VC TOKEN (from Agent Credentials tab)</label>
+                <textarea value={testerVc} onChange={e => setTesterVc(e.target.value)} rows={3}
+                  placeholder="Paste vcBase64url from an issued credential"
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 11, color: T.dim, fontFamily: T.mono, resize: "vertical", boxSizing: "border-box" }} />
+                <div style={{ fontSize: 10, color: T.dim, marginTop: 4 }}>Note: VC must be issued for agentId "onboarding-agent" to pass the per-agent credential binding</div>
+              </div>
+              <button onClick={submitTesterRequest} disabled={testerLoading || !testerCard || !testerVc}
+                style={{
+                  background: testerLoading ? `${T.orange}20` : T.orange, border: "none", borderRadius: 8, padding: "10px 20px",
+                  fontSize: 13, fontWeight: 700, color: testerLoading ? T.orange : "#fff",
+                  cursor: testerLoading || !testerCard || !testerVc ? "not-allowed" : "pointer",
+                  opacity: !testerCard || !testerVc ? 0.5 : 1,
+                }}>
+                {testerLoading ? "Submitting…" : "Send Onboarding Request →"}
+              </button>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>JSON-RPC Response</div>
+            <div style={{ background: "#08090c", border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, minHeight: 300, fontFamily: T.mono, fontSize: 12, color: T.dim, overflowY: "auto", maxHeight: 500 }}>
+              {testerResult ? (
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap", color: testerResult.error ? T.red : testerResult.result ? T.green : T.amber }}>
+                  {JSON.stringify(testerResult, null, 2)}
+                </pre>
+              ) : (
+                <div style={{ color: T.dim, fontStyle: "italic" }}>Response will appear here after submitting a request…</div>
+              )}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 11, color: T.dim, lineHeight: 1.6 }}>
+              <div>• After submitting, switch to <strong>Onboarding Queue</strong> to track progress</div>
+              <div>• HITL approval cards appear in the <strong>HITL Approvals</strong> sub-tab</div>
+              <div>• <strong>-32006</strong> — self-onboarding denied (agent_card.name = onboarding-agent)</div>
+              <div>• <strong>-32001</strong> — VC missing or invalid</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // A2A PROTOCOL TAB
 // ─────────────────────────────────────────────
 
@@ -7593,9 +8154,10 @@ export default function VdaOS() {
     { id: "witness",     label: "Witness Agent" + (log.length ? " (" + log.length + ")" : ""), icon: "🕵️" },
     { id: "a2md",        label: "A2MD Normaliser",  icon: "⚙️" },
     { id: "soc2",        label: "SOC 2 SD",          icon: "📋" },
-    { id: "credentials", label: "Agent Credentials", icon: "🔐" },
-    { id: "a2a",         label: "A2A Protocol",      icon: "🔗" },
-    { id: "filemanager", label: "File Manager",     icon: "📁" },
+    { id: "credentials",  label: "Agent Credentials", icon: "🔐" },
+    { id: "a2a",          label: "A2A Protocol",      icon: "🔗" },
+    { id: "onboarding",   label: "Agent Onboarding",  icon: "🚀" },
+    { id: "filemanager",  label: "File Manager",      icon: "📁" },
   ] : [];
 
   return (
@@ -7739,9 +8301,10 @@ export default function VdaOS() {
               .then(r => r.json());
           }} />}
           {tab === "soc2"        && <Soc2Tab companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} />}
-          {tab === "credentials" && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
-          {tab === "a2a"         && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
-          {tab === "filemanager" && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
+          {tab === "credentials"  && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
+          {tab === "a2a"          && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
+          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} />}
+          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
         </>
       )}
     </div>

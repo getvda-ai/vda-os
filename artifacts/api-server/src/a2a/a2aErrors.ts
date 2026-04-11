@@ -8,6 +8,7 @@ export const A2A_ERRORS = {
   TASK_NOT_FOUND:         { code: -32003, message: "Task not found" },
   TASK_ALREADY_CANCELLED: { code: -32004, message: "Task already cancelled" },
   GOVERNANCE_VIOLATION:   { code: -32005, message: "Governance envelope violation: §2.1 mandatory governance files missing" },
+  SELF_ONBOARDING_DENIED: { code: -32006, message: "Self-onboarding not permitted: the Onboarding Agent cannot process its own admission" },
 } as const;
 
 export type A2AErrorCode = (typeof A2A_ERRORS)[keyof typeof A2A_ERRORS]["code"];

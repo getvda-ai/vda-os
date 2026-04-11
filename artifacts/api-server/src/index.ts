@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startCredentialRotationScheduler } from "./lib/credentialRotation.js";
+import { seedOnboardingAgentGovernanceFiles } from "./onboarding/seedOnboardingAgent.js";
 
 const rawPort = process.env["PORT"];
 
@@ -24,4 +25,7 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   startCredentialRotationScheduler();
+  seedOnboardingAgentGovernanceFiles().catch(err =>
+    logger.warn({ err }, "Onboarding agent seed deferred")
+  );
 });

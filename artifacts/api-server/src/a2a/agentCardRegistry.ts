@@ -93,6 +93,20 @@ const AGENT_DEFS: Record<string, { name: string; description: string; defaultSki
       { id: "generate-report", name: "Generate Revenue Report", description: "Produce governed revenue summary from Apaleo data" },
     ],
   },
+  "onboarding-agent": {
+    name: "VDA-MD Onboarding Agent",
+    description: "Governs the admission of external agents into the VDA-MD framework. Runs a 7-phase workflow: Agent Card validation, impact delta analysis, candidate governance file generation, dual HITL approval gates, sandbox evaluation, GitHub PR creation, and W3C VC issuance. Platform-scoped across all citizenM properties.",
+    defaultSkills: [
+      { id: "read_all_governance_files", name: "Read All Governance Files", description: "READ all AGENTS.md, SOP.md, SKILL.md, EXCEPTION.md files across all agents and companies" },
+      { id: "read_witness_log", name: "Read Witness Log", description: "QUERY witness_entries for impact delta analysis" },
+      { id: "write_candidate_files", name: "Write Candidate Files", description: "WRITE to staging branch only, never main" },
+      { id: "call_eval_pipeline", name: "Call Eval Pipeline", description: "TRIGGER 5-scenario governance sandbox evaluation against candidate SOP.md" },
+      { id: "trigger_hitl", name: "Trigger HITL", description: "CALL POST /hitl/escalate for both approval gates and RACI notification cards" },
+      { id: "commit_via_pr", name: "Commit via PR", description: "CREATE pull request to governance repo, never direct push" },
+      { id: "issue_vc", name: "Issue VC", description: "CALL POST /api/agents/credentials/issue for approved agent" },
+      { id: "register_agent_card", name: "Register Agent Card", description: "ADD new agent to A2A Agent Card runtime registry" },
+    ],
+  },
 };
 
 export const AGENT_IDS = Object.keys(AGENT_DEFS);
@@ -159,10 +173,23 @@ export async function getAllAgentCards(companyId: number): Promise<AgentCard[]> 
   return cards.filter((c): c is AgentCard => c !== null);
 }
 
+export function getOnboardingAgentCard(): AgentCard {
+  const def = AGENT_DEFS["onboarding-agent"];
+  return {
+    name: def.name,
+    description: def.description,
+    url: `${REPLIT_URL}/api/a2a/onboarding`,
+    version: "1.0.0",
+    capabilities: { streaming: false, pushNotifications: false },
+    skills: def.defaultSkills,
+    authentication: { schemes: ["bearer"] },
+  };
+}
+
 export function getPlatformCard(): AgentCard {
   return {
     name: "VDA-MD — Value Driven AI Operating System (citizenM)",
-    description: "VDA-MD is a governed multi-agent platform for citizenM hospitality operations. It exposes 8 specialised agents for the full Apaleo guest lifecycle: availability, rate, reservation, check-in, folio, folio charging, checkout, and revenue reconciliation. Every agent decision is governed by W3C Verifiable Credentials, §2.1 mandatory governance files, Witness Agent audit logging, and compliance guards enforcing GDPR, EU AI Act, and ISO 42001.",
+    description: "VDA-MD is a governed multi-agent platform for citizenM hospitality operations. It exposes 9 specialised agents: 8 for the full Apaleo guest lifecycle (availability, rate, reservation, check-in, folio, folio charging, checkout, revenue reconciliation) and 1 Onboarding Agent for governed external agent admission. Every agent decision is governed by W3C Verifiable Credentials, §2.1 mandatory governance files, Witness Agent audit logging, and compliance guards enforcing GDPR, EU AI Act, and ISO 42001.",
     url: `${REPLIT_URL}/api/a2a`,
     version: "1.0.0",
     capabilities: { streaming: false, pushNotifications: false },

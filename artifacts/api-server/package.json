@@ -16,6 +16,7 @@
     "@digitalbazaar/ed25519-signature-2020": "^5.4.0",
     "@digitalbazaar/ed25519-verification-key-2020": "^4.2.0",
     "@digitalbazaar/vc": "^6.3.0",
+    "@octokit/rest": "^22.0.1",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/integrations-anthropic-ai": "workspace:*",

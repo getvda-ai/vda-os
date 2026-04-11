@@ -8,6 +8,8 @@ import agentsRouter from "./agents";
 import mcpProxyRouter from "./mcp-proxy";
 import seedRouter from "./seed";
 import a2aRouter from "./a2a";
+import hitlRouter from "./hitl";
+import onboardingRollbackRouter from "../onboarding/onboardingRollback";
 
 const router: IRouter = Router();
 
@@ -20,5 +22,7 @@ router.use(agentsRouter);
 router.use(mcpProxyRouter);
 router.use(seedRouter);
 router.use(a2aRouter);
+router.use(hitlRouter);
+router.use(onboardingRollbackRouter);
 
 export default router;
