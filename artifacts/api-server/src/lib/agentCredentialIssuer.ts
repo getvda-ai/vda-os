@@ -441,6 +441,7 @@ export async function listCredentialsForCompany(companyId: number) {
 // File-based credential listing: reads CRED_DIR, recomputes status from DB
 
 interface CredentialFileRecord {
+  id: number;
   credentialId: number;
   agentId: string;
   companyId: number;
@@ -491,7 +492,7 @@ export async function listCredentialsFromFiles(
       } else {
         status = "Valid";
       }
-      results.push({ ...raw, status, currentGovernanceHash: currentHash });
+      results.push({ ...raw, id: raw.credentialId, status, currentGovernanceHash: currentHash });
     } catch (err) {
       logger.warn({ err, filename }, "[VC] Could not parse credential file — skipping");
     }
