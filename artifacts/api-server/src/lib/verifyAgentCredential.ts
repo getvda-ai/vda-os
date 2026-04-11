@@ -1,16 +1,7 @@
-/**
- * verifyAgentCredential.ts
- * Express middleware that HARD-BLOCKS requests without a valid W3C VC.
- *
- * Applied to the 8 individual agent POST endpoints (NOT /scenario/run).
- * Returns 401 JSON on any failure:
- *   { error: string, agent_id: string|null, reason: string, timestamp: string }
- *
- * On success: sets req.vcVerified = true, req.vcPayload = { agentId, companyId, governanceFileHash, ... }
- * and calls next().
- *
- * Token transport: Authorization: Bearer <base64url-encoded JSON VC>
- */
+// verifyAgentCredential.ts — hard-blocking W3C VC middleware for agent routes
+// Token: Authorization: Bearer <base64url(JSON.stringify(signedVc))>
+// On failure → 401 { error, agent_id, reason, timestamp }
+// On success → sets req.vcVerified, req.vcPayload, calls next()
 
 import type { Request, Response, NextFunction } from "express";
 import { verifyAgentVc, type VerificationResult } from "./agentCredentialIssuer.js";
@@ -31,21 +22,6 @@ function unauthorised(
   });
 }
 
-/**
- * Hard-blocking VC middleware.
- *
- * Token format: Authorization: Bearer <base64url(JSON.stringify(signedVc))>
- *
- * Steps:
- * 1. Extract bearer token — 401 if missing
- * 2. Decode base64url → JSON VC — 401 if malformed
- * 3. Tenant binding: credentialSubject.companyId must equal request.companyId — 401 if mismatch
- * 4. Verify Ed25519Signature2020 proof — 401 if invalid
- * 5. Check VC expiration — 401 if expired
- * 6. Recompute governance hash (AGENTS+SKILL) — 401 if mismatch
- * 7. (If expectedAgentId provided) Verify credentialSubject.agentId matches route agent — 401 if mismatch
- * 8. Set req.vcVerified + req.vcPayload, call next()
- */
 async function runVerification(
   req: Request,
   res: Response,
@@ -159,10 +135,6 @@ async function runVerification(
   return next();
 }
 
-/**
- * Generic middleware (no per-route agent binding).
- * Use requireAgentCredential(agentId) for individual routes instead.
- */
 export async function verifyAgentCredentialMiddleware(
   req: Request,
   res: Response,
@@ -171,13 +143,7 @@ export async function verifyAgentCredentialMiddleware(
   return runVerification(req, res, next);
 }
 
-/**
- * Route-specific middleware factory.
- * Verifies the credential AND enforces that credentialSubject.agentId === expectedAgentId.
- * This prevents cross-agent credential replay within the same company.
- *
- * Usage: router.post("/agents/checkout", requireAgentCredential("checkout-agent"), handler)
- */
+// Per-route factory: also enforces credentialSubject.agentId === expectedAgentId
 export function requireAgentCredential(expectedAgentId: string) {
   return function agentCredentialGuard(
     req: Request,

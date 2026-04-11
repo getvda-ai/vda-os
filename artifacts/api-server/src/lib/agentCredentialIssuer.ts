@@ -12,18 +12,15 @@ import { Ed25519VerificationKey2020 } from "@digitalbazaar/ed25519-verification-
 import * as vc from "@digitalbazaar/vc";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { db, agentCredentials, governanceFiles } from "@workspace/db";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { vcDocumentLoader, VDA_CONTEXT_URL } from "./vcDocumentLoader.js";
 import { logger } from "./logger.js";
 
-// ─── Credential storage directory ─────────────────────────────────────────────
-// agent-credentials/ is gitignored — contains issuer keypair and issued VCs.
-const __dirname = dirname(fileURLToPath(import.meta.url));
-// When compiled, files land in dist/ — go one level up to reach api-server/agent-credentials/
-const CRED_DIR = join(__dirname, "../agent-credentials");
+// Persistent credential store — stable across builds, gitignored
+// process.cwd() = artifacts/api-server/ in all run modes (dev and built)
+const CRED_DIR = join(process.cwd(), "agent-credentials");
 
 function ensureCredDir(): void {
   if (!existsSync(CRED_DIR)) {
@@ -33,10 +30,7 @@ function ensureCredDir(): void {
 
 const ISSUER_KEYPAIR_PATH = join(CRED_DIR, "issuer-keypair.json");
 
-// ─── Stable per-agent keypair (one DID per {companyId, agentId} pair) ────────
-// The DID is stable across re-issuances; only the signed VC changes.
-// Keypair file: agent-credentials/{companyId}-{agentId}.keypair.json
-
+// One stable Ed25519 keypair per {companyId, agentId} — DID persists across re-issuances
 async function loadOrGenerateAgentKeypair(
   companyId: number,
   agentId: string
@@ -444,9 +438,7 @@ export async function listCredentialsForCompany(companyId: number) {
 }
 
 
-// ─── List credentials from disk (per task spec: primary source is files) ──────
-// Reads all {companyId}-{agentId}.json files from CRED_DIR.
-// Status is recomputed from DB (governance hash + expiry checks) for accuracy.
+// File-based credential listing: reads CRED_DIR, recomputes status from DB
 
 interface CredentialFileRecord {
   credentialId: number;
