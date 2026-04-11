@@ -147,7 +147,7 @@ const VDA_MD_MANDATORY_ESCALATE_CLAUSE =
 // VDA-MD §2.1: governance markdown is MANDATORY — no hardcoded fallback exists.
 // If no FM files are found for a company+agent pair, the system MUST ESCALATE.
 
-const POLICY_AGENT_ID_MAP: Record<string, string> = {
+export const POLICY_AGENT_ID_MAP: Record<string, string> = {
   availability:  "availability-agent",
   rate:          "rate-agent",
   reservation:   "reservation-bot",
@@ -164,7 +164,7 @@ const CROSS_DOMAIN_AGENT_IDS: Record<string, string[]> = {
   "checkout-agent":     ["finance-o2c-shared"],
 };
 
-interface GovernancePolicyResult {
+export interface GovernancePolicyResult {
   policyText: string;
   filesLoaded: string[];
   mandatoryEscalate?: boolean;
@@ -180,7 +180,7 @@ function governanceFileReferenced(filesLoaded: string[]): string {
   return filesLoaded.find(f => f.endsWith('.SOP.md')) ?? filesLoaded[0];
 }
 
-async function getGovernancePolicyFromFM(companyId: number, policyKey: string): Promise<GovernancePolicyResult> {
+export async function getGovernancePolicyFromFM(companyId: number, policyKey: string): Promise<GovernancePolicyResult> {
   const agentId = POLICY_AGENT_ID_MAP[policyKey];
 
   // VDA-MD §2.1: unmapped agent key = governance failure → mandatory ESCALATE
@@ -265,7 +265,7 @@ async function getGovernancePolicyFromFM(companyId: number, policyKey: string): 
 
 // ─── Agent Decision Type ──────────────────────────────────────────────────────
 
-interface AgentDecision {
+export interface AgentDecision {
   decision: "PASS" | "FAIL" | "ESCALATE";
   clauseApplied: string;
   actionProposed: string;
@@ -276,7 +276,7 @@ interface AgentDecision {
 
 // ─── Witness Stream Writer ────────────────────────────────────────────────────
 
-interface WitnessEntryInput {
+export interface WitnessEntryInput {
   companyId: number;
   agent: string;
   decision: AgentDecision;
@@ -289,7 +289,7 @@ interface WitnessEntryInput {
   governanceFileHash?: string | null;
 }
 
-async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
+export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
   const [row] = await db
     .insert(witnessEntries)
     .values({
@@ -324,7 +324,7 @@ function hasCrossDomainFiles(filesLoaded: string[]): boolean {
 
 // ─── AI Policy Evaluator ──────────────────────────────────────────────────────
 
-async function evaluateWithPolicy(
+export async function evaluateWithPolicy(
   agentName: string,
   policyKey: string,
   context: string,
@@ -391,14 +391,14 @@ You MUST respond ONLY in this exact JSON format with no extra text:
 
 // ─── Agentic Policy Evaluator (Claude tool-use via Apaleo MCP) ───────────────
 
-interface AgenticEvalResult {
+export interface AgenticEvalResult {
   decision: AgentDecision;
   toolCallsMade: number;
   usedMcp: boolean;
   filesLoaded: string[];
 }
 
-async function evaluateWithPolicyAndMcp(
+export async function evaluateWithPolicyAndMcp(
   agentName: string,
   policyKey: string,
   task: string,

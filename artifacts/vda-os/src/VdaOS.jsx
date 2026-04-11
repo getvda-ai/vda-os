@@ -7079,6 +7079,390 @@ function AgentCredentialsTab({ companyId, companyName }) {
 }
 
 // ─────────────────────────────────────────────
+// A2A PROTOCOL TAB
+// ─────────────────────────────────────────────
+
+function A2AProtocolTab({ companyId, companyName }) {
+  const [subTab, setSubTab] = useState("directory");
+  const [agents, setAgents] = useState([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [expandedCard, setExpandedCard] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [expandedTask, setExpandedTask] = useState(null);
+  const [testerAgent, setTesterAgent] = useState("");
+  const [testerSession, setTesterSession] = useState(() => crypto.randomUUID());
+  const [testerMessage, setTesterMessage] = useState("");
+  const [testerVc, setTesterVc] = useState("");
+  const [testerLoading, setTesterLoading] = useState(false);
+  const [testerResult, setTesterResult] = useState(null);
+  const [copied, setCopied] = useState({});
+
+  const AGENT_IDS = [
+    "availability-agent", "rate-agent", "reservation-bot", "check-in-agent",
+    "folio-agent", "folio-charge-agent", "checkout-agent", "revenue-reconciliation-agent",
+  ];
+
+  const fetchAgents = useCallback(async () => {
+    if (!companyId) return;
+    setAgentsLoading(true);
+    try {
+      const r = await fetch(`/api/a2a/${companyId}/agents`);
+      if (r.ok) { const d = await r.json(); setAgents(d.agents || []); }
+    } catch { /* silent */ }
+    setAgentsLoading(false);
+  }, [companyId]);
+
+  const fetchTasks = useCallback(async () => {
+    if (!companyId) return;
+    setTasksLoading(true);
+    try {
+      const r = await fetch(`/api/a2a/${companyId}/tasks`);
+      if (r.ok) { const d = await r.json(); setTasks(d.tasks || []); }
+    } catch { /* silent */ }
+    setTasksLoading(false);
+  }, [companyId]);
+
+  useEffect(() => { fetchAgents(); }, [fetchAgents]);
+  useEffect(() => { if (subTab === "tasks") fetchTasks(); }, [subTab, fetchTasks]);
+
+  // Poll tasks every 10s when on tasks subtab
+  useEffect(() => {
+    if (subTab !== "tasks") return;
+    const t = setInterval(fetchTasks, 10000);
+    return () => clearInterval(t);
+  }, [subTab, fetchTasks]);
+
+  const copyToClipboard = (key, text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(p => ({ ...p, [key]: true }));
+      setTimeout(() => setCopied(p => ({ ...p, [key]: false })), 1500);
+    });
+  };
+
+  const statusColors = {
+    submitted: T.blue, working: T.amber, completed: T.green, failed: T.red, cancelled: T.dim,
+  };
+
+  const runTesterTask = async () => {
+    if (!testerAgent || !testerMessage || !testerVc) return;
+    setTesterLoading(true);
+    setTesterResult(null);
+    const taskId = crypto.randomUUID();
+    const session = testerSession || crypto.randomUUID();
+    try {
+      const r = await fetch(`/api/a2a/${companyId}/${testerAgent}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${testerVc}` },
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 1, method: "tasks/send",
+          params: {
+            id: taskId, sessionId: session,
+            message: { role: "user", parts: [{ type: "text", text: testerMessage }] },
+          },
+        }),
+      });
+      const d = await r.json();
+      setTesterResult(d);
+      if (subTab === "tasks") fetchTasks();
+    } catch (e) { setTesterResult({ error: String(e) }); }
+    setTesterLoading(false);
+  };
+
+  const subTabs = [
+    { id: "directory", label: "Agent Directory" },
+    { id: "tasks", label: "Active Tasks" },
+    { id: "tester", label: "Protocol Tester" },
+  ];
+
+  return (
+    <div style={{ padding: "28px 32px", maxWidth: 1100, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>A2A Protocol</div>
+        <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6 }}>
+          Google Agent-to-Agent (A2A) transport layer · JSON-RPC 2.0 · W3C VC trust layer
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+          {[
+            { label: "A2A Spec", color: T.blue },
+            { label: "JSON-RPC 2.0", color: T.purple },
+            { label: "Bearer VC Auth", color: T.green },
+            { label: "Governance Pipeline", color: T.orange },
+          ].map(b => (
+            <span key={b.label} style={{ fontSize: 10, fontWeight: 700, background: b.color + "20", color: b.color, border: `1px solid ${b.color}40`, borderRadius: 4, padding: "3px 8px", fontFamily: T.mono }}>
+              {b.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.border}`, marginBottom: 24 }}>
+        {subTabs.map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)} style={{
+            padding: "9px 18px", background: "none", border: "none",
+            borderBottom: `2px solid ${subTab === t.id ? T.orange : "transparent"}`,
+            color: subTab === t.id ? T.orange : T.dim,
+            cursor: "pointer", fontSize: 13, fontWeight: subTab === t.id ? 700 : 400, fontFamily: T.sans,
+          }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Agent Directory */}
+      {subTab === "directory" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: T.dim }}>
+              Discovery URL: <code style={{ fontFamily: T.mono, color: T.blue, fontSize: 12 }}>/api/a2a/{companyId}/agents</code>
+            </div>
+            <button onClick={fetchAgents} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>
+              Refresh
+            </button>
+          </div>
+
+          {agentsLoading && <div style={{ color: T.dim, fontSize: 13 }}>Loading agent cards…</div>}
+
+          <div style={{ display: "grid", gap: 14 }}>
+            {agents.map((card, i) => {
+              const isExpanded = expandedCard === i;
+              return (
+                <div key={i} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                  <div
+                    onClick={() => setExpandedCard(isExpanded ? null : i)}
+                    style={{ padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{card.name}</div>
+                      <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.5, maxWidth: 600 }}>{card.description}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, marginLeft: 16 }}>
+                      <span style={{ fontSize: 11, background: T.green + "20", color: T.green, border: `1px solid ${T.green}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono }}>
+                        bearer
+                      </span>
+                      <span style={{ color: T.dim, fontSize: 14 }}>{isExpanded ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div style={{ borderTop: `1px solid ${T.border}`, padding: "14px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 4 }}>ENDPOINT URL</div>
+                        <code style={{ fontSize: 12, color: T.blue, fontFamily: T.mono }}>{card.url}</code>
+                      </div>
+
+                      <div>
+                        <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 6 }}>SKILLS ({card.skills?.length ?? 0})</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {card.skills?.map(s => (
+                            <span key={s.id} title={s.description} style={{ fontSize: 11, background: T.purple + "15", color: T.purple, border: `1px solid ${T.purple}30`, borderRadius: 4, padding: "2px 8px", fontFamily: T.mono, cursor: "help" }}>
+                              {s.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          onClick={() => copyToClipboard(`json-${i}`, JSON.stringify(card, null, 2))}
+                          style={{ background: `${T.orange}20`, border: `1px solid ${T.orange}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.orange, fontFamily: T.mono, cursor: "pointer" }}
+                        >
+                          {copied[`json-${i}`] ? "✓ Copied" : "Copy Card JSON"}
+                        </button>
+                        <button
+                          onClick={() => copyToClipboard(`url-${i}`, `/api/a2a/${companyId}/${AGENT_IDS[i] || i}/agent.json`)}
+                          style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}
+                        >
+                          {copied[`url-${i}`] ? "✓ Copied" : "Copy Discovery URL"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {agents.length === 0 && !agentsLoading && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>
+              No agent cards loaded — make sure the company has governance files seeded.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Active Tasks */}
+      {subTab === "tasks" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: T.dim }}>Polling every 10s · {tasks.length} tasks</div>
+            <button onClick={fetchTasks} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>
+              Refresh
+            </button>
+          </div>
+
+          {tasksLoading && tasks.length === 0 && <div style={{ color: T.dim, fontSize: 13 }}>Loading tasks…</div>}
+
+          {tasks.length === 0 && !tasksLoading && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>
+              No A2A tasks yet — use the Protocol Tester to send your first task.
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {tasks.map(task => {
+              const isExpanded = expandedTask === task.id;
+              const statusColor = statusColors[task.status?.state] ?? T.dim;
+              const inputText = task.message?.parts?.[0]?.text ?? "";
+              const outputText = task.artifacts?.[0]?.parts?.[0]?.text ?? "";
+              return (
+                <div key={task.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                  <div
+                    onClick={() => setExpandedTask(isExpanded ? null : task.id)}
+                    style={{ padding: "12px 16px", cursor: "pointer", display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center" }}
+                  >
+                    <div style={{ display: "grid", gridTemplateColumns: "140px 120px 140px 1fr", gap: 12, alignItems: "center", fontSize: 12, overflow: "hidden" }}>
+                      <span style={{ fontFamily: T.mono, color: T.dim }}>{task.id.slice(0, 8)}…</span>
+                      <span style={{ fontFamily: T.mono, color: T.dim }}>{task.sessionId?.slice(0, 8)}…</span>
+                      <span style={{ color: T.muted }}>{task.agentId}</span>
+                      <span style={{ color: T.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inputText.slice(0, 60)}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, background: statusColor + "20", color: statusColor, border: `1px solid ${statusColor}40`, borderRadius: 4, padding: "2px 8px", fontFamily: T.mono }}>
+                        {task.status?.state}
+                      </span>
+                      <span style={{ color: T.dim, fontSize: 12 }}>{isExpanded ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div style={{ borderTop: `1px solid ${T.border}`, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 6 }}>INPUT MESSAGE</div>
+                          <div style={{ background: "#0a0b0f", borderRadius: 6, padding: "10px 12px", fontSize: 12, fontFamily: T.mono, color: T.muted, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                            {inputText || "—"}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 6 }}>OUTPUT ARTIFACT</div>
+                          <div style={{ background: "#0a0b0f", borderRadius: 6, padding: "10px 12px", fontSize: 12, fontFamily: T.mono, color: T.green, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                            {outputText || task.errorMessage || "—"}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, fontSize: 11, color: T.dim, fontFamily: T.mono }}>
+                        <div>Task ID: <span style={{ color: T.muted }}>{task.id}</span></div>
+                        <div>Session: <span style={{ color: T.muted }}>{task.sessionId}</span></div>
+                        <div>External DID: <span style={{ color: T.muted }}>{task.externalAgentDid ?? "—"}</span></div>
+                        <div>Created: <span style={{ color: T.muted }}>{new Date(task.createdAt).toLocaleString("en-GB")}</span></div>
+                        <div>Updated: <span style={{ color: T.muted }}>{new Date(task.updatedAt).toLocaleString("en-GB")}</span></div>
+                        <div>Agent: <span style={{ color: T.muted }}>{task.agentId}</span></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Protocol Tester */}
+      {subTab === "tester" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>Send A2A Task</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 5 }}>AGENT</label>
+                <select
+                  value={testerAgent}
+                  onChange={e => setTesterAgent(e.target.value)}
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 12, color: T.text, fontFamily: T.mono }}
+                >
+                  <option value="">— select agent —</option>
+                  {AGENT_IDS.map(id => <option key={id} value={id}>{id}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 5 }}>SESSION ID</label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    value={testerSession}
+                    onChange={e => setTesterSession(e.target.value)}
+                    style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 12, color: T.text, fontFamily: T.mono }}
+                  />
+                  <button onClick={() => setTesterSession(crypto.randomUUID())} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "6px 10px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>New</button>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 5 }}>MESSAGE</label>
+                <textarea
+                  value={testerMessage}
+                  onChange={e => setTesterMessage(e.target.value)}
+                  placeholder="e.g. Check availability for VIES property on 2026-05-15 for 2 guests"
+                  rows={4}
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 12, color: T.text, fontFamily: T.mono, resize: "vertical", boxSizing: "border-box" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 5 }}>BEARER VC TOKEN (base64url)</label>
+                <textarea
+                  value={testerVc}
+                  onChange={e => setTesterVc(e.target.value)}
+                  placeholder="Paste vcBase64url from Agent Credentials tab"
+                  rows={3}
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", fontSize: 11, color: T.dim, fontFamily: T.mono, resize: "vertical", boxSizing: "border-box" }}
+                />
+                <div style={{ fontSize: 10, color: T.dim, marginTop: 4 }}>Obtain from the Agent Credentials tab → issue a credential → copy vcBase64url</div>
+              </div>
+
+              <button
+                onClick={runTesterTask}
+                disabled={testerLoading || !testerAgent || !testerMessage || !testerVc}
+                style={{
+                  background: testerLoading ? `${T.orange}20` : T.orange, border: "none", borderRadius: 8, padding: "10px 20px",
+                  fontSize: 13, fontWeight: 700, color: testerLoading ? T.orange : "#fff",
+                  cursor: testerLoading || !testerAgent || !testerMessage || !testerVc ? "not-allowed" : "pointer",
+                  opacity: !testerAgent || !testerMessage || !testerVc ? 0.5 : 1,
+                }}
+              >
+                {testerLoading ? "Sending…" : "Send A2A Task →"}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>JSON-RPC Response</div>
+            <div style={{ background: "#08090c", border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, minHeight: 300, fontFamily: T.mono, fontSize: 12, color: T.dim, overflowY: "auto", maxHeight: 500 }}>
+              {testerResult ? (
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap", color: testerResult.error ? T.red : testerResult.result ? T.green : T.amber }}>
+                  {JSON.stringify(testerResult, null, 2)}
+                </pre>
+              ) : (
+                <div style={{ color: T.dim, fontStyle: "italic" }}>Response will appear here after sending a task…</div>
+              )}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 11, color: T.dim, lineHeight: 1.6 }}>
+              <div>• <strong>tasks/send</strong> — submit task → full governance pipeline → artifact</div>
+              <div>• <strong>-32001</strong> — VC missing or invalid</div>
+              <div>• <strong>-32005</strong> — §2.1 governance files missing</div>
+              <div>• <strong>-32002</strong> — ESCALATE decision (human approval needed)</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // ROOT APP
 // ─────────────────────────────────────────────
 export default function VdaOS() {
@@ -7210,6 +7594,7 @@ export default function VdaOS() {
     { id: "a2md",        label: "A2MD Normaliser",  icon: "⚙️" },
     { id: "soc2",        label: "SOC 2 SD",          icon: "📋" },
     { id: "credentials", label: "Agent Credentials", icon: "🔐" },
+    { id: "a2a",         label: "A2A Protocol",      icon: "🔗" },
     { id: "filemanager", label: "File Manager",     icon: "📁" },
   ] : [];
 
@@ -7355,6 +7740,7 @@ export default function VdaOS() {
           }} />}
           {tab === "soc2"        && <Soc2Tab companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} />}
           {tab === "credentials" && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
+          {tab === "a2a"         && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "filemanager" && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
         </>
       )}

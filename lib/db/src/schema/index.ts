@@ -3,3 +3,4 @@ export * from "./governanceFiles";
 export * from "./governanceFileVersions";
 export * from "./witnessEntries";
 export * from "./agentCredentials";
+export * from "./a2aTasks";

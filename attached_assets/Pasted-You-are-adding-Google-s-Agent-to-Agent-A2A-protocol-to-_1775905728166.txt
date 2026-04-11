@@ -1,0 +1,294 @@
+You are adding Google's Agent-to-Agent (A2A) protocol to the VDA-MD Framework 
+running on Replit. A2A is Google's open standard for inter-agent communication 
+— it defines how agents discover each other, establish sessions, and exchange 
+tasks across organisational boundaries. The spec is at https://google.github.io/A2A
+
+The existing system has:
+- PostgreSQL database storing governance files (AGENTS.md, SOP.md, SKILL.md, 
+  EXCEPTION.md) per (companyId, agentId)
+- 8 individual agent POST endpoints per company (5 citizenM properties)
+- W3C Verifiable Credentials middleware (verifyAgentCredential.ts) already 
+  wired into all 8 agent routes — Add-on 1 is complete and live
+- Witness Agent audit log writing to witness_entries table
+- ESM ("type": "module") api-server
+- React dashboard (VdaOS.jsx)
+
+A2A sits at the TRANSPORT layer. The VC layer (Add-on 1) sits at the TRUST 
+layer. These are sequential: an external agent reaches VDA-MD via A2A, then 
+presents its VC before the §2.1 governance check fires. Do not merge or 
+replace either layer.
+
+YOUR TASK: Implement A2A protocol support so that external agents — from other 
+organisations or other systems — can discover VDA-MD agents, submit tasks, 
+and receive structured responses through a standards-compliant A2A interface. 
+Use only the official A2A JSON specification (no SDK exists yet — implement 
+from the spec directly using standard Express + fetch). Do NOT invent a 
+custom protocol. Do NOT use any A2A npm package (none exists as of April 2026).
+
+BACKGROUND ON A2A CORE CONCEPTS (implement these exactly):
+
+Agent Card: A JSON document served at /.well-known/agent.json that describes 
+a VDA-MD agent's identity, capabilities, and endpoint. This is how external 
+agents discover what your agent can do. Required fields per A2A spec:
+  {
+    "name": string,
+    "description": string,
+    "url": string (the agent's A2A endpoint),
+    "version": string,
+    "capabilities": {
+      "streaming": boolean,
+      "pushNotifications": boolean
+    },
+    "skills": [{ "id": string, "name": string, "description": string }],
+    "authentication": { "schemes": ["bearer"] }
+  }
+
+Task: The core A2A work unit. External agents submit a Task to your agent. 
+A Task has:
+  {
+    "id": string (uuid),
+    "sessionId": string (uuid),
+    "status": { "state": "submitted"|"working"|"completed"|"failed" },
+    "message": { "role": "user", "parts": [{ "type": "text", "text": string }] },
+    "artifacts": [] (outputs produced by the agent)
+  }
+
+JSON-RPC 2.0: A2A uses JSON-RPC 2.0 as its message envelope. All A2A 
+requests are POST to the agent endpoint with body:
+  {
+    "jsonrpc": "2.0",
+    "id": string|number,
+    "method": string,
+    "params": object
+  }
+And all responses:
+  {
+    "jsonrpc": "2.0", 
+    "id": string|number,
+    "result": object  (or "error": { "code": number, "message": string })
+  }
+
+A2A Methods to implement:
+  tasks/send       — submit a new task to the agent
+  tasks/get        — get the current status of a task by id
+  tasks/cancel     — cancel a pending task
+
+WHAT TO BUILD:
+
+1. AGENT CARD REGISTRY (server/a2a/agentCardRegistry.ts)
+   - For each of the 8 VDA-MD agent types, define a static Agent Card 
+     template. The 8 agent types are: availability-agent, rate-agent, 
+     reservation-bot, checkin-agent, folio-charge-agent, checkout-agent, 
+     revenue-reconciliation-agent, witness-agent
+   - Each card's skills array must map directly to the permitted tools 
+     listed in that agent's SKILL.md file in the DB — query the DB at 
+     startup to populate skills dynamically per agent type
+   - The card's url field must be:
+     https://{REPLIT_URL}/a2a/{companyId}/{agentId}
+   - The card's authentication.schemes must include "bearer" — this signals 
+     to external agents that a VC Bearer token is required (integrates with 
+     Add-on 1 verifyAgentCredential middleware)
+   - Export a getAgentCard(companyId, agentId) function that returns the 
+     populated card for that specific agent instance
+   - Export a getAllAgentCards(companyId) function returning all 8 cards 
+     for a given property
+
+2. WELL-KNOWN DISCOVERY ENDPOINTS
+   - GET /.well-known/agent.json
+     Returns a "directory" Agent Card for the VDA-MD platform itself 
+     describing all available agent types. This is the entry point for 
+     external agent discovery. companyId is not required here — this is 
+     the platform-level card.
+   - GET /a2a/{companyId}/agents
+     Returns an array of all 8 Agent Cards for the specified property. 
+     External agents call this to discover which specific agents are 
+     available at a given citizenM property.
+   - GET /a2a/{companyId}/{agentId}/agent.json
+     Returns the Agent Card for a specific agent instance. This is the 
+     canonical discovery URL for a single agent.
+   - All discovery endpoints are PUBLIC — no VC required. Discovery 
+     must be open for the protocol to work.
+
+3. A2A TASK STORE (server/a2a/taskStore.ts)
+   - Uses the existing PostgreSQL database — add a new table a2a_tasks:
+     * id (uuid, primary key)
+     * session_id (uuid)
+     * company_id (text)
+     * agent_id (text)
+     * status_state (text: submitted|working|completed|failed|cancelled)
+     * input_message (jsonb — the full message object from the task)
+     * output_artifacts (jsonb array — outputs produced)
+     * error_message (text, nullable)
+     * external_agent_did (text, nullable — DID of the calling external agent 
+       extracted from their VC if present)
+     * created_at (timestamptz)
+     * updated_at (timestamptz)
+   - Add this table to lib/db/src/schema/ and run db:push
+   - Export: createTask(companyId, agentId, sessionId, inputMessage) → Task
+   - Export: getTask(taskId) → Task | null
+   - Export: updateTask(taskId, updates) → Task
+   - Export: cancelTask(taskId) → Task
+
+4. A2A JSON-RPC HANDLER (server/a2a/a2aHandler.ts)
+   - POST /a2a/{companyId}/{agentId}
+     This is the main A2A agent endpoint. All external agent communication 
+     arrives here as JSON-RPC 2.0.
+   - This endpoint sits AFTER the verifyAgentCredential middleware from 
+     Add-on 1 — external agents must present a valid VC Bearer token. 
+     If no VC is present, return JSON-RPC error:
+     { "jsonrpc": "2.0", "id": null, "error": { "code": -32001, 
+       "message": "Authentication required: present a W3C Verifiable Credential 
+       as Bearer token" } }
+   - Parse the JSON-RPC envelope. If malformed, return standard JSON-RPC 
+     parse error (code -32700).
+   - Route to method handlers:
+
+   tasks/send handler:
+   - Validates params contains: { id, sessionId, message } 
+   - Creates a task record via taskStore with status: "submitted"
+   - Writes a Witness Agent entry: { event_type: "a2a_task_received", 
+     task_id, session_id, external_agent_did, agent_id, company_id, 
+     input_message_preview (first 100 chars of message text) }
+   - Extracts the plain-text instruction from message.parts[0].text
+   - Calls the existing internal agent decision function for this agentId 
+     (the same function called by the individual agent POST routes) passing 
+     the instruction as the user input — this means the full governance 
+     pipeline fires: §2.1 check, SOP.md reasoning, EXCEPTION.md overlay, 
+     Witness Agent logging
+   - Updates task status to "working" before calling the agent, 
+     "completed" after, "failed" if an error occurs
+   - Packages the agent's response as an A2A artifact:
+     { "index": 0, "parts": [{ "type": "text", "text": agent_decision_text }], 
+       "lastChunk": true }
+   - Updates task output_artifacts in the DB
+   - Returns JSON-RPC result: the completed Task object
+   - If the agent returns ESCALATE: set task status to "failed", 
+     error_message to the escalation reason, return JSON-RPC error 
+     code -32002 "Agent escalation required: human approval needed"
+
+   tasks/get handler:
+   - Validates params contains: { id }
+   - Fetches task from taskStore
+   - Returns JSON-RPC result: the Task object
+   - If not found: JSON-RPC error code -32003 "Task not found"
+
+   tasks/cancel handler:
+   - Validates params contains: { id }
+   - Only tasks with status "submitted" or "working" can be cancelled
+   - Updates status to "cancelled" in taskStore
+   - Writes Witness Agent entry: { event_type: "a2a_task_cancelled", task_id }
+   - Returns JSON-RPC result: the cancelled Task object
+
+5. A2A ERROR CODES (follow A2A spec standard codes)
+   Define these as constants in server/a2a/a2aErrors.ts:
+   -32700  Parse error (malformed JSON)
+   -32600  Invalid request (not valid JSON-RPC)
+   -32601  Method not found
+   -32602  Invalid params
+   -32001  Authentication required (no VC)
+   -32002  Agent escalation required (HITL needed — integrates with Add-on 3)
+   -32003  Task not found
+   -32004  Task already cancelled
+   -32005  Governance envelope violation (§2.1 fired — missing governance files)
+
+   Note on -32002 and -32005: when these fire, also call the existing 
+   POST /hitl/escalate endpoint from Add-on 3 so the human approval 
+   workflow triggers automatically for A2A-originated tasks
+
+6. SESSION MANAGEMENT
+   A2A uses sessionId to group related tasks into a conversation. Implement 
+   lightweight session tracking:
+   - A session is valid for 1 hour from first task in that session
+   - Store session state in a2a_tasks by grouping on session_id — no 
+     separate session table needed
+   - GET /a2a/{companyId}/{agentId}/sessions/{sessionId}
+     Returns all tasks in a session ordered by created_at, giving the 
+     external agent the full conversation history
+   - An external agent sending a follow-up task with the same sessionId 
+     receives context from prior tasks in that session — pass the prior 
+     task outputs as additional context to the agent decision function
+
+7. WITNESS AGENT INTEGRATION
+   Every A2A interaction produces Witness Agent entries using the existing 
+   writeWitnessEntry function. New event_type values for A2A:
+   - "a2a_task_received"    — task submitted by external agent
+   - "a2a_task_completed"   — task resolved by VDA-MD agent  
+   - "a2a_task_failed"      — task failed (governance violation or error)
+   - "a2a_task_cancelled"   — task cancelled by external agent
+   - "a2a_session_started"  — first task in a new session
+   All entries must include: task_id, session_id, external_agent_did, 
+   company_id, agent_id, and the governance files consulted (already 
+   produced by the existing agent decision function)
+
+8. DASHBOARD UI ADDITIONS (add to existing React dashboard VdaOS.jsx)
+   New "A2A Protocol" tab with three sub-sections:
+
+   Agent Directory sub-tab:
+   - Shows all 8 Agent Cards for the selected property as expandable cards
+   - Each card shows: agent name, description, endpoint URL, skills list, 
+     authentication requirement
+   - "Copy Agent Card JSON" button per card (copies the raw JSON — this is 
+     what external agents need to configure their discovery)
+   - "Copy Discovery URL" button per card
+
+   Active Tasks sub-tab:
+   - Table: task_id (truncated) | session_id (truncated) | agent_id | 
+     external_agent_did (truncated) | status badge | created_at | 
+     input preview | output preview
+   - Status badges follow existing colour conventions: blue for submitted, 
+     amber for working, green for completed, red for failed, grey for cancelled
+   - Clicking a row expands to show full input message, full output artifacts, 
+     all Witness Agent entries for that task_id, and the governance files 
+     consulted
+   - Real-time status updates via polling GET /a2a/{companyId}/tasks every 
+     10 seconds (simple polling — no websockets needed)
+
+   Protocol Tester sub-tab:
+   - A simple form that lets the developer send a test A2A task to any agent 
+     from within the dashboard (simulates an external agent)
+   - Fields: select agent, enter session ID (auto-generates uuid if blank), 
+     enter message text, enter a VC token (or uses the stored credential 
+     from Add-on 1 for the selected agent)
+   - Submit button calls POST /a2a/{companyId}/{agentId} with correct 
+     JSON-RPC envelope and displays the raw response
+   - This is the primary testing tool — no external A2A client needed 
+     during development
+
+9. REPLIT ENVIRONMENT VARIABLES REQUIRED
+   REPLIT_URL — the public Replit URL, used to construct agent card urls 
+   and approve/reject links. Must not have a trailing slash.
+   Already present: DATABASE_URL, ANTHROPIC_API_KEY
+
+10. README ADDITIONS
+    Document the A2A integration in plain English:
+    - What A2A is and why VDA-MD implements it
+    - How an external agent discovers a VDA-MD agent (well-known URL)
+    - How an external agent authenticates (VC Bearer token from Add-on 1)
+    - The three methods: tasks/send, tasks/get, tasks/cancel
+    - The escalation flow: A2A task → ESCALATE → HITL decision card 
+      (Add-on 3) → resume or reject
+    - A curl example of a complete tasks/send request with a real 
+      JSON-RPC envelope
+
+CONSTRAINTS:
+- No A2A SDK or npm package exists — implement from the JSON spec directly
+- JSON-RPC 2.0 envelope is mandatory — do not use REST semantics on the 
+  agent endpoint
+- Discovery endpoints (/.well-known and /agent.json) must be public
+- All agent action endpoints require VC Bearer token (Add-on 1 middleware)
+- Do not replace or bypass verifyAgentCredential middleware — A2A sits 
+  before it in the request chain: A2A envelope parsing → VC verification → 
+  §2.1 governance check → agent decision → Witness Agent log
+- Session context is passed as additional prompt context to the existing 
+  agent decision function — do not build a separate context store
+- All task state lives in PostgreSQL (a2a_tasks table) — no in-memory 
+  task store
+- The Protocol Tester in the dashboard is for development only — add a 
+  visible "Development Tool" label so it is not mistaken for a production 
+  feature
+- ESCALATE decisions from A2A tasks must trigger Add-on 3 HITL flow 
+  automatically — wire POST /hitl/escalate call into the tasks/send 
+  handler on ESCALATE outcome
+- Streaming (server-sent events) is listed as capability: false in all 
+  Agent Cards — do not implement streaming; synchronous task/send with 
+  polling via tasks/get is sufficient for this deployment

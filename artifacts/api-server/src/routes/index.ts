@@ -7,6 +7,7 @@ import apaleoRouter from "./apaleo";
 import agentsRouter from "./agents";
 import mcpProxyRouter from "./mcp-proxy";
 import seedRouter from "./seed";
+import a2aRouter from "./a2a";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(apaleoRouter);
 router.use(agentsRouter);
 router.use(mcpProxyRouter);
 router.use(seedRouter);
+router.use(a2aRouter);
 
 export default router;

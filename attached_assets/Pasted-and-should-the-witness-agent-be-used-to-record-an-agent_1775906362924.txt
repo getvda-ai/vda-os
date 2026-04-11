@@ -1,0 +1,39 @@
+and should the witness agent be used to record an agent addition and also to protect the VFA framework ie compliance and legal1:18 PMExamined dual roles for witness agent oversight and framework protectionExamined dual roles for witness agent oversight and framework protectionYes, and this is actually a significant architectural gap in the current spec. The Witness Agent currently observes decisions made by agents — but it doesn't observe changes to the agents themselves or the framework that governs them. That's a blind spot an auditor would find immediately.
+The two gaps you've identified
+Agent lifecycle events are currently invisible to the audit trail. An agent being added, modified, deprecated, or having its governance files changed produces no Witness entry. Yet these are arguably the highest-risk events in the entire system — they change what every subsequent decision is governed by. If a bad actor (or a well-intentioned but unauthorised domain owner) adds an agent or weakens a SKILL.md, the Witness Agent currently has no record of it.
+Framework protection is the deeper issue. The Compliance Guard already prevents governance files from being weakened via the 409 Conflict mechanism. But it doesn't produce a Witness entry when it fires — it just rejects the save. That means a pattern of attempted weakening (five rejected attempts to remove a MUST NOT clause) is invisible in the audit log, which is exactly the kind of signal a compliance officer needs to see.
+What the Witness Agent should record beyond decisions
+Agent lifecycle events:
+
+Agent created — new (companyId, agentId) governance file set committed
+Agent modified — any of AGENTS.md, SOP.md, SKILL.md, EXCEPTION.md updated
+Agent credential rotated — already in Add-on 1 spec
+Agent credential hash mismatch detected — governance files changed without rotation
+Agent deprecated — governance files removed or marked inactive
+
+Framework integrity events:
+
+Compliance Guard rejection — attempted save that reduced MUST clause count, removed NIST reference, or deleted ISO 42001 citation. Record: who attempted it, which file, which specific violation, timestamp
+Compliance Guard override — a save that required CFO/CEO signoff to proceed. Record: who approved, what changed, before/after clause counts
+Governance file integrity check — periodic hash verification of all governance files against their stored hashes, confirming no out-of-band tampering
+Schema validation failure — from Add-on 4, already partially specced but should also write to Witness
+
+Legal and compliance boundary events:
+
+Cross-domain inheritance invoked — already partially logged but should be explicit
+Exception expiry approaching — 30-day warning already triggers notification, but should also write a Witness entry so the audit trail shows the warning was issued
+Exception expired and baseline reinstated — currently implicit, should be explicit
+Exception approved or rejected — lifecycle stages 2 and 3 currently produce no Witness entry
+HITL decision recorded — Add-on 3 writes this, good
+A2A task with governance violation — Add-on 2 covers this via -32005
+
+The architectural principle this establishes
+The Witness Agent should be the single tamper-evident record of anything that affects how an AI agent is allowed to behave — not just the decisions agents make. That means governance file changes, framework integrity events, and agent lifecycle events all belong in the same audit log as operational decisions. When an auditor asks "prove your AI governance was intact on March 15th," the answer should come from one place.
+The practical addition to make
+Add a governance_event category to the Witness Agent schema alongside the existing agent_decision category. Same table, same tamper-evident two-repository architecture, but a new event_category field that distinguishes:
+
+agent_decision — what agents already produce
+agent_lifecycle — additions, modifications, deprecations
+framework_integrity — Compliance Guard events, hash checks, schema failures
+compliance_boundary — exception lifecycle, cross-domain inheritance, HITL outcomes
+a2a_protocol — already specced in Add-on 2
