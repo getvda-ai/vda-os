@@ -6379,7 +6379,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
       reservation: "reservation-bot",
       checkin: "check-in-agent",
       "folio-charge": "folio-charge-agent",
-      folio: "folio-charge-agent",
+      folio: "folio-agent",
       checkout: "checkout-agent",
       revenue: "revenue-reconciliation-agent",
     };
@@ -6757,6 +6757,7 @@ const AGENT_CREDENTIAL_DEFS = [
   { agentId: "rate-agent",                    label: "Rate Agent",              icon: "💰", permittedSkills: ["ListRatePlans", "ListOffers"] },
   { agentId: "reservation-bot",               label: "Reservation Bot",         icon: "📋", permittedSkills: ["GetReservation", "CreateBooking"] },
   { agentId: "check-in-agent",               label: "Check-In Agent",          icon: "✅", permittedSkills: ["CheckIn", "GetReservation"] },
+  { agentId: "folio-agent",                  label: "Folio Agent (Read)",      icon: "🧾", permittedSkills: ["GetFolio", "ListFolios"] },
   { agentId: "folio-charge-agent",           label: "Folio Charge Agent",      icon: "💳", permittedSkills: ["CreateFolioCharge", "GetFolio"] },
   { agentId: "checkout-agent",               label: "Checkout Agent",          icon: "🚪", permittedSkills: ["CheckOut", "GetReservation"] },
   { agentId: "revenue-reconciliation-agent", label: "Revenue Reconciliation",  icon: "📊", permittedSkills: ["GetReport", "ListRatePlans"] },

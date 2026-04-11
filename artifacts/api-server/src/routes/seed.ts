@@ -1317,6 +1317,132 @@ MUST NOT call any tool not listed in this manifest.
     },
 
     // ──────────────────────────────────────────────────────────────────────────
+    // FOLIO AGENT (READ-ONLY) — Operations · Stay
+    // Read-only folio analysis; distinct identity from folio-charge-agent
+    // ──────────────────────────────────────────────────────────────────────────
+    {
+      filename: "Hospitality-Operations-Stay-folio-agent.AGENTS.md",
+      filepath: "governance/Hospitality-Operations-Stay-folio-agent.AGENTS.md",
+      fileType: "AGENTS",
+      axis: "horizontal",
+      stage: "stay",
+      journeyStage: "Stay",
+      owner: "Operations Director",
+      domain: "Folio Management",
+      agentId: "folio-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: AGENTS
+agent_id: folio-agent
+industry: Hospitality
+domain: Folio Management
+journey_stage_axis: Stay
+value_stream_axis: O2C
+authored_by: Operations Director
+consulted: CFO, Finance Director, Front Office Manager
+informed: General Manager, CISO
+approved_by: CFO
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: MEDIUM
+c2md_confidence: 0.93
+nist_control: AU-2, AC-2
+apaleo_api: Folio API
+vendor: VDA-MK for Apaleo
+baseline: true
+normalisation_level: 3
+property_code: ${companyId}
+property_name: ${companyName}
+---
+
+# Folio Agent — Agent Charter (AGENTS)
+
+## Agent Identity
+
+The Folio Agent provides read-only folio analysis at ${companyName} via the Apaleo Folio API. This agent retrieves and analyses folio data but does NOT post charges or trigger settlement — those actions are reserved for the Folio Charge Agent.
+
+## Scope of Authority
+
+Read-only: retrieve folio details, list folios for a reservation, verify folio balance and payment method status. This agent MUST NOT use any write tools.
+
+## RACI
+
+- **Responsible**: Folio Agent (read-only analysis)
+- **Accountable**: Operations Director
+- **Consulted**: Finance Director, Front Office Manager
+- **Informed**: General Manager
+
+## Escalation Authority Matrix
+
+| Condition | Escalation Target |
+|-----------|------------------|
+| Folio dispute or unresolved charge | Operations Director |
+| Write action required | Route to Folio Charge Agent |
+`,
+    },
+    {
+      filename: "Hospitality-Operations-Stay-folio-agent.SKILL.md",
+      filepath: "governance/Hospitality-Operations-Stay-folio-agent.SKILL.md",
+      fileType: "SKILL",
+      axis: "horizontal",
+      stage: "stay",
+      journeyStage: "Stay",
+      owner: "Operations Director",
+      domain: "Folio Management",
+      agentId: "folio-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MK for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: SKILL
+agent_id: folio-agent
+industry: Hospitality
+domain: Folio Management
+journey_stage_axis: Stay
+value_stream_axis: O2C
+authored_by: Operations Director
+consulted: CFO, Finance Director, Front Office Manager
+informed: General Manager, CISO
+approved_by: CFO
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: MEDIUM
+c2md_confidence: 0.95
+nist_control: AU-2
+property_code: ${companyId}
+property_name: ${companyName}
+---
+
+# Folio Agent — Skill Manifest (SKILL)
+
+## Permitted Apaleo MCP Tools
+
+| Tool | OAuth Scope | Purpose |
+|------|-------------|---------|
+| GetFolio | folios.read | Retrieve folio details and current balance |
+| ListFolios | folios.read | List all folios for a reservation |
+| GetReservation | reservations.read | Verify reservation status |
+
+## Execution Rules
+
+MUST call GetReservation to verify reservation status before any folio retrieval.
+MUST call GetFolio or ListFolios to retrieve current folio state.
+MUST NOT call any write tool — this agent has read-only MCP access.
+MUST NOT call any tool not listed in this manifest.
+
+## Prohibited Tools
+
+- CreateFolioCharge — Folio Charge Agent only
+- CheckIn / CheckOut — dedicated agents only
+- CreateBooking / AmendReservation — Reservation Bot only
+`,
+    },
+
+    // ──────────────────────────────────────────────────────────────────────────
     // AVAILABILITY AGENT — Revenue · Pre-Book
     // ──────────────────────────────────────────────────────────────────────────
     {

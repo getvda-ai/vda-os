@@ -78,13 +78,41 @@ async function runVerification(
     return;
   }
 
-  // Extract companyId from request body for hash recomputation and tenant binding
-  const companyId = Number((req.body as Record<string, unknown>)["companyId"] ?? 0) || undefined;
+  // Step 3: Extract company_id from the VC's credentialSubject — NOT from request body.
+  // This ensures tenant binding cannot be bypassed by omitting companyId from the request.
+  const credentialSubject = (rawVc["credentialSubject"] ?? null) as
+    | Record<string, unknown>
+    | Record<string, unknown>[]
+    | null;
+  const subject = Array.isArray(credentialSubject) ? credentialSubject[0] : credentialSubject;
+  const vcCompanyRaw = subject?.["company_id"];
+  const vcCompanyId = Number(vcCompanyRaw);
+  if (!Number.isFinite(vcCompanyId) || vcCompanyId <= 0) {
+    unauthorised(res, "MISSING_COMPANY_ID", null, "Credential missing valid company_id in credentialSubject");
+    return;
+  }
 
-  // Steps 3–6: cryptographic verification + tenant binding + expiry + hash comparison
+  // If the request body carries a companyId, it must match the VC's company_id
+  const reqCompanyRaw = (req.body as Record<string, unknown> | undefined)?.["companyId"];
+  if (reqCompanyRaw !== undefined && reqCompanyRaw !== null && reqCompanyRaw !== "") {
+    const reqCompanyId = Number(reqCompanyRaw);
+    if (!Number.isFinite(reqCompanyId) || reqCompanyId !== vcCompanyId) {
+      logger.warn({ reqCompanyId, vcCompanyId }, "[VC-Middleware] Request companyId does not match VC company_id");
+      unauthorised(
+        res,
+        "COMPANY_ID_MISMATCH",
+        null,
+        `Request companyId '${String(reqCompanyRaw)}' does not match VC company_id '${vcCompanyId}'`
+      );
+      return;
+    }
+  }
+
+  // Steps 4–6: cryptographic verification + expiry + governance hash comparison
+  // Always pass vcCompanyId (from the VC) — never undefined
   let result: VerificationResult;
   try {
-    result = await verifyAgentVc(rawVc, companyId);
+    result = await verifyAgentVc(rawVc, vcCompanyId);
   } catch (err) {
     logger.warn({ err }, "[VC-Middleware] verifyAgentVc threw unexpectedly");
     unauthorised(res, "VERIFICATION_ERROR", null, "Internal verification error");
@@ -92,7 +120,7 @@ async function runVerification(
   }
 
   if (!result.verified) {
-    logger.warn({ reason: result.reason, agentId: result.agentId, companyId }, "[VC-Middleware] Credential rejected");
+    logger.warn({ reason: result.reason, agentId: result.agentId, vcCompanyId }, "[VC-Middleware] Credential rejected");
     unauthorised(
       res,
       result.reason ?? "VERIFICATION_FAILED",
@@ -105,13 +133,13 @@ async function runVerification(
   // Step 7: per-route agent identity binding — reject cross-agent credential replay
   if (expectedAgentId) {
     if (!result.agentId) {
-      logger.warn({ expectedAgentId, companyId }, "[VC-Middleware] Credential missing agentId claim");
+      logger.warn({ expectedAgentId, vcCompanyId }, "[VC-Middleware] Credential missing agentId claim");
       unauthorised(res, "MISSING_AGENT_ID", null, "Credential missing agentId in credentialSubject");
       return;
     }
     if (result.agentId !== expectedAgentId) {
       logger.warn(
-        { expectedAgentId, vcAgentId: result.agentId, companyId },
+        { expectedAgentId, vcAgentId: result.agentId, vcCompanyId },
         "[VC-Middleware] Cross-agent credential replay blocked"
       );
       unauthorised(
