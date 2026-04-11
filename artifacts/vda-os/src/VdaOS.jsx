@@ -6705,6 +6705,308 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
 }
 
 // ─────────────────────────────────────────────
+// AGENT CREDENTIALS TAB (W3C VC / DID)
+// ─────────────────────────────────────────────
+const AGENT_CREDENTIAL_DEFS = [
+  { agentId: "availability-agent",            label: "Availability Agent",      icon: "🔍", permittedSkills: ["GetAvailableUnitGroups"] },
+  { agentId: "rate-agent",                    label: "Rate Agent",              icon: "💰", permittedSkills: ["ListRatePlans", "ListOffers"] },
+  { agentId: "reservation-bot",               label: "Reservation Bot",         icon: "📋", permittedSkills: ["GetReservation", "CreateBooking"] },
+  { agentId: "check-in-agent",               label: "Check-In Agent",          icon: "✅", permittedSkills: ["CheckIn", "GetReservation"] },
+  { agentId: "folio-charge-agent",           label: "Folio Charge Agent",      icon: "💳", permittedSkills: ["CreateFolioCharge", "GetFolio"] },
+  { agentId: "checkout-agent",               label: "Checkout Agent",          icon: "🚪", permittedSkills: ["CheckOut", "GetReservation"] },
+  { agentId: "revenue-reconciliation-agent", label: "Revenue Reconciliation",  icon: "📊", permittedSkills: ["GetReport", "ListRatePlans"] },
+];
+
+function AgentCredentialsTab({ companyId, companyName }) {
+  const [credentials, setCredentials] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [issuing, setIssuing] = useState({});
+  const [verifyResults, setVerifyResults] = useState({});
+  const [error, setError] = useState(null);
+  const [expandedCred, setExpandedCred] = useState(null);
+  const [issueAllLoading, setIssueAllLoading] = useState(false);
+
+  const fetchCredentials = useCallback(async () => {
+    if (!companyId) return;
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/agents/credentials?companyId=${companyId}`);
+      if (r.ok) {
+        const d = await r.json();
+        setCredentials(d.credentials || []);
+      }
+    } catch (e) { setError(String(e)); }
+    setLoading(false);
+  }, [companyId]);
+
+  useEffect(() => { fetchCredentials(); }, [fetchCredentials]);
+
+  const issueCredential = async (agentDef) => {
+    setIssuing(p => ({ ...p, [agentDef.agentId]: true }));
+    setError(null);
+    try {
+      const r = await fetch("/api/agents/credentials/issue", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agentDef.agentId, companyId, permittedSkills: agentDef.permittedSkills, domainOwner: companyName }),
+      });
+      if (r.ok) await fetchCredentials();
+      else { const d = await r.json(); setError(d.error || "Issue failed"); }
+    } catch (e) { setError(String(e)); }
+    setIssuing(p => ({ ...p, [agentDef.agentId]: false }));
+  };
+
+  const issueAll = async () => {
+    setIssueAllLoading(true);
+    setError(null);
+    for (const def of AGENT_CREDENTIAL_DEFS) {
+      try {
+        await fetch("/api/agents/credentials/issue", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentId: def.agentId, companyId, permittedSkills: def.permittedSkills, domainOwner: companyName }),
+        });
+      } catch (e) { /* continue */ }
+    }
+    await fetchCredentials();
+    setIssueAllLoading(false);
+  };
+
+  const verifyCredential = async (cred) => {
+    setVerifyResults(p => ({ ...p, [cred.id]: { loading: true } }));
+    try {
+      const r = await fetch("/api/agents/credentials/verify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vc: cred.signedVc || null }),
+      });
+      const d = await r.json();
+      setVerifyResults(p => ({ ...p, [cred.id]: d }));
+    } catch (e) {
+      setVerifyResults(p => ({ ...p, [cred.id]: { verified: false, error: String(e) } }));
+    }
+  };
+
+  // Map agentId → active credential
+  const activeCreds = {};
+  for (const c of credentials) {
+    if (!c.revoked) {
+      if (!activeCreds[c.agentId] || new Date(c.issuedAt) > new Date(activeCreds[c.agentId].issuedAt)) {
+        activeCreds[c.agentId] = c;
+      }
+    }
+  }
+
+  const isExpired = (cred) => cred && new Date(cred.expiresAt) < new Date();
+
+  const fmtTime = (iso) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Agent Credential Registry</div>
+            <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6 }}>
+              W3C Verifiable Credentials · Ed25519Signature2020 · did:key DIDs · 24h rotation
+            </div>
+          </div>
+          <button
+            onClick={issueAll}
+            disabled={issueAllLoading || !companyId}
+            style={{ background: T.purple, border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 13, fontWeight: 700, color: "#fff", cursor: "pointer", opacity: issueAllLoading ? 0.6 : 1 }}
+          >
+            {issueAllLoading ? "Issuing…" : "⚡ Issue All Credentials"}
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+          {[
+            { label: "RFC 8037 / Ed25519Signature2020", color: T.green },
+            { label: "W3C VC Data Model 1.1", color: T.blue },
+            { label: "did:key DID Method", color: T.purple },
+            { label: "24h TTL + Auto-Rotation", color: T.orange },
+          ].map(b => (
+            <span key={b.label} style={{ fontSize: 10, fontWeight: 700, background: b.color + "20", color: b.color, border: `1px solid ${b.color}40`, borderRadius: 4, padding: "3px 8px", fontFamily: T.mono, letterSpacing: "0.05em" }}>
+              {b.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ background: T.red + "15", border: `1px solid ${T.red}40`, borderRadius: 8, padding: "10px 16px", fontSize: 12, color: T.red, marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Agent credential cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 14, marginBottom: 32 }}>
+        {AGENT_CREDENTIAL_DEFS.map(def => {
+          const cred = activeCreds[def.agentId];
+          const expired = isExpired(cred);
+          const status = !cred ? "none" : expired ? "expired" : "active";
+          const statusColor = { none: T.dim, expired: T.amber, active: T.green }[status];
+          const vr = cred ? verifyResults[cred.id] : null;
+
+          return (
+            <div key={def.agentId} style={{ background: T.card, border: `1px solid ${status === "active" ? T.green + "30" : T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <span style={{ fontSize: 20 }}>{def.icon}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{def.label}</div>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{def.agentId}</div>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, background: statusColor + "20", color: statusColor, border: `1px solid ${statusColor}40`, borderRadius: 4, padding: "3px 8px", fontFamily: T.mono, textTransform: "uppercase" }}>
+                  {status}
+                </span>
+              </div>
+
+              {cred && !expired && (
+                <div style={{ background: T.surface, borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 10, fontFamily: T.mono, color: T.dim, lineHeight: 1.7 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+                    <span style={{ color: T.purple, minWidth: 50 }}>DID</span>
+                    <span style={{ wordBreak: "break-all", color: T.text }}>{cred.did?.slice(0, 40)}…</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <span style={{ color: T.purple, minWidth: 50 }}>Hash</span>
+                    <span style={{ wordBreak: "break-all", color: T.amber }}>{cred.governanceFileHash ? cred.governanceFileHash.slice(0, 16) + "…" : "no governance files"}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <span style={{ color: T.purple, minWidth: 50 }}>Exp</span>
+                    <span>{fmtTime(cred.expiresAt)}</span>
+                  </div>
+                  {vr && !vr.loading && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                      <span style={{ color: T.purple, minWidth: 50 }}>Sig</span>
+                      <span style={{ color: vr.verified ? T.green : T.red, fontWeight: 700 }}>
+                        {vr.verified ? "✓ VALID" : `✗ ${vr.error?.slice(0, 40) || "INVALID"}`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => issueCredential(def)}
+                  disabled={issuing[def.agentId]}
+                  style={{ flex: 1, background: status === "active" ? T.surface : T.purple, border: `1px solid ${status === "active" ? T.border : "transparent"}`, borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, color: status === "active" ? T.text : "#fff", cursor: "pointer", opacity: issuing[def.agentId] ? 0.6 : 1 }}
+                >
+                  {issuing[def.agentId] ? "Issuing…" : status === "active" ? "↺ Re-issue" : "Issue VC"}
+                </button>
+                {cred && !expired && (
+                  <button
+                    onClick={() => verifyCredential(cred)}
+                    disabled={vr?.loading}
+                    style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.text, cursor: "pointer" }}
+                  >
+                    {vr?.loading ? "…" : "Verify"}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Full credential history table */}
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Credential Ledger ({credentials.length})</div>
+          <button onClick={fetchCredentials} disabled={loading} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 12px", fontSize: 11, color: T.dim, cursor: "pointer" }}>
+            {loading ? "…" : "Refresh"}
+          </button>
+        </div>
+        {credentials.length === 0 ? (
+          <div style={{ padding: "32px 16px", textAlign: "center", color: T.dim, fontSize: 12 }}>
+            No credentials issued yet. Click "Issue All Credentials" to create W3C VCs for all agents.
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: T.mono }}>
+              <thead>
+                <tr style={{ background: T.surface }}>
+                  {["Agent ID", "DID (truncated)", "Gov Hash", "Issued", "Expires", "Status", ""].map(h => (
+                    <th key={h} style={{ padding: "8px 12px", textAlign: "left", color: T.dim, fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: `1px solid ${T.border}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {credentials.map(c => {
+                  const expired = new Date(c.expiresAt) < new Date();
+                  const statusColor = c.revoked ? T.red : expired ? T.amber : T.green;
+                  const vr = verifyResults[c.id];
+                  return (
+                    <React.Fragment key={c.id}>
+                      <tr style={{ borderBottom: `1px solid ${T.border}20`, background: expandedCred === c.id ? T.surface : "transparent" }}>
+                        <td style={{ padding: "8px 12px", color: T.text, fontWeight: 600 }}>{c.agentId}</td>
+                        <td style={{ padding: "8px 12px", color: T.purple }}>{c.did?.slice(8, 28)}…</td>
+                        <td style={{ padding: "8px 12px", color: T.amber }}>{c.governanceFileHash ? c.governanceFileHash.slice(0, 12) + "…" : "—"}</td>
+                        <td style={{ padding: "8px 12px", color: T.dim }}>{fmtTime(c.issuedAt)}</td>
+                        <td style={{ padding: "8px 12px", color: expired ? T.amber : T.dim }}>{fmtTime(c.expiresAt)}</td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <span style={{ color: statusColor, fontWeight: 700, fontSize: 10 }}>{c.revoked ? `REVOKED (${c.revokedReason || ""})` : expired ? "EXPIRED" : "ACTIVE"}</span>
+                        </td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <button
+                            onClick={() => setExpandedCred(expandedCred === c.id ? null : c.id)}
+                            style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", fontSize: 10, color: T.dim, cursor: "pointer" }}
+                          >
+                            {expandedCred === c.id ? "▲" : "▼"}
+                          </button>
+                        </td>
+                      </tr>
+                      {expandedCred === c.id && (
+                        <tr>
+                          <td colSpan={7} style={{ padding: "12px 16px", background: T.surface }}>
+                            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                              <button
+                                onClick={() => verifyCredential(c)}
+                                disabled={vr?.loading || !c.signedVc}
+                                style={{ background: T.purple, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 11, fontWeight: 700, color: "#fff", cursor: "pointer", opacity: vr?.loading ? 0.6 : 1 }}
+                              >
+                                {vr?.loading ? "Verifying…" : "🔐 Verify Signature"}
+                              </button>
+                              {vr && !vr.loading && (
+                                <span style={{ padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: vr.verified ? T.green + "20" : T.red + "20", color: vr.verified ? T.green : T.red, border: `1px solid ${vr.verified ? T.green : T.red}40` }}>
+                                  {vr.verified ? "✓ Ed25519Signature2020 VALID" : `✗ ${vr.error || "INVALID"}`}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 10, color: T.dim, lineHeight: 1.8 }}>
+                              <div><strong style={{ color: T.text }}>Full DID:</strong> {c.did}</div>
+                              <div><strong style={{ color: T.text }}>Gov Hash:</strong> {c.governanceFileHash || "N/A"}</div>
+                              <div><strong style={{ color: T.text }}>Credential ID:</strong> #{c.id}</div>
+                              {vr?.verified && <div><strong style={{ color: T.text }}>Permitted Skills:</strong> {JSON.stringify(vr.permittedSkills || [])}</div>}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Architecture notes */}
+      <div style={{ marginTop: 20, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 11, color: T.dim, lineHeight: 1.8, fontFamily: T.mono }}>
+        <div style={{ color: T.text, fontWeight: 700, marginBottom: 6, fontFamily: T.sans, fontSize: 12 }}>Cryptographic Architecture</div>
+        <div>• <strong style={{ color: T.purple }}>Requirement A</strong> — Ed25519Signature2020 suite (RFC 8037 curve, 128-bit security)</div>
+        <div>• <strong style={{ color: T.blue }}>Requirement B</strong> — Static JSON-LD document loader — zero network calls at runtime</div>
+        <div>• <strong style={{ color: T.green }}>Requirement C</strong> — All custom fields inside credentialSubject (agentId, companyId, governanceFileHash, permittedSkills)</div>
+        <div>• <strong style={{ color: T.orange }}>Rotation</strong> — Platform issuer key rotated daily (midnight UTC); all agent VCs re-issued with new issuer DID</div>
+        <div>• <strong style={{ color: T.amber }}>Audit</strong> — Every agent endpoint records credentialVerified + governanceFileHash in Witness Agent ledger</div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // ROOT APP
 // ─────────────────────────────────────────────
 export default function VdaOS() {
@@ -6835,6 +7137,7 @@ export default function VdaOS() {
     { id: "witness",     label: "Witness Agent" + (log.length ? " (" + log.length + ")" : ""), icon: "🕵️" },
     { id: "a2md",        label: "A2MD Normaliser",  icon: "⚙️" },
     { id: "soc2",        label: "SOC 2 SD",          icon: "📋" },
+    { id: "credentials", label: "Agent Credentials", icon: "🔐" },
     { id: "filemanager", label: "File Manager",     icon: "📁" },
   ] : [];
 
@@ -6979,6 +7282,7 @@ export default function VdaOS() {
               .then(r => r.json());
           }} />}
           {tab === "soc2"        && <Soc2Tab companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} />}
+          {tab === "credentials" && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "filemanager" && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
         </>
       )}

@@ -12,6 +12,13 @@ import { callAI, callAIFull } from "./ai-proxy.js";
 import { db, witnessEntries, governanceFiles } from "@workspace/db";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
+import {
+  issueAgentCredential,
+  verifyAgentVc,
+  getActiveCredential,
+  listCredentialsForCompany,
+} from "../lib/agentCredentialIssuer.js";
+import { verifyAgentCredentialMiddleware } from "../lib/verifyAgentCredential.js";
 
 const router = Router();
 
@@ -278,6 +285,8 @@ interface WitnessEntryInput {
   scenarioRunId?: string;
   filesConsulted?: string[];
   crossDomainInheritance?: boolean;
+  credentialVerified?: boolean;
+  governanceFileHash?: string | null;
 }
 
 async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
@@ -297,6 +306,8 @@ async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
       scenarioRunId: entry.scenarioRunId ?? null,
       filesConsulted: entry.filesConsulted ?? null,
       crossDomainInheritance: entry.crossDomainInheritance ?? false,
+      credentialVerified: entry.credentialVerified ?? false,
+      governanceFileHash: entry.governanceFileHash ?? null,
     })
     .returning({ id: witnessEntries.id });
   return row.id;
@@ -584,7 +595,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
 
 // ─── Availability Agent ───────────────────────────────────────────────────────
 
-router.post("/agents/availability", async (req, res) => {
+router.post("/agents/availability", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const {
       propertyId,
@@ -641,7 +652,7 @@ router.post("/agents/availability", async (req, res) => {
 
 // ─── Rate Agent ───────────────────────────────────────────────────────────────
 
-router.post("/agents/rate", async (req, res) => {
+router.post("/agents/rate", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const { propertyId, requestedRate, barRate, ratePlanId, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -708,7 +719,7 @@ interface CreatedReservation {
   id: string;
 }
 
-router.post("/agents/reservation", async (req, res) => {
+router.post("/agents/reservation", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const {
       propertyId, action = "retrieve", reservationId,
@@ -891,7 +902,7 @@ router.post("/agents/reservation", async (req, res) => {
 
 // ─── Check-In Agent ───────────────────────────────────────────────────────────
 
-router.post("/agents/checkin", async (req, res) => {
+router.post("/agents/checkin", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const { propertyId, reservationId, guestName, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1015,7 +1026,7 @@ router.post("/agents/checkin", async (req, res) => {
 
 // ─── Folio Agent (read-only analysis) ────────────────────────────────────────
 
-router.post("/agents/folio", async (req, res) => {
+router.post("/agents/folio", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const { propertyId, reservationId, folioId, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1076,7 +1087,7 @@ interface FolioChargeBody {
   serviceDate?: string;
 }
 
-router.post("/agents/folio-charge", async (req, res) => {
+router.post("/agents/folio-charge", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const { propertyId, folioId, chargeAmount, currency = "EUR", serviceType = "Other", chargeName, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1199,7 +1210,7 @@ router.post("/agents/folio-charge", async (req, res) => {
 
 // ─── Checkout Agent ───────────────────────────────────────────────────────────
 
-router.post("/agents/checkout", async (req, res) => {
+router.post("/agents/checkout", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const { propertyId, reservationId, guestName, loyaltyTier, lateCheckout, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1326,7 +1337,7 @@ router.post("/agents/checkout", async (req, res) => {
 
 // ─── Revenue Reconciliation Agent ─────────────────────────────────────────────
 
-router.post("/agents/revenue", async (req, res) => {
+router.post("/agents/revenue", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const { propertyId, date, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -2018,6 +2029,111 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
     }
 
     res.json({ scenarioRunId, propertyId, apaleoIds: ids, steps: results, completedAt: new Date().toISOString() });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+// ─── Agent Credential Endpoints ───────────────────────────────────────────────
+
+/**
+ * POST /api/agents/credentials/issue
+ * Issues a W3C VC for a specific agent+company pair.
+ * Body: { agentId: string, companyId: number, permittedSkills?: string[], domainOwner?: string }
+ */
+router.post("/agents/credentials/issue", async (req, res) => {
+  try {
+    const { agentId, companyId, permittedSkills, domainOwner } = req.body as {
+      agentId: string;
+      companyId: number;
+      permittedSkills?: string[];
+      domainOwner?: string;
+    };
+    if (!agentId || !companyId) {
+      res.status(400).json({ error: "agentId and companyId are required" });
+      return;
+    }
+    const result = await issueAgentCredential({
+      agentId,
+      companyId: Number(companyId),
+      permittedSkills,
+      domainOwner,
+      ttlHours: 24,
+    });
+    res.json({
+      credentialId: result.credentialId,
+      did: result.did,
+      expiresAt: result.expiresAt,
+      governanceFileHash: result.governanceFileHash,
+      signedVc: result.signedVc,
+      vcBase64: Buffer.from(JSON.stringify(result.signedVc)).toString("base64"),
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+/**
+ * GET /api/agents/credentials?companyId=N
+ * Lists all credentials (active and revoked) for a company.
+ */
+router.get("/agents/credentials", async (req, res) => {
+  try {
+    const companyId = Number(req.query["companyId"]);
+    if (!companyId) {
+      res.status(400).json({ error: "companyId query param required" });
+      return;
+    }
+    const rows = await listCredentialsForCompany(companyId);
+    res.json({ credentials: rows });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+/**
+ * POST /api/agents/credentials/verify
+ * Verifies a VC JSON payload (or base64-encoded string).
+ * Body: { vc: object | string }
+ */
+router.post("/agents/credentials/verify", async (req, res) => {
+  try {
+    const { vc: rawVc } = req.body as { vc: unknown };
+    if (!rawVc) {
+      res.status(400).json({ error: "vc payload required" });
+      return;
+    }
+    const parsed =
+      typeof rawVc === "string"
+        ? (JSON.parse(Buffer.from(rawVc, "base64").toString("utf-8")) as Record<string, unknown>)
+        : (rawVc as Record<string, unknown>);
+    const result = await verifyAgentVc(parsed);
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+/**
+ * GET /api/agents/credentials/active?agentId=X&companyId=N
+ * Returns the active credential (without secret key) for a specific agent.
+ */
+router.get("/agents/credentials/active", async (req, res) => {
+  try {
+    const agentId = String(req.query["agentId"] ?? "");
+    const companyId = Number(req.query["companyId"]);
+    if (!agentId || !companyId) {
+      res.status(400).json({ error: "agentId and companyId required" });
+      return;
+    }
+    const cred = await getActiveCredential(agentId, companyId);
+    if (!cred) {
+      res.status(404).json({ error: "No active credential found" });
+      return;
+    }
+    const { secretKeyMultibase: _sk, ...safe } = cred;
+    void _sk;
+    res.json(safe);
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }

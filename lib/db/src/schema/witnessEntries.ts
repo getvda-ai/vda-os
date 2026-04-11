@@ -15,6 +15,8 @@ export const witnessEntries = pgTable("witness_entries", {
   scenarioRunId: text("scenario_run_id"),
   filesConsulted: text("files_consulted").array(),
   crossDomainInheritance: boolean("cross_domain_inheritance").default(false),
+  credentialVerified: boolean("credential_verified").default(false),
+  governanceFileHash: text("governance_file_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
