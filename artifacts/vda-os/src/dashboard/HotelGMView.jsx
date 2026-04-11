@@ -87,7 +87,7 @@ export default function HotelGMView({ companyId, onOpenTab }) {
 
   // Yesterday's decisions (last 24h)
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const recentDecisions = (witnessData?.entries ?? [])
+  const recentDecisions = (Array.isArray(witnessData) ? witnessData : [])
     .filter((e) => new Date(e.createdAt).getTime() > oneDayAgo)
     .slice(0, 8);
 
