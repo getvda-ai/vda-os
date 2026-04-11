@@ -1,0 +1,85 @@
+ADD-ON 1: Cryptographic Agent IdentityYou are building a Cryptographic Agent Identity layer for the VDA-MD Framework 
+— a Markdown-governed AI agent system running on Replit. The existing system 
+uses AGENTS.md, SOP.md, SKILL.md, and EXCEPTION.md files stored in a GitHub 
+private repository to govern AI agent behaviour. Every agent already has a 
+defined identity in its AGENTS.md file including owner, domain, and scope.
+
+YOUR TASK: Implement a W3C Verifiable Credentials (VC) identity layer for 
+VDA-MD agents using the existing @digitalbazaar/vc npm package (v6.x) and 
+the did-key method via the @digitalbazaar/did-io and @digitalbazaar/did-method-key 
+packages. Do NOT invent custom cryptography. Use only these published, 
+production npm packages.
+
+WHAT TO BUILD:
+
+1. AGENT CREDENTIAL ISSUER (server/agentCredentialIssuer.js)
+   - Reads an agent's AGENTS.md YAML front matter (control_id, owner, 
+     domain, scope fields already exist in the file)
+   - Generates a did:key DID for the agent using @digitalbazaar/did-method-key
+   - Issues a W3C Verifiable Credential using @digitalbazaar/vc that asserts:
+     * agent_id (from control_id in AGENTS.md front matter)
+     * domain_owner (from owner field)
+     * permitted_skills (from scope field)
+     * governance_file_hash (SHA-256 of the AGENTS.md + SKILL.md contents 
+       concatenated — use Node.js built-in crypto module, no external package)
+     * issued_at and expires_at (24-hour rotation — credential expires after 
+       24 hours and must be reissued)
+   - Stores the issued VC as a JSON file in a /agent-credentials/ directory
+   - Exposes a POST /issue-credential endpoint that accepts { agent_id, 
+     agents_md_path, skill_md_path } and returns the signed VC
+
+2. CREDENTIAL VERIFICATION MIDDLEWARE (server/verifyAgentCredential.js)
+   - Express middleware that intercepts every agent action request
+   - Extracts the VC from the request header (Authorization: Bearer <vc_jwt>)
+   - Verifies the VC signature using @digitalbazaar/vc verify()
+   - Checks that governance_file_hash in the VC matches the current SHA-256 
+     of the live AGENTS.md and SKILL.md files — if files have changed since 
+     credential was issued, reject with 401 and trigger a re-issue
+   - Checks expiry — credentials older than 24 hours are rejected
+   - If verification fails for any reason, returns HTTP 401 with a structured 
+     JSON error body: { error, agent_id, reason, timestamp }
+   - If verification passes, attaches verified_agent to req object and calls next()
+
+3. WITNESS AGENT INTEGRATION (add to existing witness log entries)
+   - Add a credential_verified boolean field to every existing Witness Agent 
+     log entry
+   - Add governance_file_hash to the log entry so the audit trail records 
+     which exact version of the governance files the agent was operating under
+   - This should write to the existing audit log structure already in place — 
+     do not create a new logging system
+
+4. CREDENTIAL ROTATION SCHEDULER (server/credentialRotation.js)
+   - Uses node-cron (npm package, production standard) to run every 23 hours
+   - Calls the issuer endpoint for every agent found in the /governance/ 
+     directory by scanning for *.AGENTS.md files
+   - Logs rotation events to the existing Witness Agent audit log with 
+     event_type: "credential_rotation"
+   - If rotation fails for any agent, logs a ESCALATE event to the audit log 
+     with the specific agent_id and failure reason
+
+5. DASHBOARD UI ADDITIONS (add to existing React dashboard)
+   - New "Agent Credentials" tab showing a table: agent_id | did | issued_at | 
+     expires_at | governance_hash | status (Valid/Expired/Hash Mismatch)
+   - Status uses existing dashboard colour conventions: green for Valid, 
+     amber for expiring within 2 hours, red for Expired or Hash Mismatch
+   - A "Re-issue" button per agent row that calls POST /issue-credential
+   - Hash Mismatch state (governance files changed but credential not yet 
+     rotated) displayed with a warning banner: "Governance files updated — 
+     credential pending rotation"
+
+CONSTRAINTS:
+- Use only: @digitalbazaar/vc, @digitalbazaar/did-method-key, 
+  @digitalbazaar/did-io, node-cron, and Node.js built-in crypto
+- Do NOT use SPIFFE/SPIRE (requires Kubernetes infrastructure not available 
+  on Replit)
+- Do NOT implement your own signature schemes
+- All credential storage is local JSON files in /agent-credentials/ — no 
+  external key management service
+- The credential issuer signs with an Ed25519 key generated at first run and 
+  stored in /agent-credentials/issuer-keypair.json — warn in the README that 
+  this file must be protected and excluded from Git via .gitignore
+
+INTEGRATION POINT: The verifyAgentCredential middleware must wrap the existing 
+agent action handler that currently calls the Claude API. The credential check 
+happens before the §2.1 Enforcement Rule file check — if the credential fails, 
+the request never reaches the governance file check or the Claude API.
