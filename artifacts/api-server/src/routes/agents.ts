@@ -9,7 +9,7 @@ import type {
   ReservationStatus,
 } from "../lib/apaleo-types.js";
 import { callAI, callAIFull } from "./ai-proxy.js";
-import { db, governanceFiles } from "@workspace/db";
+import { db, governanceFiles, witnessEntries } from "@workspace/db";
 import { writeWitnessEntry, type AgentDecision, type WitnessEntryInput } from "../lib/witnessWriter.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { eq, desc, and, inArray } from "drizzle-orm";
