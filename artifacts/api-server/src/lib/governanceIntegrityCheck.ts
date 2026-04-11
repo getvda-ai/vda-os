@@ -8,8 +8,12 @@
  *   (b) MUST NOT clause counts in active governance files are unchanged
  *       since the previous check (in-memory baseline, resets on restart).
  *
- * Both checks write FRAMEWORK_INTEGRITY witness entries. Failures are
- * non-blocking — the server continues operating.
+ * Each run emits a canonical FRAMEWORK_INTEGRITY witness entry:
+ *   - event_type: "integrity_check_passed" when all checks pass
+ *   - event_type: "integrity_check_failed" when any check fails
+ *
+ * Sub-events (governance_hash_drift, must_not_count_drift) are also written
+ * for detailed traceability. Failures are non-blocking — the server continues.
  */
 
 import { db, agentCredentials, governanceFiles } from "@workspace/db";
@@ -43,8 +47,9 @@ async function countActiveMustNotClauses(): Promise<number> {
 }
 
 // ─── Check (a): governance hash integrity for all active agent credentials ────
+// Returns true if all checks passed, false if any failure was detected.
 
-async function checkCredentialHashIntegrity(): Promise<void> {
+async function checkCredentialHashIntegrity(): Promise<boolean> {
   const creds = await db
     .select({
       agentId: agentCredentials.agentId,
@@ -59,6 +64,8 @@ async function checkCredentialHashIntegrity(): Promise<void> {
       )
     );
 
+  let allPassed = true;
+
   for (const cred of creds) {
     if (!cred.agentId || cred.companyId === null || !cred.governanceFileHash) continue;
 
@@ -67,6 +74,7 @@ async function checkCredentialHashIntegrity(): Promise<void> {
       if (currentHash === null) continue; // no governance files for this agent/company
 
       if (currentHash !== cred.governanceFileHash) {
+        allPassed = false;
         logger.warn(
           { agentId: cred.agentId, companyId: cred.companyId, storedHash: cred.governanceFileHash, currentHash },
           "[IntegrityCheck] Governance hash drift detected"
@@ -95,11 +103,14 @@ async function checkCredentialHashIntegrity(): Promise<void> {
       logger.warn({ err, agentId: cred.agentId, companyId: cred.companyId }, "[IntegrityCheck] Error checking credential hash");
     }
   }
+
+  return allPassed;
 }
 
 // ─── Check (b): MUST NOT clause count drift ───────────────────────────────────
+// Returns true if the count is stable (or this is the first run), false on drift.
 
-async function checkMustNotCountDrift(): Promise<void> {
+async function checkMustNotCountDrift(): Promise<boolean> {
   const currentCount = await countActiveMustNotClauses();
 
   if (mustNotBaseline === null) {
@@ -121,7 +132,7 @@ async function checkMustNotCountDrift(): Promise<void> {
         establishedAt: new Date().toISOString(),
       },
     });
-    return;
+    return true; // baseline run is always considered "passed"
   }
 
   if (currentCount !== mustNotBaseline) {
@@ -148,18 +159,46 @@ async function checkMustNotCountDrift(): Promise<void> {
 
     // Update baseline to current so subsequent checks compare from here
     mustNotBaseline = currentCount;
-  } else {
-    logger.debug({ count: currentCount }, "[IntegrityCheck] MUST NOT clause count stable");
+    return false;
   }
+
+  logger.debug({ count: currentCount }, "[IntegrityCheck] MUST NOT clause count stable");
+  return true;
 }
 
 // ─── Full integrity check run ─────────────────────────────────────────────────
 
 async function runIntegrityCheck(): Promise<void> {
+  const checkedAt = new Date().toISOString();
   logger.info("[IntegrityCheck] Running governance framework integrity check");
-  await checkCredentialHashIntegrity();
-  await checkMustNotCountDrift();
-  logger.info("[IntegrityCheck] Governance framework integrity check complete");
+
+  const hashCheckPassed = await checkCredentialHashIntegrity();
+  const mustNotCheckPassed = await checkMustNotCountDrift();
+  const allPassed = hashCheckPassed && mustNotCheckPassed;
+
+  // Canonical per-run summary event
+  await writeGovernanceEvent({
+    companyId: PLATFORM_COMPANY_ID,
+    agent: "integrity-check",
+    eventCategory: "FRAMEWORK_INTEGRITY",
+    decision: allPassed ? "PASS" : "FAIL",
+    fileReferenced: "VDA-MK Governance Framework — Integrity Check",
+    clauseApplied: "VDA-MD §6: Periodic governance framework integrity check",
+    actionProposed: allPassed
+      ? "No integrity issues detected — governance framework is consistent"
+      : "Integrity issues detected — see sub-events for details",
+    reasoning: allPassed
+      ? "All credential hash checks passed and MUST NOT clause count is stable"
+      : `Failures detected: hash_check=${hashCheckPassed ? "PASS" : "FAIL"}, must_not_check=${mustNotCheckPassed ? "PASS" : "FAIL"}`,
+    apaleoData: {
+      event_type: allPassed ? "integrity_check_passed" : "integrity_check_failed",
+      hashCheckPassed,
+      mustNotCheckPassed,
+      checkedAt,
+    },
+  });
+
+  logger.info({ allPassed }, "[IntegrityCheck] Governance framework integrity check complete");
 }
 
 // ─── Scheduler ────────────────────────────────────────────────────────────────

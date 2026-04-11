@@ -6,7 +6,7 @@ import { Router, type IRouter } from "express";
 import { db, onboardingRequests } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
-import { writeWitnessEntry } from "../routes/agents.js";
+import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { deregisterDynamicAgent } from "./onboardingOrchestrator.js";
 
 const router: IRouter = Router();

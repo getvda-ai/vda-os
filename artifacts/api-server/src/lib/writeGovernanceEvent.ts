@@ -1,4 +1,6 @@
-import { writeWitnessEntry, type WitnessEntryInput, type AgentDecision } from "../routes/agents.js";
+import { writeWitnessEntry, type WitnessEntryInput, type AgentDecision } from "./witnessWriter.js";
+
+export type { AgentDecision, WitnessEntryInput };
 
 export type GovernanceEventInput = Omit<WitnessEntryInput, "decision"> & {
   eventCategory: string;

@@ -9,7 +9,9 @@ import type {
   ReservationStatus,
 } from "../lib/apaleo-types.js";
 import { callAI, callAIFull } from "./ai-proxy.js";
-import { db, witnessEntries, governanceFiles } from "@workspace/db";
+import { db, governanceFiles } from "@workspace/db";
+import { writeWitnessEntry, type AgentDecision, type WitnessEntryInput } from "../lib/witnessWriter.js";
+import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import {
@@ -26,29 +28,21 @@ const APALEO_API_BASE = "https://api.apaleo.com";
 
 // ─── Cross-Domain Governance Event Helper ─────────────────────────────────────
 // Emits a secondary COMPLIANCE_BOUNDARY/INFO witness entry when cross-domain
-// governance files from a shared-services agent were applied. Called directly
-// (not via writeGovernanceEvent) to avoid an import cycle: writeGovernanceEvent
-// imports writeWitnessEntry from this file.
+// governance files from a shared-services agent were applied.
+// Uses writeGovernanceEvent (cycle-safe: writeGovernanceEvent now imports from
+// lib/witnessWriter.ts rather than routes/agents.ts).
 async function emitCrossDomainGovernanceEvent(companyId: number, agent: string): Promise<void> {
-  try {
-    await writeWitnessEntry({
-      companyId,
-      agent,
-      eventCategory: "COMPLIANCE_BOUNDARY",
-      decision: {
-        decision: "INFO",
-        clauseApplied: "VDA-MK §5: Cross-domain governance files from a shared services agent were applied",
-        actionProposed: "Cross-domain governance inheritance applied to this decision",
-        exceptionApplied: false,
-        escalationTarget: null,
-        reasoning: "Agent decision used governance files inherited from a cross-domain shared services agent",
-      },
-      fileReferenced: "VDA-MK Cross-Domain Governance Inheritance",
-      apaleoData: { event_type: "cross_domain_inheritance_invoked" },
-    });
-  } catch (err) {
-    logger.warn({ err }, "[Witness] Failed to emit cross-domain governance event");
-  }
+  writeGovernanceEvent({
+    companyId,
+    agent,
+    eventCategory: "COMPLIANCE_BOUNDARY",
+    decision: "INFO",
+    clauseApplied: "VDA-MK §5: Cross-domain governance files from a shared services agent were applied",
+    actionProposed: "Cross-domain governance inheritance applied to this decision",
+    reasoning: "Agent decision used governance files inherited from a cross-domain shared services agent",
+    fileReferenced: "VDA-MK Cross-Domain Governance Inheritance",
+    apaleoData: { event_type: "cross_domain_inheritance_invoked" },
+  }).catch(err => logger.warn({ err }, "[Witness] Failed to emit cross-domain governance event"));
 }
 
 // ─── Typed Apaleo Request Client ──────────────────────────────────────────────
@@ -290,57 +284,11 @@ export async function getGovernancePolicyFromFM(companyId: number, policyKey: st
   }
 }
 
-// ─── Agent Decision Type ──────────────────────────────────────────────────────
+// ─── Witness Stream Writer (types + writer live in lib/witnessWriter.ts) ──────
+// Re-exported here for backward compatibility with external callers.
 
-export interface AgentDecision {
-  decision: "PASS" | "FAIL" | "ESCALATE" | "INFO";
-  clauseApplied: string;
-  actionProposed: string;
-  exceptionApplied: boolean;
-  escalationTarget: string | null;
-  reasoning: string;
-}
-
-// ─── Witness Stream Writer ────────────────────────────────────────────────────
-
-export interface WitnessEntryInput {
-  companyId: number;
-  agent: string;
-  decision: AgentDecision;
-  fileReferenced: string;
-  apaleoData: Record<string, unknown>;
-  scenarioRunId?: string;
-  filesConsulted?: string[];
-  crossDomainInheritance?: boolean;
-  credentialVerified?: boolean;
-  governanceFileHash?: string | null;
-  eventCategory?: string;
-}
-
-export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
-  const [row] = await db
-    .insert(witnessEntries)
-    .values({
-      companyId: entry.companyId,
-      agent: entry.agent,
-      decision: entry.decision.decision,
-      fileReferenced: entry.fileReferenced,
-      clauseApplied: entry.decision.clauseApplied,
-      actionProposed: entry.decision.actionProposed,
-      exceptionApplied: entry.decision.exceptionApplied,
-      escalationTarget: entry.decision.escalationTarget,
-      reasoning: entry.decision.reasoning,
-      apaleoData: entry.apaleoData,
-      scenarioRunId: entry.scenarioRunId ?? null,
-      filesConsulted: entry.filesConsulted ?? null,
-      crossDomainInheritance: entry.crossDomainInheritance ?? false,
-      credentialVerified: entry.credentialVerified ?? false,
-      governanceFileHash: entry.governanceFileHash ?? null,
-      eventCategory: entry.eventCategory ?? null,
-    })
-    .returning({ id: witnessEntries.id });
-  return row.id;
-}
+export type { AgentDecision, WitnessEntryInput };
+export { writeWitnessEntry };
 
 // ─── Cross-Domain Inheritance Detector ────────────────────────────────────────
 
