@@ -8328,11 +8328,11 @@ function A2AProtocolTab({ companyId, companyName }) {
 // ─────────────────────────────────────────────────────────────────
 
 const DASHBOARD_ROLES = [
-  { id: "ambassador",          label: "Ambassador",        description: "HITL + shadow review" },
-  { id: "senior_ambassador",   label: "Senior Ambassador", description: "Shift lead · decision queue" },
-  { id: "hotel_gm",            label: "Hotel GM",          description: "Property staircase" },
-  { id: "regional_gm",         label: "Regional GM",       description: "5-property cluster" },
-  { id: "operations_chief",    label: "Operations Chief",  description: "Chain governance" },
+  { id: "ambassador",          label: "Ambassador",        description: "HITL + shadow review",      color: "#94a3b8" },
+  { id: "senior_ambassador",   label: "Senior Ambassador", description: "Shift lead · decision queue", color: "#f59e0b" },
+  { id: "hotel_gm",            label: "Hotel GM",          description: "Property staircase",         color: "#60a5fa" },
+  { id: "regional_gm",         label: "Regional GM",       description: "5-property cluster",         color: "#a855f7" },
+  { id: "operations_chief",    label: "Operations Chief",  description: "Chain governance",           color: "#34d399" },
 ];
 
 function DashboardTab({ companyId, onOpenTab }) {
@@ -8346,6 +8346,14 @@ function DashboardTab({ companyId, onOpenTab }) {
         padding: "0 28px", display: "flex", alignItems: "center", gap: 0,
         overflowX: "auto",
       }}>
+        {/* "Viewing as:" context label */}
+        <span style={{
+          fontSize: 10, color: "#6b7280", fontFamily: "'DM Mono', monospace",
+          letterSpacing: "0.07em", paddingRight: 12, marginRight: 4,
+          borderRight: "1px solid #1e2229", whiteSpace: "nowrap",
+        }}>
+          VIEWING AS:
+        </span>
         {DASHBOARD_ROLES.map((r) => {
           const active = role === r.id;
           return (
@@ -8354,8 +8362,8 @@ function DashboardTab({ companyId, onOpenTab }) {
               onClick={() => setRole(r.id)}
               style={{
                 background: "none", border: "none",
-                borderBottom: `2px solid ${active ? "#FF6B2B" : "transparent"}`,
-                color: active ? "#FF6B2B" : "#6b7280",
+                borderBottom: `2px solid ${active ? r.color : "transparent"}`,
+                color: active ? r.color : "#6b7280",
                 padding: "12px 16px", cursor: "pointer",
                 fontSize: 13, fontWeight: active ? 700 : 400,
                 fontFamily: "'DM Sans', sans-serif",

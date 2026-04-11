@@ -140,7 +140,13 @@ export default function SeniorAmbassadorView({ companyId }) {
   const hitlAgo = useSecondsAgo(hitlUpdated);
   const shiftAgo = useSecondsAgo(shiftUpdated);
 
-  const pending = (hitlData?.pending ?? []).filter((p) => !resolvedTokens.has(p.token));
+  // Filter to this property's HITL tokens (companyId from enriched pending endpoint)
+  const pending = (hitlData?.pending ?? []).filter((p) => {
+    if (resolvedTokens.has(p.token)) return false;
+    if (!companyId) return true;
+    const tokenCompany = p.companyId ?? p.payload?.companyId;
+    return !tokenCompany || Number(tokenCompany) === Number(companyId);
+  });
   const activatedAgents = (phasesData?.phases ?? []).filter((p) => p.phase !== "not_activated");
   const allShadows = shiftData?.shadow_reviews ?? [];
   const shadows = allShadows.filter((s) => !reviewedShadows.has(String(s.witnessId)));

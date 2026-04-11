@@ -48,8 +48,10 @@ function SectionHeader({ title, count }) {
 }
 
 export default function AmbassadorView({ companyId, onOpenTab }) {
-  const [shadowList, setShadowList] = useState(null);
-  const [hitlList, setHitlList] = useState(null);
+  // Track dismissed items locally — allows optimistic removal while staying live on each poll.
+  // Fresh server data always replaces the base list; only locally-dismissed IDs are filtered out.
+  const [dismissedTokens, setDismissedTokens] = useState(new Set());
+  const [dismissedShadows, setDismissedShadows] = useState(new Set());
 
   const {
     data: shiftData,
@@ -58,41 +60,38 @@ export default function AmbassadorView({ companyId, onOpenTab }) {
   } = usePoll(async () => {
     if (!companyId) return null;
     const r = await fetch(`/api/dashboard/shift-summary?companyId=${companyId}`);
-    const d = await r.json();
-    if (shadowList === null) setShadowList(d.shadow_reviews ?? []);
-    return d;
+    return r.json();
   }, 30000);
 
   const {
     data: hitlData,
     loading: hitlLoading,
-    lastUpdated: hitlUpdated,
   } = usePoll(async () => {
     const r = await fetch("/api/hitl/pending");
     const d = await r.json();
-    // Only show tokens that belong to this hotel's company (companyId match in payload)
-    // Fall back to showing all if companyId is not set or token has no companyId field.
+    // Filter to this hotel's tokens (companyId from enriched endpoint; fallback payload)
     const filtered = (d.pending ?? []).filter((p) => {
       if (!companyId) return true;
       const tokenCompany = p.companyId ?? p.payload?.companyId;
       return !tokenCompany || Number(tokenCompany) === Number(companyId);
     });
-    if (hitlList === null) setHitlList(filtered);
     return { ...d, pending: filtered };
   }, 30000);
 
   const shiftAgo = useSecondsAgo(shiftUpdated);
 
-  const resolvedHitl = (token, outcome) => {
-    setHitlList((prev) => (prev ?? []).filter((p) => p.token !== token));
+  // Optimistic removal — dismissed items hidden immediately but re-appear if server resets them
+  const resolvedHitl = (token) => {
+    setDismissedTokens((prev) => new Set([...prev, token]));
   };
 
   const resolvedShadow = (witnessId) => {
-    setShadowList((prev) => (prev ?? []).filter((r) => String(r.witnessId) !== String(witnessId)));
+    setDismissedShadows((prev) => new Set([...prev, String(witnessId)]));
   };
 
-  const pending = hitlList ?? hitlData?.pending ?? [];
-  const shadows = shadowList ?? shiftData?.shadow_reviews ?? [];
+  // Always derive from latest server data, filtered by local dismissals
+  const pending = (hitlData?.pending ?? []).filter((p) => !dismissedTokens.has(p.token));
+  const shadows = (shiftData?.shadow_reviews ?? []).filter((r) => !dismissedShadows.has(String(r.witnessId)));
 
   return (
     <div style={{ ...DM, padding: "24px 28px", maxWidth: 900 }}>
