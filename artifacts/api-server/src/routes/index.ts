@@ -10,6 +10,7 @@ import seedRouter from "./seed";
 import a2aRouter from "./a2a";
 import hitlRouter from "./hitl";
 import onboardingRollbackRouter from "../onboarding/onboardingRollback";
+import dashboardRouter from "./dashboard";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(seedRouter);
 router.use(a2aRouter);
 router.use(hitlRouter);
 router.use(onboardingRollbackRouter);
+router.use(dashboardRouter);
 
 export default router;

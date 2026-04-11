@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useApaleoStats, useApaleoReservations } from "./hooks/use-apaleo";
+import AmbassadorView      from "./dashboard/AmbassadorView.jsx";
+import SeniorAmbassadorView from "./dashboard/SeniorAmbassadorView.jsx";
+import HotelGMView         from "./dashboard/HotelGMView.jsx";
+import RegionalGMView      from "./dashboard/RegionalGMView.jsx";
+import OperationsChiefView from "./dashboard/OperationsChiefView.jsx";
 
 // ─────────────────────────────────────────────
 // DESIGN TOKENS — identical to citizenM version
@@ -5811,7 +5816,7 @@ function Directory({ onNew, onLoad }) {
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: T.sans, color: T.text }}>
       <style>{GLOBAL_CSS}</style>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;900&display=swap" />
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;900&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;600&display=swap" />
 
       {/* Header */}
       <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, padding: "0 32px", height: 58, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
@@ -8304,6 +8309,85 @@ function A2AProtocolTab({ companyId, companyName }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────
+// DASHBOARD TAB
+//
+// Role switcher is UI-only — no authentication. Any user can select
+// any role. The selected role determines which view is rendered.
+// Default role: senior_ambassador.
+//
+// Roles:
+//   ambassador          — Front-desk; HITL cards + shadow review rows
+//   senior_ambassador   — Shift lead; decision queue (10s) + agent status (30s)
+//   hotel_gm            — Property GM; staircase + yesterday's decisions
+//   regional_gm         — Cluster head; 5-property overview + cross-property alerts
+//   operations_chief    — Ops chief; chain-wide governance health + adoption staircase
+//
+// companyId: derived from setup.id — maps to BER=3, LND=4, MUC=5, PAR=6, VIE=7.
+// RegionalGMView and OperationsChiefView fetch all hotels internally.
+// ─────────────────────────────────────────────────────────────────
+
+const DASHBOARD_ROLES = [
+  { id: "ambassador",          label: "Ambassador",        description: "HITL + shadow review" },
+  { id: "senior_ambassador",   label: "Senior Ambassador", description: "Shift lead · decision queue" },
+  { id: "hotel_gm",            label: "Hotel GM",          description: "Property staircase" },
+  { id: "regional_gm",         label: "Regional GM",       description: "5-property cluster" },
+  { id: "operations_chief",    label: "Operations Chief",  description: "Chain governance" },
+];
+
+function DashboardTab({ companyId, onOpenTab }) {
+  const [role, setRole] = useState("senior_ambassador");
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "calc(100vh - 116px)", background: "#07080a" }}>
+      {/* Role switcher bar */}
+      <div style={{
+        background: "#0a0b0e", borderBottom: "1px solid #1e2229",
+        padding: "0 28px", display: "flex", alignItems: "center", gap: 0,
+        overflowX: "auto",
+      }}>
+        {DASHBOARD_ROLES.map((r) => {
+          const active = role === r.id;
+          return (
+            <button
+              key={r.id}
+              onClick={() => setRole(r.id)}
+              style={{
+                background: "none", border: "none",
+                borderBottom: `2px solid ${active ? "#FF6B2B" : "transparent"}`,
+                color: active ? "#FF6B2B" : "#6b7280",
+                padding: "12px 16px", cursor: "pointer",
+                fontSize: 13, fontWeight: active ? 700 : 400,
+                fontFamily: "'DM Sans', sans-serif",
+                transition: "all 0.15s",
+                whiteSpace: "nowrap",
+                display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1,
+              }}
+            >
+              <span>{r.label}</span>
+              {active && (
+                <span style={{ fontSize: 10, color: "#6b7280", fontWeight: 400 }}>{r.description}</span>
+              )}
+            </button>
+          );
+        })}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", padding: "0 4px" }}>
+          <span style={{ fontSize: 10, color: "#374151", fontFamily: "'DM Mono', monospace", letterSpacing: "0.06em" }}>
+            UI ROLE ONLY · NO AUTH
+          </span>
+        </div>
+      </div>
+
+      {/* Role view */}
+      {role === "ambassador"        && <AmbassadorView       companyId={companyId} onOpenTab={onOpenTab} />}
+      {role === "senior_ambassador" && <SeniorAmbassadorView companyId={companyId} />}
+      {role === "hotel_gm"          && <HotelGMView          companyId={companyId} onOpenTab={onOpenTab} />}
+      {role === "regional_gm"       && <RegionalGMView       companyId={companyId} />}
+      {role === "operations_chief"  && <OperationsChiefView  />}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // ROOT APP
 // ─────────────────────────────────────────────
@@ -8344,7 +8428,7 @@ export default function VdaOS() {
     setLog(buildSeedLog(cfg, data.companyName));
     setLogIsSeeded(true);
     setScreen("hub");
-    setTab("journey");
+    setTab("dashboard");
     setC2mdCache({});
     try {
       const res = await fetch("/api/companies", {
@@ -8379,7 +8463,7 @@ export default function VdaOS() {
 
   const handleLoad = (savedData) => {
     setSetup(savedData);
-    setTab("journey");
+    setTab("dashboard");
     const cfg = { ...INDUSTRY_CONFIGS[savedData.industry], id: savedData.industry };
     setLog(buildSeedLog(cfg, savedData.companyName));
     setLogIsSeeded(true);
@@ -8428,7 +8512,8 @@ export default function VdaOS() {
   const config = setup ? { ...INDUSTRY_CONFIGS[setup.industry], id: setup.industry } : null;
 
   const tabs = setup ? [
-    { id: "journey",     label: "Journey Map",     icon: "🗺" },
+    { id: "dashboard",   label: "Dashboard",        icon: "📊" },
+    { id: "journey",     label: "Journey Map",      icon: "🗺" },
     { id: "demo",        label: "Live Demo",        icon: "🚀" },
     { id: "c2md",        label: "C2MD Studio",      icon: "🔬" },
     { id: "exception",   label: "Exception Engine", icon: "⚡" },
@@ -8444,7 +8529,7 @@ export default function VdaOS() {
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: T.sans, color: T.text }}>
       <style>{GLOBAL_CSS}</style>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;900&display=swap" />
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;900&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;600&display=swap" />
 
       {/* Directory */}
       {screen === "directory" && (
@@ -8564,6 +8649,7 @@ export default function VdaOS() {
           </div>
 
           {/* Content */}
+          {tab === "dashboard"   && <DashboardTab companyId={setup.id} onOpenTab={setTab} />}
           {tab === "journey"     && <JourneyMapTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} apaleoStats={apaleoStats} />}
           {tab === "demo"        && <LiveDemoTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} companyId={setup.id} onLogEntry={addLog} />}
           {tab === "c2md"        && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} companyId={setup.id} onSaveToFM={(content, filename, fileType) => {
