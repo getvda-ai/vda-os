@@ -287,6 +287,7 @@ export interface WitnessEntryInput {
   crossDomainInheritance?: boolean;
   credentialVerified?: boolean;
   governanceFileHash?: string | null;
+  eventCategory?: string;
 }
 
 export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
@@ -308,12 +309,15 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
       crossDomainInheritance: entry.crossDomainInheritance ?? false,
       credentialVerified: entry.credentialVerified ?? false,
       governanceFileHash: entry.governanceFileHash ?? null,
+      eventCategory: entry.eventCategory ?? null,
     })
     .returning({ id: witnessEntries.id });
   return row.id;
 }
 
 // ─── Cross-Domain Inheritance Detector ────────────────────────────────────────
+
+export { writeGovernanceEvent, type GovernanceEventInput } from "../lib/writeGovernanceEvent.js";
 
 function hasCrossDomainFiles(filesLoaded: string[]): boolean {
   return filesLoaded.some(f => {

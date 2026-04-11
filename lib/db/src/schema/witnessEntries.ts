@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, varchar, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 
 export const witnessEntries = pgTable("witness_entries", {
   id: serial("id").primaryKey(),
@@ -17,6 +17,7 @@ export const witnessEntries = pgTable("witness_entries", {
   crossDomainInheritance: boolean("cross_domain_inheritance").default(false),
   credentialVerified: boolean("credential_verified").default(false),
   governanceFileHash: text("governance_file_hash"),
+  eventCategory: varchar("event_category"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
