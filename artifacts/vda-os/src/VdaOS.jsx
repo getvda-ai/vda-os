@@ -5328,9 +5328,208 @@ function ReleaseModal({ files, companyId, companyName, config, releaseNotes, rel
 }
 
 // ─────────────────────────────────────────────
+// FRAMEWORK INTEGRITY PANEL
+// ─────────────────────────────────────────────
+
+const CATEGORY_META = {
+  FRAMEWORK_INTEGRITY: { label: "Framework Integrity", color: T.purple, icon: "🔐" },
+  COMPLIANCE_BOUNDARY: { label: "Compliance Boundary", color: T.amber,  icon: "⚠️" },
+  AGENT_LIFECYCLE:     { label: "Agent Lifecycle",     color: T.blue,   icon: "🔄" },
+  A2A_PROTOCOL:        { label: "A2A Protocol",        color: T.teal,   icon: "🔗" },
+};
+
+function CategoryBadge({ category }) {
+  const meta = CATEGORY_META[category] || { label: category || "Agent Decision", color: T.dim, icon: "📋" };
+  return <Tag color={meta.color}>{meta.icon} {meta.label}</Tag>;
+}
+
+function FrameworkIntegrityPanel({ companyId }) {
+  const [metrics, setMetrics] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
+  const refresh = useCallback(async () => {
+    if (!companyId) return;
+    try {
+      const [mRes, eRes] = await Promise.all([
+        fetch(`/api/agents/witness/integrity-metrics?companyId=${companyId}`),
+        fetch(`/api/agents/witness/framework-events?companyId=${companyId}&limit=10`),
+      ]);
+      if (mRes.ok) setMetrics(await mRes.json());
+      if (eRes.ok) {
+        const data = await eRes.json();
+        setEvents(Array.isArray(data) ? data : []);
+      }
+      setLastRefresh(new Date());
+    } catch (err) {
+      console.error("[FrameworkIntegrityPanel] fetch error", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, 30_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  const metricCards = [
+    {
+      label: "Integrity Checks Passed",
+      sub: "last 24 h",
+      val: metrics?.integrityPassedLast24h ?? "—",
+      color: T.green,
+      icon: "✅",
+    },
+    {
+      label: "Integrity Failures",
+      sub: "all time",
+      val: metrics?.integrityFailuresAllTime ?? "—",
+      color: T.red,
+      icon: "❌",
+    },
+    {
+      label: "Compliance Rejections",
+      sub: "last 7 days",
+      val: metrics?.complianceRejectionsLast7d ?? "—",
+      color: T.amber,
+      icon: "⚠️",
+    },
+    {
+      label: "Active Exceptions",
+      sub: "live EXCEPTION files",
+      val: metrics?.activeExceptions ?? "—",
+      color: T.purple,
+      icon: "⚡",
+    },
+  ];
+
+  return (
+    <div style={{
+      background: T.card, border: `1px solid ${T.purple}30`,
+      borderLeft: `3px solid ${T.purple}`, borderRadius: 10, marginBottom: 20,
+    }}>
+      {/* Panel header */}
+      <div
+        onClick={() => setCollapsed(c => !c)}
+        style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          padding: "14px 18px", cursor: "pointer", userSelect: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 18 }}>🔐</span>
+          <span style={{ fontFamily: T.sans, fontWeight: 700, fontSize: 15, color: T.text }}>
+            Framework Integrity Panel
+          </span>
+          <Tag color={T.purple}>VDA-MK §3</Tag>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {lastRefresh && (
+            <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>
+              updated {lastRefresh.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </span>
+          )}
+          <button
+            onClick={e => { e.stopPropagation(); refresh(); }}
+            style={{
+              background: `${T.purple}18`, border: `1px solid ${T.purple}40`, color: T.purple,
+              borderRadius: 6, padding: "4px 10px", fontSize: 11, fontFamily: T.mono,
+              cursor: "pointer", fontWeight: 700,
+            }}
+          >↻ Refresh</button>
+          <span style={{ color: T.dim, fontSize: 14, transform: collapsed ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▼</span>
+        </div>
+      </div>
+
+      {/* Collapsible body */}
+      {!collapsed && (
+        <div style={{ padding: "0 18px 18px" }}>
+          {/* Metric cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }}>
+            {metricCards.map(card => (
+              <div key={card.label} style={{
+                background: T.surface, border: `1px solid ${card.color}25`,
+                borderRadius: 8, padding: "14px 16px",
+              }}>
+                <div style={{ fontSize: 20, marginBottom: 6 }}>{card.icon}</div>
+                <div style={{ fontFamily: T.mono, fontWeight: 700, fontSize: 26, color: card.color, marginBottom: 4 }}>
+                  {loading && metrics === null ? "…" : card.val}
+                </div>
+                <div style={{ fontSize: 12, color: T.text, fontWeight: 600, marginBottom: 2 }}>{card.label}</div>
+                <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{card.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Recent Framework Events list */}
+          <div>
+            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, letterSpacing: "0.06em", marginBottom: 10 }}>
+              RECENT FRAMEWORK EVENTS
+            </div>
+            {loading && events.length === 0 ? (
+              <div style={{ fontSize: 13, color: T.dim, padding: "12px 0" }}>Loading…</div>
+            ) : events.length === 0 ? (
+              <div style={{ fontSize: 13, color: T.dim, padding: "12px 0" }}>
+                No framework events recorded yet. Run the integrity check or compliance guard to generate entries.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {events.map(ev => {
+                  const cat = CATEGORY_META[ev.eventCategory] || { color: T.dim, icon: "📋" };
+                  const eventType = ev.apaleoData?.event_type ?? ev.apaleoData?.eventType ?? null;
+                  return (
+                    <div key={ev.id} style={{
+                      background: T.surface, border: `1px solid ${cat.color}20`,
+                      borderLeft: `2px solid ${cat.color}`, borderRadius: 6,
+                      padding: "8px 12px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+                    }}>
+                      <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, flexShrink: 0, minWidth: 70 }}>
+                        {ev.createdAt ? new Date(ev.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
+                      </span>
+                      <span style={{ color: T.orange, fontFamily: T.mono, fontSize: 12, fontWeight: 700 }}>{ev.agent}</span>
+                      {eventType && (
+                        <span style={{ fontFamily: T.mono, fontSize: 11, color: cat.color }}>{eventType}</span>
+                      )}
+                      <CategoryBadge category={ev.eventCategory} />
+                      <DecisionBadge decision={ev.decision} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // WITNESS AGENT TAB
 // ─────────────────────────────────────────────
-function WitnessAgentTab({ log, config, companyName, isSeeded }) {
+
+const CATEGORY_FILTER_OPTIONS = [
+  { value: "ALL",                label: "All Categories" },
+  { value: "AGENT_DECISION",     label: "Agent Decision" },
+  { value: "FRAMEWORK_INTEGRITY",label: "Framework Integrity" },
+  { value: "COMPLIANCE_BOUNDARY",label: "Compliance Boundary" },
+  { value: "AGENT_LIFECYCLE",    label: "Agent Lifecycle" },
+  { value: "A2A_PROTOCOL",       label: "A2A Protocol" },
+];
+
+function WitnessAgentTab({ log, config, companyName, isSeeded, companyId }) {
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
+
+  const filteredLog = categoryFilter === "ALL"
+    ? log
+    : categoryFilter === "AGENT_DECISION"
+      ? log.filter(e => !e.eventCategory)
+      : log.filter(e => e.eventCategory === categoryFilter);
+
   const stats = { PASS: log.filter(e => e.decision === "PASS").length, FAIL: log.filter(e => e.decision === "FAIL").length, ESCALATE: log.filter(e => e.decision === "ESCALATE").length, NORMALISED: log.filter(e => e.decision === "NORMALISED").length, exceptions: log.filter(e => e.exceptionApplied).length };
   return (
     <div style={{ padding: "28px 28px 40px" }}>
@@ -5351,6 +5550,9 @@ function WitnessAgentTab({ log, config, companyName, isSeeded }) {
         </div>
       </div>
 
+      {/* Framework Integrity Panel */}
+      {companyId && <FrameworkIntegrityPanel companyId={companyId} />}
+
       {/* Sample data banner */}
       {isSeeded && (
         <div style={{ background: `${T.blue}0a`, border: `1px solid ${T.blue}30`, borderRadius: 10, padding: "12px 18px", marginBottom: 20, display: "flex", gap: 12, alignItems: "center" }}>
@@ -5365,15 +5567,44 @@ function WitnessAgentTab({ log, config, companyName, isSeeded }) {
         </div>
       )}
 
-      {log.length === 0 ? (
+      {/* Category filter bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, letterSpacing: "0.06em", flexShrink: 0 }}>FILTER BY CATEGORY</span>
+        <select
+          value={categoryFilter}
+          onChange={e => setCategoryFilter(e.target.value)}
+          style={{
+            background: T.card, border: `1px solid ${T.border}`, color: T.text,
+            borderRadius: 6, padding: "6px 12px", fontSize: 12, fontFamily: T.mono,
+            cursor: "pointer", outline: "none",
+          }}
+        >
+          {CATEGORY_FILTER_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+        {categoryFilter !== "ALL" && (
+          <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>
+            {filteredLog.length} / {log.length} entries
+          </span>
+        )}
+      </div>
+
+      {filteredLog.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 0", color: T.dim }}>
           <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.4 }}>🕵️</div>
-          <div style={{ fontSize: 16, fontFamily: T.sans, fontWeight: 600, marginBottom: 8 }}>Audit log is empty</div>
-          <div style={{ fontSize: 14 }}>Run decisions in the Exception Engine to generate audit entries</div>
+          <div style={{ fontSize: 16, fontFamily: T.sans, fontWeight: 600, marginBottom: 8 }}>
+            {log.length === 0 ? "Audit log is empty" : "No entries match this filter"}
+          </div>
+          <div style={{ fontSize: 14 }}>
+            {log.length === 0
+              ? "Run decisions in the Exception Engine to generate audit entries"
+              : "Try a different category filter or select \"All Categories\""}
+          </div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[...log].reverse().map((e) => (
+          {[...filteredLog].reverse().map((e) => (
             <div key={e.id} style={{
               background: "#090b0d",
               border: `1px solid ${e.decision === "PASS" ? T.green + "25" : e.decision === "FAIL" ? T.red + "25" : e.decision === "ESCALATE" ? T.amber + "25" : e.decision === "NORMALISED" ? T.teal + "40" : T.border}`,
@@ -5382,9 +5613,10 @@ function WitnessAgentTab({ log, config, companyName, isSeeded }) {
             }}>
               {/* Row 1: timestamp + agent + decision + exception badge */}
               <div style={{ display: "flex", gap: 12, marginBottom: 7, flexWrap: "wrap", alignItems: "center" }}>
-                <span style={{ color: T.dim, fontSize: 11, flexShrink: 0 }}>{e.timestamp}</span>
+                <span style={{ color: T.dim, fontSize: 11, flexShrink: 0 }}>{e.timestamp ?? (e.createdAt ? new Date(e.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—")}</span>
                 <span style={{ color: T.orange, fontWeight: 700 }}>{e.agent}</span>
                 <DecisionBadge decision={e.decision} />
+                {e.eventCategory && <CategoryBadge category={e.eventCategory} />}
                 {e.exceptionApplied && <Tag color={T.purple}>⚡ Exception Applied</Tag>}
                 {e.escalationTarget && <Tag color={T.amber}>↳ {e.escalationTarget}</Tag>}
               </div>
@@ -8331,7 +8563,7 @@ export default function VdaOS() {
               .catch(() => {});
           }} />}
           {tab === "exception"   && <ExceptionEngineTab config={config} companyName={setup.companyName} onLogEntry={addLog} />}
-          {tab === "witness"     && <WitnessAgentTab log={log} config={config} companyName={setup.companyName} isSeeded={logIsSeeded} />}
+          {tab === "witness"     && <WitnessAgentTab log={log} config={config} companyName={setup.companyName} isSeeded={logIsSeeded} companyId={setup.id} />}
           {tab === "a2md"        && <A2MDNormaliserTab config={config} companyName={setup.companyName} onLogEntry={addLog} setTabFn={setTab} companyId={setup.id} onSaveToFM={(content, filename) => {
             const companyId = setup.id;
             if (!companyId) return Promise.resolve(null);

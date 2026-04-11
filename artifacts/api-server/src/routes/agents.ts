@@ -12,7 +12,7 @@ import { callAI, callAIFull } from "./ai-proxy.js";
 import { db, governanceFiles, witnessEntries } from "@workspace/db";
 import { writeWitnessEntry, type AgentDecision, type WitnessEntryInput } from "../lib/witnessWriter.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, gte, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import {
   issueAgentCredential,
@@ -1474,6 +1474,93 @@ router.get("/agents/witness", async (req, res) => {
       .where(eq(witnessEntries.companyId, Number(companyId)))
       .orderBy(desc(witnessEntries.createdAt))
       .limit(Number(limit));
+
+    return res.json(entries);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+// ─── Witness: Framework Integrity Metrics ────────────────────────────────────
+// Returns four operator-facing metric counts for the Framework Integrity Panel.
+// Metric 1 — integrity_check_passed in last 24 h (FRAMEWORK_INTEGRITY / PASS)
+// Metric 2 — integrity_check_failed all time     (FRAMEWORK_INTEGRITY / FAIL)
+// Metric 3 — compliance guard rejections last 7d (COMPLIANCE_BOUNDARY / FAIL)
+// Metric 4 — active EXCEPTION governance files for this company
+
+router.get("/agents/witness/integrity-metrics", async (req, res) => {
+  try {
+    const { companyId } = req.query as Record<string, string>;
+    if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+    const cId = Number(companyId);
+    const now = new Date();
+    const minus24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const minus7d  = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [passedRows, failedRows, complianceRows, exceptionRows] = await Promise.all([
+      db.select({ count: sql<string>`count(*)` })
+        .from(witnessEntries)
+        .where(and(
+          eq(witnessEntries.companyId, cId),
+          eq(witnessEntries.eventCategory, "FRAMEWORK_INTEGRITY"),
+          eq(witnessEntries.decision, "PASS"),
+          gte(witnessEntries.createdAt, minus24h),
+        )),
+      db.select({ count: sql<string>`count(*)` })
+        .from(witnessEntries)
+        .where(and(
+          eq(witnessEntries.companyId, cId),
+          eq(witnessEntries.eventCategory, "FRAMEWORK_INTEGRITY"),
+          eq(witnessEntries.decision, "FAIL"),
+        )),
+      db.select({ count: sql<string>`count(*)` })
+        .from(witnessEntries)
+        .where(and(
+          eq(witnessEntries.companyId, cId),
+          eq(witnessEntries.eventCategory, "COMPLIANCE_BOUNDARY"),
+          eq(witnessEntries.decision, "FAIL"),
+          gte(witnessEntries.createdAt, minus7d),
+        )),
+      db.select({ count: sql<string>`count(*)` })
+        .from(governanceFiles)
+        .where(and(
+          eq(governanceFiles.companyId, cId),
+          eq(governanceFiles.fileType, "EXCEPTION"),
+          eq(governanceFiles.isArchived, false),
+        )),
+    ]);
+
+    return res.json({
+      integrityPassedLast24h:    Number(passedRows[0]?.count    ?? 0),
+      integrityFailuresAllTime:  Number(failedRows[0]?.count    ?? 0),
+      complianceRejectionsLast7d: Number(complianceRows[0]?.count ?? 0),
+      activeExceptions:          Number(exceptionRows[0]?.count  ?? 0),
+    });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+// ─── Witness: Framework Events (recent governance category events) ─────────────
+// Returns the last N witness entries whose event_category is one of the three
+// governance-category values: FRAMEWORK_INTEGRITY, COMPLIANCE_BOUNDARY, AGENT_LIFECYCLE.
+// NULL event_category entries (standard agent decisions) are excluded.
+
+router.get("/agents/witness/framework-events", async (req, res) => {
+  try {
+    const { companyId, limit = "10" } = req.query as Record<string, string>;
+    if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+    const entries = await db
+      .select()
+      .from(witnessEntries)
+      .where(and(
+        eq(witnessEntries.companyId, Number(companyId)),
+        inArray(witnessEntries.eventCategory as Parameters<typeof inArray>[0], ["FRAMEWORK_INTEGRITY", "COMPLIANCE_BOUNDARY", "AGENT_LIFECYCLE"]),
+      ))
+      .orderBy(desc(witnessEntries.createdAt))
+      .limit(Math.min(Number(limit), 50));
 
     return res.json(entries);
   } catch (err: unknown) {
