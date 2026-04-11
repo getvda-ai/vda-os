@@ -16,7 +16,7 @@ import {
   issueAgentCredential,
   verifyAgentVc,
   getActiveCredential,
-  listCredentialsForCompany,
+  listCredentialsFromFiles,
 } from "../lib/agentCredentialIssuer.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
 
@@ -152,7 +152,7 @@ const POLICY_AGENT_ID_MAP: Record<string, string> = {
   rate:          "rate-agent",
   reservation:   "reservation-bot",
   checkin:       "check-in-agent",
-  folio:         "folio-charge-agent",
+  folio:         "folio-agent",
   folio_charge:  "folio-charge-agent",
   checkout:      "checkout-agent",
   revenue:       "revenue-reconciliation-agent",
@@ -643,12 +643,12 @@ router.post("/agents/availability", requireAgentCredential("availability-agent")
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
-    res.json({
+    return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, arrival, departure, usedMcp, toolCallsMade, filesLoaded: availFilesLoaded,
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -698,12 +698,12 @@ router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, re
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
-    res.json({
+    return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, requestedRate: reqRate, barRate: bar, discountPct, usedMcp, toolCallsMade, filesLoaded,
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -895,14 +895,14 @@ router.post("/agents/reservation", requireAgentCredential("reservation-bot"), as
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
-    res.json({
+    return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, action,
       reservationId: executedReservationId,
       writeExecuted, writeError, filesLoaded: resvFilesLoaded,
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -1023,18 +1023,18 @@ router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
-    res.json({
+    return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, reservationId: resolvedReservationId, guestName, checkinExecuted, checkinError, filesLoaded: checkinFilesLoaded,
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
 // ─── Folio Agent (read-only analysis) ────────────────────────────────────────
 
-router.post("/agents/folio", requireAgentCredential("folio-charge-agent"), async (req, res) => {
+router.post("/agents/folio", requireAgentCredential("folio-agent"), async (req, res) => {
   try {
     const { propertyId, reservationId, folioId, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1081,9 +1081,9 @@ router.post("/agents/folio", requireAgentCredential("folio-charge-agent"), async
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
-    res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId, usedMcp, toolCallsMade, filesLoaded: folioFilesLoaded });
+    return res.json({ ...decision, witnessEntryId: witnessId, propertyId, folioId, reservationId, usedMcp, toolCallsMade, filesLoaded: folioFilesLoaded });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -1211,12 +1211,12 @@ router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent")
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
-    res.json({
+    return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, folioId: resolvedFolioId, chargeAmount, currency, chargePosted, chargeError, filesLoaded: folioChargeFilesLoaded,
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -1340,12 +1340,12 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
-    res.json({
+    return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, reservationId, guestName, loyaltyTier, checkoutExecuted, checkoutError, filesLoaded: checkoutFilesLoaded,
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -1451,12 +1451,12 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
 
-    res.json({
+    return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, date: targetDate, totalRevenue, currency, reservationCount: reservations.length, filesLoaded: revFilesLoaded,
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -1474,9 +1474,9 @@ router.get("/agents/witness", async (req, res) => {
       .orderBy(desc(witnessEntries.createdAt))
       .limit(Number(limit));
 
-    res.json(entries);
+    return res.json(entries);
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -1591,7 +1591,7 @@ router.post("/agents/scenario/run", async (req, res) => {
             demoResvId = first.id;
             if (first.arrival)   ids.arrival   = first.arrival.split("T")[0];
             if (first.departure) ids.departure  = first.departure.split("T")[0];
-            if (first.ratePlan?.id) ids.ratePlanId = first.ratePlan.id;
+            if (first.ratePlanId) ids.ratePlanId = first.ratePlanId;
             logger.info({ demoResvId, status }, "Demo setup: using existing reservation as anchor");
             break;
           }
@@ -2044,9 +2044,9 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
       results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
     }
 
-    res.json({ scenarioRunId, propertyId, apaleoIds: ids, steps: results, completedAt: new Date().toISOString() });
+    return res.json({ scenarioRunId, propertyId, apaleoIds: ids, steps: results, completedAt: new Date().toISOString() });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -2076,7 +2076,7 @@ router.post("/agents/credentials/issue", async (req, res) => {
       domainOwner,
       ttlHours: 24,
     });
-    res.json({
+    return res.json({
       credentialId: result.credentialId,
       did: result.did,
       expiresAt: result.expiresAt,
@@ -2085,7 +2085,7 @@ router.post("/agents/credentials/issue", async (req, res) => {
       vcBase64url: result.vcBase64url,
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -2100,10 +2100,12 @@ router.get("/agents/credentials", async (req, res) => {
       res.status(400).json({ error: "companyId query param required" });
       return;
     }
-    const rows = await listCredentialsForCompany(companyId);
-    res.json({ credentials: rows });
+    // Primary source: on-disk credential files (per task spec: file-based persistence)
+    // Status is recomputed from DB (governance hash + expiry) for accuracy.
+    const credentials = await listCredentialsFromFiles(companyId);
+    return res.json({ credentials, source: "files" });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -2125,9 +2127,9 @@ router.post("/agents/credentials/verify", async (req, res) => {
         : (rawVc as Record<string, unknown>);
     const companyId = Number(req.body?.companyId ?? 0) || undefined;
     const result = await verifyAgentVc(parsed, companyId);
-    res.json(result);
+    return res.json(result);
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -2150,9 +2152,9 @@ router.get("/agents/credentials/active", async (req, res) => {
     }
     const { secretKeyMultibase: _sk, ...safe } = cred;
     void _sk;
-    res.json(safe);
+    return res.json(safe);
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 

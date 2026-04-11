@@ -11,7 +11,7 @@ import { Ed25519Signature2020 } from "@digitalbazaar/ed25519-signature-2020";
 import { Ed25519VerificationKey2020 } from "@digitalbazaar/ed25519-verification-key-2020";
 import * as vc from "@digitalbazaar/vc";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { db, agentCredentials, governanceFiles } from "@workspace/db";
@@ -441,4 +441,69 @@ export async function listCredentialsForCompany(companyId: number) {
   );
 
   return withStatus;
+}
+
+
+// ─── List credentials from disk (per task spec: primary source is files) ──────
+// Reads all {companyId}-{agentId}.json files from CRED_DIR.
+// Status is recomputed from DB (governance hash + expiry checks) for accuracy.
+
+interface CredentialFileRecord {
+  credentialId: number;
+  agentId: string;
+  companyId: number;
+  did: string;
+  governanceFileHash: string | null;
+  issuedAt: string;
+  expiresAt: string;
+  status: CredentialStatus;
+  currentGovernanceHash: string | null;
+}
+
+export async function listCredentialsFromFiles(
+  companyId: number
+): Promise<CredentialFileRecord[]> {
+  ensureCredDir();
+
+  const pattern = new RegExp(`^${companyId}-(.+)\\.json$`);
+  const files = readdirSync(CRED_DIR).filter((f) => pattern.test(f) && !f.endsWith(".keypair.json"));
+
+  const results: CredentialFileRecord[] = [];
+
+  for (const filename of files) {
+    try {
+      const match = pattern.exec(filename);
+      if (!match) continue;
+      const agentId = match[1];
+      const raw = JSON.parse(readFileSync(join(CRED_DIR, filename), "utf-8")) as {
+        credentialId: number;
+        agentId: string;
+        companyId: number;
+        did: string;
+        governanceFileHash: string | null;
+        issuedAt: string;
+        expiresAt: string;
+      };
+
+      // Recompute status from DB for accuracy — include expired entries so the UI can show them
+      const now = new Date();
+      const expires = new Date(raw.expiresAt);
+      const currentHash = await computeGovernanceHash(companyId, agentId);
+      let status: CredentialStatus;
+      if (expires < now) {
+        status = "Expired";
+      } else if (currentHash !== null && raw.governanceFileHash !== currentHash) {
+        status = "Hash-Mismatch";
+      } else if (expires < new Date(now.getTime() + 2 * 3600_000)) {
+        status = "Expiring-Soon";
+      } else {
+        status = "Valid";
+      }
+      results.push({ ...raw, status, currentGovernanceHash: currentHash });
+    } catch (err) {
+      logger.warn({ err, filename }, "[VC] Could not parse credential file — skipping");
+    }
+  }
+
+  return results;
 }

@@ -16,13 +16,6 @@ import type { Request, Response, NextFunction } from "express";
 import { verifyAgentVc, type VerificationResult } from "./agentCredentialIssuer.js";
 import { logger } from "./logger.js";
 
-// Extend Express Request with VC fields
-declare module "express-serve-static-core" {
-  interface Request {
-    vcVerified: boolean;
-    vcPayload: VerificationResult | null;
-  }
-}
 
 function unauthorised(
   res: Response,
