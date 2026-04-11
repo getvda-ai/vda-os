@@ -111,19 +111,26 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
       fetch("/api/dashboard/chain-health").then((r) => r.json()).catch(() => null),
     ]);
 
-    // HITL tokens are platform-level (onboarding pipeline) — not scoped to individual hotels.
-    // Surface total pending count as a cluster-level alert rather than per-property breakdown.
-    const pendingHitlTotal = (hitlResult.pending ?? []).length;
+    // HITL tokens are linked to onboarding_requests which carry companyId.
+    // The pending endpoint now returns companyId per token — group for per-property context.
+    const allPending = hitlResult.pending ?? [];
+    const pendingByCompany = {};
+    for (const t of allPending) {
+      if (t.companyId != null) {
+        if (!pendingByCompany[t.companyId]) pendingByCompany[t.companyId] = [];
+        pendingByCompany[t.companyId].push(t);
+      }
+    }
 
     return {
       hotels: HOTELS.map((h, i) => ({
         ...h,
         phases: phasesResults[i]?.phases ?? [],
         metrics: metricsResults[i] ?? {},
-        pending: [], // onboarding HITL is platform-scoped, not hotel-scoped
+        pending: pendingByCompany[h.companyId] ?? [],
       })),
-      allPending: hitlResult.pending ?? [],
-      pendingHitlTotal,
+      allPending,
+      pendingHitlTotal: allPending.length,
       exceptionsExpiringSoon: expiryResult?.exceptions_expiring_soon ?? 0,
     };
   }, 30000);

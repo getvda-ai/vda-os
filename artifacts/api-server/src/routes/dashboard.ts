@@ -32,7 +32,9 @@ router.get("/dashboard/phases", async (req, res) => {
       .from(agentPhases)
       .where(eq(agentPhases.companyId, companyId));
 
-    // Compute potential_autonomous_decisions per agent_id (last 30 days, decision=PASS)
+    // Compute potential_autonomous_decisions per agent_id (last 30 days, decision=PASS).
+    // Normalize agent names to slug format to match agentPhases.agent_id — witness entries
+    // may be written with either slugs ("availability-agent") or display names ("Availability Agent").
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const passRows = await db
       .select({
@@ -49,16 +51,22 @@ router.get("/dashboard/phases", async (req, res) => {
       )
       .groupBy(witnessEntries.agent);
 
+    // Normalize agent name → slug for matching (handles both "Rate Agent" and "rate-agent")
+    function toSlug(name: string): string {
+      return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    }
+
     const passByAgent: Record<string, number> = {};
     for (const r of passRows) {
-      passByAgent[r.agent] = Number(r.count);
+      const slug = toSlug(r.agent);
+      passByAgent[slug] = (passByAgent[slug] ?? 0) + Number(r.count);
     }
 
     const enriched = phases.map((p) => ({
       ...p,
       agreementRate: p.agreementRate !== null ? Number(p.agreementRate) : null,
       overrideRate: p.overrideRate !== null ? Number(p.overrideRate) : null,
-      potential_autonomous_decisions: passByAgent[p.agentId] ?? 0,
+      potential_autonomous_decisions: passByAgent[toSlug(p.agentId)] ?? 0,
     }));
 
     res.json({ phases: enriched });
@@ -150,13 +158,14 @@ router.get("/dashboard/shift-summary", async (req, res) => {
       .filter((e) => !reviewedIds.has(String(e.id)))
       .map((e) => ({
         witnessId: e.id,
+        companyId: e.companyId,   // required by shadow-review POST endpoint
         agent: e.agent,
         agentId: e.agent,
         decision: e.decision,
         clauseApplied: e.clauseApplied,
         actionProposed: e.actionProposed,
         reasoning: e.reasoning,
-        apaleoData: e.apaleoData,
+        apaleoData: { ...(e.apaleoData as Record<string, unknown> ?? {}), companyId: e.companyId },
         createdAt: e.createdAt,
       }));
 

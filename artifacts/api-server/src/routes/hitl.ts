@@ -131,16 +131,17 @@ router.get("/hitl/pending", async (_req, res) => {
       .from(hitlTokens)
       .where(isNull(hitlTokens.outcome));
 
-    // Enrich with onboarding request status
+    // Enrich with onboarding request status + companyId (for per-property pending context)
     const enriched = await Promise.all(
       pending.map(async (p) => {
         const reqRows = await db
-          .select({ status: onboardingRequests.status, agentCard: onboardingRequests.agentCard })
+          .select({ status: onboardingRequests.status, agentCard: onboardingRequests.agentCard, companyId: onboardingRequests.companyId })
           .from(onboardingRequests)
           .where(eq(onboardingRequests.id, p.onboardingRequestId))
           .limit(1);
         return {
           ...p,
+          companyId: reqRows[0]?.companyId ?? null,
           onboarding_status: reqRows[0]?.status ?? "unknown",
           agent_name: (reqRows[0]?.agentCard as Record<string, unknown>)?.name ?? "Unknown Agent",
         };

@@ -433,6 +433,19 @@ const CITIZENM_PROPERTIES = [
 // agreementRate: numeric, null = not yet enough data to compute.
 // This seed is idempotent — existing rows for a (company, agent) pair are NOT overwritten.
 
+// Canonical agent IDs — all 9 must have explicit rows per hotel (not_activated for those not yet adopted)
+const CANONICAL_AGENTS = [
+  "availability-agent",
+  "rate-agent",
+  "revenue-reconciliation-agent",
+  "checkout-agent",
+  "folio-agent",
+  "check-in-agent",
+  "reservation-bot",
+  "folio-charge-agent",
+  "onboarding-agent",
+] as const;
+
 const PHASE_SEED: Record<string, Array<{ agentId: string; phase: string; agreementRate: string | null }>> = {
   // BER — most advanced: all 9 agents in RUN
   BER: [
@@ -2889,11 +2902,22 @@ router.post("/admin/seed-companies", async (_req, res) => {
         log.push(`${prop.apaleoPropertyId}: ${filesInserted} governance files seeded`);
       }
 
-      // Seed agent_phases — upsert: insert or update to match canonical PHASE_SEED spec
+      // Seed agent_phases — all 9 canonical agents per hotel must have explicit rows.
+      // Activated agents use PHASE_SEED values; all others get not_activated.
       const phasesToSeed = PHASE_SEED[prop.apaleoPropertyId] ?? [];
+      const seededAgentIds = new Set(phasesToSeed.map(p => p.agentId));
+
+      // Build the full list: activated phases + not_activated for the rest
+      const fullPhaseSeed = [
+        ...phasesToSeed,
+        ...CANONICAL_AGENTS
+          .filter(agentId => !seededAgentIds.has(agentId))
+          .map(agentId => ({ agentId, phase: "not_activated", agreementRate: null as string | null })),
+      ];
+
       let phasesInserted = 0;
       let phasesUpdated = 0;
-      for (const p of phasesToSeed) {
+      for (const p of fullPhaseSeed) {
         const existing = await db
           .select({ id: agentPhases.id })
           .from(agentPhases)
@@ -2906,7 +2930,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
             companyId,
             agentId: p.agentId,
             phase: p.phase,
-            activatedAt: new Date(),
+            activatedAt: p.phase !== "not_activated" ? new Date() : null,
             phaseChangedAt: new Date(),
             agreementRate: p.agreementRate,
             overrideRate: null,
@@ -2929,9 +2953,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
           phasesUpdated++;
         }
       }
-      if (phasesToSeed.length > 0) {
-        log.push(`${prop.apaleoPropertyId}: ${phasesInserted} agent_phases inserted, ${phasesUpdated} updated to match spec`);
-      }
+      log.push(`${prop.apaleoPropertyId}: ${phasesInserted} agent_phases inserted, ${phasesUpdated} updated (${fullPhaseSeed.length} total agents)`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       log.push(`${prop.apaleoPropertyId}: ERROR — ${msg}`);
