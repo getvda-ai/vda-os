@@ -6,7 +6,7 @@ export const agentCredentials = pgTable("agent_credentials", {
   companyId: integer("company_id").notNull(),
   did: text("did").notNull(),
   publicKeyMultibase: text("public_key_multibase").notNull(),
-  secretKeyMultibase: text("secret_key_multibase").notNull(),
+  secretKeyMultibase: text("secret_key_multibase").default(""),
   issuedAt: timestamp("issued_at", { withTimezone: true }).defaultNow().notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   signedVc: jsonb("signed_vc").notNull(),

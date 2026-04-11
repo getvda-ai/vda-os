@@ -221,12 +221,29 @@ export async function verifyAgentVc(
     const vcGovHash = subject?.governanceFileHash as string | undefined;
     const vcExpiry = rawVc.expirationDate as string | undefined;
 
-    // 2. Expiration check
+    // 2. Tenant binding check — VC must be issued for the same company as the request
+    if (companyId !== undefined) {
+      if (!vcCompanyId) {
+        return { verified: false, agentId: vcAgentId, error: "Credential missing companyId claim", reason: "MISSING_COMPANY_ID" };
+      }
+      if (String(companyId) !== String(vcCompanyId)) {
+        logger.warn({ requestCompanyId: companyId, vcCompanyId, vcAgentId }, "[VC] Company ID mismatch — cross-hotel replay attempt blocked");
+        return {
+          verified: false,
+          agentId: vcAgentId,
+          companyId: vcCompanyId,
+          error: `Credential issued for company ${vcCompanyId} but presented to company ${companyId}`,
+          reason: "COMPANY_ID_MISMATCH",
+        };
+      }
+    }
+
+    // 3. Expiration check
     if (vcExpiry && new Date(vcExpiry) < new Date()) {
       return { verified: false, agentId: vcAgentId, companyId: vcCompanyId, expiresAt: vcExpiry, error: "Credential expired", reason: "EXPIRED" };
     }
 
-    // 3. Governance hash check — recompute AGENTS + SKILL hash and compare
+    // 4. Governance hash check — recompute AGENTS + SKILL hash and compare
     if (vcAgentId && companyId !== undefined) {
       const currentHash = await computeGovernanceHash(companyId, vcAgentId);
       if (currentHash !== null && vcGovHash !== currentHash) {

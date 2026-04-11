@@ -2548,7 +2548,13 @@ Every incident phase transition MUST be logged to the Witness Agent with:
   ];
 
   return files.map(f => {
-    const clauses = countClauses(f.content);
+    // Inject hotel-specific identifiers into every YAML frontmatter block
+    // so governance hash is always unique per hotel, even for identical policy text
+    const hotelContent = f.content.replace(
+      /^---\n/,
+      `---\nproperty_code: ${companyId}\nproperty_name: ${companyName}\n`
+    );
+    const clauses = countClauses(hotelContent);
     return {
       companyId,
       filename: f.filename,
@@ -2556,7 +2562,7 @@ Every incident phase transition MUST be logged to the Witness Agent with:
       fileType: f.fileType,
       axis: f.axis,
       stage: f.stage ?? null,
-      content: f.content,
+      content: hotelContent,
       status: "live" as const,
       owner: f.owner ?? null,
       domain: f.domain ?? null,
