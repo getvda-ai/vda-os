@@ -317,8 +317,6 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
 
 // ─── Cross-Domain Inheritance Detector ────────────────────────────────────────
 
-export { writeGovernanceEvent, type GovernanceEventInput } from "../lib/writeGovernanceEvent.js";
-
 function hasCrossDomainFiles(filesLoaded: string[]): boolean {
   return filesLoaded.some(f => {
     const lower = f.toLowerCase();
