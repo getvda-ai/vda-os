@@ -337,7 +337,11 @@ export async function verifyAgentVc(
       const currentHash = await computeGovernanceHash(companyId, vcAgentId);
       if (currentHash !== null && vcGovHash !== currentHash) {
         logger.warn({ vcAgentId, companyId, vcGovHash, currentHash }, "[VC] Governance hash mismatch — governance files changed since credential was issued");
-        // Lazy import to avoid circular dependency (writeGovernanceEvent → routes/agents → agentCredentialIssuer)
+        // Lazy import: agentCredentialIssuer is imported by agents.ts which is in
+        // the import chain leading back here. A static import of writeGovernanceEvent
+        // at module level would still be safe (witnessWriter extraction broke the old
+        // cycle), but lazy import is retained here to keep this hot path async-safe
+        // and avoid any future re-introduction of circular load-order issues.
         const { writeGovernanceEvent } = await import("./writeGovernanceEvent.js");
         writeGovernanceEvent({
           companyId: typeof companyId === "number" ? companyId : Number(companyId),

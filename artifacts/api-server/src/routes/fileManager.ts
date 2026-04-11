@@ -349,7 +349,7 @@ router.put("/fm/file/:id", async (req, res) => {
           actionProposed: `Reject update to governance file ${existingFile.id} — compliance guard triggered`,
           reasoning: guard.violations.join("; "),
           apaleoData: { event_type: "compliance_guard_rejection", fileId: existingFile.id, violations: guard.violations, hint: guard.hint },
-        }).catch(() => {});
+        }).catch(err => console.warn("[Witness] compliance_guard_rejection event failed:", err));
         return res.status(409).json({
           error: "VDA-MK compliance guard rejected this update",
           violations: guard.violations,
