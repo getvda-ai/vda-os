@@ -1694,7 +1694,7 @@ function JourneyTour({ steps, onDismiss, config }) {
 function JourneyMapTab({ config, companyName, propertyId, apaleoStats }) {
   const [hovered, setHovered] = useState(null);
   const [selectedAgent, setSelectedAgent] = useState(null);
-  const [tourActive, setTourActive] = useState(true); // on by default
+  const [tourActive, setTourActive] = useState(false);
 
   const stageStats = apaleoStats ? {
     discover: null,

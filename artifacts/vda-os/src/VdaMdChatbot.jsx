@@ -343,8 +343,8 @@ function SendIcon() {
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export default function VdaMdChatbot() {
-  const [open, setOpen] = useState(false);
-  const [hasOpened, setHasOpened] = useState(false);
+  const [open, setOpen] = useState(true);
+  const [hasOpened, setHasOpened] = useState(true);
   const [messages, setMessages] = useState([OPENING_MESSAGE]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
