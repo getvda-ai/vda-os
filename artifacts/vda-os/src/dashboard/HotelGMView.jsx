@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { usePoll, useSecondsAgo } from "./useDashboard.js";
 import AgentStaircase, { CANONICAL_ORDER } from "./AgentStaircase.jsx";
 
@@ -39,6 +40,166 @@ const DECISION_COLORS = {
   ESCALATE: { bg: "#451a03", color: "#f59e0b" },
   INFO: { bg: "#0f2744", color: "#60a5fa" },
 };
+
+function DecisionRow({ e, idx, isLast }) {
+  const [open, setOpen] = useState(false);
+  const dc = DECISION_COLORS[e.decision] ?? DECISION_COLORS.INFO;
+  const agentLabel = (e.agent ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const ts = new Date(e.createdAt).toLocaleString("en-GB", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    day: "2-digit", month: "short",
+  });
+  const clauseShort = (e.clauseApplied ?? "").slice(0, 80) || "No clause recorded";
+  const isFail = e.decision === "FAIL";
+
+  const apaleoData = e.apaleoData && typeof e.apaleoData === "object"
+    ? Object.entries(e.apaleoData)
+        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .map(([k, v]) => ({ k, v: typeof v === "object" ? JSON.stringify(v) : String(v) }))
+    : [];
+
+  return (
+    <div style={{
+      borderBottom: isLast ? "none" : "1px solid #1e2130",
+      borderLeft: isFail ? "3px solid #f87171" : open ? `3px solid ${dc.color}50` : "3px solid transparent",
+      transition: "border-color 0.15s",
+    }}>
+      {/* Collapsed row — always visible, click to toggle */}
+      <button
+        onClick={() => setOpen((p) => !p)}
+        style={{
+          width: "100%", background: open ? "#13151c" : "none",
+          border: "none", cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "11px 16px",
+          textAlign: "left",
+          transition: "background 0.15s",
+        }}
+        onMouseEnter={(ev) => { if (!open) ev.currentTarget.style.background = "#0f1116"; }}
+        onMouseLeave={(ev) => { if (!open) ev.currentTarget.style.background = "none"; }}
+      >
+        <span style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+          background: dc.bg, color: dc.color,
+          padding: "2px 7px", borderRadius: 4, flexShrink: 0,
+        }}>
+          {e.decision}
+        </span>
+        <span style={{ fontSize: 12, color: "#9ca3af", flexShrink: 0, minWidth: 120, fontFamily: "'DM Sans', sans-serif" }}>
+          {agentLabel}
+        </span>
+        <span style={{ fontSize: 12, color: "#6b7280", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "'DM Sans', sans-serif" }}>
+          {clauseShort}
+        </span>
+        <span style={{ fontSize: 11, color: "#4b5563", flexShrink: 0, fontFamily: "'DM Sans', sans-serif" }}>{ts}</span>
+        <span style={{
+          fontSize: 10, color: dc.color, flexShrink: 0, marginLeft: 4,
+          transform: open ? "rotate(180deg)" : "rotate(0deg)",
+          transition: "transform 0.2s",
+          display: "inline-block",
+        }}>▼</span>
+      </button>
+
+      {/* Expanded detail panel */}
+      {open && (
+        <div style={{
+          background: "#0c0e13", padding: "16px 20px 18px",
+          borderTop: "1px solid #1e2130",
+          fontFamily: "'DM Sans', sans-serif",
+        }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 28px" }}>
+
+            {/* Left column */}
+            <div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Governance clause</div>
+                <div style={{ fontSize: 12, color: "#e5e7eb", lineHeight: 1.55 }}>
+                  {e.clauseApplied || <em style={{ color: "#6b7280" }}>None recorded</em>}
+                </div>
+              </div>
+
+              {e.actionProposed && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Action proposed</div>
+                  <div style={{ fontSize: 12, color: "#e5e7eb", lineHeight: 1.55 }}>{e.actionProposed}</div>
+                </div>
+              )}
+
+              {e.reasoning && (
+                <div>
+                  <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Reasoning</div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.55 }}>{e.reasoning}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Right column */}
+            <div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 6, textTransform: "uppercase" }}>Decision details</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>Event category</span>
+                    <span style={{ fontSize: 11, color: "#e5e7eb", fontFamily: "'DM Mono', monospace" }}>{e.eventCategory ?? "—"}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>File referenced</span>
+                    <span style={{ fontSize: 11, color: "#e5e7eb" }}>{e.fileReferenced ?? "—"}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>Timestamp</span>
+                    <span style={{ fontSize: 11, color: "#e5e7eb" }}>{new Date(e.createdAt).toISOString()}</span>
+                  </div>
+                  {e.escalationTarget && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>Escalated to</span>
+                      <span style={{ fontSize: 11, color: "#f59e0b" }}>{e.escalationTarget}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {apaleoData.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 6, textTransform: "uppercase" }}>Apaleo context</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {apaleoData.map(({ k, v }) => (
+                      <div key={k} style={{ display: "flex", gap: 8 }}>
+                        <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100, flexShrink: 0 }}>{k}</span>
+                        <span style={{
+                          fontSize: 11, color: "#9ca3af",
+                          fontFamily: "'DM Mono', monospace",
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          maxWidth: 220,
+                        }} title={v}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DecisionList({ decisions }) {
+  if (!decisions || decisions.length === 0) {
+    return <EmptyCard title="No decisions recorded in the last 24 hours" />;
+  }
+  return (
+    <div style={{
+      background: "#111318", border: "1px solid #1e2130",
+      borderRadius: 10, overflow: "hidden",
+    }}>
+      {decisions.map((e, idx) => (
+        <DecisionRow key={e.id ?? idx} e={e} idx={idx} isLast={idx === decisions.length - 1} />
+      ))}
+    </div>
+  );
+}
 
 export default function HotelGMView({ companyId, onOpenTab }) {
   const { data: phasesData, loading: phasesLoading, lastUpdated } = usePoll(async () => {
@@ -143,43 +304,7 @@ export default function HotelGMView({ companyId, onOpenTab }) {
           )}
         </div>
 
-        {recentDecisions.length === 0 ? (
-          <EmptyCard title="No decisions recorded in the last 24 hours" />
-        ) : (
-          <div style={{
-            background: "#111318", border: "1px solid #1e2130",
-            borderRadius: 10, overflow: "hidden",
-          }}>
-            {recentDecisions.map((e, idx) => {
-              const dc = DECISION_COLORS[e.decision] ?? DECISION_COLORS.INFO;
-              const agentLabel = (e.agent ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-              const ts = new Date(e.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-              const clauseShort = (e.clauseApplied ?? "").slice(0, 80) || "No clause recorded";
-              return (
-                <div key={e.id} style={{
-                  display: "flex", alignItems: "center", gap: 12,
-                  padding: "10px 16px",
-                  borderBottom: idx < recentDecisions.length - 1 ? "1px solid #1e2130" : "none",
-                }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-                    background: dc.bg, color: dc.color,
-                    padding: "2px 7px", borderRadius: 4, flexShrink: 0,
-                  }}>
-                    {e.decision}
-                  </span>
-                  <span style={{ fontSize: 12, color: "#9ca3af", flexShrink: 0, minWidth: 120 }}>
-                    {agentLabel}
-                  </span>
-                  <span style={{ fontSize: 12, color: "#6b7280", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {clauseShort}
-                  </span>
-                  <span style={{ fontSize: 11, color: "#4b5563", flexShrink: 0 }}>{ts}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <DecisionList decisions={recentDecisions} />
       </div>
     </div>
   );
