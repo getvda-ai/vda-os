@@ -5828,15 +5828,6 @@ function Directory({ onNew, onLoad }) {
             <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>AI Governance · Apaleo Hospitality Stack</div>
           </div>
         </div>
-        <button onClick={onNew} style={{
-          background: T.orange, border: "none", borderRadius: 8,
-          padding: "8px 18px", fontSize: 13, color: "#fff",
-          fontFamily: T.sans, fontWeight: 800, cursor: "pointer",
-          boxShadow: `0 0 20px ${T.orange}40`,
-          display: "flex", gap: 8, alignItems: "center",
-        }}>
-          <span>+</span> Add Property
-        </button>
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 32px" }}>
@@ -5887,11 +5878,6 @@ function Directory({ onNew, onLoad }) {
               >
                 {seeding ? "Loading demo hotels…" : "Load Demo Hotels →"}
               </button>
-              <button onClick={onNew} style={{
-                background: "none", border: `1px solid ${T.border}`, borderRadius: 10,
-                padding: "12px 28px", fontSize: 15, color: T.muted,
-                fontFamily: T.sans, fontWeight: 700, cursor: "pointer",
-              }}>Add Custom Property</button>
             </div>
           </div>
         )}
@@ -5986,21 +5972,6 @@ function Directory({ onNew, onLoad }) {
                 );
               })}
 
-              {/* New company card */}
-              <div onClick={onNew} style={{
-                background: "none", border: `2px dashed ${T.border}`,
-                borderRadius: 14, padding: 22, cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                minHeight: 200, transition: "all 0.18s",
-                ...(hovered === "__new" ? { borderColor: T.orange, background: `${T.orange}06` } : {}),
-              }}
-                onMouseEnter={() => setHovered("__new")}
-                onMouseLeave={() => setHovered(null)}
-              >
-                <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.5 }}>+</div>
-                <div style={{ fontSize: 14, color: T.dim, fontWeight: 600 }}>Add Property</div>
-                <div style={{ fontSize: 11, color: T.dim, marginTop: 4, fontFamily: T.mono }}>Configure Apaleo VDA-MD hub</div>
-              </div>
             </div>
           </>
         )}
