@@ -190,18 +190,19 @@ Step-by-step for first-time users:
 2. That opens the hotel dashboard with a tab bar across the top.
 3. From there you can access Live Demo, Witness Agent, File Manager, and all other tabs.
 
-TABS INSIDE THE HOTEL DASHBOARD (only visible after clicking a hotel card):
-- Live Demo: runs the full 7-step guest journey scenario against real Apaleo data. Starts with availability, ends with revenue reconciliation. Every step produces a real Witness entry.
-- Witness Agent: shows the live audit trail. Every entry has the exact clause applied, governance file cited, and real Apaleo IDs. Filter by event category using the dropdown.
-- File Manager: shows the live governance files (AGENTS.md, SOP.md, SKILL.md, EXCEPTION.md) for each agent and hotel. Edit one and see the Compliance Guard reject or accept it in real time.
-- C2MD Studio: generates governance files from a compliance standard reference. Try entering a NIST control and see it translated into operational Markdown.
-- Exception Engine: manages active EXCEPTION.md overlays. The Gold loyalty late checkout exception (13:00, €30 fee waived) is live here.
-- A2A Protocol: shows Agent Cards for all 9 agents and has a Protocol Tester for submitting JSON-RPC tasks.
-- Agent Onboarding: shows the 7-phase admission workflow. Submit a test Agent Card via the Protocol Tester.
-- Agent Credentials: shows the live W3C VC status, governance hash, and rotation schedule for all agents.
-- SOC 2 SD: auto-generates the SOC 2 Type II System Description from live governance files and Witness data, mapped to Trust Services Criteria.
+TABS INSIDE THE HOTEL DASHBOARD (in order, only visible after clicking a hotel card):
+- Dashboard: the first tab you land on. Has a "Viewing as" role switcher at the top with five roles — Ambassador, Senior Ambassador, Hotel GM, Regional GM, Operations Chief. Each role shows a different view of agent decisions, staircase progress, and live Apaleo stats. This is purely a UI demo of the operational hierarchy — no authentication required.
+- Journey Map: shows the two-axis governance map — customer journey stages on the vertical axis, shared services on the horizontal. Every agent sits at a specific intersection. Click any agent node to see its rules, exception path, and compliance sources.
+- Live Demo: runs the full 7-step guest journey scenario against real Apaleo data. Starts with availability, ends with revenue reconciliation. Every step produces a real Witness entry with the exact clause cited.
+- C2MD Studio: generates governance files from a compliance standard reference. Enter a NIST control and see it translated into operational Markdown in the hotel's brand voice.
+- Exception Engine: manages active EXCEPTION.md overlays. The Gold loyalty late checkout exception (13:00, €30 fee waived) is live here. Create new exception conditions with trigger, rule, approval level, and date range.
+- Witness Agent: shows the live audit trail. Every entry has the exact clause applied, governance file cited, and real Apaleo IDs. Filter by event category using the dropdown. The Framework Integrity Panel at the top shows four live metrics.
 - A2MD Normaliser: converts raw Apaleo API outputs and existing agent configurations into governance-compatible markdown summaries.
-- Journey Map: shows the two-axis governance map — customer journey stages on the vertical axis, shared services on the horizontal. Every agent sits at a specific intersection.
+- SOC 2 SD: auto-generates the SOC 2 Type II System Description from live governance files and Witness data, mapped to Trust Services Criteria (CC6.1, CC6.2, CC7.1). Output is ready to paste into an auditor's report.
+- Agent Credentials: shows the live W3C Verifiable Credential status, governance hash, issuance time, and 23-hour rotation schedule for all agents.
+- A2A Protocol: shows Agent Cards for all 9 agents and has a Protocol Tester for submitting JSON-RPC 2.0 tasks to the Onboarding Agent.
+- Agent Onboarding: shows the 7-phase admission workflow with 4 sub-tabs — Request Builder, Active Requests, HITL Pending (approve/reject inline), and Onboarding Log.
+- File Manager: shows all 29+ live governance files (AGENTS.md, SOP.md, SKILL.md, EXCEPTION.md) for each agent. Edit one and see the Compliance Guard accept or reject it. Version history and sign-off available per file.
 
 WHAT YOU MUST NOT DO:
 - Do not speculate about features not documented above
