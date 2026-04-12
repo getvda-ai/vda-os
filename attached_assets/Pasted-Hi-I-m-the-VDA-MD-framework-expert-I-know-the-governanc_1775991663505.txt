@@ -1,0 +1,16 @@
+Hi — I'm the VDA-MD framework expert. I know the governance engine, the A2A protocol, the agent onboarding workflow, compliance coverage, and how this applies to different industries. The best part: everything I describe is live in this platform — just ask me where to find it. What would you like to know?
+what should i click first
+Start with the Live Demo tab.
+It runs a complete guest journey — availability check through revenue reconciliation — against real Apaleo data in seven steps. Every step shows you exactly what the agent decided, which governance clause it cited, and the real Apaleo IDs it acted on.
+After that, open the Witness Agent tab to see the audit trail those steps just created. That's where the compliance story becomes concrete — exact clauses, exact files, real data, timestamped.
+Those two tabs together give you the clearest picture of what VDA-MD actually does in under five minutes.
+where do i find the demo tab
+It's in the navigation bar at the top of this platform — look for "Live Demo".
+If you're on mobile it may be in a menu or tab strip. It should be one of the first options across the top alongside Witness Agent, File Manager, and the others.
+Once you're there, hit the run button and watch the seven steps execute in sequence — each one lights up with the agent's decision and the governance clause that drove it. Come back here if you have questions about what you're seeing.
+no i only see add property
+Got it — it sounds like you may be on the Setup / Onboarding screen rather than the main platform view. That's the starting point for adding a new hotel property before the full dashboard unlocks.
+A couple of things to try:
+- Add a property first — the platform may require at least one property configured before the Live Demo and other tabs become available. It only takes a minute: you'll need a property name and an Apaleo Property ID.
+- If you already have a property added, look for a way to select or enter that property — there may be a property switcher or "View Dashboard" button that takes you into the main platform.
+Try adding the demo property and see if the full tab bar appears after that. Let me know what you see and I'll help you get to the right place.
