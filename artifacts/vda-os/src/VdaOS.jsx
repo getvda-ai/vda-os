@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useApaleoStats, useApaleoReservations } from "./hooks/use-apaleo";
+import VdaMdChatbot from "./VdaMdChatbot.jsx";
 import AmbassadorView      from "./dashboard/AmbassadorView.jsx";
 import SeniorAmbassadorView from "./dashboard/SeniorAmbassadorView.jsx";
 import HotelGMView         from "./dashboard/HotelGMView.jsx";
@@ -8734,6 +8735,8 @@ export default function VdaOS() {
           {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
         </>
       )}
+
+      <VdaMdChatbot />
     </div>
   );
 }
