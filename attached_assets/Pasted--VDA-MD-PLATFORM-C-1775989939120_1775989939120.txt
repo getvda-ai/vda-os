@@ -1,0 +1,1199 @@
+================================================================================
+VDA-MD PLATFORM — COMPLETE TECHNICAL & FUNCTIONAL REPORT
+Value Driven AI — Markdown | Powered by Apaleo
+Generated: April 2026
+================================================================================
+
+
+WHAT THE PLATFORM IS
+================================================================================
+
+VDA-MD (Value Driven AI — Markdown) is a hospitality AI governance operating
+system built on top of the Apaleo Property Management System. Its central thesis
+is that Markdown is the sole source of truth for all AI agent behaviour. No
+business logic for agent decisions is hardcoded in the application — every
+threshold, every authority boundary, every compliance rule, every exception
+condition lives in a markdown governance file stored in a PostgreSQL database
+and loaded at runtime.
+
+Since its initial build, the platform has grown to encompass three major new
+capability layers on top of its governance core:
+
+  1. Cryptographic Agent Identity — every agent holds a W3C Verifiable
+     Credential (VC) binding its identity to its current governance file hash.
+     Credentials rotate automatically every 23 hours.
+
+  2. A2A Protocol — an external-agent interoperability layer implementing
+     Google DeepMind's Agent-to-Agent Protocol (JSON-RPC 2.0 over HTTP),
+     enabling any external AI agent to request admission to the VDA-MD
+     governance framework.
+
+  3. Witness Agent Governance Expansion — the audit trail is now categorised
+     by governance event type, a 6-hour integrity check scheduler runs
+     automatically, and a Framework Integrity Panel surfaces live metrics
+     to platform operators.
+
+The platform is built as a pnpm monorepo with three services running
+concurrently:
+
+  Service                        Stack                  Purpose
+  ─────────────────────────────────────────────────────────────────────────────
+  artifacts/vda-os               React + Vite           Full-stack frontend —
+                                                        governance hub, demo,
+                                                        file manager, agents,
+                                                        A2A onboarding tab
+  artifacts/api-server           Node.js + Express +    All agent logic, Apaleo
+                                 TypeScript             integration, AI proxy,
+                                                        MCP proxy, VC issuance,
+                                                        A2A protocol, seed
+  artifacts/mockup-sandbox       Vite                   Design prototyping
+
+
+THE FIVE HOTELS
+================================================================================
+
+The platform is pre-configured for five citizenM hotel properties, each
+identified by a short property code that maps to a real Apaleo sandbox property:
+
+  Hotel                  Code    Apaleo Property ID    Database Company ID
+  ─────────────────────────────────────────────────────────────────────────────
+  citizenM Vienna        VIE     VIE                   7
+  citizenM Paris         PAR     PAR                   6
+  citizenM Munich        MUC     MUC                   5
+  citizenM London        LND     LND                   4
+  citizenM Berlin        BER     BER                   3
+
+A sixth identifier exists for system-level events:
+
+  Platform Sentinel      N/A     N/A                   0
+    Used for cross-company governance events (e.g., governance integrity check
+    results, platform-wide compliance boundary notifications). Company ID 0
+    is reserved — no hotel is ever assigned this ID.
+
+Each hotel is a fully independent governance domain. All 5 share the same
+canonical governance file structure but each maintains its own files, witness
+audit trail, version history, and agent credentials.
+
+
+THE GOVERNANCE FRAMEWORK (VDA-MD)
+================================================================================
+
+The platform is built around the VDA-MD framework — Governance-as-Code where
+every AI agent decision is governed by Markdown files loaded from the database
+at request time.
+
+
+THE FOUR FILE TYPES
+--------------------
+
+Every agent requires exactly three mandatory files. A fourth optional type
+enables conditional overrides:
+
+  AGENTS.md (Agent Charter)
+    Defines the agent's identity, scope of authority, RACI ownership structure,
+    inheritance hierarchy, and which value stream axis it belongs to. Contains
+    the agent's cryptographic identity binding (agentId field referenced by the
+    VC layer).
+
+  SOP.md (Standard Operating Procedure)
+    Contains all MUST, MUST NOT, and MAY clauses that govern agent decisions —
+    the machine-readable rulebook. Claude is required to cite the verbatim clause
+    that governed its decision.
+
+  SKILL.md (Skill Manifest)
+    Explicitly lists every Apaleo MCP tool the agent is permitted to call,
+    including OAuth scope restrictions. The VC layer's governance hash is
+    computed over these three mandatory files.
+
+  EXCEPTION.md (Exception Overlay)
+    Optional conditional overrides for specific scenarios. Applied on top of the
+    SOP without replacing it. When active, Claude must cite the EXCEPTION clause
+    verbatim and set exceptionApplied: true.
+
+
+THE VDA-MD §2.1 MANDATORY PRE-CONDITION
+-----------------------------------------
+
+If any of the three mandatory files (AGENTS.md, SOP.md, SKILL.md) are missing
+for an agent/hotel pair, the system MUST return ESCALATE immediately without
+calling Claude, Apaleo, or any external service. This is enforced in code:
+
+  - Agent files are loaded and checked for all three required types
+  - Files below 200 characters are treated as absent (stub guard)
+  - Missing types are logged as VDA-MD §2.1 violations
+  - The mandatory ESCALATE clause is returned as clauseApplied
+
+The AI cannot operate outside its governance envelope — ever.
+
+
+FILE NAMING CONVENTION
+-----------------------
+
+  Hospitality-[Domain]-[Stage]-[AgentName].[FileType].md
+
+Examples:
+  Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md
+  Hospitality-Operations-Stay-checkin-agent.SOP.md
+  Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md
+  Hospitality-Finance-Shared-O2C-folio-charge-authority.md
+  Hospitality-A2A-Governance-onboarding-agent.SOP.md
+
+
+YAML FRONTMATTER FOR MACHINE READABILITY
+-----------------------------------------
+
+Every governance file includes a structured YAML frontmatter block:
+
+  ---
+  file_type: AGENTS | SOP | SKILL | EXCEPTION
+  agent_id: checkin-agent
+  journey_stage_axis: Stay
+  value_stream_axis: vertical
+  authored_by: Operations Director
+  approved_by: General Manager
+  risk_level: HIGH
+  c2md_confidence: 0.94
+  nist_control: AC-2, AU-2
+  ---
+
+
+THE CANONICAL 29-FILE STACK PER HOTEL
+---------------------------------------
+
+Each of the 5 hotels is seeded with the same canonical governance file set
+covering all 8 operational agents plus cross-domain shared services files.
+Total per hotel: approximately 29 files (3 mandatory per agent × 8 agents,
+plus shared cross-domain and exception files). The A2A Onboarding Agent adds
+3 further files for platform-level governance, seeded once at server startup.
+
+
+THE NINE AI AGENTS
+================================================================================
+
+The platform operates nine governed AI agents. Eight handle live Apaleo
+hospitality workflows; one governs the admission of external agents into the
+framework via the A2A Protocol.
+
+Each of the eight operational agents follows an identical execution pipeline:
+
+  1. Governance Pre-flight
+     Load AGENTS.md + SOP.md + SKILL.md. If any file missing → immediate
+     ESCALATE. No AI called, no Apaleo called.
+
+  2. Credential Verification (NEW)
+     The caller's W3C Verifiable Credential (VC) is validated against the
+     agent's current governance file hash. A hash mismatch means governance
+     files changed since the credential was issued — this triggers a
+     FRAMEWORK_INTEGRITY/FAIL witness event.
+
+  3. Live Data Retrieval
+     Call Apaleo via MCP tools (primary) or REST fallback.
+
+  4. Policy Evaluation
+     Send governance text + live data to Claude. Claude returns a structured
+     JSON decision with the verbatim policy clause that governed it.
+
+  5. Action Execution
+     Write operations against Apaleo only on PASS.
+
+  6. Witness Seal
+     Every outcome is written to witness_entries with full context including
+     event_category classification.
+
+
+AGENT REFERENCE TABLE
+-----------------------
+
+  Agent                    Stage        Domain        Key Apaleo MCP Tools
+  ─────────────────────────────────────────────────────────────────────────────
+  Availability Agent       Pre-Book     Revenue       GetAvailableUnitGroups,
+                                                      ListRatePlans, ListOffers
+  Rate Agent               Book         Revenue       ListRatePlans, GetReport
+  Reservation Bot          Book         Revenue       CreateBooking,
+                                                      AmendReservation,
+                                                      GetGuestProfile
+  Check-In Agent           Stay         Operations    CheckIn, GetReservation,
+                                                      ListFolios,
+                                                      ListPaymentAccounts
+  Folio Charge Agent       Stay         Finance       CreateFolioCharge,
+                                                      GetFolio, ListFolios
+  Folio Agent              Stay         Finance       GetFolio, ListFolios,
+                                                      ListInvoices
+  Checkout Agent           Post-Stay    Operations    CheckOut, GetReservation,
+                                                      ListFolios
+  Revenue Reconciliation   Post-Stay    Finance       GetReport, ListRatePlans,
+                                                      ListFolios
+  Onboarding Agent         A2A          Platform      No Apaleo tools — governs
+                                                      external agent admission
+                                                      into VDA-MD framework
+
+
+DECISION AUTHORITY
+-------------------
+
+  Availability Agent:
+    Confirms unit availability against live Apaleo inventory
+
+  Rate Agent:
+    Autonomous rate override ≤9% below BAR; escalates above
+
+  Reservation Bot:
+    Creates or amends reservations after PASS
+
+  Check-In Agent:
+    5-gate validation (ID, folio, payment, status, arrival date)
+
+  Folio Charge Agent:
+    Posts charges under Finance O2C cross-domain policy (autonomous <€200;
+    sign-off required ≥€200)
+
+  Folio Agent:
+    Reads and validates folio state, flags anomalies for reconciliation
+
+  Checkout Agent:
+    Processes departure with loyalty exception evaluation and folio settlement
+    verification
+
+  Revenue Reconciliation:
+    Cross-references actual vs expected revenue; ≤5% variance = autonomous PASS
+
+  Onboarding Agent:
+    Governs a 7-phase workflow admitting external agents into VDA-MD.
+    Decisions: APPROVE / REJECT / ESCALATE_TO_HUMAN.
+
+
+CROSS-DOMAIN POLICY INHERITANCE
+---------------------------------
+
+Two agents automatically inherit additional shared governance files before their
+own SOP is loaded:
+
+  Folio Charge Agent:
+    Prepends Hospitality-Finance-Shared-O2C-folio-charge-authority.md —
+    enforces enterprise-wide financial thresholds.
+
+  Checkout Agent:
+    Also inherits the Finance O2C shared policy for folio settlement validation.
+
+This is defined in CROSS_DOMAIN_AGENT_IDS in agents.ts. A cross-domain
+inheritance event (COMPLIANCE_BOUNDARY/INFO) is written to the witness trail
+whenever this applies.
+
+
+CRYPTOGRAPHIC AGENT IDENTITY — W3C VERIFIABLE CREDENTIALS
+================================================================================
+
+Every agent on the platform holds a cryptographically signed W3C Verifiable
+Credential (VC). This layer was added to ensure agents cannot operate with
+stale, revoked, or impersonated identities.
+
+
+HOW VC ISSUANCE WORKS
+-----------------------
+
+  Issuer:         The platform itself acts as the VC issuer (DID: did:vda-md:
+                  platform-sentinel-0)
+
+  Subject:        Each agent identified by its canonical agentId
+                  (e.g., did:vda-md:availability-agent)
+
+  Payload fields:
+    agentId           Canonical agent identifier
+    companyId         Hotel/company scope (0 = platform-wide)
+    governanceHash    SHA-256 hash of the agent's governance files at issuance
+    issuedAt          ISO timestamp
+    expiresAt         23 hours after issuance
+
+  Signing:        HMAC-SHA256 using a server-side secret. The result is a
+                  base64url-encoded JWT-style token.
+
+  Storage:        agent_credentials table in PostgreSQL.
+
+
+GOVERNANCE HASH BINDING
+------------------------
+
+When a VC is issued, the platform computes a SHA-256 hash over the combined
+content of the agent's AGENTS.md + SOP.md + SKILL.md files. This hash is
+embedded in the credential.
+
+At every subsequent agent invocation:
+  1. The caller presents their VC (in the X-Agent-VC header, base64url encoded)
+  2. The middleware verifies the signature and expiry
+  3. The current governance files are re-hashed
+  4. If the hash differs from the VC's governanceHash, the governance files
+     changed since credential issuance
+
+On a hash mismatch:
+  - A FRAMEWORK_INTEGRITY/FAIL witness event is written
+  - A warning is logged with agent, companyId, stored hash, and current hash
+  - The agent can still proceed (governance files may have been intentionally
+    updated) but the discrepancy is permanently recorded in the audit trail
+
+
+VC ROTATION SCHEDULER
+----------------------
+
+Two background jobs start at server initialisation:
+
+  Rotation scheduler (runs every 23 hours):
+    Queries all agents with active credentials older than 23 hours.
+    Issues fresh VCs with updated governance hashes. Writes
+    AGENT_LIFECYCLE/INFO witness events for each rotation.
+
+  Cleanup scheduler (runs hourly):
+    Removes expired credentials from the database.
+    Logs AGENT_LIFECYCLE/INFO events for each cleanup.
+
+These schedulers are implemented as recursive setTimeout loops (not cron)
+and are confirmed in the server startup log:
+
+  [VC-Rotation] Credential rotation scheduler started (23h rotation cycle,
+  hourly cleanup)
+
+
+ROUTES
+-------
+
+  POST /api/agents/credentials/issue
+    Issues a new VC for a given agentId and companyId.
+
+  GET  /api/agents/credentials/active?agentId=&companyId=
+    Returns the most recent active credential for an agent.
+
+  GET  /api/agents/credentials/list?companyId=
+    Lists all credentials (active and expired) for a company.
+
+  GET  /api/agents/credentials/verify
+    Verifies a presented VC token — returns valid/invalid plus decoded payload.
+
+  POST /api/agents/credentials/rotate
+    Forces immediate rotation for a specific agent/company pair.
+
+  GET  /api/agents/vc-governance-hash?agentId=&companyId=
+    Returns the current governance file hash for an agent without issuing a VC.
+
+
+A2A PROTOCOL — EXTERNAL AGENT INTEROPERABILITY
+================================================================================
+
+The platform implements the Google DeepMind Agent-to-Agent (A2A) Protocol,
+a JSON-RPC 2.0 over HTTP standard for inter-agent communication. This layer
+enables external AI agents (built on any framework) to interact with VDA-MD
+governed agents.
+
+
+PROTOCOL SPECIFICATION
+-----------------------
+
+  Transport:      HTTP POST
+  Message format: JSON-RPC 2.0 envelopes
+  Streaming:      Server-Sent Events (SSE) for long-running tasks
+  Validation:     Ajv v8 schema validation on every incoming message
+
+
+JSON-RPC ENVELOPE STRUCTURE
+-----------------------------
+
+  {
+    "jsonrpc": "2.0",
+    "id": "unique-request-id",
+    "method": "tasks/send",
+    "params": {
+      "id": "task-uuid",
+      "message": {
+        "role": "user",
+        "parts": [{ "type": "text", "text": "..." }]
+      }
+    }
+  }
+
+
+A2A ERROR CODES
+----------------
+
+  -32700   Parse error — invalid JSON
+  -32600   Invalid request — missing jsonrpc/method/params
+  -32601   Method not found
+  -32000   Internal A2A error
+  -32001   Governance file missing — VDA-MD §2.1 violation
+  -32002   Agent not found in registry
+  -32003   Task rejected by governance evaluation
+  -32004   Credential verification failed (VC invalid or expired)
+  -32005   Schema validation failed (Ajv)
+  -32006   Onboarding request not found
+
+
+AGENT CARD REGISTRY
+--------------------
+
+Every A2A-accessible agent has an Agent Card — a JSON document describing
+its capabilities, input schema, and governance scope. The registry contains
+9 cards:
+
+  availability-agent        rate-agent           reservation-bot
+  check-in-agent            folio-charge-agent   folio-agent
+  checkout-agent            revenue-reconciliation-agent
+  onboarding-agent (NEW)
+
+Agent cards are served at:
+  GET /api/a2a/agents            — list all cards
+  GET /api/a2a/agents/:agentId   — get specific card
+
+The platform sentinel agent card (companyId=0) is published at:
+  GET /.well-known/agent.json
+
+
+AJV v8 SCHEMA VALIDATION
+--------------------------
+
+Every incoming A2A message is validated against a strict JSON Schema before
+any processing occurs:
+
+  Required fields:    jsonrpc (must be "2.0"), method, params.id,
+                      params.message.role, params.message.parts
+  Parts validation:   Each part must have a "type" field; "text" parts
+                      require a "text" string field
+  Error on failure:   -32005 with Ajv validation errors listed
+
+The validator is instantiated once at module load:
+
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  addFormats(ajv);
+  const validateA2AMessage = ajv.compile(a2aMessageSchema);
+
+
+A2A ONBOARDING AGENT — 7-PHASE ADMISSION WORKFLOW
+================================================================================
+
+The Onboarding Agent is a self-referential agent: it governs the admission of
+external agents into the VDA-MD governance framework. It runs a structured
+7-phase workflow and is itself governed by its own AGENTS.md, SOP.md, and
+SKILL.md files.
+
+
+THE 7 PHASES
+-------------
+
+  Phase 1 — INTAKE
+    External agent submits a tasks/send request to /api/a2a/onboarding.
+    System validates the A2A message schema. Creates an onboarding_requests
+    record in the database with status PENDING.
+
+  Phase 2 — GOVERNANCE_ANALYSIS
+    The Onboarding Orchestrator analyses the candidate agent's stated
+    capabilities, governance model, and integration scope.
+
+  Phase 3 — IMPACT_DELTA
+    The Impact Delta Analyser computes what governance changes would be needed
+    to admit this agent. Produces a structured Impact Delta Report listing:
+    new files required, authority conflicts, scope overlaps, and risk level.
+
+  Phase 4 — HUMAN_REVIEW
+    For medium/high-risk admissions, the orchestrator creates a HITL token
+    and escalates to a human approver. The request is suspended awaiting
+    approval or rejection.
+
+  Phase 5 — FILE_GENERATION (on approval)
+    The Candidate File Generator creates draft AGENTS.md, SOP.md, and SKILL.md
+    files for the candidate agent using the VDA-MD naming convention and
+    the hotel's brand context.
+
+  Phase 6 — VALIDATION
+    Generated files are validated for: §2.1 mandatory clause presence, NIST
+    control references, minimum MUST/MUST NOT counts, and cross-reference
+    integrity with existing files.
+
+  Phase 7 — ADMISSION or REJECTION
+    If all checks pass: the candidate agent is admitted and its governance
+    files are saved to the governance_files table. If rejected at any phase:
+    the request is marked REJECTED with a full audit trail of the reasons.
+
+
+HUMAN-IN-THE-LOOP (HITL) APPROVAL SYSTEM
+------------------------------------------
+
+When the Onboarding Agent escalates a decision to a human, it:
+
+  1. Generates a unique HITL token (UUID) stored in hitl_tokens table
+  2. Records the token against the onboarding_request_id
+  3. Returns the token to the escalation target for out-of-band approval
+
+Human approvers interact via:
+  POST /api/hitl/respond/:token     — approve or reject with a comment
+  GET  /api/hitl/pending            — list all pending HITL requests
+  POST /api/hitl/escalate           — manually create a HITL token
+
+On approval/rejection, the respond endpoint calls directly into the
+Onboarding Orchestrator to advance the workflow to the next phase.
+
+
+ROLLBACK
+---------
+
+Any onboarding that has passed Phase 5 (file generation) can be rolled back:
+
+  POST /api/onboarding/:id/rollback
+
+This deletes any generated governance files, resets the request status to
+ROLLED_BACK, and writes an AGENT_LIFECYCLE/FAIL witness event recording the
+rollback with the operator's reason.
+
+
+DASHBOARD TAB
+--------------
+
+The Agent Onboarding tab in the dashboard has 4 sub-tabs:
+
+  Request Builder      Compose and submit A2A onboarding requests
+  Active Requests      Live status of all in-flight onboarding workflows
+  HITL Pending         Pending human approvals — approve/reject inline
+  Onboarding Log       Full audit history of all onboarding decisions
+
+
+WITNESS AGENT — GOVERNANCE AUDIT TRAIL
+================================================================================
+
+The Witness Agent is the audit backbone of the platform. Every agent decision
+— whether from a live API call, a scenario run, a governance integrity check,
+or an A2A message — is written to the witness_entries table.
+
+
+WITNESS ENTRY FIELDS
+---------------------
+
+  agent              Which agent made the decision
+  decision           PASS, FAIL, ESCALATE, NORMALISED, or INFO
+  reasoning          Claude's natural-language explanation
+  clauseApplied      The verbatim MUST/MAY clause from the governance file
+                     that governed the outcome
+  fileReferenced     The governance file name the clause came from
+  filesConsulted     Array of all governance files loaded during evaluation
+  actionProposed     What action the agent proposed
+  escalationTarget   Who should be notified if ESCALATE
+  apaleoData         JSON blob of live Apaleo data context (IDs, amounts)
+  exceptionApplied   Boolean — whether an EXCEPTION.md overlay changed outcome
+  escalationTarget   Escalation target role if ESCALATE
+  eventCategory      Governance event category (NEW — see below)
+  createdAt          Timestamp with timezone
+
+
+EVENT CATEGORIES (NEW)
+-----------------------
+
+The eventCategory field classifies witness entries into governance domains:
+
+  null / absent        Standard agent decision (PASS/FAIL/ESCALATE from
+                       a normal agent evaluation). Displayed as "Agent Decision"
+                       everywhere in the UI for backward compatibility.
+
+  FRAMEWORK_INTEGRITY  Events relating to the integrity of the governance
+                       framework itself: governance hash checks, integrity
+                       check runs, VC validation results.
+
+  COMPLIANCE_BOUNDARY  Events at the edge of compliance enforcement: compliance
+                       guard rejections, cross-domain inheritance invocations,
+                       policy boundary crossings.
+
+  AGENT_LIFECYCLE      Agent identity events: VC issuance, rotation, expiry,
+                       onboarding admission, rollback.
+
+  A2A_PROTOCOL         Events from external agent interactions: A2A message
+                       receipt, schema validation results, admission decisions.
+
+  DATA_GOVERNANCE      Reserved for future data lineage and data access events.
+
+
+EVENTS WRITTEN AUTOMATICALLY
+------------------------------
+
+The platform writes governance events automatically in the following situations:
+
+  On A2A message receipt:
+    A2A_PROTOCOL/INFO — message received, schema validated
+
+  On A2A schema validation failure:
+    A2A_PROTOCOL/FAIL — invalid message rejected with Ajv errors
+
+  On compliance guard rejection:
+    COMPLIANCE_BOUNDARY/FAIL — file edit rejected; lists specific violations
+
+  On VC governance hash mismatch:
+    FRAMEWORK_INTEGRITY/FAIL — governance files changed since credential issue
+
+  On VC rotation:
+    AGENT_LIFECYCLE/INFO — credential rotated for agent at company
+
+  On cross-domain inheritance invocation:
+    COMPLIANCE_BOUNDARY/INFO — Finance O2C shared services files applied
+
+  On integrity check pass:
+    FRAMEWORK_INTEGRITY/PASS — canonical event: integrity_check_passed
+    (summary + per-agent detail sub-events)
+
+  On integrity check failure:
+    FRAMEWORK_INTEGRITY/FAIL — canonical event: integrity_check_failed
+
+  On onboarding admission:
+    AGENT_LIFECYCLE/INFO — external agent admitted to VDA-MD
+
+  On onboarding rollback:
+    AGENT_LIFECYCLE/FAIL — onboarding rolled back with reason
+
+
+GOVERNANCE INTEGRITY CHECK SCHEDULER
+--------------------------------------
+
+A background scheduler runs a full governance integrity check every 6 hours.
+It is implemented as a recursive setTimeout (not cron) and is confirmed in the
+server startup log:
+
+  [IntegrityCheck] Governance integrity check scheduled (first run in 6h)
+
+Each run:
+  1. Queries all active agents across all companies
+  2. Verifies that all three mandatory file types are present and non-trivial
+  3. Recomputes governance hashes for each agent
+  4. Checks for cross-reference integrity between files
+  5. Writes a summary FRAMEWORK_INTEGRITY witness event (PASS or FAIL)
+     with event_type: "integrity_check_passed" or "integrity_check_failed"
+  6. Writes per-agent detail sub-events for any violations found
+
+The baseline is in-memory only — it resets on server restart. This prevents
+stale baselines from masking genuine integrity drift.
+
+
+FRAMEWORK INTEGRITY PANEL (NEW)
+---------------------------------
+
+The Witness Agent tab in the dashboard now includes a collapsible Framework
+Integrity Panel above the audit trail. It:
+
+  - Fetches live metrics from the API every 30 seconds (auto-refresh)
+  - Includes a manual Refresh button with last-refreshed timestamp
+  - Starts expanded by default; collapses/expands on header click
+
+Four metric cards are displayed:
+
+  Integrity Checks Passed       Count of FRAMEWORK_INTEGRITY/PASS events
+  (last 24 h)                   in the last 24 hours for this hotel
+
+  Integrity Failures            Count of FRAMEWORK_INTEGRITY/FAIL events
+  (all time)                    all time for this hotel
+
+  Compliance Rejections         Count of COMPLIANCE_BOUNDARY/FAIL events
+  (last 7 days)                 in the last 7 days for this hotel
+
+  Active Exceptions             Count of live EXCEPTION.md files in the
+  (live EXCEPTION files)        governance_files table for this hotel
+                                (status='live', isArchived=false)
+
+Below the cards, a "Recent Framework Events" list shows the last 10 entries
+where eventCategory is FRAMEWORK_INTEGRITY, COMPLIANCE_BOUNDARY, or
+AGENT_LIFECYCLE, with: timestamp, agent, event_type from apaleoData,
+colour-coded category badge, and decision badge.
+
+
+CATEGORY FILTER ON AUDIT TRAIL
+--------------------------------
+
+A filter dropdown above the witness log allows filtering by event_category:
+
+  All Categories          Show all entries
+  Agent Decision          Entries where eventCategory IS NULL
+  Framework Integrity     eventCategory = FRAMEWORK_INTEGRITY
+  Compliance Boundary     eventCategory = COMPLIANCE_BOUNDARY
+  Agent Lifecycle         eventCategory = AGENT_LIFECYCLE
+  A2A Protocol            eventCategory = A2A_PROTOCOL
+
+Filtering is applied client-side on the already-fetched log array. Entry
+count is shown when a filter is active.
+
+
+LIVE APALEO INTEGRATION — HOW IT ACTUALLY WORKS
+================================================================================
+
+
+AUTHENTICATION: OAUTH2 CLIENT CREDENTIALS
+-------------------------------------------
+
+The platform authenticates to Apaleo using the OAuth2 Client Credentials Grant:
+
+  Token endpoint:    https://identity.apaleo.com/connect/token
+  Credentials:       APALEO_CLIENT_ID and APALEO_CLIENT_SECRET
+                     (stored as environment secrets, never in code)
+  Token caching:     Tokens are cached in memory. The system checks expiry on
+                     every request and refreshes within 30 seconds of expiration.
+  Scopes:            availability.read, reservations.read,
+                     reservations.manage, finance.read, finance.manage,
+                     distribution:reservations.manage, and others.
+
+
+THE MCP PROXY
+--------------
+
+The Model Context Protocol (MCP) is Apaleo's standardised interface for AI
+model tool-calling. The platform runs a transparent MCP proxy at /api/mcp that:
+
+  - Accepts JSON-RPC requests (and SSE streaming) from agents
+  - Injects the current Apaleo Bearer token into every request automatically
+  - Forwards to https://mcp.apaleo.com/mcp
+  - Manages Mcp-Session-Id headers for stateful MCP sessions
+  - Returns tool results to the calling agent
+
+This is not a simulation — agents call Apaleo's actual MCP interface.
+
+
+THE apaleoRequest FUNCTION
+----------------------------
+
+When MCP is unavailable or a direct REST call is needed, agents use a typed
+apaleoRequest helper that:
+
+  - Automatically fetches and injects the Bearer token
+  - Builds query strings from typed parameter objects
+  - Handles 204 No Content responses gracefully
+  - Throws descriptive errors with HTTP status and body on failure
+
+
+APALEO API SURFACES USED
+--------------------------
+
+  Availability API   /availability/v1/unit-groups
+    Check live room availability for given dates/adults
+
+  Inventory API      /inventory/v1/properties, /unit-groups, /units
+    List properties, room categories, individual unit statuses
+
+  Booking API        /booking/v1/bookings (POST)
+    Create group and transient bookings
+
+  Booking API        /booking/v1/reservations (GET)
+    Retrieve reservation lists by status, property
+
+  Finance API        /finance/v1/folios (GET)
+    List folios for a reservation
+
+  Finance API        /finance/v1/folios/{id}/charges (POST)
+    Post charges to a guest folio (executed only on PASS)
+
+  Rate Plan API      /rateplan/v1/rate-plans (GET)
+    Retrieve active rate plans for a property
+
+  Rate Plan API      /rateplan/v1/rate-plans/{id}/rates (PUT)
+    Set nightly rates on a rate plan (used by demo setup)
+
+  Reports API        /reports/v1/revenue
+    Pull revenue performance data for reconciliation
+
+  Operations API     /operations/v1/maintenances
+    Maintenance/housekeeping status (displayed in live stats bar)
+
+
+THE DEMO RESERVATION PATTERN
+------------------------------
+
+The platform uses a dedicated Apaleo rate plan per hotel as the anchor for
+all demo runs:
+
+  Pattern:     {propertyId}-VDADEMO-SGL  (e.g., VIE-VDADEMO-SGL)
+  Settings:    isBookable: true, single adult occupancy
+
+Before any demo scenario, the platform:
+
+  1. Sets 60 days of nightly rates (€175/night) on this plan via the
+     Rates PUT endpoint
+  2. Creates a fresh Confirmed booking 7 days in the future under a demo
+     booker profile (Maria Schmidt, demo@vda-mk.com)
+  3. Resolves the folio for that booking automatically
+  4. All 7 agents in the scenario operate against this guaranteed live
+     Apaleo data — no mocked responses anywhere in the pipeline
+
+
+THE 7-STEP SCENARIO (LIVE DEMO)
+================================================================================
+
+The centrepiece interactive demo runs a complete guest journey through all 7
+operational agents in sequence against live Apaleo data:
+
+  Step 1 — Availability Agent
+    Calls GetAvailableUnitGroups against Apaleo — returns real unit count
+
+  Step 2 — Rate Agent
+    Calls ListRatePlans — evaluates a 5% discount request (BAR €180 → €171),
+    approves autonomously under the 9% policy ceiling
+
+  Step 3 — Reservation Bot
+    Calls GetGuestProfile — verifies demo reservation exists in Apaleo
+
+  Step 4 — Check-In Agent
+    Calls CheckIn via MCP — transitions reservation from Confirmed to InHouse
+
+  Step 5 — Folio Charge Agent
+    Calls CreateFolioCharge via MCP — posts an €89 RoomRevenue charge to the
+    real folio in Apaleo
+
+  Step 6 — Checkout Agent
+    Calls CheckOut via MCP — transitions to CheckedOut; applies Gold loyalty
+    exception (late checkout to 13:00, €30 fee waived, exceptionApplied: true)
+
+  Step 7 — Revenue Reconciliation
+    Calls GetReport or ListFolios — reconciles folio charge vs rate plan
+    expectation, seals audit trail
+
+Every step produces a Witness Entry sealed in the database with: agent name,
+decision, reasoning, the exact policy clause verbatim, all governance files
+consulted, and full Apaleo data context. All Apaleo IDs in witness entries are
+real and can be independently verified in the Apaleo sandbox portal.
+
+
+THE FILE MANAGER
+================================================================================
+
+The File Manager is the governance document repository. For each hotel it shows
+all 29+ canonical markdown files, organised by agent and file type. Users can:
+
+  View any file's full markdown content
+
+  Edit files — but every save runs a compliance guard that checks:
+    - Minimum MUST/MUST NOT clause counts (reducing below seeded baseline
+      requires formal sign-off)
+    - Presence of required NIST control references
+    - ISO 42001 and SOC 2 keyword preservation
+    - Broken cross-references between files
+
+  Sign off on changes — a named accountable role must formally sign governance
+  updates
+
+  Version history — every edit creates a new row in governance_file_versions
+  with commit message and author
+
+  Regenerate files via C2MD — Claude rewrites the file using brand-specific
+  voice while preserving all compliance clauses
+
+THE COMPLIANCE GUARD:
+  If a content edit would reduce MUST clauses, remove a NIST reference, or
+  delete an ISO 42001 citation, the API rejects the save with 409 Conflict and
+  lists the specific violations. Writes a COMPLIANCE_BOUNDARY/FAIL witness event.
+  Markdown cannot be weakened without a formal named sign-off.
+
+
+THE C2MD STUDIO (COMPLIANCE-TO-MARKDOWN)
+================================================================================
+
+C2MD converts raw regulatory controls into property-specific, brand-voiced
+governance markdown:
+
+  1. User selects a target agent and file type (SOP, SKILL, AGENTS)
+  2. User provides source regulatory reference (e.g., "NIST SP 800-53 AC-2")
+  3. System loads the hotel's brand context (from setup wizard)
+  4. Claude generates a governance file using citizenM terminology and voice
+     while embedding all required MUST/MUST NOT/MAY language and NIST
+     cross-references
+  5. Generated file is saved to the File Manager with c2md_generated: true
+     in the frontmatter
+
+
+THE A2MD NORMALISER
+================================================================================
+
+The A2MD (Apaleo-to-Markdown) Normaliser takes raw Apaleo API outputs and
+converts them into structured governance-compatible markdown summaries. This
+allows audit evidence from Apaleo to be referenced in governance documents in
+a standardised, compliance-readable format.
+
+
+THE EXCEPTION ENGINE
+================================================================================
+
+The Exception Engine manages EXCEPTION.md files that overlay the base SOP for
+specific conditions. Current active exceptions include:
+
+  Gold Loyalty Late Checkout:
+    Gold tier guests may check out up to 13:00 without the standard €30 fee.
+    Defined in Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md
+    and applied automatically by the Checkout Agent.
+
+The engine UI allows creating new exception conditions with:
+  - Trigger condition
+  - Exception rule
+  - Approval level required
+  - Effective date range
+
+Active exceptions count toward the "Active Exceptions" metric card in the
+Framework Integrity Panel.
+
+
+THE SOC 2 SYSTEM DESCRIPTION GENERATOR
+================================================================================
+
+The SOC 2 SD tab auto-generates the System Description section required for
+a SOC 2 Type II audit report:
+
+  - Enumerates all AI agents operating on the platform for the property
+  - Cross-references each agent's governance files with Trust Services Criteria
+    (CC6.1, CC6.2, CC7.1, etc.)
+  - Generates a formatted System Description section confirming all AI decisions
+    are governed, auditable, and compliant
+  - Output is suitable for pasting directly into an auditor's SOC 2 report
+
+
+COMPLIANCE FRAMEWORK COVERAGE
+================================================================================
+
+  GDPR
+    Data subject identity verification at reservation stage, booker vs guest
+    data separation, personal data processing clauses in SOP files.
+    EU AI Act Article 12 audit trail via Witness Agent.
+
+  EU AI Act
+    Auditability (Witness Agent trail), human escalation paths (ESCALATE
+    decision, HITL tokens), risk classification per agent in AGENTS.md.
+
+  ISO 42001
+    AI management system references in frontmatter, governance lifecycle
+    (author → review → sign-off → version → rotation).
+
+  SOC 2 Type II
+    Automated system description generation, immutable audit log (witness
+    entries), file version history, compliance guard preventing unauthorised
+    policy weakening. Compliance badge on every Witness entry.
+
+  NIST SP 800-53
+    AC-2 (Account Management — VC-based agent identity, rotation),
+    AU-2 (Event Logging — Witness Agent),
+    AU-12 (Audit Record Generation — structured witness entries),
+    SA-4 (Acquisition Process — governance file sign-off requirement),
+    IR-4 (Incident Handling — ESCALATE path, HITL tokens).
+
+
+THE SETUP WIZARD (BRAND CONTEXT INGESTION)
+================================================================================
+
+When adding a new hotel property, the wizard:
+
+  1. Takes the property website URL and Apaleo Property ID
+  2. Optionally accepts uploaded SOPs, manuals, or brand guidelines (PDF/DOCX)
+  3. Runs Claude-powered extraction identifying: guest terminology (e.g.,
+     "citizen" vs "guest"), staff roles (e.g., "ambassador" vs "receptionist"),
+     brand voice characteristics, and property-specific systems
+  4. Stores brand context in the companies table as brandContext
+  5. Uses this context in all subsequent C2MD regeneration so governance files
+     sound authentically citizenM rather than generic
+
+
+DATABASE SCHEMA SUMMARY
+================================================================================
+
+  Table                        Purpose
+  ─────────────────────────────────────────────────────────────────────────────
+  companies                    Hotel properties — name, website, Apaleo property
+                               ID, brand context, uploaded file metadata
+
+  governance_files             All 29+ governance markdown files per hotel —
+                               content, frontmatter metadata, must/may clause
+                               counts, status (draft/live/archived), sign-off
+                               records, fileType (AGENTS/SOP/SKILL/EXCEPTION)
+
+  governance_file_versions     Full version history of every governance file
+                               edit — content snapshot, commit message, author
+
+  witness_entries              Complete audit log of every agent decision and
+                               governance event — agent, decision, clause
+                               applied, governance files consulted, Apaleo data
+                               context, eventCategory (NEW), createdAt
+
+  conversations                Chat session records for AI setup assistant
+
+  messages                     Individual messages within setup conversations
+
+  agent_credentials            W3C Verifiable Credentials — agentId, companyId,
+    (NEW)                      signedVc (JSON), governanceHash, issuedAt,
+                               expiresAt, isActive. One active credential
+                               per agent/company pair at any time.
+
+  onboarding_requests          A2A Onboarding Agent workflow state — requestId,
+    (NEW)                      externalAgentId, phase (1-7), status
+                               (PENDING/IN_PROGRESS/APPROVED/REJECTED/
+                               ROLLED_BACK), impactDelta JSON, candidateFiles
+                               JSON, createdAt, updatedAt
+
+  hitl_tokens                  Human-in-the-Loop approval tokens — token (UUID),
+    (NEW)                      onboardingRequestId, status (PENDING/APPROVED/
+                               REJECTED), respondedBy, respondedAt, comment
+
+
+NOTABLE COLUMN ADDITIONS ON EXISTING TABLES
+---------------------------------------------
+
+  witness_entries.eventCategory
+    VARCHAR — classifies witness entries into governance categories:
+    FRAMEWORK_INTEGRITY, COMPLIANCE_BOUNDARY, AGENT_LIFECYCLE, A2A_PROTOCOL,
+    DATA_GOVERNANCE. NULL entries are standard agent decisions.
+
+  witness_entries.credentialVerified
+    BOOLEAN — records whether the caller's VC was verified at evaluation time.
+
+  witness_entries.governanceFileHash
+    TEXT — the governance file hash computed at evaluation time, enabling
+    post-hoc verification that the correct policy version was applied.
+
+
+API SERVER ROUTES SUMMARY
+================================================================================
+
+AGENT EXECUTION ROUTES
+  POST /api/agents/availability/evaluate
+  POST /api/agents/rate/evaluate
+  POST /api/agents/reservation/evaluate
+  POST /api/agents/checkin/evaluate
+  POST /api/agents/folio-charge/evaluate
+  POST /api/agents/folio/evaluate
+  POST /api/agents/checkout/evaluate
+  POST /api/agents/revenue/evaluate
+    Each loads mandatory governance files, fetches live Apaleo data, calls
+    Claude, and seals a Witness entry. Returns PASS/FAIL/ESCALATE + reasoning.
+
+  POST /api/agents/scenario/run
+    Runs the full 7-step hospitality scenario in sequence.
+
+WITNESS ROUTES
+  GET  /api/agents/witness?companyId=&limit=
+    Returns paginated audit trail for a hotel.
+
+  GET  /api/agents/witness/integrity-metrics?companyId=
+    Returns 4 metric counts for the Framework Integrity Panel:
+    integrityPassedLast24h, integrityFailuresAllTime,
+    complianceRejectionsLast7d, activeExceptions.
+
+  GET  /api/agents/witness/framework-events?companyId=&limit=
+    Returns the last N governance category events (FRAMEWORK_INTEGRITY,
+    COMPLIANCE_BOUNDARY, AGENT_LIFECYCLE) for the recent events list.
+
+GOVERNANCE CREDENTIAL ROUTES
+  POST /api/agents/credentials/issue
+  GET  /api/agents/credentials/active
+  GET  /api/agents/credentials/list
+  GET  /api/agents/credentials/verify
+  POST /api/agents/credentials/rotate
+  GET  /api/agents/vc-governance-hash
+
+A2A PROTOCOL ROUTES
+  POST /api/a2a/onboarding
+    A2A entry point for the Onboarding Agent. Accepts tasks/send.
+  GET  /api/a2a/agents
+    Lists all A2A agent cards.
+  GET  /api/a2a/agents/:agentId
+    Returns specific agent card.
+  GET  /.well-known/agent.json
+    Platform sentinel agent card (A2A discovery endpoint).
+
+HITL ROUTES
+  POST /api/hitl/escalate
+    Creates a HITL token for a pending approval.
+  GET  /api/hitl/pending
+    Lists all pending human approval requests.
+  POST /api/hitl/respond/:token
+    Approves or rejects a HITL request; advances onboarding workflow.
+
+ONBOARDING ROUTES
+  POST /api/onboarding/:id/rollback
+    Rolls back a completed onboarding; removes generated files.
+
+FILE MANAGER ROUTES
+  GET  /api/fm/files/:companyId
+  GET  /api/fm/file/:id
+  PUT  /api/fm/file/:id         (runs compliance guard)
+  POST /api/fm/file
+  DELETE /api/fm/file/:id
+  POST /api/fm/sign/:id
+  GET  /api/fm/history/:id
+  POST /api/fm/compliance-check
+  POST /api/fm/integrity-check
+  GET  /api/fm/search/:companyId
+  POST /api/fm/agent/suggest
+  POST /api/fm/agent/release-notes
+  GET  /api/fm/release/:companyId
+
+ADMIN ROUTES
+  POST /api/admin/seed-companies
+    Idempotently creates hotel entries and generates initial governance stack.
+  POST /api/admin/seed-demo-data
+    Creates live sandbox reservations in the Apaleo environment.
+  GET  /api/admin/soc2-sd-status/:companyId
+  POST /api/admin/generate-soc2-sd
+
+INFRASTRUCTURE ROUTES
+  ALL  /api/mcp
+    Transparent MCP proxy. Injects Bearer token, manages sessions, SSE.
+  POST /api/ai-proxy
+    Secure Anthropic Claude wrapper. Centralises logging and formatting.
+
+
+WHAT MAKES THIS ARCHITECTURALLY SIGNIFICANT
+================================================================================
+
+1. ZERO HARDCODED BUSINESS LOGIC IN AGENTS
+   Change a MUST clause in a markdown file → the agent's behaviour changes on
+   the next request with no code deployment. Adding a new EXCEPTION.md changes
+   the Checkout Agent's decision in real time. This has been verified in
+   production: the Gold loyalty late checkout exception was added post-deploy
+   and immediately altered live agent decisions.
+
+2. LIVE APALEO DATA AT EVERY STEP
+   The platform does not simulate or mock. Every agent call hits the real
+   Apaleo sandbox MCP endpoint. Witness entries contain real Apaleo reservation
+   IDs, folio IDs, and rate plan IDs that can be independently verified in
+   the Apaleo sandbox portal.
+
+3. COMPLIANCE IMMUTABILITY
+   The compliance guard means governance files cannot be weakened by a rogue
+   edit — the system enforces that markdown always maintains its minimum
+   compliance posture. Any reduction requires a formal named sign-off and
+   writes a permanent COMPLIANCE_BOUNDARY/FAIL audit event.
+
+4. AUDITABILITY AS A FIRST-CLASS FEATURE
+   The Witness Agent trail is not a log file — it is structured relational
+   data including the exact policy clause, the exact governance file version,
+   and the exact Apaleo data state at decision time. Directly consumable by
+   an auditor. Now further enriched with event categories for governance-domain
+   classification.
+
+5. THE VDA-MD §2.1 ENFORCEMENT RULE
+   If any of the three mandatory files are missing for an agent/hotel pair,
+   the system immediately returns ESCALATE without calling Claude or Apaleo.
+   The AI cannot operate outside its governance envelope.
+
+6. CRYPTOGRAPHIC IDENTITY BINDING (NEW)
+   Agent credentials are cryptographically bound to the governance files they
+   were issued against. A governance file change is detectable at the
+   credential level — the hash mismatch is logged as a FRAMEWORK_INTEGRITY
+   event before any decision is made. Agents cannot silently operate under
+   stale governance.
+
+7. EXTERNAL AGENT GOVERNANCE VIA A2A (NEW)
+   The A2A Protocol layer means external AI agents — built on any framework —
+   must pass through the same VDA-MD governance gauntlet as native agents.
+   The Onboarding Agent's 7-phase workflow ensures no external agent gains
+   admission without compliant AGENTS.md, SOP.md, and SKILL.md on file.
+
+8. SELF-MONITORING GOVERNANCE INTEGRITY (NEW)
+   The 6-hour integrity check scheduler means the platform monitors itself.
+   It does not wait for a human to notice governance drift — it detects missing
+   files, hash mismatches, and cross-reference breaks automatically and writes
+   structured FRAMEWORK_INTEGRITY audit events that surface immediately in the
+   Framework Integrity Panel.
+
+
+================================================================================
+Platform: VDA-MD (Value Driven AI — Markdown)
+Stack: React/Vite · Node.js/Express · TypeScript · PostgreSQL · Drizzle ORM ·
+       Anthropic Claude (Sonnet + Haiku) · Apaleo MCP · pnpm monorepo ·
+       W3C Verifiable Credentials · A2A Protocol (JSON-RPC 2.0) · Ajv v8
+Hotels: BER (Berlin, ID=3) · LND (London, ID=4) · MUC (Munich, ID=5) ·
+        PAR (Paris, ID=6) · VIE (Vienna, ID=7) · Sentinel (ID=0)
+Agents: 9 (Availability · Rate · Reservation · Check-In · Folio Charge ·
+            Folio · Checkout · Revenue Reconciliation · Onboarding)
+Compliance: GDPR · EU AI Act Art.12 · ISO 42001 · SOC 2 Type II ·
+            NIST SP 800-53 (AC-2, AU-2, AU-12, SA-4, IR-4)
+================================================================================
