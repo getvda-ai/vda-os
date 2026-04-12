@@ -360,15 +360,36 @@ function SendIcon() {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
+const DEFAULT_W = 380;
+const DEFAULT_H = 520;
+const MIN_W = 300;
+const MIN_H = 320;
+
+function getInitialPos() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  return { x: 24, y: Math.max(24, vh - DEFAULT_H - 92) };
+}
+
 export default function VdaMdChatbot() {
   const [open, setOpen] = useState(true);
   const [hasOpened, setHasOpened] = useState(true);
   const [messages, setMessages] = useState([OPENING_MESSAGE]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Drag + resize state
+  const [pos, setPos] = useState(getInitialPos);
+  const [size, setSize] = useState({ width: DEFAULT_W, height: DEFAULT_H });
+  const dragRef = useRef({ active: false, ox: 0, oy: 0 });
+  const resizeRef = useRef({ active: false, sx: 0, sy: 0, ow: 0, oh: 0 });
+  const posRef = useRef(pos);
+  const sizeRef = useRef(size);
+  useEffect(() => { posRef.current = pos; }, [pos]);
+  useEffect(() => { sizeRef.current = size; }, [size]);
+
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  const panelRef = useRef(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -384,7 +405,6 @@ export default function VdaMdChatbot() {
     }
   }, [open]);
 
-  // Mobile: prevent body scroll when panel open
   useEffect(() => {
     if (open && window.innerWidth < 640) {
       document.body.style.overflow = "hidden";
@@ -394,32 +414,75 @@ export default function VdaMdChatbot() {
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
-  const handleOpen = () => {
-    setOpen(true);
-    setHasOpened(true);
-  };
+  // ── Drag handlers ──────────────────────────────────────────────────────────
+  const onDragMove = useCallback((e) => {
+    if (!dragRef.current.active) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = sizeRef.current.width;
+    const h = sizeRef.current.height;
+    setPos({
+      x: Math.max(0, Math.min(e.clientX - dragRef.current.ox, vw - w)),
+      y: Math.max(0, Math.min(e.clientY - dragRef.current.oy, vh - h)),
+    });
+  }, []);
 
+  const onDragEnd = useCallback(() => {
+    dragRef.current.active = false;
+    document.removeEventListener("mousemove", onDragMove);
+    document.removeEventListener("mouseup", onDragEnd);
+    document.body.style.userSelect = "";
+  }, [onDragMove]);
+
+  const onDragStart = useCallback((e) => {
+    if (e.button !== 0) return;
+    const p = posRef.current;
+    dragRef.current = { active: true, ox: e.clientX - p.x, oy: e.clientY - p.y };
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onDragMove);
+    document.addEventListener("mouseup", onDragEnd);
+  }, [onDragMove, onDragEnd]);
+
+  // ── Resize handlers ────────────────────────────────────────────────────────
+  const onResizeMove = useCallback((e) => {
+    if (!resizeRef.current.active) return;
+    const r = resizeRef.current;
+    setSize({
+      width: Math.max(MIN_W, r.ow + e.clientX - r.sx),
+      height: Math.max(MIN_H, r.oh + e.clientY - r.sy),
+    });
+  }, []);
+
+  const onResizeEnd = useCallback(() => {
+    resizeRef.current.active = false;
+    document.removeEventListener("mousemove", onResizeMove);
+    document.removeEventListener("mouseup", onResizeEnd);
+    document.body.style.userSelect = "";
+  }, [onResizeMove]);
+
+  const onResizeStart = useCallback((e) => {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    const s = sizeRef.current;
+    resizeRef.current = { active: true, sx: e.clientX, sy: e.clientY, ow: s.width, oh: s.height };
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onResizeMove);
+    document.addEventListener("mouseup", onResizeEnd);
+  }, [onResizeMove, onResizeEnd]);
+
+  const handleOpen = () => { setOpen(true); setHasOpened(true); };
   const handleClose = () => setOpen(false);
-
-  const handleClear = () => {
-    setMessages([OPENING_MESSAGE]);
-    setInput("");
-  };
+  const handleClear = () => { setMessages([OPENING_MESSAGE]); setInput(""); };
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
     if (!text || loading) return;
-
     const userMsg = { role: "user", content: text };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
     setLoading(true);
-
     try {
-      // Send last 20 messages (10 turns) to stay within context
-      const historyToSend = newMessages.slice(-20);
-
       const res = await fetch("/api/ai/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -427,19 +490,13 @@ export default function VdaMdChatbot() {
           model: "claude-sonnet-4-20250514",
           max_tokens: 1024,
           system: SYSTEM_PROMPT,
-          messages: historyToSend,
+          messages: newMessages.slice(-20),
         }),
       });
-
       if (!res.ok) throw new Error("API error");
-
       const data = await res.json();
-      const assistantText = data?.content?.[0]?.type === "text"
-        ? data.content[0].text
-        : null;
-
+      const assistantText = data?.content?.[0]?.type === "text" ? data.content[0].text : null;
       if (!assistantText) throw new Error("Empty response");
-
       setMessages(prev => [...prev, { role: "assistant", content: assistantText }]);
     } catch {
       setMessages(prev => [...prev, {
@@ -448,32 +505,26 @@ export default function VdaMdChatbot() {
         isError: true,
       }]);
     }
-
     setLoading(false);
   }, [input, loading, messages]);
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
   return (
-    <div style={{ position: "fixed", bottom: 24, left: 24, zIndex: 9000, fontFamily: "'DM Sans', sans-serif" }}>
-
-      {/* Chat panel */}
+    <>
+      {/* ── Draggable / resizable chat panel ── */}
       {open && (
         <div
-          ref={panelRef}
           style={{
             position: "fixed",
-            bottom: isMobile ? 0 : 92,
-            left: isMobile ? 0 : 24,
-            width: isMobile ? "100vw" : 380,
-            height: isMobile ? "100dvh" : 520,
+            top: isMobile ? 0 : pos.y,
+            left: isMobile ? 0 : pos.x,
+            width: isMobile ? "100vw" : size.width,
+            height: isMobile ? "100dvh" : size.height,
             background: "#111318",
             border: isMobile ? "none" : "1px solid #1e2130",
             borderRadius: isMobile ? 0 : 12,
@@ -482,73 +533,57 @@ export default function VdaMdChatbot() {
             overflow: "hidden",
             boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
             zIndex: 9001,
+            fontFamily: "'DM Sans', sans-serif",
           }}
         >
-          {/* Header */}
-          <div style={{
-            background: "#0d0f14",
-            borderBottom: "1px solid #1e2130",
-            padding: "14px 16px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexShrink: 0,
-          }}>
-            <div>
+          {/* Header — drag handle */}
+          <div
+            onMouseDown={isMobile ? undefined : onDragStart}
+            style={{
+              background: "#0d0f14",
+              borderBottom: "1px solid #1e2130",
+              padding: "14px 16px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexShrink: 0,
+              cursor: isMobile ? "default" : "move",
+              userSelect: "none",
+            }}
+          >
+            <div style={{ pointerEvents: "none" }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#e2e4ea" }}>VDA-MD Expert</div>
               <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>Ask me anything about the framework</div>
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", pointerEvents: "all", cursor: "default" }}>
               <button
                 onClick={handleClear}
+                onMouseDown={e => e.stopPropagation()}
                 style={{
                   background: "none", border: "1px solid #1e2130", borderRadius: 5,
                   padding: "3px 9px", fontSize: 10, color: "#6b7280", cursor: "pointer",
                   fontFamily: "'DM Sans', sans-serif",
                 }}
-              >
-                Clear
-              </button>
+              >Clear</button>
               <button
                 onClick={handleClose}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  padding: 4, borderRadius: 4, display: "flex", alignItems: "center",
-                }}
-              >
-                <CloseIcon />
-              </button>
+                onMouseDown={e => e.stopPropagation()}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 4, display: "flex", alignItems: "center" }}
+              ><CloseIcon /></button>
             </div>
           </div>
 
           {/* Status line */}
-          <div style={{
-            padding: "5px 16px",
-            fontSize: 11,
-            color: "#4b5563",
-            background: "#0d0f14",
-            borderBottom: "1px solid #1e2130",
-            flexShrink: 0,
-          }}>
+          <div style={{ padding: "5px 16px", fontSize: 11, color: "#4b5563", background: "#0d0f14", borderBottom: "1px solid #1e2130", flexShrink: 0 }}>
             Powered by Claude · Knows VDA-MD v4.0
           </div>
 
           {/* Message area */}
-          <div style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "16px 12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-          }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
             {messages.map((msg, idx) => {
               const isUser = msg.role === "user";
               return (
-                <div key={idx} style={{
-                  display: "flex",
-                  justifyContent: isUser ? "flex-end" : "flex-start",
-                }}>
+                <div key={idx} style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
                   <div style={{
                     maxWidth: isUser ? "80%" : "90%",
                     background: isUser ? "#1e3a5f" : (msg.isError ? "#2d1515" : "#1a1d26"),
@@ -557,40 +592,23 @@ export default function VdaMdChatbot() {
                     padding: "9px 13px",
                     fontSize: 13,
                   }}>
-                    {isUser
-                      ? <span>{msg.content}</span>
-                      : <MessageText text={msg.content} />
-                    }
+                    {isUser ? <span>{msg.content}</span> : <MessageText text={msg.content} />}
                   </div>
                 </div>
               );
             })}
-
             {loading && (
               <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                <div style={{
-                  background: "#1a1d26",
-                  borderRadius: "12px 12px 12px 2px",
-                  padding: "9px 13px",
-                }}>
+                <div style={{ background: "#1a1d26", borderRadius: "12px 12px 12px 2px", padding: "9px 13px" }}>
                   <TypingIndicator />
                 </div>
               </div>
             )}
-
             <div ref={messagesEndRef} />
           </div>
 
           {/* Input area */}
-          <div style={{
-            borderTop: "1px solid #1e2130",
-            padding: "10px 12px",
-            display: "flex",
-            gap: 8,
-            alignItems: "flex-end",
-            flexShrink: 0,
-            background: "#111318",
-          }}>
+          <div style={{ borderTop: "1px solid #1e2130", padding: "10px 12px", display: "flex", gap: 8, alignItems: "flex-end", flexShrink: 0, background: "#111318" }}>
             <textarea
               ref={inputRef}
               value={input}
@@ -599,19 +617,9 @@ export default function VdaMdChatbot() {
               placeholder="Ask about the framework…"
               rows={1}
               style={{
-                flex: 1,
-                background: "#0d0f14",
-                border: "1px solid #1e2130",
-                borderRadius: 8,
-                padding: "8px 11px",
-                fontSize: 13,
-                color: "#e2e4ea",
-                fontFamily: "'DM Sans', sans-serif",
-                resize: "none",
-                outline: "none",
-                lineHeight: 1.5,
-                maxHeight: 100,
-                overflowY: "auto",
+                flex: 1, background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 8,
+                padding: "8px 11px", fontSize: 13, color: "#e2e4ea", fontFamily: "'DM Sans', sans-serif",
+                resize: "none", outline: "none", lineHeight: 1.5, maxHeight: 100, overflowY: "auto",
               }}
               onInput={e => {
                 e.target.style.height = "auto";
@@ -623,64 +631,60 @@ export default function VdaMdChatbot() {
               disabled={!input.trim() || loading}
               style={{
                 background: !input.trim() || loading ? "#1e2130" : "#2E5B8A",
-                border: "none",
-                borderRadius: 6,
-                width: 36,
-                height: 36,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                border: "none", borderRadius: 6, width: 36, height: 36,
+                display: "flex", alignItems: "center", justifyContent: "center",
                 cursor: !input.trim() || loading ? "not-allowed" : "pointer",
-                flexShrink: 0,
-                transition: "background 0.15s",
+                flexShrink: 0, transition: "background 0.15s",
               }}
               onMouseEnter={e => { if (input.trim() && !loading) e.currentTarget.style.background = "#185FA5"; }}
               onMouseLeave={e => { if (input.trim() && !loading) e.currentTarget.style.background = "#2E5B8A"; }}
-            >
-              <SendIcon />
-            </button>
+            ><SendIcon /></button>
           </div>
+
+          {/* Resize grip — bottom-right corner */}
+          {!isMobile && (
+            <div
+              onMouseDown={onResizeStart}
+              style={{
+                position: "absolute", bottom: 0, right: 0,
+                width: 18, height: 18, cursor: "se-resize",
+                display: "flex", alignItems: "flex-end", justifyContent: "flex-end",
+                padding: "3px",
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M9 1L1 9M9 5L5 9M9 9" stroke="#374151" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Floating button */}
-      <button
-        onClick={open ? handleClose : handleOpen}
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: "50%",
-          background: open ? "#185FA5" : "#2E5B8A",
-          border: "none",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-          position: "relative",
-          transition: "background 0.15s, transform 0.15s",
-          zIndex: 9002,
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background = "#185FA5"; }}
-        onMouseLeave={e => { e.currentTarget.style.background = open ? "#185FA5" : "#2E5B8A"; }}
-        aria-label="VDA-MD Expert Chat"
-      >
-        <ChatIcon />
-
-        {/* Unread dot */}
-        {!hasOpened && (
-          <span style={{
-            position: "absolute",
-            top: 4,
-            right: 4,
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "#ef4444",
-            border: "1.5px solid #111318",
-          }} />
-        )}
-      </button>
-    </div>
+      {/* ── Floating toggle button ── */}
+      <div style={{ position: "fixed", bottom: 24, left: 24, zIndex: 9002, fontFamily: "'DM Sans', sans-serif" }}>
+        <button
+          onClick={open ? handleClose : handleOpen}
+          style={{
+            width: 56, height: 56, borderRadius: "50%",
+            background: open ? "#185FA5" : "#2E5B8A",
+            border: "none", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            position: "relative", transition: "background 0.15s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = "#185FA5"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = open ? "#185FA5" : "#2E5B8A"; }}
+          aria-label="VDA-MD Expert Chat"
+        >
+          <ChatIcon />
+          {!hasOpened && (
+            <span style={{
+              position: "absolute", top: 4, right: 4, width: 6, height: 6,
+              borderRadius: "50%", background: "#ef4444", border: "1.5px solid #111318",
+            }} />
+          )}
+        </button>
+      </div>
+    </>
   );
 }
