@@ -462,7 +462,7 @@ export default function VdaMdChatbot() {
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
   return (
-    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9000, fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ position: "fixed", bottom: 24, left: 24, zIndex: 9000, fontFamily: "'DM Sans', sans-serif" }}>
 
       {/* Chat panel */}
       {open && (
@@ -471,7 +471,7 @@ export default function VdaMdChatbot() {
           style={{
             position: "fixed",
             bottom: isMobile ? 0 : 92,
-            right: isMobile ? 0 : 24,
+            left: isMobile ? 0 : 24,
             width: isMobile ? "100vw" : 380,
             height: isMobile ? "100dvh" : 520,
             background: "#111318",
