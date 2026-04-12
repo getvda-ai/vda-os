@@ -1,6 +1,6 @@
 /**
  * agentCredentialIssuer.ts
- * W3C Verifiable Credential issuance and verification for VDA-MK agent identity.
+ * W3C Verifiable Credential issuance and verification for VDA-MD agent identity.
  *
  * Requirement A: Ed25519Signature2020 suite (RFC 8037)
  * Requirement B: Static document loader (vcDocumentLoader)
@@ -195,7 +195,7 @@ export async function issueAgentCredential(
   const expiresAt = new Date(now.getTime() + ttlHours * 3600 * 1000);
 
   // Build the credential — all custom fields inside credentialSubject (Requirement C)
-  // Claim names use snake_case per VDA-MK VC schema contract
+  // Claim names use snake_case per VDA-MD VC schema contract
   const credential = {
     "@context": [
       "https://www.w3.org/2018/credentials/v1",
@@ -213,7 +213,7 @@ export async function issueAgentCredential(
       governance_file_hash: governanceFileHash ?? "NO_GOVERNANCE_FILES",
       domain_owner: domainOwner,
       permitted_skills: permittedSkills,
-      issued_for: "VDA-MK Apaleo Agent Runtime",
+      issued_for: "VDA-MD Apaleo Agent Runtime",
       rotation_schedule: "23h",
     },
   };
@@ -304,7 +304,7 @@ export async function verifyAgentVc(
     }
 
     const subject = rawVc.credentialSubject as Record<string, unknown> | undefined;
-    // Claims use snake_case per VDA-MK VC schema contract
+    // Claims use snake_case per VDA-MD VC schema contract
     const vcAgentId = (subject?.agent_id ?? subject?.agentId) as string | undefined;
     const vcCompanyId = (subject?.company_id ?? subject?.companyId) as string | undefined;
     const vcGovHash = (subject?.governance_file_hash ?? subject?.governanceFileHash) as string | undefined;
@@ -348,7 +348,7 @@ export async function verifyAgentVc(
           agent: vcAgentId,
           eventCategory: "FRAMEWORK_INTEGRITY",
           decision: "FAIL",
-          fileReferenced: "VDA-MK Verifiable Credential — Governance Hash",
+          fileReferenced: "VDA-MD Verifiable Credential — Governance Hash",
           clauseApplied: "VDA-MD §6: Agent credentials must reflect current governance file hash",
           actionProposed: `Reject credential for ${vcAgentId} — governance hash mismatch`,
           reasoning: `Stored hash ${vcGovHash ?? "null"} does not match current hash ${currentHash} — governance files changed since credential was issued`,

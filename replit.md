@@ -1,8 +1,8 @@
 # Workspace
 
-## VDA-MK Framework Principles
+## VDA-MD Framework Principles
 
-VDA-MK (Value Driven AI — Market Knowledge) is the governance framework for this platform. Markdown files are the **sole source of truth** for all agent behaviour. No hardcoded policy fallbacks exist anywhere in the codebase.
+VDA-MD (Value Driven AI — Market Knowledge) is the governance framework for this platform. Markdown files are the **sole source of truth** for all agent behaviour. No hardcoded policy fallbacks exist anywhere in the codebase.
 
 ### Core Axioms
 
@@ -125,7 +125,7 @@ Apaleo sandbox integration via OAuth 2.0 client credentials flow. All credential
 
 ## Applications
 
-### `artifacts/vda-os` — VDA-MK for Apaleo
+### `artifacts/vda-os` — VDA-MD for Apaleo
 
 React + Vite frontend. Hospitality-only AI governance operating system for Apaleo-powered properties:
 - **Locked to hospitality**: multi-industry configs stripped, Apaleo guest lifecycle hardcoded (Discover & Book → Check-In → In-Stay → Checkout → Post-Stay)
@@ -161,7 +161,7 @@ All Apaleo data calls go to `/api/apaleo/*` (backend proxy), NOT directly to Apa
   - `GET /api/apaleo/maintenances` — maintenance tasks
   - `GET /api/apaleo/units` — room inventory (with condition filter)
   - `GET /api/apaleo/availability/unit-groups` — availability by unit group
-- **VDA-MK Agent Suite** (`src/routes/agents.ts`) — 7 AI agents + Witness Stream persistence
+- **VDA-MD Agent Suite** (`src/routes/agents.ts`) — 7 AI agents + Witness Stream persistence
   - `POST /api/agents/availability` — Availability Agent (live unit group availability query)
   - `POST /api/agents/rate` — Rate Agent (BAR vs requested rate, policy-governed override logic)
   - `POST /api/agents/reservation` — Reservation Bot (create/retrieve/modify reservations)

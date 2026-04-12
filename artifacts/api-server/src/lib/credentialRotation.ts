@@ -72,7 +72,7 @@ async function writeRotationWitnessEntry(
     agent: agentId,
     eventCategory: "AGENT_LIFECYCLE",
     decision,
-    fileReferenced: "VDA-MK Credential Rotation — 23h Schedule",
+    fileReferenced: "VDA-MD Credential Rotation — 23h Schedule",
     clauseApplied: "VDA-MD §7: Agent Identity must be cryptographically verified and rotated on schedule",
     actionProposed: reason,
     reasoning: reason,

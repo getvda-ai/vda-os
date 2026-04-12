@@ -21,7 +21,7 @@ function countTermMatches(content: string, pattern: RegExp): number {
 }
 
 /**
- * VDA-MK §3 & §4 compliance guard.
+ * VDA-MD §3 & §4 compliance guard.
  *
  * §3 — IMMUTABLE: any reduction of GDPR / EU AI Act / ISO 42001 references is
  *      a hard block (HTTP 409) regardless of signedOffBy.
@@ -52,7 +52,7 @@ export function checkComplianceGuards(
     return {
       allowed: false,
       violations,
-      hint: "Restore the removed compliance clauses to proceed. GDPR, EU AI Act, and ISO 42001 references are immutable under VDA-MK §3.",
+      hint: "Restore the removed compliance clauses to proceed. GDPR, EU AI Act, and ISO 42001 references are immutable under VDA-MD §3.",
     };
   }
 

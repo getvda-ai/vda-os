@@ -123,7 +123,7 @@ async function ensureSession(): Promise<void> {
       params: {
         protocolVersion: "2024-11-05",
         capabilities: {},
-        clientInfo: { name: "VDA-MK Agent Suite", version: "1.0.0" },
+        clientInfo: { name: "VDA-MD Agent Suite", version: "1.0.0" },
       },
     });
     logger.info({ sessionId: mcpSessionId }, "MCP session initialized");

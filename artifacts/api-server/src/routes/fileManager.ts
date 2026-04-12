@@ -76,7 +76,7 @@ const MINIMUM_CLAUSE_THRESHOLDS: Record<string, { must: number; mustNot: number;
 
 const CORE_FILE_TYPES = ["AGENTS", "COMPLIANCE", "SOP"];
 
-// ─── VDA-MK Compliance Guards ─────────────────────────────────────────────────
+// ─── VDA-MD Compliance Guards ─────────────────────────────────────────────────
 // §3/§4 guard logic lives in ../lib/complianceGuards.ts and is imported above.
 // Both fileManager.ts (PUT file edits) and seed.ts (SOC 2 SD regeneration) share
 // the same canonical implementation to prevent drift.
@@ -335,7 +335,7 @@ router.put("/fm/file/:id", async (req, res) => {
     if (!existingFile) return res.status(404).json({ error: "Not found" });
     if (companyId !== null && existingFile.companyId !== companyId) return res.status(404).json({ error: "Not found" });
 
-    // VDA-MK §3 & §4 compliance guard: enforce immutability and audit change control
+    // VDA-MD §3 & §4 compliance guard: enforce immutability and audit change control
     if (content && existingFile.content) {
       const guard = checkComplianceGuards(existingFile.content, content, signedOffBy as string | undefined);
       if (!guard.allowed) {
@@ -345,13 +345,13 @@ router.put("/fm/file/:id", async (req, res) => {
           eventCategory: "COMPLIANCE_BOUNDARY",
           decision: "FAIL",
           fileReferenced: `governance-file:${existingFile.id}`,
-          clauseApplied: "VDA-MK §3 & §4: Immutability and change control constraints violated",
+          clauseApplied: "VDA-MD §3 & §4: Immutability and change control constraints violated",
           actionProposed: `Reject update to governance file ${existingFile.id} — compliance guard triggered`,
           reasoning: guard.violations.join("; "),
           apaleoData: { event_type: "compliance_guard_rejection", fileId: existingFile.id, violations: guard.violations, hint: guard.hint },
         }).catch(err => console.warn("[Witness] compliance_guard_rejection event failed:", err));
         return res.status(409).json({
-          error: "VDA-MK compliance guard rejected this update",
+          error: "VDA-MD compliance guard rejected this update",
           violations: guard.violations,
           hint: guard.hint,
         });

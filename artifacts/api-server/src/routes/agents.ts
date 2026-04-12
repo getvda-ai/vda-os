@@ -37,10 +37,10 @@ async function emitCrossDomainGovernanceEvent(companyId: number, agent: string):
     agent,
     eventCategory: "COMPLIANCE_BOUNDARY",
     decision: "INFO",
-    clauseApplied: "VDA-MK §5: Cross-domain governance files from a shared services agent were applied",
+    clauseApplied: "VDA-MD §5: Cross-domain governance files from a shared services agent were applied",
     actionProposed: "Cross-domain governance inheritance applied to this decision",
     reasoning: "Agent decision used governance files inherited from a cross-domain shared services agent",
-    fileReferenced: "VDA-MK Cross-Domain Governance Inheritance",
+    fileReferenced: "VDA-MD Cross-Domain Governance Inheritance",
     apaleoData: { event_type: "cross_domain_inheritance_invoked" },
   }).catch(err => logger.warn({ err }, "[Witness] Failed to emit cross-domain governance event"));
 }
@@ -147,7 +147,7 @@ async function mcpOrRest<T>(
   return { result, usedMcp: false };
 }
 
-// ─── Policy Documents (VDA-MK Framework — Hospitality Profile) ───────────────
+// ─── Policy Documents (VDA-MD Framework — Hospitality Profile) ───────────────
 // Industry: hospitality | NIST controls: AC-2, AU-2, SA-4, IR-4
 // Frameworks: PCI DSS, ISO 22301
 // Each policy is a governance-as-markdown file with mandatory MUST/MUST NOT/MAY
@@ -327,7 +327,7 @@ export async function evaluateWithPolicy(
   const aiResponse = await callAI({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
-    system: `You are the ${agentName} operating under the VDA-MK governance framework.
+    system: `You are the ${agentName} operating under the VDA-MD governance framework.
 Your governing policy document is:
 
 ${policyText}
@@ -434,7 +434,7 @@ export async function evaluateWithPolicyAndMcp(
     ? `\nEXCEPTION OVERLAYS ACTIVE: Active EXCEPTION.md overlay(s) are present in the "Active Exception Overlays" section of your policy. Evaluate whether each exception's activation conditions are ALL satisfied. When an exception applies, you MUST set exceptionApplied: true and cite the exact exception clause verbatim in clauseApplied.\n`
     : "";
 
-  const systemPrompt = `You are the ${agentName} operating under the VDA-MK governance framework.
+  const systemPrompt = `You are the ${agentName} operating under the VDA-MD governance framework.
 Your governing policy document is:
 
 ${policyText}
@@ -1918,7 +1918,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
       // arrival date — not same-day execution. Pre-flight confirmed LGODPFGH-1 = Confirmed.
       const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, filesLoaded: ciScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Check-In Agent", "checkin",
-        `Check-in governance audit for property ${propertyId} — VDA-MK scenario step 4.
+        `Check-in governance audit for property ${propertyId} — VDA-MD scenario step 4.
 
 Apaleo data (pre-flight verified):
 - Reservation ${ids.reservationId ?? "LGODPFGH-1"}: status = Confirmed, arrival = ${scenarioArrivalDate}, rate plan = ${ids.ratePlanId ?? "VIE-VDADEMO-SGL"}
@@ -1990,7 +1990,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       // evaluates the charge decision in isolation: a fresh €89 RoomRevenue charge on an Open folio.
       const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Folio Agent", "folio_charge",
-        `Folio charge audit for property ${propertyId} — VDA-MK governance evaluation.
+        `Folio charge audit for property ${propertyId} — VDA-MD governance evaluation.
 
 Apaleo Folio API result (pre-flight verified):
 - Folio: ${folioId ?? "VIE open folio"} — status: Open (confirmed in Apaleo Finance API)
@@ -2125,7 +2125,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
 
       const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, filesLoaded: revScenarioFiles } = await evaluateWithPolicyAndMcp(
         "Revenue Reconciliation Agent", "revenue",
-        `End-of-scenario revenue reconciliation for property ${propertyId} — VDA-MK governance audit on ${today}.
+        `End-of-scenario revenue reconciliation for property ${propertyId} — VDA-MD governance audit on ${today}.
 
 Scenario revenue summary (steps 1–6 completed):
 - 7-step O2C guest journey completed: Availability → Rate → Reservation → Check-In → Folio Charge → Checkout

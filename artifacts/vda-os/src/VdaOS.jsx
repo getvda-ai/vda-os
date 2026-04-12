@@ -316,7 +316,7 @@ function SetupWizard({ onComplete }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514", max_tokens: 1500,
-            system: "You are extracting brand context for the VDA-MK AI governance framework (Apaleo hospitality). Documents may be in any language including Dutch, German, French, or Spanish. Output everything in English, but preserve brand-specific proper nouns exactly as they appear — product names, system names, role titles, and branded terms should be kept verbatim with the original-language term noted in brackets. Extract: company values and mission, tone of voice, key role titles, named internal systems or platforms, operational terminology. Output as structured plain text. Be concise — 400-600 words.",
+            system: "You are extracting brand context for the VDA-MD AI governance framework (Apaleo hospitality). Documents may be in any language including Dutch, German, French, or Spanish. Output everything in English, but preserve brand-specific proper nouns exactly as they appear — product names, system names, role titles, and branded terms should be kept verbatim with the original-language term noted in brackets. Extract: company values and mission, tone of voice, key role titles, named internal systems or platforms, operational terminology. Output as structured plain text. Be concise — 400-600 words.",
             messages: [{ role: "user", content: fileMessageContent }]
           })
         });
@@ -339,7 +339,7 @@ function SetupWizard({ onComplete }) {
           model: "claude-sonnet-4-20250514",
           max_tokens: 1500,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
-          system: `You are extracting brand context for the VDA-MK AI governance framework (Apaleo hospitality). The property website may be in any language — Dutch, German, French, Spanish, or other. Search the property website and extract brand context. IMPORTANT: Output everything in English regardless of the website language. However, preserve brand-specific proper nouns exactly as they appear in the original language — product names, system names, platform names, role titles, and branded terminology should be kept verbatim (e.g. if the Dutch site says "Medewerkers" for employees, note: their term is "Medewerkers"). Extract: company values and mission, tone of voice and language style, key role titles used (with original-language terms noted), named internal systems or platforms, operational terminology specific to this property, hospitality-specific language. Output as structured plain text optimised for injecting into an Apaleo AI governance document generation prompt. Be concise — 400-600 words maximum.`,
+          system: `You are extracting brand context for the VDA-MD AI governance framework (Apaleo hospitality). The property website may be in any language — Dutch, German, French, Spanish, or other. Search the property website and extract brand context. IMPORTANT: Output everything in English regardless of the website language. However, preserve brand-specific proper nouns exactly as they appear in the original language — product names, system names, platform names, role titles, and branded terminology should be kept verbatim (e.g. if the Dutch site says "Medewerkers" for employees, note: their term is "Medewerkers"). Extract: company values and mission, tone of voice and language style, key role titles used (with original-language terms noted), named internal systems or platforms, operational terminology specific to this property, hospitality-specific language. Output as structured plain text optimised for injecting into an Apaleo AI governance document generation prompt. Be concise — 400-600 words maximum.`,
           messages: [{ role: "user", content: `Search ${websiteUrl} and extract brand context for ${companyName} (Apaleo hospitality property). The site may be in a language other than English — that is fine, extract the content and output in English while preserving any brand-specific terms verbatim. Focus on: brand voice, role titles (with original language terms), key systems/platforms mentioned, operational terminology, company values. Also note any Apaleo-native references (property codes, rate plans, folio workflows). This context will make AI governance documents sound authentic to this property.` }]
         })
       });
@@ -368,7 +368,7 @@ function SetupWizard({ onComplete }) {
       addLog("GDPR Article mapping complete ✓", T.green);
       addLog("EU AI Act Article mapping complete ✓", T.green);
       await new Promise(r => setTimeout(r, 300));
-      addLog(`✓ VDA-MK for Apaleo framework configured for ${companyName}`, T.orange);
+      addLog(`✓ VDA-MD for Apaleo framework configured for ${companyName}`, T.orange);
       clearInterval(elapsedRef.current);
       setIngestPhase("done");
       setIngesting(false);
@@ -424,7 +424,7 @@ function SetupWizard({ onComplete }) {
             <div style={{ animation: "wizard-in 0.3s ease" }}>
               <div style={{ fontSize: 48, marginBottom: 16, animation: "float 3s ease-in-out infinite" }}>🏨</div>
               <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 28, color: T.text, letterSpacing: "-0.03em", marginBottom: 8 }}>
-                VDA-MK for Apaleo
+                VDA-MD for Apaleo
               </h1>
               <div style={{ fontSize: 13, color: T.orange, fontFamily: T.mono, fontWeight: 700, marginBottom: 6, letterSpacing: "0.1em" }}>
                 AI GOVERNANCE LAYER · APALEO HOSPITALITY STACK
@@ -433,7 +433,7 @@ function SetupWizard({ onComplete }) {
                 Powered by Apaleo · API-first property management
               </div>
               <p style={{ fontSize: 15, color: T.muted, lineHeight: 1.75, marginBottom: 20 }}>
-                This wizard configures the VDA-MK AI governance framework for your Apaleo-powered property or group. Enter your property website and the system will:
+                This wizard configures the VDA-MD AI governance framework for your Apaleo-powered property or group. Enter your property website and the system will:
               </p>
               {[
                 ["📥", "Ingest your brand context from your property website"],
@@ -455,7 +455,7 @@ function SetupWizard({ onComplete }) {
                 fontFamily: T.sans, fontWeight: 800, cursor: "pointer",
                 boxShadow: `0 0 32px ${T.orange}55`,
               }}>
-                Configure my Apaleo VDA-MK hub →
+                Configure my Apaleo VDA-MD hub →
               </button>
             </div>
           )}
@@ -779,7 +779,7 @@ function SetupWizard({ onComplete }) {
               <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 24, color: T.text, marginBottom: 8, letterSpacing: "-0.02em" }}>
                 {companyName} is ready
               </h2>
-              <div style={{ fontSize: 13, color: T.dim, marginBottom: 6 }}>VDA-MK framework configured · Brand context ingested · Apaleo guest lifecycle mapped</div>
+              <div style={{ fontSize: 13, color: T.dim, marginBottom: 6 }}>VDA-MD framework configured · Brand context ingested · Apaleo guest lifecycle mapped</div>
               <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 20, padding: "5px 12px", background: `${T.blue}0a`, border: `1px solid ${T.blue}25`, borderRadius: 6, display: "inline-block" }}>
                 Powered by Apaleo · API-first property management
               </div>
@@ -804,7 +804,7 @@ function SetupWizard({ onComplete }) {
                 cursor: "pointer", boxShadow: `0 0 32px ${T.orange}55`,
                 animation: "glow-pulse 2s ease-in-out infinite",
               }}>
-                Launch {companyName} Apaleo VDA-MK Hub →
+                Launch {companyName} Apaleo VDA-MD Hub →
               </button>
             </div>
           )}
@@ -834,7 +834,7 @@ Rules:
 - Keep the "md" field concise: frontmatter + summary + agent rules + violation definition (max ~400 words)
 - Escape all newlines in the "md" value as \\n`;
 
-  const userPrompt = `Translate NIST ${controlId} (${control.title}) into a VDA-MK governance .md file for an Apaleo hospitality property.
+  const userPrompt = `Translate NIST ${controlId} (${control.title}) into a VDA-MD governance .md file for an Apaleo hospitality property.
 
 OSCAL SOURCE:
 ${control.oscal}
@@ -894,7 +894,7 @@ async function runGovernanceDecision(scenario, params, withException, companyNam
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514", max_tokens: 800,
-      system: `You are the VDA-MK Governance Agent for ${companyName} (Apaleo hospitality property). Evaluate strictly against the governance Markdown files. Respond ONLY with valid JSON.`,
+      system: `You are the VDA-MD Governance Agent for ${companyName} (Apaleo hospitality property). Evaluate strictly against the governance Markdown files. Respond ONLY with valid JSON.`,
       messages: [{ role: "user", content: `${govCtx}\n\nPARAMETERS:\n${paramText}\n\nReturn: {"decision":"PASS|FAIL|ESCALATE","governed_by":"baseline|exception","file_referenced":"filename","clause_applied":"the rule","reasoning":"2-3 sentences","escalation_target":"role or null","exception_evaluated":true|false,"exception_applied":true|false}` }]
     })
   });
@@ -1056,7 +1056,7 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
   ].filter(Boolean);
 
   const mustNotRules = [
-    `MUST NOT operate without a current, approved governance file in the VDA-MK repository`,
+    `MUST NOT operate without a current, approved governance file in the VDA-MD repository`,
     `MUST NOT execute actions when an exception is required but no exception overlay is active`,
     `MUST NOT process personal data beyond the stated lawful basis under GDPR Article 6`,
     `MUST NOT bypass human oversight where required by EU AI Act Article 14`,
@@ -1163,7 +1163,7 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
 
 <div class="letterhead">
   <div>
-    <div class="brand">VDA-MK for Apaleo</div>
+    <div class="brand">VDA-MD for Apaleo</div>
     <div class="brand-sub">Value-Driven AI with Markdowns · Agent Policy Document</div>
   </div>
   <div class="doc-meta">
@@ -1177,7 +1177,7 @@ function AgentDrawer({ agent, domain, owner, color, config, companyName, onClose
 <h1>${agent}</h1>
 <div class="agent-meta">
   <span class="tag tag-orange">${domain}</span>
-  <span class="tag tag-orange">VDA-MK Agent</span>
+  <span class="tag tag-orange">VDA-MD Agent</span>
   <span class="tag tag-purple">EU AI Act</span>
   <span class="tag tag-blue">NIST SP 800-53</span>
 </div>
@@ -1247,7 +1247,7 @@ ${addlRows ? `<div class="fw-section">
 
 <div class="footer">
   <span>${agent} · ${domain} · ${companyName || "Apaleo Property"}</span>
-  <span>VDA-MK for Apaleo · C2MD Pipeline · Powered by Apaleo · ${new Date().getFullYear()}</span>
+  <span>VDA-MD for Apaleo · C2MD Pipeline · Powered by Apaleo · ${new Date().getFullYear()}</span>
 </div>
 
 <button class="print-btn no-print" onclick="window.print()">⬇ Save as PDF</button>
@@ -1284,7 +1284,7 @@ ${addlRows ? `<div class="fw-section">
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
                 <Tag color={color}>{domain}</Tag>
-                <Tag color={T.orange}>VDA-MK Agent</Tag>
+                <Tag color={T.orange}>VDA-MD Agent</Tag>
                 <Tag color={T.purple}>EU AI Act</Tag>
               </div>
               <h3 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 20, color: T.text, letterSpacing: "-0.02em", marginBottom: 4 }}>{agent}</h3>
@@ -2036,7 +2036,7 @@ function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn, companyI
       decision: "NORMALISED",
       fileReferenced: filename,
       clauseApplied: "A2MD normalisation completed — " + detectedGaps.length + " gaps resolved, all MUST/MUST NOT/MAY rules verified",
-      actionProposed: `External agent file normalised to VDA-MK schema · Source: ${inputSource} · Gap score: ${gapScore}/100 → 100/100`,
+      actionProposed: `External agent file normalised to VDA-MD schema · Source: ${inputSource} · Gap score: ${gapScore}/100 → 100/100`,
       exceptionApplied: false,
       escalationTarget: null,
       reasoning: normReport
@@ -2062,9 +2062,9 @@ function A2MDNormaliserTab({ config, companyName, onLogEntry, setTabFn, companyI
     setNormReport(null);
     setStatus("analysing");
 
-    const systemPrompt = `You are the A2MD Gap Analysis Engine, part of the VDA-MK (Value-Driven AI with Markdowns) Framework for Apaleo hospitality. Your job is to analyse an existing agent Markdown file and identify every structural gap between it and a valid VDA-MK governed agent file.
+    const systemPrompt = `You are the A2MD Gap Analysis Engine, part of the VDA-MD (Value-Driven AI with Markdowns) Framework for Apaleo hospitality. Your job is to analyse an existing agent Markdown file and identify every structural gap between it and a valid VDA-MD governed agent file.
 
-A valid VDA-MK agent file MUST have ALL of the following:
+A valid VDA-MD agent file MUST have ALL of the following:
 
 YAML FRONT MATTER containing:
   agent_id: (slugified agent name)
@@ -2073,7 +2073,7 @@ YAML FRONT MATTER containing:
   axis: (vertical | horizontal)
   journey_stage: (one of the journey stages OR shared service id)
   normalisation_level: (1 | 2 | 3)
-  vendor: (vendor name or "VDA-MK for Apaleo")
+  vendor: (vendor name or "VDA-MD for Apaleo")
   baseline: (true | false)
 
 SECTIONS:
@@ -2193,7 +2193,7 @@ ${truncatedInput}`;
     setNormReport(null);
     setStatus("normalising");
 
-    const systemPrompt = `You are the A2MD Normalisation Engine, part of the VDA-MK (Value-Driven AI with Markdowns) Framework for Apaleo hospitality. Your job is to take an existing agent file and rewrite it as a fully compliant VDA-MK governed Markdown file.
+    const systemPrompt = `You are the A2MD Normalisation Engine, part of the VDA-MD (Value-Driven AI with Markdowns) Framework for Apaleo hospitality. Your job is to take an existing agent file and rewrite it as a fully compliant VDA-MD governed Markdown file.
 
 NORMALISATION RULES:
 1. Preserve all valid existing content — do not discard working rules
@@ -2305,7 +2305,7 @@ ${inputMd}`;
           <Tag color={T.purple}>{config.label}</Tag>
         </div>
         <p style={{ color: T.muted, fontSize: 16, lineHeight: 1.7, maxWidth: 780 }}>
-          Every AI agent — regardless of vendor or origin — must have a VDA-MK governed Markdown file before it can operate in an Apaleo-governed property. A2MD normalises any existing agent file into a compliant governance passport in one step.
+          Every AI agent — regardless of vendor or origin — must have a VDA-MD governed Markdown file before it can operate in an Apaleo-governed property. A2MD normalises any existing agent file into a compliant governance passport in one step.
         </p>
       </div>
 
@@ -2313,8 +2313,8 @@ ${inputMd}`;
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 28 }}>
         {[
           { dot: T.amber, title: "Any Agent File", body: "OpenAI prompts, LangChain configs, GitHub Copilot AGENTS.md, WSO2 AFM, Claude Code CLAUDE.md, or any plain-text agent definition" },
-          { dot: T.orange, title: "Gap Analysis + Normalisation", body: "AI identifies every structural gap against the VDA-MK schema, then rewrites the file with all missing governance elements added" },
-          { dot: T.green, title: "VDA-MK Governed Passport", body: "Complete YAML front matter, MUST/MUST NOT/MAY rules, escalation paths, Witness Agent compatibility, Two-Axis placement confirmed" },
+          { dot: T.orange, title: "Gap Analysis + Normalisation", body: "AI identifies every structural gap against the VDA-MD schema, then rewrites the file with all missing governance elements added" },
+          { dot: T.green, title: "VDA-MD Governed Passport", body: "Complete YAML front matter, MUST/MUST NOT/MAY rules, escalation paths, Witness Agent compatibility, Two-Axis placement confirmed" },
         ].map((c, i) => (
           <div key={i} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", display: "flex", gap: 12 }}>
             <div style={{ width: 10, height: 10, borderRadius: "50%", background: c.dot, marginTop: 4, flexShrink: 0 }} />
@@ -2419,7 +2419,7 @@ ${inputMd}`;
         {/* COLUMN 2 — GAP ANALYSIS */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col2BorderColor}`, borderRadius: 12, padding: 20, minHeight: 600 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>Gap Analysis</div>
-          <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>What's missing vs VDA-MK schema</div>
+          <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>What's missing vs VDA-MD schema</div>
 
           {isAnalysing ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 60, gap: 16 }}>
@@ -2513,7 +2513,7 @@ ${inputMd}`;
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 }}
               >
-                {isNormalising ? <><span style={{ display: "inline-block", animation: "spin 1.2s linear infinite" }}>⟳</span> Normalising…</> : isDone ? "✓ Normalised" : "Normalise → VDA-MK"}
+                {isNormalising ? <><span style={{ display: "inline-block", animation: "spin 1.2s linear infinite" }}>⟳</span> Normalising…</> : isDone ? "✓ Normalised" : "Normalise → VDA-MD"}
               </button>
             </div>
           )}
@@ -2521,7 +2521,7 @@ ${inputMd}`;
 
         {/* COLUMN 3 — OUTPUT */}
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col3BorderColor}`, borderRadius: 12, padding: 20, minHeight: 600 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>VDA-MK Governed Output</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: T.text, marginBottom: 4 }}>VDA-MD Governed Output</div>
           <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>
             {agentName ? `${agentName.toLowerCase().replace(/\s+/g, "-")}-vdamk.md` : "output.md"} · Ready for Two-Axis Map
           </div>
@@ -2538,7 +2538,7 @@ ${inputMd}`;
               <div style={{ minHeight: 340, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
                 <div style={{ fontSize: 28, opacity: 0.3 }}>⚙</div>
                 <div style={{ color: T.dim, fontFamily: T.mono, fontSize: 12 }}>→ Normalised output will appear here</div>
-                <div style={{ color: T.dim, fontSize: 11, opacity: 0.6 }}>The complete VDA-MK governed .md file, ready to deploy</div>
+                <div style={{ color: T.dim, fontSize: 11, opacity: 0.6 }}>The complete VDA-MD governed .md file, ready to deploy</div>
               </div>
             ) : (
               <pre style={{
@@ -3066,7 +3066,7 @@ owner: ${cfg?.journeyStages?.[0]?.owner || "Front Office Manager"}
 axis: vertical
 journey_stage: ${cfg?.journeyStages?.[0]?.id || "checkin"}
 normalisation_level: 2
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 nist_control: AC-2
 apaleo_api: Reservations API
@@ -3115,7 +3115,7 @@ domain: Hospitality Operations
 axis: horizontal
 journey_stage: shared
 normalisation_level: 2
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 nist_control: AU-2
 apaleo_api: Reservations API, Folio API
@@ -3127,7 +3127,7 @@ This Standard Operating Procedure defines the process for AI agent operation wit
 
 ## Scope
 
-Applies to all AI agents operating within the Apaleo VDA-MK governance framework — spanning Discover & Book through Post-Stay.
+Applies to all AI agents operating within the Apaleo VDA-MD governance framework — spanning Discover & Book through Post-Stay.
 
 ## Procedure
 
@@ -3155,7 +3155,7 @@ domain: Hospitality Technology
 axis: horizontal
 journey_stage: shared
 normalisation_level: 2
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: false
 ---
 
@@ -3177,7 +3177,7 @@ MUST NOT accept raw user-supplied strings without sanitisation.
 
 ## Output Contract
 
-MUST return a structured response conforming to the VDA-MK output schema.
+MUST return a structured response conforming to the VDA-MD output schema.
 MUST NOT return guest PII unless the consuming agent has explicit GDPR-compliant permission.
 `,
 
@@ -3188,7 +3188,7 @@ domain: Compliance
 axis: horizontal
 journey_stage: shared
 normalisation_level: 3
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: false
 exception_reason: Documented exception to standard Apaleo governance rule
 expires_at: ${new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
@@ -3223,7 +3223,7 @@ domain: Compliance
 axis: horizontal
 journey_stage: shared
 normalisation_level: 3
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 nist_control: ${cfg?.nistControls?.[0] || "AC-2"}
 ---
@@ -3262,7 +3262,7 @@ domain: Hospitality
 axis: vertical
 journey_stage: shared
 normalisation_level: 1
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: false
 ---
 
@@ -3530,7 +3530,7 @@ function Soc2Tab({ companyName, companyId, onSaveToWitness }) {
                 </div>
                 {/* §4 guard notice */}
                 <div style={{ padding: "10px 20px", borderTop: `1px solid ${T.border}`, background: "#0a0c10", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11, color: T.amber, fontFamily: T.mono }}>⚠ VDA-MK §4</span>
+                  <span style={{ fontSize: 11, color: T.amber, fontFamily: T.mono }}>⚠ VDA-MD §4</span>
                   <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Any reduction of SOC 2 / Trust Service Criteria references requires accountable owner signoff — enforced via §4 compliance guard (HTTP 409 if unsigned)</span>
                 </div>
               </div>
@@ -5434,7 +5434,7 @@ function FrameworkIntegrityPanel({ companyId }) {
           <span style={{ fontFamily: T.sans, fontWeight: 700, fontSize: 15, color: T.text }}>
             Framework Integrity Panel
           </span>
-          <Tag color={T.purple}>VDA-MK §3</Tag>
+          <Tag color={T.purple}>VDA-MD §3</Tag>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {lastRefresh && (
@@ -5662,7 +5662,7 @@ function WitnessAgentTab({ log, config, companyName, isSeeded, companyId }) {
 
       {log.length > 0 && (
         <div style={{ marginTop: 20, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ fontSize: 12, color: T.dim, fontFamily: T.mono }}>witness_agent.log · {companyName} · VDA-MK for Apaleo · {log.length} entries</div>
+          <div style={{ fontSize: 12, color: T.dim, fontFamily: T.mono }}>witness_agent.log · {companyName} · VDA-MD for Apaleo · {log.length} entries</div>
           <div style={{ display: "flex", gap: 8 }}><Tag color={T.green}>SOC 2 Type II</Tag><Tag color={T.blue}>GDPR Article 5</Tag><Tag color={T.purple}>EU AI Act Art.12</Tag><Tag color={T.orange}>ISO 42001</Tag></div>
         </div>
       )}
@@ -5823,7 +5823,7 @@ function Directory({ onNew, onLoad }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ background: T.orange, borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.mono, fontWeight: 900, fontSize: 13, color: "#fff" }}>VD</div>
           <div>
-            <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: "-0.03em" }}>VDA-MK for Apaleo</div>
+            <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: "-0.03em" }}>VDA-MD for Apaleo</div>
             <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>AI Governance · Apaleo Hospitality Stack</div>
           </div>
         </div>
@@ -5845,7 +5845,7 @@ function Directory({ onNew, onLoad }) {
             Property Directory
           </h1>
           <p style={{ fontSize: 16, color: T.muted, lineHeight: 1.7, maxWidth: 600 }}>
-            Your Apaleo properties with active VDA-MK governance. Each entry is a fully configured framework — brand context ingested, Apaleo guest lifecycle mapped, exception engine ready.
+            Your Apaleo properties with active VDA-MD governance. Each entry is a fully configured framework — brand context ingested, Apaleo guest lifecycle mapped, exception engine ready.
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <Tag color={T.blue}>NIST SP 800-53</Tag>
@@ -5998,7 +5998,7 @@ function Directory({ onNew, onLoad }) {
               >
                 <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.5 }}>+</div>
                 <div style={{ fontSize: 14, color: T.dim, fontWeight: 600 }}>Add Property</div>
-                <div style={{ fontSize: 11, color: T.dim, marginTop: 4, fontFamily: T.mono }}>Configure Apaleo VDA-MK hub</div>
+                <div style={{ fontSize: 11, color: T.dim, marginTop: 4, fontFamily: T.mono }}>Configure Apaleo VDA-MD hub</div>
               </div>
             </div>
           </>
@@ -6006,7 +6006,7 @@ function Directory({ onNew, onLoad }) {
 
         {/* Framework footer */}
         <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>VDA-MK Framework · C2MD (Compliance to Markdown) · Powered by Apaleo · April 2026</div>
+          <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>VDA-MD Framework · C2MD (Compliance to Markdown) · Powered by Apaleo · April 2026</div>
           <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Saved locally in this browser · No external storage</div>
         </div>
       </div>
@@ -6673,7 +6673,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
         fetchDbEntries();
       } else if (r.status === 401) {
         const err = await r.json();
-        console.warn("[VDA-MK] Agent credential rejected:", err);
+        console.warn("[VDA-MD] Agent credential rejected:", err);
       }
     } catch (e) { /* ignore */ }
     setRunningAgents(prev => { const n = new Set(prev); n.delete(agentId); return n; });
@@ -8582,7 +8582,7 @@ export default function VdaOS() {
                   {setup.companyName} <span style={{ color: T.dim, fontWeight: 300 }}>·</span> AI Governance Hub
                 </div>
                 <div style={{ fontSize: 11, color: T.dim, marginTop: 2, fontFamily: T.mono }}>
-                  VDA-MK · {config.icon} Apaleo Hospitality Stack · Powered by Apaleo
+                  VDA-MD · {config.icon} Apaleo Hospitality Stack · Powered by Apaleo
                 </div>
               </div>
             </div>

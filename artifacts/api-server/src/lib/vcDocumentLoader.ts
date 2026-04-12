@@ -10,7 +10,7 @@
  *   - https://w3id.org/security/suites/ed25519-2020/v1  (Ed25519Signature2020)
  *   - https://w3id.org/security/multikey/v1        (Multikey — did:key resolution)
  *   - https://w3id.org/did/v1                      (DID Core v1)
- *   - https://vda-mk.com/credentials/v1            (VDA-MK custom vocabulary)
+ *   - https://vda-mk.com/credentials/v1            (VDA-MD custom vocabulary)
  *   - did:key:* DID documents                      (synthetic, no network)
  */
 
@@ -75,7 +75,7 @@ const MULTIKEY_CONTEXT = {
   },
 };
 
-// ─── VDA-MK Custom Vocabulary ─────────────────────────────────────────────────
+// ─── VDA-MD Custom Vocabulary ─────────────────────────────────────────────────
 export const VDA_CONTEXT_URL = "https://vda-mk.com/credentials/v1";
 const VDA_CONTEXT = {
   "@context": {
@@ -125,7 +125,7 @@ export async function vcDocumentLoader(url: string): Promise<LoadedDocument> {
     return { contextUrl: null, documentUrl: url, document: MULTIKEY_CONTEXT };
   }
 
-  // VDA-MK vocabulary context
+  // VDA-MD vocabulary context
   if (url === VDA_CONTEXT_URL) {
     return { contextUrl: null, documentUrl: url, document: VDA_CONTEXT };
   }

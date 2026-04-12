@@ -395,31 +395,31 @@ const CITIZENM_PROPERTIES = [
     apaleoPropertyId: "BER",
     companyName: "citizenM Berlin",
     websiteUrl: "https://www.citizenm.com/hotels/europe/berlin/berlin-checkpoint-charlie-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Berlin (Checkpoint Charlie) sits at the historic heart of Berlin. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English-first, German signage. Role titles: citizenM Ambassador, Revenue Manager, Operations Director. Rooms not suites. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Berlin (Checkpoint Charlie) sits at the historic heart of Berlin. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English-first, German signage. Role titles: citizenM Ambassador, Revenue Manager, Operations Director. Rooms not suites. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
   },
   {
     apaleoPropertyId: "LND",
     companyName: "citizenM London",
     websiteUrl: "https://www.citizenm.com/hotels/europe/london/london-bankside-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM London (Bankside) is on the South Bank, steps from Tate Modern and the Globe Theatre. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English. Role titles: citizenM Ambassador, Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM London (Bankside) is on the South Bank, steps from Tate Modern and the Globe Theatre. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English. Role titles: citizenM Ambassador, Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
   },
   {
     apaleoPropertyId: "MUC",
     companyName: "citizenM Munich",
     websiteUrl: "https://www.citizenm.com/hotels/europe/munich/munich-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Munich is near the main train station with quick access to the city centre and trade fair grounds. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Munich is near the main train station with quick access to the city centre and trade fair grounds. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
   },
   {
     apaleoPropertyId: "PAR",
     companyName: "citizenM Paris",
     websiteUrl: "https://www.citizenm.com/hotels/europe/paris/paris-gare-de-lyon-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Paris (Gare de Lyon) is steps from the iconic station. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and French. Role titles: citizenM Ambassador (Ambassadeur), Revenue Manager, Directeur des opérations. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Paris (Gare de Lyon) is steps from the iconic station. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and French. Role titles: citizenM Ambassador (Ambassadeur), Revenue Manager, Directeur des opérations. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
   },
   {
     apaleoPropertyId: "VIE",
     companyName: "citizenM Vienna",
     websiteUrl: "https://www.citizenm.com/hotels/europe/vienna/vienna-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Vienna is in the heart of the Austrian capital, close to Stephansdom and the Ringstrasse. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MK governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
+    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Vienna is in the heart of the Austrian capital, close to Stephansdom and the Ringstrasse. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
   },
 ];
 
@@ -552,7 +552,7 @@ function buildGovernanceFiles(companyId: number, companyName: string) {
       domain: "Revenue Management",
       agentId: "rate-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -572,7 +572,7 @@ risk_level: HIGH
 c2md_confidence: 0.94
 nist_control: AC-2, AU-2
 apaleo_api: Rate Plan API
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 normalisation_level: 3
 ---
@@ -628,7 +628,7 @@ This agent is bounded to the vertical (Revenue) domain. It MUST NOT trigger paym
       domain: "Revenue Management",
       agentId: "rate-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -703,7 +703,7 @@ PCI DSS 7.1: Read-only access to rate data — this agent MUST NOT access or log
       domain: "Revenue Management",
       agentId: "rate-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -765,7 +765,7 @@ The following tools are explicitly NOT permitted for this agent:
       domain: "Check-In",
       agentId: "check-in-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -785,7 +785,7 @@ risk_level: HIGH
 c2md_confidence: 0.96
 nist_control: AC-2, AU-2
 apaleo_api: Reservations API, Unit Management API
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 normalisation_level: 3
 ---
@@ -838,7 +838,7 @@ This agent governs all automated check-in actions via the Apaleo Reservations an
       domain: "Check-In",
       agentId: "check-in-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -909,7 +909,7 @@ PCI DSS: MUST NOT log raw card data during check-in or in any audit log entry.
       domain: "Check-In",
       agentId: "check-in-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -973,7 +973,7 @@ MUST NOT call any tool not listed in this manifest.
       domain: "Checkout",
       agentId: "checkout-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -993,7 +993,7 @@ risk_level: MEDIUM
 c2md_confidence: 0.95
 nist_control: AU-2, AC-2
 apaleo_api: Reservations API, Folio API
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 normalisation_level: 3
 ---
@@ -1049,7 +1049,7 @@ This agent reads active EXCEPTION.md files in addition to this SOP. Exception ov
       domain: "Checkout",
       agentId: "checkout-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -1118,7 +1118,7 @@ GDPR: MUST NOT process guest PII beyond the legal retention period post-checkout
       domain: "Checkout",
       agentId: "checkout-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -1180,7 +1180,7 @@ MUST NOT call any tool not listed in this manifest.
       domain: "Folio Management",
       agentId: "folio-charge-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -1200,7 +1200,7 @@ risk_level: HIGH
 c2md_confidence: 0.93
 nist_control: AU-2, AC-2
 apaleo_api: Folio API
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 normalisation_level: 3
 ---
@@ -1258,7 +1258,7 @@ Without this inheritance check, all charge actions are prohibited.
       domain: "Folio Management",
       agentId: "folio-charge-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -1330,7 +1330,7 @@ GDPR: MUST NOT process guest financial PII beyond the required legal retention w
       domain: "Folio Management",
       agentId: "folio-charge-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -1392,7 +1392,7 @@ MUST NOT call any tool not listed in this manifest.
       domain: "Folio Management",
       agentId: "folio-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -1412,7 +1412,7 @@ risk_level: MEDIUM
 c2md_confidence: 0.93
 nist_control: AU-2, AC-2
 apaleo_api: Folio API
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 normalisation_level: 3
 property_code: ${companyId}
@@ -1455,7 +1455,7 @@ Read-only: retrieve folio details, list folios for a reservation, verify folio b
       domain: "Folio Management",
       agentId: "folio-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -1517,7 +1517,7 @@ MUST NOT call any tool not listed in this manifest.
       domain: "Availability & Inventory",
       agentId: "availability-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -1537,7 +1537,7 @@ risk_level: MEDIUM
 c2md_confidence: 0.95
 nist_control: AC-2, AU-2
 apaleo_api: Availability API, Rate Plan API
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 normalisation_level: 3
 ---
@@ -1585,7 +1585,7 @@ Read-only authority against the Apaleo Availability and Rate Plan APIs. This age
       domain: "Availability & Inventory",
       agentId: "availability-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -1650,7 +1650,7 @@ Frameworks: PCI DSS, GDPR/CCPA, ISO 22301
       domain: "Availability & Inventory",
       agentId: "availability-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -1710,7 +1710,7 @@ MUST NOT call any tool not listed in this manifest.
       domain: "Reservations",
       agentId: "reservation-bot",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -1730,7 +1730,7 @@ risk_level: HIGH
 c2md_confidence: 0.95
 nist_control: AC-2, AU-2
 apaleo_api: Reservations API, Rate Plan API, Availability API
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 normalisation_level: 3
 ---
@@ -1781,7 +1781,7 @@ Write authority: CreateBooking and AmendReservation. All bookings must pass pre-
       domain: "Reservations",
       agentId: "reservation-bot",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -1849,7 +1849,7 @@ PCI DSS: MUST NOT log raw payment card data during reservation creation.
       domain: "Reservations",
       agentId: "reservation-bot",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AC-2",
       content: `---
@@ -1914,7 +1914,7 @@ MUST NOT call any tool not listed in this manifest.
       domain: "Finance",
       agentId: "revenue-reconciliation-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -1996,7 +1996,7 @@ The agent MAY summarise discrepancy patterns to aid Revenue Manager review.
       domain: "Finance",
       agentId: "revenue-reconciliation-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -2073,7 +2073,7 @@ MUST record fileReferenced as this SOP filename.
       domain: "Finance",
       agentId: "revenue-reconciliation-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -2142,7 +2142,7 @@ This agent operates with zero write scopes. Any attempt to call a write tool MUS
       domain: "Finance O2C",
       agentId: "finance-o2c-shared",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "AU-2",
       content: `---
@@ -2224,7 +2224,7 @@ SOC 2 Type II: All cross-domain charge actions contribute to the continuous evid
       domain: "Checkout",
       agentId: "checkout-agent",
       normalisationLevel: 3,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: false,
       nistControl: "AC-2",
       content: `---
@@ -2251,7 +2251,7 @@ exception_overrides:
   - late_checkout_fee: "€0 (waived)"
   - checkout_extension_time: "13:00"
   - finance_approval_required: false
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 ---
 
 # Gold Loyalty Late Checkout Exception Overlay (EXCEPTION)
@@ -2313,7 +2313,7 @@ Finance approval is explicitly not required for fee waivers within the condition
       domain: "System & Services Acquisition",
       agentId: "sa4-acquisition-agent",
       normalisationLevel: 4,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "SA-4",
       content: `---
@@ -2333,7 +2333,7 @@ risk_level: HIGH
 c2md_confidence: 0.95
 nist_control: SA-4
 apaleo_api: All APIs (acquisition scope)
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 ---
 
@@ -2341,7 +2341,7 @@ baseline: true
 
 ## Agent Purpose
 
-Governs the acquisition of all systems, services, and AI components used within the ${companyName} VDA-MK framework. Ensures all third-party integrations — including Apaleo PMS, AI models, and external APIs — meet security, privacy, and governance requirements before activation.
+Governs the acquisition of all systems, services, and AI components used within the ${companyName} VDA-MD framework. Ensures all third-party integrations — including Apaleo PMS, AI models, and external APIs — meet security, privacy, and governance requirements before activation.
 
 ## Scope
 
@@ -2384,7 +2384,7 @@ All technology acquisitions that interface with citizen data, Apaleo APIs, or AI
       domain: "System & Services Acquisition",
       agentId: "sa4-acquisition-agent",
       normalisationLevel: 4,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "SA-4",
       content: `---
@@ -2400,7 +2400,7 @@ approved_date: 2026-03-01
 expires: 2026-12-31
 risk_level: HIGH
 nist_control: SA-4
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 ---
 
@@ -2458,7 +2458,7 @@ Activating any third-party system or AI component without completing the SA-4 ac
       domain: "System & Services Acquisition",
       agentId: "sa4-acquisition-agent",
       normalisationLevel: 4,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "SA-4",
       content: `---
@@ -2471,7 +2471,7 @@ value_stream_axis: horizontal
 authored_by: CISO
 approved_by: General Manager
 nist_control: SA-4
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 ---
 
@@ -2521,7 +2521,7 @@ Every acquisition decision MUST be logged to the Witness Agent with:
       domain: "Incident Response",
       agentId: "ir4-incident-agent",
       normalisationLevel: 4,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "IR-4",
       content: `---
@@ -2533,7 +2533,7 @@ journey_stage_axis: Governance
 value_stream_axis: horizontal
 authored_by: CISO
 consulted: General Manager, Data Protection Officer, Operations Director
-informed: All VDA-MK Agent Owners
+informed: All VDA-MD Agent Owners
 approved_by: General Manager
 approved_date: 2026-03-01
 expires: 2026-12-31
@@ -2541,7 +2541,7 @@ risk_level: CRITICAL
 c2md_confidence: 0.96
 nist_control: IR-4
 apaleo_api: All APIs (incident scope)
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 ---
 
@@ -2576,7 +2576,7 @@ Governs detection, containment, eradication, and recovery from security incident
 - **Responsible**: CISO
 - **Accountable**: General Manager
 - **Consulted**: Data Protection Officer, Legal Counsel
-- **Informed**: All VDA-MK agent owners, Operations Director
+- **Informed**: All VDA-MD agent owners, Operations Director
 
 ## Compliance References
 
@@ -2597,7 +2597,7 @@ Governs detection, containment, eradication, and recovery from security incident
       domain: "Incident Response",
       agentId: "ir4-incident-agent",
       normalisationLevel: 4,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "IR-4",
       content: `---
@@ -2613,7 +2613,7 @@ approved_date: 2026-03-01
 expires: 2026-12-31
 risk_level: CRITICAL
 nist_control: IR-4
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 ---
 
@@ -2680,7 +2680,7 @@ Failure to notify CISO within 1 hour of confirmed incident, or failure to submit
       domain: "Incident Response",
       agentId: "ir4-incident-agent",
       normalisationLevel: 4,
-      vendor: "VDA-MK for Apaleo",
+      vendor: "VDA-MD for Apaleo",
       baseline: true,
       nistControl: "IR-4",
       content: `---
@@ -2693,7 +2693,7 @@ value_stream_axis: horizontal
 authored_by: CISO
 approved_by: General Manager
 nist_control: IR-4
-vendor: VDA-MK for Apaleo
+vendor: VDA-MD for Apaleo
 baseline: true
 ---
 
@@ -3335,7 +3335,7 @@ router.post("/admin/generate-soc2-sd", async (req, res) => {
       .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)))
       .orderBy(governanceFiles.nistControl, governanceFiles.filename);
 
-    // Agent definitions: AGENTS.md files represent the canonical agent definitions in VDA-MK
+    // Agent definitions: AGENTS.md files represent the canonical agent definitions in VDA-MD
     const agentDefFiles = govFiles.filter(f => f.fileType === "AGENTS" && f.content && f.content.length > 50);
     const agentDefSummary = agentDefFiles
       .map(f => `### ${f.filename} (agentId: ${f.agentId ?? "N/A"})\n${f.content.slice(0, 600)}`)
@@ -3372,7 +3372,7 @@ GOVERNANCE SYSTEM FACTS:
 - Operating domains: ${uniqueDomains.join(", ")}
 - NIST SP 800-53 controls: ${nistControls.join(", ")}
 - Named accountable roles: ${uniqueOwners.join(", ")}
-- Core technology stack: Apaleo PMS (API-first), Anthropic Claude (AI), VDA-MK governance framework
+- Core technology stack: Apaleo PMS (API-first), Anthropic Claude (AI), VDA-MD governance framework
 - Compliance framework: GDPR, EU AI Act, ISO 42001, NIST SP 800-53, SOC 2 Type II, ISO 27001
 - Change control: §4 audit signoff enforcement (SOC 2 and NIST standard reductions require named signoff)
 - Audit trail: Witness Agent logs every AI agent decision before execution (tamper-evident)
@@ -3401,7 +3401,7 @@ soc2_generated: true
 ---
 
 # SOC 2 System Description
-## ${companyName} (${hotelCode}) — VDA-MK AI Governance Platform
+## ${companyName} (${hotelCode}) — VDA-MD AI Governance Platform
 
 *Prepared for SOC 2 Type II audit purposes. All information current as of ${nowIso.slice(0, 10)}.*
 
@@ -3409,11 +3409,11 @@ soc2_generated: true
 
 ## Section 1: Overview of the Entity and its Services
 
-[Write 3-4 paragraphs describing ${companyName} as a citizenM hotel property, the VDA-MK AI governance platform purpose, the Apaleo PMS as core system, and the principal service commitments to guests]
+[Write 3-4 paragraphs describing ${companyName} as a citizenM hotel property, the VDA-MD AI governance platform purpose, the Apaleo PMS as core system, and the principal service commitments to guests]
 
 ## Section 2: Principal Service Commitments and System Requirements
 
-[Write 2-3 paragraphs covering: (a) AICPA Trust Service Criteria commitments — Security (CC), Availability (A1); (b) Apaleo API service commitments; (c) VDA-MK governance obligations including mandatory file enforcement]
+[Write 2-3 paragraphs covering: (a) AICPA Trust Service Criteria commitments — Security (CC), Availability (A1); (b) Apaleo API service commitments; (c) VDA-MD governance obligations including mandatory file enforcement]
 
 ## Section 3: Components of the System
 
@@ -3421,10 +3421,10 @@ soc2_generated: true
 [Apaleo GmbH cloud-hosted PMS infrastructure, Replit cloud hosting, TLS/HTTPS transport, no on-premises data storage]
 
 ### 3.2 Software
-[VDA-MK governance framework version, AI agent runtime — Anthropic Claude via API, Apaleo REST APIs (Availability, Reservations, Folio, Unit Management), governance file management system]
+[VDA-MD governance framework version, AI agent runtime — Anthropic Claude via API, Apaleo REST APIs (Availability, Reservations, Folio, Unit Management), governance file management system]
 
 ### 3.3 People
-[Formal description of ${uniqueOwners.join(", ")} roles and their accountability within the VDA-MK framework — who can approve governance files, who signs off on audit standard changes, who receives ESCALATE decisions]
+[Formal description of ${uniqueOwners.join(", ")} roles and their accountability within the VDA-MD framework — who can approve governance files, who signs off on audit standard changes, who receives ESCALATE decisions]
 
 ### 3.4 Procedures
 [VDA-MD §2.1 mandatory file triplet (AGENTS+SOP+SKILL), §3 immutability enforcement for GDPR/EU AI Act/ISO 42001, §4 accountable owner signoff for NIST/SOC 2/ISO 27001 reductions, Witness Agent pre-execution logging]
@@ -3438,7 +3438,7 @@ soc2_generated: true
 
 ## Section 5: Control Environment
 
-[Narrative describing VDA-MK as the control framework: how governance markdown files function as the sole source of truth, how §3 and §4 guards technically enforce immutability and change control, how the Witness Agent provides pre-execution audit evidence, how the mandatory 3-file enforcement ensures no agent operates without documented policy, and how escalation paths maintain human-in-the-loop accountability]
+[Narrative describing VDA-MD as the control framework: how governance markdown files function as the sole source of truth, how §3 and §4 guards technically enforce immutability and change control, how the Witness Agent provides pre-execution audit evidence, how the mandatory 3-file enforcement ensures no agent operates without documented policy, and how escalation paths maintain human-in-the-loop accountability]
 
 ## Section 6: Trust Service Criteria Controls
 
@@ -3468,7 +3468,7 @@ soc2_generated: true
 
 ## Compliance Baseline
 
-| Trust Service Criterion | VDA-MK Control | NIST SP 800-53 |
+| Trust Service Criterion | VDA-MD Control | NIST SP 800-53 |
 |------------------------|---------------|----------------|
 | CC6 — Logical Access | AC-2 governance files + §4 signoff | AC-2 Account Management |
 | CC7 — System Operations | AU-2 governance files + Witness Agent | AU-2 Event Logging |
@@ -3478,7 +3478,7 @@ soc2_generated: true
 ## Audit Evidence References
 
 The following constitute the Type II operational evidence trail:
-- **Witness Agent log**: Tamper-evident record of every AI agent decision, governance clause cited, and decision outcome — logged before execution per VDA-MK §2.1
+- **Witness Agent log**: Tamper-evident record of every AI agent decision, governance clause cited, and decision outcome — logged before execution per VDA-MD §2.1
 - **§4 signoff commit history**: Every reduction of SOC 2, NIST, or ISO 27001 references in governance files is blocked unless a named accountable owner provides explicit signoff, recorded as \`[Audit change signed off by: <name>]\` in the version history
 - **Governance file versions**: Full version history of all AGENTS/SOP/SKILL files with authorship and timestamps
 - **Escalation records**: All ESCALATE decisions recorded in Witness Agent with escalation target, reasoning, and governing clause cited`;
@@ -3528,7 +3528,7 @@ The following constitute the Type II operational evidence trail:
           domain: "Compliance",
           agentId: "soc2-sd-agent",
           normalisationLevel: 3,
-          vendor: "VDA-MK for Apaleo",
+          vendor: "VDA-MD for Apaleo",
           baseline: true,
           nistControl: "SOC2-SD",
           mustCount, mustNotCount, mayCount, wordCount,

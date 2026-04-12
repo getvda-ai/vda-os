@@ -1,5 +1,5 @@
 /**
- * VDA-MK §6 — Framework Integrity Check
+ * VDA-MD §6 — Framework Integrity Check
  *
  * A delayed setTimeout loop that fires 6 hours after startup, then repeats
  * every 6 hours. Two checks per run:
@@ -85,7 +85,7 @@ async function checkCredentialHashIntegrity(): Promise<boolean> {
           agent: cred.agentId,
           eventCategory: "FRAMEWORK_INTEGRITY",
           decision: "FAIL",
-          fileReferenced: "VDA-MK Governance Framework — Integrity Check",
+          fileReferenced: "VDA-MD Governance Framework — Integrity Check",
           clauseApplied: "VDA-MD §6: Agent credential governance hash must match current governance file state",
           actionProposed: `Integrity alert: governance hash drift for agent ${cred.agentId}`,
           reasoning: `Stored credential hash ${cred.governanceFileHash} does not match current computed hash ${currentHash} — governance files may have been modified since credential was issued`,
@@ -122,7 +122,7 @@ async function checkMustNotCountDrift(): Promise<boolean> {
       agent: "integrity-check",
       eventCategory: "FRAMEWORK_INTEGRITY",
       decision: "INFO",
-      fileReferenced: "VDA-MK Governance Framework — Integrity Check",
+      fileReferenced: "VDA-MD Governance Framework — Integrity Check",
       clauseApplied: "VDA-MD §6: MUST NOT clause baseline established for drift monitoring",
       actionProposed: "Baseline established — future checks will compare against this count",
       reasoning: `Initial MUST NOT clause count across all active governance files: ${currentCount}`,
@@ -144,7 +144,7 @@ async function checkMustNotCountDrift(): Promise<boolean> {
       agent: "integrity-check",
       eventCategory: "FRAMEWORK_INTEGRITY",
       decision: "FAIL",
-      fileReferenced: "VDA-MK Governance Framework — Integrity Check",
+      fileReferenced: "VDA-MD Governance Framework — Integrity Check",
       clauseApplied: "VDA-MD §6: MUST NOT clause count must remain stable — drift indicates unauthorised governance file modification",
       actionProposed: `Integrity alert: MUST NOT clause count changed by ${drift > 0 ? "+" : ""}${drift}`,
       reasoning: `Previous count: ${mustNotBaseline}, current count: ${currentCount}. MUST NOT clause drift of ${drift} detected — active governance files may have been modified.`,
@@ -182,7 +182,7 @@ async function runIntegrityCheck(): Promise<void> {
     agent: "integrity-check",
     eventCategory: "FRAMEWORK_INTEGRITY",
     decision: allPassed ? "PASS" : "FAIL",
-    fileReferenced: "VDA-MK Governance Framework — Integrity Check",
+    fileReferenced: "VDA-MD Governance Framework — Integrity Check",
     clauseApplied: "VDA-MD §6: Periodic governance framework integrity check",
     actionProposed: allPassed
       ? "No integrity issues detected — governance framework is consistent"
