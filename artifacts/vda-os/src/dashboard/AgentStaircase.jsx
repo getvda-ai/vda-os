@@ -85,13 +85,13 @@ export default function AgentStaircase({ phases, allPhases, companyNames, nextAg
               borderRadius: "50%",
               background: isActivated ? "#1e2130" : "transparent",
               border: `1px solid ${isActivated ? "#2e3340" : "#1e2130"}`,
-              fontSize: 11, color: "#6b7280", fontWeight: 700,
+              fontSize: 11, color: "#ffffff", fontWeight: 700,
             }}>
               {idx + 1}
             </span>
 
             {/* Name */}
-            <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: isActivated ? "#ffffff" : "#6b7280" }}>
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: isActivated ? "#ffffff" : "#ffffff" }}>
               {DISPLAY_NAMES[agentId]}
             </span>
 
@@ -107,8 +107,8 @@ export default function AgentStaircase({ phases, allPhases, companyNames, nextAg
                       textTransform: "uppercase",
                       padding: "3px 8px", borderRadius: 4,
                       background: reached ? pc.bg : "transparent",
-                      color: reached ? pc.color : "#374151",
-                      border: reached ? `1px solid ${pc.color}40` : "1.5px dashed #374151",
+                      color: reached ? pc.color : "#ffffff",
+                      border: reached ? `1px solid ${pc.color}40` : "1.5px dashed #ffffff",
                     }}>
                       {phase}
                     </span>
@@ -128,7 +128,7 @@ export default function AgentStaircase({ phases, allPhases, companyNames, nextAg
                   {["run", "walk", "crawl", "not_activated"].map((ph) => {
                     const count = counts[ph];
                     if (count === 0) return null;
-                    const pc = PHASE_COLORS[ph] ?? { color: "#6b7280", bg: "transparent" };
+                    const pc = PHASE_COLORS[ph] ?? { color: "#ffffff", bg: "transparent" };
                     const label = ph === "not_activated" ? "inactive" : ph;
                     return (
                       <span key={ph} style={{
@@ -136,7 +136,7 @@ export default function AgentStaircase({ phases, allPhases, companyNames, nextAg
                         color: pc.color,
                         background: ph !== "not_activated" ? pc.bg : "transparent",
                         padding: "2px 6px", borderRadius: 4,
-                        border: ph === "not_activated" ? "1px dashed #374151" : `1px solid ${pc.color}40`,
+                        border: ph === "not_activated" ? "1px dashed #ffffff" : `1px solid ${pc.color}40`,
                       }}>
                         {count}× {label}
                       </span>
@@ -162,7 +162,7 @@ export default function AgentStaircase({ phases, allPhases, companyNames, nextAg
           <div style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", marginBottom: 4 }}>
             {DISPLAY_NAMES[nextAgent.agentId] ?? nextAgent.agentId}
           </div>
-          <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: "#ffffff", lineHeight: 1.5 }}>
             In the last 30 days there were{" "}
             <span style={{ color: "#ffffff", fontWeight: 600 }}>{nextAgent.totalDecisions ?? 0}</span>{" "}
             decisions this agent could have handled.{" "}

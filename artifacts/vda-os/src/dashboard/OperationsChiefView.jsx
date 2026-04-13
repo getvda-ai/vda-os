@@ -38,7 +38,7 @@ const PHASE_COLORS = {
   run:           { color: "#4ade80", bg: "#14532d", label: "R" },
   walk:          { color: "#f59e0b", bg: "#451a03", label: "W" },
   crawl:         { color: "#60a5fa", bg: "#0f2744", label: "C" },
-  not_activated: { color: "#374151", bg: "transparent", label: "—" },
+  not_activated: { color: "#ffffff", bg: "transparent", label: "—" },
 };
 
 function PhaseDot({ phase }) {
@@ -64,8 +64,8 @@ function StatCard({ label, value, color, subtitle }) {
       borderRadius: 10, padding: "14px 16px", textAlign: "center", minWidth: 100,
     }}>
       <div style={{ fontSize: 26, fontWeight: 700, color: color ?? "#fff", marginBottom: 4 }}>{value ?? 0}</div>
-      <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>{label}</div>
-      {subtitle && <div style={{ fontSize: 10, color: "#4b5563", marginTop: 2 }}>{subtitle}</div>}
+      <div style={{ fontSize: 11, color: "#ffffff", fontWeight: 500 }}>{label}</div>
+      {subtitle && <div style={{ fontSize: 10, color: "#ffffff", marginTop: 2 }}>{subtitle}</div>}
     </div>
   );
 }
@@ -109,7 +109,7 @@ export default function OperationsChiefView() {
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Chain-wide governance health</h3>
-          {lastUpdated && <span style={{ fontSize: 11, color: "#6b7280" }}>Updated {updatedAgo}</span>}
+          {lastUpdated && <span style={{ fontSize: 11, color: "#ffffff" }}>Updated {updatedAgo}</span>}
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <StatCard label="Properties live" value={chain.properties_live ?? 5} color="#ffffff" />
@@ -129,7 +129,7 @@ export default function OperationsChiefView() {
             background: "#0d0f14", border: "1.5px dashed #1e2130", borderRadius: 10,
             padding: "18px 20px", textAlign: "center",
           }}>
-            <div style={{ fontSize: 13, color: "#6b7280" }}>No integrity checks recorded yet</div>
+            <div style={{ fontSize: 13, color: "#ffffff" }}>No integrity checks recorded yet</div>
           </div>
         ) : (
           <div style={{
@@ -146,13 +146,13 @@ export default function OperationsChiefView() {
             }}>
               {lastCheck.result}
             </span>
-            <span style={{ fontSize: 13, color: "#9ca3af" }}>
+            <span style={{ fontSize: 13, color: "#ffffff" }}>
               {new Date(lastCheck.timestamp).toLocaleString("en-GB", {
                 day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
               })}
             </span>
             {lastCheck.detail?.envelopes_verified && (
-              <span style={{ fontSize: 12, color: "#6b7280" }}>
+              <span style={{ fontSize: 12, color: "#ffffff" }}>
                 {lastCheck.detail.envelopes_verified} envelopes verified
               </span>
             )}
@@ -165,11 +165,11 @@ export default function OperationsChiefView() {
         <h3 style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: "0 0 4px" }}>
           Adoption progress — all properties
         </h3>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14 }}>
+        <div style={{ fontSize: 12, color: "#ffffff", marginBottom: 14 }}>
           R = RUN &nbsp;·&nbsp; W = WALK &nbsp;·&nbsp; C = CRAWL &nbsp;·&nbsp; — = not activated
         </div>
         {(chainLoading && !chainData) || (phasesLoading && !allPhasesData) ? (
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Loading chain data…</div>
+          <div style={{ color: "#ffffff", fontSize: 13 }}>Loading chain data…</div>
         ) : (
           <div style={{
             background: "#111318", border: "1px solid #1e2130",
@@ -183,12 +183,12 @@ export default function OperationsChiefView() {
               padding: "8px 16px",
               background: "#0d0f14",
             }}>
-              <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
+              <div style={{ fontSize: 10, color: "#ffffff", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase" }}>
                 AGENT
               </div>
               {HOTELS.map((h) => (
                 <div key={h.companyId} style={{
-                  fontSize: 10, color: "#9ca3af", fontWeight: 700, letterSpacing: "0.06em",
+                  fontSize: 10, color: "#ffffff", fontWeight: 700, letterSpacing: "0.06em",
                   textAlign: "center", fontFamily: "'DM Mono', monospace",
                 }}>
                   {h.code}

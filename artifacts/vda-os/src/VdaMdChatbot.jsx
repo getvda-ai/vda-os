@@ -315,7 +315,7 @@ function TypingIndicator() {
         {[0, 1, 2].map(i => (
           <span key={i} style={{
             width: 6, height: 6, borderRadius: "50%",
-            background: "#6b7280", display: "inline-block",
+            background: "#ffffff", display: "inline-block",
             animation: `vda-bounce 1.2s ease-in-out infinite`,
             animationDelay: `${i * 0.15}s`,
           }} />
@@ -345,7 +345,7 @@ function ChatIcon() {
 function CloseIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 4L4 12M4 4L12 12" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M12 4L4 12M4 4L12 12" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round"/>
     </svg>
   );
 }
@@ -553,7 +553,7 @@ export default function VdaMdChatbot() {
           >
             <div style={{ pointerEvents: "none" }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#ffffff" }}>VDA-MD Expert</div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>Ask me anything about the framework</div>
+              <div style={{ fontSize: 11, color: "#ffffff", marginTop: 1 }}>Ask me anything about the framework</div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", pointerEvents: "all", cursor: "default" }}>
               <button
@@ -561,7 +561,7 @@ export default function VdaMdChatbot() {
                 onMouseDown={e => e.stopPropagation()}
                 style={{
                   background: "none", border: "1px solid #1e2130", borderRadius: 5,
-                  padding: "3px 9px", fontSize: 10, color: "#6b7280", cursor: "pointer",
+                  padding: "3px 9px", fontSize: 10, color: "#ffffff", cursor: "pointer",
                   fontFamily: "'DM Sans', sans-serif",
                 }}
               >Clear</button>
@@ -574,7 +574,7 @@ export default function VdaMdChatbot() {
           </div>
 
           {/* Status line */}
-          <div style={{ padding: "5px 16px", fontSize: 11, color: "#4b5563", background: "#0d0f14", borderBottom: "1px solid #1e2130", flexShrink: 0 }}>
+          <div style={{ padding: "5px 16px", fontSize: 11, color: "#ffffff", background: "#0d0f14", borderBottom: "1px solid #1e2130", flexShrink: 0 }}>
             Powered by Claude · Knows VDA-MD v4.0
           </div>
 
@@ -653,7 +653,7 @@ export default function VdaMdChatbot() {
               }}
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M9 1L1 9M9 5L5 9M9 9" stroke="#374151" strokeWidth="1.5" strokeLinecap="round"/>
+                <path d="M9 1L1 9M9 5L5 9M9 9" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
             </div>
           )}

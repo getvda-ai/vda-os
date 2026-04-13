@@ -11,8 +11,8 @@ function StatCard({ label, value, color, subtitle }) {
       borderRadius: 10, padding: "14px 16px", textAlign: "center", minWidth: 100,
     }}>
       <div style={{ fontSize: 26, fontWeight: 700, color, marginBottom: 4 }}>{value ?? 0}</div>
-      <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>{label}</div>
-      {subtitle && <div style={{ fontSize: 10, color: "#4b5563", marginTop: 2 }}>{subtitle}</div>}
+      <div style={{ fontSize: 11, color: "#ffffff", fontWeight: 500 }}>{label}</div>
+      {subtitle && <div style={{ fontSize: 10, color: "#ffffff", marginTop: 2 }}>{subtitle}</div>}
     </div>
   );
 }
@@ -25,7 +25,7 @@ function EmptyCard({ icon, title, subtitle }) {
     }}>
       {icon && <div style={{ fontSize: 24, marginBottom: 8 }}>{icon}</div>}
       <div style={{ fontSize: 14, fontWeight: 600, color: "#4ade80", marginBottom: 4 }}>{title}</div>
-      {subtitle && <div style={{ fontSize: 12, color: "#6b7280" }}>{subtitle}</div>}
+      {subtitle && <div style={{ fontSize: 12, color: "#ffffff" }}>{subtitle}</div>}
     </div>
   );
 }
@@ -85,13 +85,13 @@ function DecisionRow({ e, idx, isLast }) {
         }}>
           {e.decision}
         </span>
-        <span style={{ fontSize: 12, color: "#9ca3af", flexShrink: 0, minWidth: 120, fontFamily: "'DM Sans', sans-serif" }}>
+        <span style={{ fontSize: 12, color: "#ffffff", flexShrink: 0, minWidth: 120, fontFamily: "'DM Sans', sans-serif" }}>
           {agentLabel}
         </span>
-        <span style={{ fontSize: 12, color: "#6b7280", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "'DM Sans', sans-serif" }}>
+        <span style={{ fontSize: 12, color: "#ffffff", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "'DM Sans', sans-serif" }}>
           {clauseShort}
         </span>
-        <span style={{ fontSize: 11, color: "#4b5563", flexShrink: 0, fontFamily: "'DM Sans', sans-serif" }}>{ts}</span>
+        <span style={{ fontSize: 11, color: "#ffffff", flexShrink: 0, fontFamily: "'DM Sans', sans-serif" }}>{ts}</span>
         <span style={{
           fontSize: 10, color: dc.color, flexShrink: 0, marginLeft: 4,
           transform: open ? "rotate(180deg)" : "rotate(0deg)",
@@ -112,23 +112,23 @@ function DecisionRow({ e, idx, isLast }) {
             {/* Left column */}
             <div>
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Governance clause</div>
+                <div style={{ fontSize: 10, color: "#ffffff", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Governance clause</div>
                 <div style={{ fontSize: 12, color: "#ffffff", lineHeight: 1.55 }}>
-                  {e.clauseApplied || <em style={{ color: "#6b7280" }}>None recorded</em>}
+                  {e.clauseApplied || <em style={{ color: "#ffffff" }}>None recorded</em>}
                 </div>
               </div>
 
               {e.actionProposed && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Action proposed</div>
+                  <div style={{ fontSize: 10, color: "#ffffff", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Action proposed</div>
                   <div style={{ fontSize: 12, color: "#ffffff", lineHeight: 1.55 }}>{e.actionProposed}</div>
                 </div>
               )}
 
               {e.reasoning && (
                 <div>
-                  <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Reasoning</div>
-                  <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.55 }}>{e.reasoning}</div>
+                  <div style={{ fontSize: 10, color: "#ffffff", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Reasoning</div>
+                  <div style={{ fontSize: 12, color: "#ffffff", lineHeight: 1.55 }}>{e.reasoning}</div>
                 </div>
               )}
             </div>
@@ -136,23 +136,23 @@ function DecisionRow({ e, idx, isLast }) {
             {/* Right column */}
             <div>
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 6, textTransform: "uppercase" }}>Decision details</div>
+                <div style={{ fontSize: 10, color: "#ffffff", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 6, textTransform: "uppercase" }}>Decision details</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>Event category</span>
+                    <span style={{ fontSize: 11, color: "#ffffff", minWidth: 100 }}>Event category</span>
                     <span style={{ fontSize: 11, color: "#ffffff", fontFamily: "'DM Mono', monospace" }}>{e.eventCategory ?? "—"}</span>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>File referenced</span>
+                    <span style={{ fontSize: 11, color: "#ffffff", minWidth: 100 }}>File referenced</span>
                     <span style={{ fontSize: 11, color: "#ffffff" }}>{e.fileReferenced ?? "—"}</span>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>Timestamp</span>
+                    <span style={{ fontSize: 11, color: "#ffffff", minWidth: 100 }}>Timestamp</span>
                     <span style={{ fontSize: 11, color: "#ffffff" }}>{new Date(e.createdAt).toISOString()}</span>
                   </div>
                   {e.escalationTarget && (
                     <div style={{ display: "flex", gap: 8 }}>
-                      <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>Escalated to</span>
+                      <span style={{ fontSize: 11, color: "#ffffff", minWidth: 100 }}>Escalated to</span>
                       <span style={{ fontSize: 11, color: "#f59e0b" }}>{e.escalationTarget}</span>
                     </div>
                   )}
@@ -161,13 +161,13 @@ function DecisionRow({ e, idx, isLast }) {
 
               {apaleoData.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 6, textTransform: "uppercase" }}>Apaleo context</div>
+                  <div style={{ fontSize: 10, color: "#ffffff", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 6, textTransform: "uppercase" }}>Apaleo context</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     {apaleoData.map(({ k, v }) => (
                       <div key={k} style={{ display: "flex", gap: 8 }}>
-                        <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100, flexShrink: 0 }}>{k}</span>
+                        <span style={{ fontSize: 11, color: "#ffffff", minWidth: 100, flexShrink: 0 }}>{k}</span>
                         <span style={{
-                          fontSize: 11, color: "#9ca3af",
+                          fontSize: 11, color: "#ffffff",
                           fontFamily: "'DM Mono', monospace",
                           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                           maxWidth: 220,
@@ -260,7 +260,7 @@ export default function HotelGMView({ companyId, onOpenTab }) {
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
           <SectionHeader title="Property health" />
-          {lastUpdated && <span style={{ fontSize: 11, color: "#6b7280" }}>Updated {updatedAgo}</span>}
+          {lastUpdated && <span style={{ fontSize: 11, color: "#ffffff" }}>Updated {updatedAgo}</span>}
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <StatCard label="Agents in RUN" value={phaseCounts.run} color="#4ade80" />
@@ -279,7 +279,7 @@ export default function HotelGMView({ companyId, onOpenTab }) {
           borderRadius: 10, padding: "16px 20px",
         }}>
           {phasesLoading && !phasesData ? (
-            <div style={{ color: "#6b7280", fontSize: 13 }}>Loading…</div>
+            <div style={{ color: "#ffffff", fontSize: 13 }}>Loading…</div>
           ) : (
             <AgentStaircase phases={phases} nextAgent={nextAgent} />
           )}
@@ -295,7 +295,7 @@ export default function HotelGMView({ companyId, onOpenTab }) {
               onClick={() => onOpenTab("witness")}
               style={{
                 ...DM, background: "none", border: "1px solid #1e2130",
-                borderRadius: 6, padding: "5px 12px", fontSize: 12, color: "#9ca3af",
+                borderRadius: 6, padding: "5px 12px", fontSize: 12, color: "#ffffff",
                 cursor: "pointer",
               }}
             >

@@ -138,7 +138,7 @@ export default function DecisionCard({
           }}>
             {cardType}
           </span>
-          <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 500 }}>{agentLabel}</span>
+          <span style={{ fontSize: 12, color: "#ffffff", fontWeight: 500 }}>{agentLabel}</span>
         </div>
 
         {/* Title */}
@@ -163,7 +163,7 @@ export default function DecisionCard({
           borderLeft: `3px solid ${colors.border}`,
           borderRadius: 6, padding: "10px 12px", marginBottom: 12,
         }}>
-          <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
+          <div style={{ fontSize: 10, color: "#ffffff", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
             Governance clause
           </div>
           <div style={{
@@ -185,8 +185,8 @@ export default function DecisionCard({
 
         {/* Recommendation */}
         {rationale && (
-          <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 14, lineHeight: 1.5 }}>
-            <span style={{ color: "#6b7280", fontWeight: 600 }}>Agent recommends: </span>
+          <div style={{ fontSize: 13, color: "#ffffff", marginBottom: 14, lineHeight: 1.5 }}>
+            <span style={{ color: "#ffffff", fontWeight: 600 }}>Agent recommends: </span>
             <span style={{ color: recommendedAction === "approve" ? "#4ade80" : "#f87171", fontWeight: 600 }}>
               {recommendedAction.toUpperCase()}
             </span>

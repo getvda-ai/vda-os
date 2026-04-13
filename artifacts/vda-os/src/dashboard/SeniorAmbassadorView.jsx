@@ -33,7 +33,7 @@ function StatCard({ label, value, color }) {
       borderRadius: 10, padding: "16px 18px", textAlign: "center",
     }}>
       <div style={{ fontSize: 30, fontWeight: 700, color, marginBottom: 4 }}>{value ?? 0}</div>
-      <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 12, color: "#ffffff", fontWeight: 500 }}>{label}</div>
     </div>
   );
 }
@@ -46,7 +46,7 @@ function EmptyCard({ icon = "✓", title, subtitle }) {
     }}>
       <div style={{ fontSize: 24, marginBottom: 8 }}>{icon}</div>
       <div style={{ fontSize: 14, fontWeight: 600, color: "#4ade80", marginBottom: 4 }}>{title}</div>
-      {subtitle && <div style={{ fontSize: 12, color: "#6b7280" }}>{subtitle}</div>}
+      {subtitle && <div style={{ fontSize: 12, color: "#ffffff" }}>{subtitle}</div>}
     </div>
   );
 }
@@ -86,7 +86,7 @@ function AgentStatusCard({ phase: phaseRow }) {
       {rate !== null && pc && (
         <>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-            <span style={{ fontSize: 11, color: "#6b7280" }}>Agreement rate</span>
+            <span style={{ fontSize: 11, color: "#ffffff" }}>Agreement rate</span>
             <span style={{ fontSize: 12, fontWeight: 700, color: pc.color }}>{rate}%</span>
           </div>
           <div style={{ height: 4, background: "#1e2130", borderRadius: 2, overflow: "hidden" }}>
@@ -176,11 +176,11 @@ export default function SeniorAmbassadorView({ companyId }) {
               </span>
             )}
           </div>
-          {hitlUpdated && <span style={{ fontSize: 11, color: "#6b7280" }}>Updated {hitlAgo}</span>}
+          {hitlUpdated && <span style={{ fontSize: 11, color: "#ffffff" }}>Updated {hitlAgo}</span>}
         </div>
 
         {hitlLoading && !hitlData ? (
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Loading…</div>
+          <div style={{ color: "#ffffff", fontSize: 13 }}>Loading…</div>
         ) : pending.length === 0 ? (
           <EmptyCard
             icon="✓"
@@ -216,7 +216,7 @@ export default function SeniorAmbassadorView({ companyId }) {
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>This shift</h3>
-          {shiftUpdated && <span style={{ fontSize: 11, color: "#6b7280" }}>Updated {shiftAgo}</span>}
+          {shiftUpdated && <span style={{ fontSize: 11, color: "#ffffff" }}>Updated {shiftAgo}</span>}
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <StatCard label="Autonomous decisions" value={shiftData?.autonomous_count} color="#4ade80" />
@@ -238,11 +238,11 @@ export default function SeniorAmbassadorView({ companyId }) {
               {shadows.length}
             </span>
           )}
-          <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 4 }}>crawl-phase decisions awaiting your yes/no</span>
+          <span style={{ fontSize: 11, color: "#ffffff", marginLeft: 4 }}>crawl-phase decisions awaiting your yes/no</span>
         </div>
 
         {shiftLoading && !shiftData ? (
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Loading…</div>
+          <div style={{ color: "#ffffff", fontSize: 13 }}>Loading…</div>
         ) : shadows.length === 0 ? (
           <EmptyCard
             icon="✓"
@@ -271,7 +271,7 @@ export default function SeniorAmbassadorView({ companyId }) {
       <div>
         <SectionHeader title="Agent status" />
         {phasesLoading && !phasesData ? (
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Loading…</div>
+          <div style={{ color: "#ffffff", fontSize: 13 }}>Loading…</div>
         ) : activatedAgents.length === 0 ? (
           <EmptyCard icon="⚙️" title="No agents activated yet" subtitle="Activate agents from the Hotel GM view" />
         ) : (

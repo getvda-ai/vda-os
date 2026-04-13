@@ -7306,7 +7306,7 @@ const STATUS_COLORS_OB = {
   received: "#3b82f6", analysing: "#8b5cf6", generating_files: "#8b5cf6",
   awaiting_first_hitl: "#f59e0b", sandbox: "#f59e0b", awaiting_second_hitl: "#f59e0b",
   committing: "#10b981", onboarded: "#10b981", rejected: "#ef4444",
-  failed: "#ef4444", rolled_back: "#6b7280",
+  failed: "#ef4444", rolled_back: "#ffffff",
 };
 const PHASE_MAP_OB = {
   received: 1, analysing: 2, generating_files: 3,
@@ -8327,7 +8327,7 @@ function DashboardTab({ companyId, onOpenTab }) {
       }}>
         {/* "Viewing as:" context label */}
         <span style={{
-          fontSize: 10, color: "#6b7280", fontFamily: "'DM Mono', monospace",
+          fontSize: 10, color: "#ffffff", fontFamily: "'DM Mono', monospace",
           letterSpacing: "0.07em", paddingRight: 12, marginRight: 4,
           borderRight: "1px solid #1e2229", whiteSpace: "nowrap",
         }}>
@@ -8342,7 +8342,7 @@ function DashboardTab({ companyId, onOpenTab }) {
               style={{
                 background: "none", border: "none",
                 borderBottom: `2px solid ${active ? r.color : "transparent"}`,
-                color: active ? r.color : "#6b7280",
+                color: active ? r.color : "#ffffff",
                 padding: "12px 16px", cursor: "pointer",
                 fontSize: 13, fontWeight: active ? 700 : 400,
                 fontFamily: "'DM Sans', sans-serif",
@@ -8353,13 +8353,13 @@ function DashboardTab({ companyId, onOpenTab }) {
             >
               <span>{r.label}</span>
               {active && (
-                <span style={{ fontSize: 10, color: "#6b7280", fontWeight: 400 }}>{r.description}</span>
+                <span style={{ fontSize: 10, color: "#ffffff", fontWeight: 400 }}>{r.description}</span>
               )}
             </button>
           );
         })}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", padding: "0 4px" }}>
-          <span style={{ fontSize: 10, color: "#374151", fontFamily: "'DM Mono', monospace", letterSpacing: "0.06em" }}>
+          <span style={{ fontSize: 10, color: "#ffffff", fontFamily: "'DM Mono', monospace", letterSpacing: "0.06em" }}>
             UI ROLE ONLY · NO AUTH
           </span>
         </div>

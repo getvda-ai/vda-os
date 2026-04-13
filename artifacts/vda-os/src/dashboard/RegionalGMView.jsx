@@ -56,7 +56,7 @@ function PropertyCard({ hotel, phases, metrics, pending, isSelected, onClick }) 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{hotel.name}</div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, fontFamily: "'DM Mono', monospace" }}>{hotel.code}</div>
+          <div style={{ fontSize: 11, color: "#ffffff", marginTop: 2, fontFamily: "'DM Mono', monospace" }}>{hotel.code}</div>
         </div>
         <span style={{
           fontSize: 11, fontWeight: 700,
@@ -67,7 +67,7 @@ function PropertyCard({ hotel, phases, metrics, pending, isSelected, onClick }) 
         </span>
       </div>
 
-      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>
+      <div style={{ fontSize: 12, color: "#ffffff", marginBottom: 10 }}>
         {totalActive} agent{totalActive !== 1 ? "s" : ""} active
         {pending?.length > 0 && ` · ${pending.length} pending`}
         {Number(metrics?.complianceRejectionsLast7d ?? 0) > 0 && " · guard events"}
@@ -90,7 +90,7 @@ function PropertyCard({ hotel, phases, metrics, pending, isSelected, onClick }) 
           );
         })}
         {totalActive === 0 && (
-          <span style={{ fontSize: 11, color: "#4b5563", fontStyle: "italic" }}>No active agents</span>
+          <span style={{ fontSize: 11, color: "#ffffff", fontStyle: "italic" }}>No active agents</span>
         )}
       </div>
     </div>
@@ -181,10 +181,10 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Your properties</h3>
-          {lastUpdated && <span style={{ fontSize: 11, color: "#6b7280" }}>Updated {updatedAgo}</span>}
+          {lastUpdated && <span style={{ fontSize: 11, color: "#ffffff" }}>Updated {updatedAgo}</span>}
         </div>
         {loading && !data ? (
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Loading property data…</div>
+          <div style={{ color: "#ffffff", fontSize: 13 }}>Loading property data…</div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
             {hotels.map((hotel) => (
@@ -211,7 +211,7 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
             borderRadius: 10, padding: "24px 20px", textAlign: "center",
           }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#4ade80" }}>No issues across your cluster</div>
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>All properties within normal governance parameters</div>
+            <div style={{ fontSize: 12, color: "#ffffff", marginTop: 4 }}>All properties within normal governance parameters</div>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

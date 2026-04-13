@@ -84,13 +84,13 @@ export default function ShadowReviewRow({
 
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 3, fontWeight: 500 }}>
+        <div style={{ fontSize: 12, color: "#ffffff", marginBottom: 3, fontWeight: 500 }}>
           {agentLabel}
         </div>
         <div style={{ fontSize: 13, color: "#ffffff", lineHeight: 1.45, marginBottom: 8 }}>
           {plainEnglish}
         </div>
-        <div style={{ fontSize: 12, color: "#6b7280" }}>
+        <div style={{ fontSize: 12, color: "#ffffff" }}>
           Would you have done the same?
         </div>
       </div>
