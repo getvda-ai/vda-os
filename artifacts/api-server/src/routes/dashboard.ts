@@ -121,6 +121,8 @@ router.get("/dashboard/shift-summary", async (req, res) => {
     let escalated_count = 0;
     let shadow_count = 0;
     const raw_shadow: typeof entries = [];
+    const raw_autonomous: typeof entries = [];
+    const raw_escalated: typeof entries = [];
 
     for (const e of entries) {
       const ap = e.apaleoData as Record<string, unknown> | null;
@@ -131,8 +133,10 @@ router.get("/dashboard/shift-summary", async (req, res) => {
         raw_shadow.push(e);
       } else if (e.decision === "PASS" && !e.escalationTarget) {
         autonomous_count++;
+        raw_autonomous.push(e);
       } else if (e.decision === "ESCALATE") {
         escalated_count++;
+        raw_escalated.push(e);
       }
     }
 
@@ -176,11 +180,36 @@ router.get("/dashboard/shift-summary", async (req, res) => {
         createdAt: e.createdAt,
       }));
 
+    const autonomous_entries = raw_autonomous.map((e) => ({
+      witnessId: e.id,
+      agent: e.agent,
+      decision: e.decision,
+      clauseApplied: e.clauseApplied,
+      actionProposed: e.actionProposed,
+      fileReferenced: e.fileReferenced,
+      reasoning: e.reasoning,
+      createdAt: e.createdAt,
+    }));
+
+    const escalated_entries = raw_escalated.map((e) => ({
+      witnessId: e.id,
+      agent: e.agent,
+      decision: e.decision,
+      clauseApplied: e.clauseApplied,
+      actionProposed: e.actionProposed,
+      escalationTarget: e.escalationTarget,
+      fileReferenced: e.fileReferenced,
+      reasoning: e.reasoning,
+      createdAt: e.createdAt,
+    }));
+
     res.json({
       autonomous_count,
       escalated_count,
       shadow_count,
       shadow_reviews,
+      autonomous_entries,
+      escalated_entries,
     });
   } catch (err) {
     logger.error({ err }, "dashboard/shift-summary error");

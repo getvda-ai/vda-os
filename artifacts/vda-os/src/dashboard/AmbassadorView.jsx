@@ -5,14 +5,110 @@ import ShadowReviewRow from "./ShadowReviewRow.jsx";
 
 const DM = { fontFamily: "'DM Sans', sans-serif" };
 
-function StatCard({ label, value, color }) {
+const DECISION_COLORS = {
+  PASS:    "#4ade80",
+  ESCALATE:"#f59e0b",
+  FAIL:    "#f87171",
+  INFO:    "#60a5fa",
+};
+
+function relativeTime(dateStr) {
+  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
+  if (diff < 60)  return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
+}
+
+function StatCard({ label, value, color, onClick, active }) {
   return (
-    <div style={{
-      ...DM, flex: 1, background: "#111318", border: "1px solid #1e2130",
-      borderRadius: 10, padding: "16px 18px", textAlign: "center",
-    }}>
+    <div
+      onClick={onClick}
+      style={{
+        ...DM, flex: 1, background: active ? "#1a1d26" : "#111318",
+        border: active ? `1.5px solid ${color}` : "1px solid #1e2130",
+        borderRadius: 10, padding: "16px 18px", textAlign: "center",
+        cursor: "pointer", userSelect: "none",
+        transition: "border 0.15s, background 0.15s",
+        position: "relative",
+      }}
+    >
       <div style={{ fontSize: 30, fontWeight: 700, color, marginBottom: 4 }}>{value ?? 0}</div>
       <div style={{ fontSize: 12, color: "#ffffff", fontWeight: 500 }}>{label}</div>
+      <div style={{ position: "absolute", top: 8, right: 10, fontSize: 10, color: color, opacity: 0.7 }}>
+        {active ? "▲" : "▼"}
+      </div>
+    </div>
+  );
+}
+
+function EventListPanel({ title, events, color, onClose, shadowMode = false, shadows = [] }) {
+  const items = shadowMode ? shadows : events;
+  return (
+    <div style={{
+      ...DM, background: "#0e1018", border: `1px solid ${color}40`,
+      borderRadius: 10, padding: "16px 18px", marginTop: 10,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color }}>{title}</span>
+        <button
+          onClick={onClose}
+          style={{ background: "none", border: "none", color: "#ffffff", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px" }}
+        >
+          ✕
+        </button>
+      </div>
+
+      {items.length === 0 && (
+        <div style={{ fontSize: 13, color: "#ffffff", textAlign: "center", padding: "12px 0" }}>
+          No events in this shift
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
+        {items.map((e) => {
+          const decision = e.decision ?? "INFO";
+          const dc = DECISION_COLORS[decision] ?? "#60a5fa";
+          const agent = e.agent ?? e.agentId ?? "Unknown Agent";
+          const agentLabel = agent.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          return (
+            <div key={e.witnessId ?? e.id} style={{
+              background: "#111318", border: `1px solid #1e2130`,
+              borderRadius: 8, padding: "12px 14px",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700,
+                    background: dc + "20", color: dc,
+                    border: `1px solid ${dc}40`,
+                    borderRadius: 4, padding: "2px 7px",
+                    fontFamily: "monospace",
+                  }}>{decision}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#ffffff" }}>{agentLabel}</span>
+                </div>
+                <span style={{ fontSize: 11, color: "#ffffff" }}>
+                  {e.createdAt ? relativeTime(e.createdAt) : ""}
+                </span>
+              </div>
+              {e.clauseApplied && (
+                <div style={{ fontSize: 11, color: "#ffffff", marginBottom: 4, fontStyle: "italic" }}>
+                  {e.clauseApplied}
+                </div>
+              )}
+              {e.actionProposed && (
+                <div style={{ fontSize: 12, color: "#d1d5db", lineHeight: 1.5 }}>
+                  {e.actionProposed}
+                </div>
+              )}
+              {e.escalationTarget && (
+                <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>
+                  ↗ Escalated to: {e.escalationTarget}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -48,10 +144,9 @@ function SectionHeader({ title, count }) {
 }
 
 export default function AmbassadorView({ companyId, onOpenTab }) {
-  // Track dismissed items locally — allows optimistic removal while staying live on each poll.
-  // Fresh server data always replaces the base list; only locally-dismissed IDs are filtered out.
   const [dismissedTokens, setDismissedTokens] = useState(new Set());
   const [dismissedShadows, setDismissedShadows] = useState(new Set());
+  const [activeCard, setActiveCard] = useState(null);
 
   const {
     data: shiftData,
@@ -69,7 +164,6 @@ export default function AmbassadorView({ companyId, onOpenTab }) {
   } = usePoll(async () => {
     const r = await fetch("/api/hitl/pending");
     const d = await r.json();
-    // Filter to this hotel's tokens (companyId from enriched endpoint; fallback payload)
     const filtered = (d.pending ?? []).filter((p) => {
       if (!companyId) return true;
       const tokenCompany = p.companyId ?? p.payload?.companyId;
@@ -80,7 +174,6 @@ export default function AmbassadorView({ companyId, onOpenTab }) {
 
   const shiftAgo = useSecondsAgo(shiftUpdated);
 
-  // Optimistic removal — dismissed items hidden immediately but re-appear if server resets them
   const resolvedHitl = (token) => {
     setDismissedTokens((prev) => new Set([...prev, token]));
   };
@@ -89,9 +182,10 @@ export default function AmbassadorView({ companyId, onOpenTab }) {
     setDismissedShadows((prev) => new Set([...prev, String(witnessId)]));
   };
 
-  // Always derive from latest server data, filtered by local dismissals
   const pending = (hitlData?.pending ?? []).filter((p) => !dismissedTokens.has(p.token));
   const shadows = (shiftData?.shadow_reviews ?? []).filter((r) => !dismissedShadows.has(String(r.witnessId)));
+
+  const toggleCard = (cardId) => setActiveCard((prev) => prev === cardId ? null : cardId);
 
   return (
     <div style={{ ...DM, padding: "24px 28px", maxWidth: 900 }}>
@@ -138,10 +232,55 @@ export default function AmbassadorView({ companyId, onOpenTab }) {
           {shiftUpdated && <span style={{ fontSize: 11, color: "#ffffff" }}>Updated {shiftAgo}</span>}
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <StatCard label="Autonomous decisions" value={shiftData?.autonomous_count} color="#4ade80" />
-          <StatCard label="Escalated to you" value={shiftData?.escalated_count} color="#f59e0b" />
-          <StatCard label="Shadow reviews waiting" value={shadows.length} color="#60a5fa" />
+          <StatCard
+            label="Autonomous decisions"
+            value={shiftData?.autonomous_count}
+            color="#4ade80"
+            active={activeCard === "autonomous"}
+            onClick={() => toggleCard("autonomous")}
+          />
+          <StatCard
+            label="Escalated to you"
+            value={shiftData?.escalated_count}
+            color="#f59e0b"
+            active={activeCard === "escalated"}
+            onClick={() => toggleCard("escalated")}
+          />
+          <StatCard
+            label="Shadow reviews waiting"
+            value={shadows.length}
+            color="#60a5fa"
+            active={activeCard === "shadow"}
+            onClick={() => toggleCard("shadow")}
+          />
         </div>
+
+        {activeCard === "autonomous" && (
+          <EventListPanel
+            title="Autonomous decisions this shift"
+            color="#4ade80"
+            events={shiftData?.autonomous_entries ?? []}
+            onClose={() => setActiveCard(null)}
+          />
+        )}
+        {activeCard === "escalated" && (
+          <EventListPanel
+            title="Escalated decisions this shift"
+            color="#f59e0b"
+            events={shiftData?.escalated_entries ?? []}
+            onClose={() => setActiveCard(null)}
+          />
+        )}
+        {activeCard === "shadow" && (
+          <EventListPanel
+            title="Shadow reviews waiting"
+            color="#60a5fa"
+            events={[]}
+            shadowMode
+            shadows={shadows}
+            onClose={() => setActiveCard(null)}
+          />
+        )}
       </div>
 
       {/* Section C — Shadow reviews */}

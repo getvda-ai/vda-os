@@ -11,6 +11,20 @@ const PHASE_COLORS = {
   crawl: { color: "#60a5fa", bg: "#0f2744", label: "CRAWL" },
 };
 
+const DECISION_COLORS = {
+  PASS:    "#4ade80",
+  ESCALATE:"#f59e0b",
+  FAIL:    "#f87171",
+  INFO:    "#60a5fa",
+};
+
+function relativeTime(dateStr) {
+  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
+  if (diff < 60)  return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
+}
+
 function PhasePill({ phase }) {
   const pc = PHASE_COLORS[phase];
   if (!pc) return null;
@@ -26,14 +40,96 @@ function PhasePill({ phase }) {
   );
 }
 
-function StatCard({ label, value, color }) {
+function StatCard({ label, value, color, onClick, active }) {
   return (
-    <div style={{
-      ...DM, flex: 1, background: "#111318", border: "1px solid #1e2130",
-      borderRadius: 10, padding: "16px 18px", textAlign: "center",
-    }}>
+    <div
+      onClick={onClick}
+      style={{
+        ...DM, flex: 1, background: active ? "#1a1d26" : "#111318",
+        border: active ? `1.5px solid ${color}` : "1px solid #1e2130",
+        borderRadius: 10, padding: "16px 18px", textAlign: "center",
+        cursor: "pointer", userSelect: "none",
+        transition: "border 0.15s, background 0.15s",
+        position: "relative",
+      }}
+    >
       <div style={{ fontSize: 30, fontWeight: 700, color, marginBottom: 4 }}>{value ?? 0}</div>
       <div style={{ fontSize: 12, color: "#ffffff", fontWeight: 500 }}>{label}</div>
+      <div style={{ position: "absolute", top: 8, right: 10, fontSize: 10, color: color, opacity: 0.7 }}>
+        {active ? "▲" : "▼"}
+      </div>
+    </div>
+  );
+}
+
+function EventListPanel({ title, events, color, onClose, shadowMode = false, shadows = [] }) {
+  const items = shadowMode ? shadows : events;
+  return (
+    <div style={{
+      ...DM, background: "#0e1018", border: `1px solid ${color}40`,
+      borderRadius: 10, padding: "16px 18px", marginTop: 10,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color }}>{title}</span>
+        <button
+          onClick={onClose}
+          style={{ background: "none", border: "none", color: "#ffffff", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px" }}
+        >
+          ✕
+        </button>
+      </div>
+
+      {items.length === 0 && (
+        <div style={{ fontSize: 13, color: "#ffffff", textAlign: "center", padding: "12px 0" }}>
+          No events in this shift
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
+        {items.map((e) => {
+          const decision = e.decision ?? "INFO";
+          const dc = DECISION_COLORS[decision] ?? "#60a5fa";
+          const agent = e.agent ?? e.agentId ?? "Unknown Agent";
+          const agentLabel = agent.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          return (
+            <div key={e.witnessId ?? e.id} style={{
+              background: "#111318", border: `1px solid #1e2130`,
+              borderRadius: 8, padding: "12px 14px",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700,
+                    background: dc + "20", color: dc,
+                    border: `1px solid ${dc}40`,
+                    borderRadius: 4, padding: "2px 7px",
+                    fontFamily: "monospace",
+                  }}>{decision}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#ffffff" }}>{agentLabel}</span>
+                </div>
+                <span style={{ fontSize: 11, color: "#ffffff" }}>
+                  {e.createdAt ? relativeTime(e.createdAt) : ""}
+                </span>
+              </div>
+              {e.clauseApplied && (
+                <div style={{ fontSize: 11, color: "#ffffff", marginBottom: 4, fontStyle: "italic" }}>
+                  {e.clauseApplied}
+                </div>
+              )}
+              {e.actionProposed && (
+                <div style={{ fontSize: 12, color: "#d1d5db", lineHeight: 1.5 }}>
+                  {e.actionProposed}
+                </div>
+              )}
+              {e.escalationTarget && (
+                <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>
+                  ↗ Escalated to: {e.escalationTarget}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -105,8 +201,8 @@ function AgentStatusCard({ phase: phaseRow }) {
 export default function SeniorAmbassadorView({ companyId }) {
   const [resolvedTokens, setResolvedTokens] = useState(new Set());
   const [reviewedShadows, setReviewedShadows] = useState(new Set());
+  const [activeCard, setActiveCard] = useState(null);
 
-  // HITL pending — 10s poll (time-sensitive)
   const {
     data: hitlData,
     loading: hitlLoading,
@@ -116,7 +212,6 @@ export default function SeniorAmbassadorView({ companyId }) {
     return r.json();
   }, 10000);
 
-  // Shift summary — 30s poll
   const {
     data: shiftData,
     loading: shiftLoading,
@@ -127,7 +222,6 @@ export default function SeniorAmbassadorView({ companyId }) {
     return r.json();
   }, 30000);
 
-  // Agent phases — 30s poll
   const {
     data: phasesData,
     loading: phasesLoading,
@@ -140,7 +234,6 @@ export default function SeniorAmbassadorView({ companyId }) {
   const hitlAgo = useSecondsAgo(hitlUpdated);
   const shiftAgo = useSecondsAgo(shiftUpdated);
 
-  // Filter to this property's HITL tokens (companyId from enriched pending endpoint)
   const pending = (hitlData?.pending ?? []).filter((p) => {
     if (resolvedTokens.has(p.token)) return false;
     if (!companyId) return true;
@@ -151,13 +244,15 @@ export default function SeniorAmbassadorView({ companyId }) {
   const allShadows = shiftData?.shadow_reviews ?? [];
   const shadows = allShadows.filter((s) => !reviewedShadows.has(String(s.witnessId)));
 
-  const handleDecision = (token, outcome) => {
+  const handleDecision = (token) => {
     setResolvedTokens((prev) => new Set([...prev, token]));
   };
 
   const handleShadowReviewed = (witnessId) => {
     setReviewedShadows((prev) => new Set([...prev, String(witnessId)]));
   };
+
+  const toggleCard = (cardId) => setActiveCard((prev) => prev === cardId ? null : cardId);
 
   return (
     <div style={{ ...DM, padding: "24px 28px", maxWidth: 1100 }}>
@@ -219,13 +314,58 @@ export default function SeniorAmbassadorView({ companyId }) {
           {shiftUpdated && <span style={{ fontSize: 11, color: "#ffffff" }}>Updated {shiftAgo}</span>}
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <StatCard label="Autonomous decisions" value={shiftData?.autonomous_count} color="#4ade80" />
-          <StatCard label="Escalated" value={shiftData?.escalated_count} color="#f59e0b" />
-          <StatCard label="Shadow reviews" value={shadows.length} color="#60a5fa" />
+          <StatCard
+            label="Autonomous decisions"
+            value={shiftData?.autonomous_count}
+            color="#4ade80"
+            active={activeCard === "autonomous"}
+            onClick={() => toggleCard("autonomous")}
+          />
+          <StatCard
+            label="Escalated"
+            value={shiftData?.escalated_count}
+            color="#f59e0b"
+            active={activeCard === "escalated"}
+            onClick={() => toggleCard("escalated")}
+          />
+          <StatCard
+            label="Shadow reviews"
+            value={shadows.length}
+            color="#60a5fa"
+            active={activeCard === "shadow"}
+            onClick={() => toggleCard("shadow")}
+          />
         </div>
+
+        {activeCard === "autonomous" && (
+          <EventListPanel
+            title="Autonomous decisions this shift"
+            color="#4ade80"
+            events={shiftData?.autonomous_entries ?? []}
+            onClose={() => setActiveCard(null)}
+          />
+        )}
+        {activeCard === "escalated" && (
+          <EventListPanel
+            title="Escalated decisions this shift"
+            color="#f59e0b"
+            events={shiftData?.escalated_entries ?? []}
+            onClose={() => setActiveCard(null)}
+          />
+        )}
+        {activeCard === "shadow" && (
+          <EventListPanel
+            title="Shadow reviews waiting"
+            color="#60a5fa"
+            events={[]}
+            shadowMode
+            shadows={shadows}
+            onClose={() => setActiveCard(null)}
+          />
+        )}
       </div>
 
-      {/* Section C — Shadow review queue (crawl-phase decisions) */}
+      {/* Section C — Shadow review queue */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
           <h3 style={{ ...DM, fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Shadow reviews</h3>
