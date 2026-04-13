@@ -324,6 +324,84 @@ router.post("/dashboard/shadow-review", async (req, res) => {
   }
 });
 
+// ─── POST /api/dashboard/phases/promote ──────────────────────────────────────
+
+router.post("/dashboard/phases/promote", async (req, res) => {
+  try {
+    const {
+      companyId,
+      agentId,
+      targetPhase,
+      promotedBy = "Dashboard User",
+    } = req.body as {
+      companyId: number;
+      agentId: string;
+      targetPhase: "walk" | "run";
+      promotedBy?: string;
+    };
+
+    if (!companyId || !agentId || !targetPhase) {
+      res.status(400).json({ error: "companyId, agentId, targetPhase required" });
+      return;
+    }
+    if (!["walk", "run"].includes(targetPhase)) {
+      res.status(400).json({ error: "targetPhase must be 'walk' or 'run'" });
+      return;
+    }
+
+    const rows = await db
+      .select()
+      .from(agentPhases)
+      .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)))
+      .limit(1);
+
+    const current = rows[0];
+    if (!current) {
+      res.status(404).json({ error: `No phase row found for agent '${agentId}' in company ${companyId}` });
+      return;
+    }
+
+    const VALID_TRANSITIONS: Record<string, string> = { crawl: "walk", walk: "run" };
+    if (VALID_TRANSITIONS[current.phase] !== targetPhase) {
+      res.status(409).json({
+        error: `Invalid transition: ${current.phase} → ${targetPhase}. Only crawl→walk and walk→run are permitted.`,
+        currentPhase: current.phase,
+      });
+      return;
+    }
+
+    await db
+      .update(agentPhases)
+      .set({ phase: targetPhase, phaseChangedAt: new Date() })
+      .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)));
+
+    await writeGovernanceEvent({
+      companyId,
+      agent: agentId,
+      eventCategory: "AGENT_LIFECYCLE",
+      decision: "PASS",
+      clauseApplied: `VDA-MD Crawl/Walk/Run §${targetPhase}: Agent phase promoted by authorised reviewer`,
+      actionProposed: `Agent promoted from ${current.phase} to ${targetPhase} by ${promotedBy}`,
+      reasoning: `Phase promotion approved: ${agentId} is ready for ${targetPhase}-phase autonomous operation`,
+      fileReferenced: "VDA-MD Phase Management Protocol",
+      apaleoData: {
+        event_type: "agent_phase_promoted",
+        agent_id: agentId,
+        from_phase: current.phase,
+        to_phase: targetPhase,
+        promoted_by: promotedBy,
+      },
+    });
+
+    logger.info({ companyId, agentId, from: current.phase, to: targetPhase, promotedBy }, "Agent phase promoted");
+
+    res.json({ ok: true, agentId, companyId, from: current.phase, to: targetPhase, promotedBy });
+  } catch (err) {
+    logger.error({ err }, "dashboard/phases/promote error");
+    res.status(500).json({ error: "Failed to promote agent phase" });
+  }
+});
+
 // ─── POST /api/dashboard/phases/reset (DEV ONLY) ─────────────────────────────
 
 if (process.env.NODE_ENV !== "production") {

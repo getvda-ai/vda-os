@@ -2,9 +2,14 @@
  * Core witness stream writer — extracted from routes/agents.ts into lib/ to
  * allow writeGovernanceEvent.ts (and routes/agents.ts itself) to import it
  * without creating an import cycle.
+ *
+ * When a decision is "ESCALATE", an operational HITL token is created
+ * automatically (fire-and-forget) so a human can act on it in the dashboard.
  */
 
-import { db, witnessEntries } from "@workspace/db";
+import { db, witnessEntries, hitlTokens, agentPhases } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { logger } from "./logger.js";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,6 +36,74 @@ export interface WitnessEntryInput {
   eventCategory?: string;
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function toAgentSlug(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+}
+
+// ─── Operational HITL creation ─────────────────────────────────────────────────
+
+async function createOperationalHitlToken(
+  witnessEntryId: number,
+  entry: WitnessEntryInput
+): Promise<void> {
+  try {
+    const agentId = toAgentSlug(entry.agent);
+
+    const phaseRows = await db
+      .select({ phase: agentPhases.phase })
+      .from(agentPhases)
+      .where(
+        and(
+          eq(agentPhases.companyId, entry.companyId),
+          eq(agentPhases.agentId, agentId),
+        ),
+      )
+      .limit(1);
+
+    const currentPhase = phaseRows[0]?.phase ?? "crawl";
+
+    await db.insert(hitlTokens).values({
+      onboardingRequestId: null,
+      phase: 0,
+      cardType: "operational_exception",
+      agentId,
+      companyId: entry.companyId,
+      witnessEntryId: String(witnessEntryId),
+      payload: {
+        type: "operational_exception",
+        agent_name: entry.agent,
+        agent_id: agentId,
+        company_id: entry.companyId,
+        current_phase: currentPhase,
+        witness_entry_id: witnessEntryId,
+        decision: entry.decision.decision,
+        clause_applied: entry.decision.clauseApplied,
+        action_proposed: entry.decision.actionProposed,
+        reasoning: entry.decision.reasoning,
+        escalation_target: entry.decision.escalationTarget,
+        file_referenced: entry.fileReferenced,
+        apaleo_data: entry.apaleoData,
+      },
+      context: {
+        agent: entry.agent,
+        agent_id: agentId,
+        company_id: entry.companyId,
+        decision: entry.decision,
+        witness_entry_id: witnessEntryId,
+      },
+    });
+
+    logger.info(
+      { agentId, companyId: entry.companyId, witnessEntryId },
+      "Operational HITL token created for ESCALATE decision"
+    );
+  } catch (err) {
+    logger.warn({ err }, "Failed to create operational HITL token — continuing");
+  }
+}
+
 // ─── Writer ────────────────────────────────────────────────────────────────────
 
 export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
@@ -55,5 +128,13 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
       eventCategory: entry.eventCategory ?? null,
     })
     .returning({ id: witnessEntries.id });
-  return row.id;
+
+  const witnessId = row.id;
+
+  // Fire-and-forget: create an operational HITL card for every ESCALATE decision
+  if (entry.decision.decision === "ESCALATE") {
+    void createOperationalHitlToken(witnessId, entry);
+  }
+
+  return witnessId;
 }

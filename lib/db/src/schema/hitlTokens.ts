@@ -3,13 +3,17 @@ import { sql } from "drizzle-orm";
 
 export const hitlTokens = pgTable("hitl_tokens", {
   token: text("token").primaryKey().default(sql`gen_random_uuid()`),
-  onboardingRequestId: text("onboarding_request_id").notNull(),
-  phase: integer("phase").notNull(),
+  onboardingRequestId: text("onboarding_request_id"),
+  phase: integer("phase").notNull().default(0),
   cardType: text("card_type").notNull().default("approval"),
   payload: jsonb("payload").notNull(),
   outcome: text("outcome"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  agentId: text("agent_id"),
+  companyId: integer("company_id"),
+  witnessEntryId: text("witness_entry_id"),
+  context: jsonb("context"),
 });
 
 export type HitlToken = typeof hitlTokens.$inferSelect;

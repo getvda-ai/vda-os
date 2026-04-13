@@ -5,8 +5,9 @@
  * GET  /api/hitl/pending — all unresolved tokens for dashboard
  */
 import { Router, type IRouter } from "express";
-import { db, hitlTokens, onboardingRequests } from "@workspace/db";
-import { eq, isNull } from "drizzle-orm";
+import { db, hitlTokens, onboardingRequests, agentPhases } from "@workspace/db";
+import { eq, isNull, and } from "drizzle-orm";
+import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { advanceOrchestratorPhase } from "../onboarding/onboardingOrchestrator.js";
 import { logger } from "../lib/logger.js";
 
@@ -92,10 +93,89 @@ router.post("/hitl/respond/:token", async (req, res) => {
       return;
     }
 
+    // For operational_exception cards: update agent agreementRate/overrideRate + write witness
+    if (hitl.cardType === "operational_exception") {
+      const agentId = hitl.agentId;
+      const companyId = hitl.companyId;
+
+      if (agentId && companyId) {
+        try {
+          // Recompute rates from all resolved operational_exception tokens for this agent+company
+          const allResolved = await db
+            .select({ outcome: hitlTokens.outcome })
+            .from(hitlTokens)
+            .where(
+              and(
+                eq(hitlTokens.cardType, "operational_exception"),
+                eq(hitlTokens.agentId, agentId),
+                eq(hitlTokens.companyId, companyId),
+              )
+            );
+
+          const resolved = allResolved.filter(r => r.outcome !== null);
+          const total = resolved.length;
+          const approvedCount = resolved.filter(r => r.outcome === "approved").length;
+          const rejectedCount = resolved.filter(r => r.outcome === "rejected").length;
+
+          if (total > 0) {
+            await db
+              .update(agentPhases)
+              .set({
+                agreementRate: String(approvedCount / total),
+                overrideRate: String(rejectedCount / total),
+              })
+              .where(
+                and(
+                  eq(agentPhases.companyId, companyId),
+                  eq(agentPhases.agentId, agentId),
+                )
+              );
+          }
+
+          const payload = hitl.payload as Record<string, unknown>;
+          await writeGovernanceEvent({
+            companyId,
+            agent: agentId,
+            eventCategory: "COMPLIANCE_BOUNDARY",
+            decision: outcome === "approved" ? "PASS" : "FAIL",
+            clauseApplied: outcome === "approved"
+              ? "Operational exception approved by authorised reviewer — agent decision validated"
+              : "Operational exception rejected by authorised reviewer — agent decision overridden",
+            actionProposed: `Operational HITL ${outcome} by ${decided_by}`,
+            reasoning: `Exception card resolved: ${outcome} by ${decided_by}. Agent: ${agentId}, witness entry: ${hitl.witnessEntryId ?? "n/a"}`,
+            fileReferenced: String(payload.file_referenced ?? "VDA-MD Operational HITL Protocol"),
+            apaleoData: {
+              event_type: "operational_hitl_resolved",
+              token,
+              outcome,
+              decided_by,
+              agent_id: agentId,
+              witness_entry_id: hitl.witnessEntryId,
+              agreement_rate: total > 0 ? approvedCount / total : null,
+              override_rate: total > 0 ? rejectedCount / total : null,
+            },
+          });
+        } catch (err) {
+          logger.warn({ err, agentId, companyId }, "Failed to update agent rates for operational HITL resolution");
+        }
+      }
+
+      res.json({
+        status: "resolved",
+        token,
+        outcome,
+        decided_by,
+        card_type: "operational_exception",
+        agent_id: agentId,
+        company_id: companyId,
+      });
+      return;
+    }
+
     // For approval cards: advance orchestrator phase directly (synchronous call)
     if (hitl.cardType === "approval" && (outcome === "approved" || outcome === "rejected")) {
       try {
-        await advanceOrchestratorPhase(hitl.onboardingRequestId, outcome, decided_by);
+        await advanceOrchestratorPhase(hitl.onboardingRequestId ?? "", outcome, decided_by);
       } catch (orchErr) {
         logger.error({ orchErr, onboardingRequestId: hitl.onboardingRequestId }, "Orchestrator phase advance failed");
         // Don't fail the HTTP response — token is already resolved
@@ -127,13 +207,30 @@ router.get("/hitl/pending", async (_req, res) => {
         cardType: hitlTokens.cardType,
         payload: hitlTokens.payload,
         createdAt: hitlTokens.createdAt,
+        agentId: hitlTokens.agentId,
+        companyId: hitlTokens.companyId,
+        witnessEntryId: hitlTokens.witnessEntryId,
+        context: hitlTokens.context,
       })
       .from(hitlTokens)
       .where(isNull(hitlTokens.outcome));
 
-    // Enrich with onboarding request status + companyId (for per-property pending context)
     const enriched = await Promise.all(
       pending.map(async (p) => {
+        // Operational exception cards carry their own agentId/companyId
+        if (p.cardType === "operational_exception") {
+          const pl = p.payload as Record<string, unknown>;
+          return {
+            ...p,
+            onboarding_status: "operational",
+            agent_name: String(pl.agent_name ?? p.agentId ?? "Unknown Agent"),
+          };
+        }
+
+        // Onboarding cards: join with onboarding_requests for status + agent name
+        if (!p.onboardingRequestId) {
+          return { ...p, onboarding_status: "unknown", agent_name: "Unknown Agent" };
+        }
         const reqRows = await db
           .select({ status: onboardingRequests.status, agentCard: onboardingRequests.agentCard, companyId: onboardingRequests.companyId })
           .from(onboardingRequests)
@@ -141,7 +238,7 @@ router.get("/hitl/pending", async (_req, res) => {
           .limit(1);
         return {
           ...p,
-          companyId: reqRows[0]?.companyId ?? null,
+          companyId: p.companyId ?? reqRows[0]?.companyId ?? null,
           onboarding_status: reqRows[0]?.status ?? "unknown",
           agent_name: (reqRows[0]?.agentCard as Record<string, unknown>)?.name ?? "Unknown Agent",
         };

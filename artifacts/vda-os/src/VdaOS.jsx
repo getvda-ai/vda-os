@@ -7420,6 +7420,12 @@ function AgentOnboardingTab({ companyId }) {
   const [rollbackKey, setRollbackKey] = useState("");
   const [rollbackLoading, setRollbackLoading] = useState(false);
 
+  // Phase Management state
+  const [phases, setPhases] = useState([]);
+  const [phasesLoading, setPhasesLoading] = useState(false);
+  const [promotingAgent, setPromotingAgent] = useState(null);
+  const [promoteMsg, setPromoteMsg] = useState(null);
+
   const fetchRequests = useCallback(async () => {
     setLoading(true);
     try {
@@ -7438,8 +7444,21 @@ function AgentOnboardingTab({ companyId }) {
     setPendingLoading(false);
   }, []);
 
+  const fetchPhases = useCallback(async () => {
+    if (!companyId) return;
+    setPhasesLoading(true);
+    try {
+      const r = await fetch(`/api/dashboard/phases?companyId=${companyId}`);
+      if (r.ok) { const d = await r.json(); setPhases(d.phases || []); }
+    } catch { /* silent */ }
+    setPhasesLoading(false);
+  }, [companyId]);
+
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
   useEffect(() => { if (subTab === "approvals") fetchPending(); }, [subTab, fetchPending]);
+  useEffect(() => {
+    if (subTab === "phases") { fetchPhases(); fetchPending(); }
+  }, [subTab, fetchPhases, fetchPending]);
 
   // Poll pending every 15s when on approvals tab
   useEffect(() => {
@@ -7447,6 +7466,13 @@ function AgentOnboardingTab({ companyId }) {
     const t = setInterval(fetchPending, 15000);
     return () => clearInterval(t);
   }, [subTab, fetchPending]);
+
+  // Poll phases + pending every 10s when on phase management tab
+  useEffect(() => {
+    if (subTab !== "phases") return;
+    const t = setInterval(() => { fetchPhases(); fetchPending(); }, 10000);
+    return () => clearInterval(t);
+  }, [subTab, fetchPhases, fetchPending]);
 
   const respond = async (token, outcome) => {
     setRespondingToken(token);
@@ -7456,9 +7482,31 @@ function AgentOnboardingTab({ companyId }) {
         body: JSON.stringify({ outcome, decided_by: "Dashboard User" }),
       });
       await fetchPending();
+      await fetchPhases();
       await fetchRequests();
     } catch { /* silent */ }
     setRespondingToken(null);
+  };
+
+  const promoteAgent = async (agentId, targetPhase) => {
+    setPromotingAgent(agentId);
+    setPromoteMsg(null);
+    try {
+      const r = await fetch("/api/dashboard/phases/promote", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, agentId, targetPhase, promotedBy: "Dashboard User" }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setPromoteMsg({ ok: true, msg: `${agentId} promoted to ${targetPhase}` });
+        await fetchPhases();
+        await fetchPending();
+      } else {
+        setPromoteMsg({ ok: false, msg: d.error ?? "Promotion failed" });
+      }
+    } catch (e) { setPromoteMsg({ ok: false, msg: String(e) }); }
+    setPromotingAgent(null);
+    setTimeout(() => setPromoteMsg(null), 5000);
   };
 
   const submitTesterRequest = async () => {
@@ -7513,9 +7561,21 @@ function AgentOnboardingTab({ companyId }) {
     return acc;
   }, { frictionRemoved: 0, mayClauses: 0, gapsClosed: 0, autoRemoved: 0, raciExceptions: 0 });
 
+  // Split pending into onboarding vs operational cards
+  const onboardingPending = pending.filter(p => p.cardType !== "operational_exception");
+  const operationalPending = pending.filter(p => p.cardType === "operational_exception");
+
+  // Pending operational cards per agent (slug)
+  const opPendingByAgent = {};
+  for (const card of operationalPending) {
+    const aid = card.agentId || (card.payload && card.payload.agent_id);
+    if (aid) { opPendingByAgent[aid] = [...(opPendingByAgent[aid] || []), card]; }
+  }
+
   const subTabs = [
     { id: "queue", label: "Onboarding Queue" },
-    { id: "approvals", label: `HITL Approvals${pending.length > 0 ? ` (${pending.length})` : ""}` },
+    { id: "approvals", label: `HITL Approvals${onboardingPending.length > 0 ? ` (${onboardingPending.length})` : ""}` },
+    { id: "phases", label: `Phase Management${operationalPending.length > 0 ? ` (${operationalPending.length})` : ""}` },
     { id: "analytics", label: "Impact Analytics" },
     { id: "tester", label: "Protocol Tester" },
   ];
@@ -7740,22 +7800,22 @@ function AgentOnboardingTab({ companyId }) {
         </div>
       )}
 
-      {/* ─── HITL Approvals ─── */}
+      {/* ─── HITL Approvals (onboarding cards only) ─── */}
       {subTab === "approvals" && (
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: T.dim }}>{pending.length} pending · refreshes every 15s</div>
+            <div style={{ fontSize: 13, color: T.dim }}>{onboardingPending.length} pending · refreshes every 15s</div>
             <button onClick={fetchPending} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>Refresh</button>
           </div>
           <div style={{ fontSize: 11, color: T.dim, marginBottom: 16, fontStyle: "italic" }}>
-            RACI exceptions are non-blocking — acknowledging notifies the domain owner without affecting the approval gate.
+            RACI exceptions are non-blocking — acknowledging notifies the domain owner without affecting the approval gate. Operational exception cards appear in Phase Management.
           </div>
-          {pendingLoading && pending.length === 0 && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
-          {pending.length === 0 && !pendingLoading && (
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>No pending approvals.</div>
+          {pendingLoading && onboardingPending.length === 0 && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
+          {onboardingPending.length === 0 && !pendingLoading && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>No pending onboarding approvals.</div>
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {pending.map(p => {
+            {onboardingPending.map(p => {
               const isRaci = p.cardType === "raci_notification";
               const payload = p.payload || {};
               const isResponding = respondingToken === p.token;
@@ -7811,6 +7871,149 @@ function AgentOnboardingTab({ companyId }) {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ─── Phase Management ─── */}
+      {subTab === "phases" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Agent Phase Lifecycle</div>
+              <div style={{ fontSize: 12, color: T.dim }}>crawl → walk → run · exceptions surface here for review before promotion</div>
+            </div>
+            <button onClick={() => { fetchPhases(); fetchPending(); }}
+              style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>
+              Refresh
+            </button>
+          </div>
+
+          {promoteMsg && (
+            <div style={{ background: promoteMsg.ok ? `${T.green}15` : `${T.red}15`, border: `1px solid ${promoteMsg.ok ? T.green : T.red}40`, borderRadius: 8, padding: "10px 16px", fontSize: 13, color: promoteMsg.ok ? T.green : T.red, marginBottom: 16 }}>
+              {promoteMsg.msg}
+            </div>
+          )}
+
+          {phasesLoading && phases.length === 0 && (
+            <div style={{ color: T.dim, fontSize: 13, padding: 24 }}>Loading phase data…</div>
+          )}
+
+          {!phasesLoading && phases.length === 0 && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>
+              No agents found for this property. Onboard an agent first via the Protocol Tester.
+            </div>
+          )}
+
+          {/* 3-column phase matrix */}
+          {phases.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 16 }}>
+              {["crawl", "walk", "run"].map(ph => {
+                const phaseAgents = phases.filter(a => a.phase === ph);
+                const phColor = ph === "crawl" ? T.amber : ph === "walk" ? T.blue : T.green;
+                const nextPhase = ph === "crawl" ? "walk" : ph === "walk" ? "run" : null;
+                return (
+                  <div key={ph} style={{ background: T.surface, border: `1px solid ${phColor}30`, borderRadius: 12, padding: 16 }}>
+                    {/* Column header */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, background: phColor + "20", color: phColor, border: `1px solid ${phColor}40`, borderRadius: 4, padding: "3px 9px", fontFamily: T.mono, textTransform: "uppercase" }}>{ph}</span>
+                      <span style={{ fontSize: 12, color: T.dim }}>{phaseAgents.length} agent{phaseAgents.length !== 1 ? "s" : ""}</span>
+                    </div>
+
+                    {phaseAgents.length === 0 && (
+                      <div style={{ fontSize: 12, color: T.dim, fontStyle: "italic", textAlign: "center", padding: "12px 0" }}>No agents in {ph} phase</div>
+                    )}
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {phaseAgents.map(agent => {
+                        const cards = opPendingByAgent[agent.agentId] || [];
+                        const hasBlocker = cards.length > 0;
+                        const isPromoting = promotingAgent === agent.agentId;
+                        const agreementPct = agent.agreementRate != null ? (parseFloat(agent.agreementRate) * 100).toFixed(0) : null;
+                        const overridePct = agent.overrideRate != null ? (parseFloat(agent.overrideRate) * 100).toFixed(0) : null;
+                        return (
+                          <div key={agent.agentId} style={{ background: T.bg, border: `1px solid ${hasBlocker ? T.orange : T.border}`, borderRadius: 9, padding: 12 }}>
+                            {/* Agent identity */}
+                            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agent.agentId}</div>
+                            {/* Rate pills */}
+                            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                              {agreementPct !== null && (
+                                <span style={{ fontSize: 10, fontFamily: T.mono, background: T.green + "15", color: T.green, border: `1px solid ${T.green}30`, borderRadius: 4, padding: "2px 6px" }}>
+                                  ✓ {agreementPct}% agreed
+                                </span>
+                              )}
+                              {overridePct !== null && parseInt(overridePct) > 0 && (
+                                <span style={{ fontSize: 10, fontFamily: T.mono, background: T.red + "15", color: T.red, border: `1px solid ${T.red}30`, borderRadius: 4, padding: "2px 6px" }}>
+                                  ✗ {overridePct}% overridden
+                                </span>
+                              )}
+                              {agreementPct === null && (
+                                <span style={{ fontSize: 10, color: T.dim, fontStyle: "italic" }}>No exceptions yet</span>
+                              )}
+                            </div>
+
+                            {/* Pending operational exception cards */}
+                            {cards.length > 0 && (
+                              <div style={{ marginBottom: 10 }}>
+                                <div style={{ fontSize: 11, color: T.orange, fontWeight: 700, marginBottom: 6 }}>⚠ {cards.length} pending exception{cards.length !== 1 ? "s" : ""}</div>
+                                {cards.map(card => {
+                                  const pl = card.payload || {};
+                                  const isRes = respondingToken === card.token;
+                                  return (
+                                    <div key={card.token} style={{ background: `${T.orange}08`, border: `1px solid ${T.orange}25`, borderRadius: 7, padding: "8px 10px", marginBottom: 6 }}>
+                                      <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, lineHeight: 1.5 }}>
+                                        {pl.summary ?? pl.escalation_reason ?? pl.message ?? "Operational exception requires review"}
+                                      </div>
+                                      {pl.action_proposed && (
+                                        <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginBottom: 6 }}>
+                                          Action: {pl.action_proposed}
+                                        </div>
+                                      )}
+                                      <div style={{ display: "flex", gap: 6 }}>
+                                        <button onClick={() => respond(card.token, "approved")} disabled={isRes}
+                                          style={{ flex: 1, background: T.green, border: "none", borderRadius: 5, padding: "5px 0", fontSize: 11, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
+                                          {isRes ? "…" : "Validate"}
+                                        </button>
+                                        <button onClick={() => respond(card.token, "rejected")} disabled={isRes}
+                                          style={{ flex: 1, background: `${T.red}20`, border: `1px solid ${T.red}40`, borderRadius: 5, padding: "5px 0", fontSize: 11, color: T.red, cursor: "pointer" }}>
+                                          {isRes ? "…" : "Override"}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Promote button */}
+                            {nextPhase && (
+                              <button
+                                onClick={() => promoteAgent(agent.agentId, nextPhase)}
+                                disabled={hasBlocker || isPromoting}
+                                title={hasBlocker ? "Resolve all pending exceptions before promoting" : `Promote to ${nextPhase}`}
+                                style={{
+                                  width: "100%", padding: "6px 0", fontSize: 11, fontWeight: 700,
+                                  borderRadius: 6, border: "none", cursor: hasBlocker ? "not-allowed" : "pointer",
+                                  background: hasBlocker ? T.dim + "30" : phColor,
+                                  color: hasBlocker ? T.dim : "#fff",
+                                  opacity: isPromoting ? 0.6 : 1,
+                                }}>
+                                {isPromoting ? "Promoting…" : hasBlocker ? `Blocked · resolve exceptions` : `Promote → ${nextPhase}`}
+                              </button>
+                            )}
+                            {!nextPhase && (
+                              <div style={{ fontSize: 11, color: T.green, fontWeight: 700, textAlign: "center", padding: "6px 0" }}>
+                                ✓ Fully autonomous
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
