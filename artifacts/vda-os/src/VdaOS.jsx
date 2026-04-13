@@ -16,7 +16,7 @@ const T = {
   orange: "#FF6B2B", blue: "#4A9EFF", purple: "#A066FF",
   green: "#22D47A", red: "#FF4D6A", amber: "#FFB020",
   teal: "#00C9C8", text: "#FFFFFF", muted: "#FFFFFF",
-  dim: "#CBD2E0",
+  dim: "#ffffff",
   mono: "'IBM Plex Mono', 'Fira Code', monospace",
   sans: "'Outfit', 'DM Sans', sans-serif",
 };
@@ -3286,7 +3286,7 @@ const FM_FILE_TYPES = [
   { type: "SKILL", icon: "⚡", label: "Skill File", color: "#A066FF", desc: "Reusable skill or capability callable by authorised agents" },
   { type: "EXCEPTION", icon: "⚠️", label: "Exception File", color: "#FFB020", desc: "Time-limited exception to a standard governance rule" },
   { type: "COMPLIANCE", icon: "✅", label: "Compliance Baseline", color: "#22D47A", desc: "Inherited compliance controls and regulatory requirements" },
-  { type: "CUSTOM", icon: "📄", label: "Custom Document", color: "#CBD2E0", desc: "Custom governance document — any format" },
+  { type: "CUSTOM", icon: "📄", label: "Custom Document", color: "#ffffff", desc: "Custom governance document — any format" },
 ];
 
 const FM_AXIS_GROUPS = [
@@ -3299,7 +3299,7 @@ function getStatusColor(status) {
   if (status === "live") return "#22D47A";
   if (status === "draft") return "#FFB020";
   if (status === "archived") return "#FF4D6A";
-  return "#CBD2E0";
+  return "#ffffff";
 }
 
 function getStatusLabel(status) {
@@ -3344,7 +3344,7 @@ function renderMarkdown(text) {
     .replace(/\bMUST NOT\b/g, '<strong style="color:#FF4D6A">MUST NOT</strong>')
     .replace(/\bMUST\b(?!\s+NOT)/g, '<strong style="color:#22D47A">MUST</strong>')
     .replace(/\bMAY\b/g, '<strong style="color:#FFB020">MAY</strong>')
-    .replace(/^- (.+)$/gm, '<li style="color:#CBD2E0;margin:3px 0;margin-left:16px">$1</li>')
+    .replace(/^- (.+)$/gm, '<li style="color:#ffffff;margin:3px 0;margin-left:16px">$1</li>')
     .replace(/\n\n/g, '<br/><br/>');
 }
 
@@ -8300,7 +8300,7 @@ function A2AProtocolTab({ companyId, companyName }) {
 // ─────────────────────────────────────────────────────────────────
 
 const DASHBOARD_ROLES = [
-  { id: "ambassador",          label: "Ambassador",        description: "HITL + shadow review",      color: "#94a3b8" },
+  { id: "ambassador",          label: "Ambassador",        description: "HITL + shadow review",      color: "#ffffff" },
   { id: "senior_ambassador",   label: "Senior Ambassador", description: "Shift lead · decision queue", color: "#f59e0b" },
   { id: "hotel_gm",            label: "Hotel GM",          description: "Property staircase",         color: "#60a5fa" },
   { id: "regional_gm",         label: "Regional GM",       description: "5-property cluster",         color: "#a855f7" },

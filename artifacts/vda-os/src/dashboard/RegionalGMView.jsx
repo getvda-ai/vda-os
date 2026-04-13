@@ -222,7 +222,7 @@ export default function RegionalGMView({ companyId, onSelectCompany }) {
                 borderRadius: 8, padding: "12px 16px",
                 display: "flex", alignItems: "center", gap: 10,
               }}>
-                <span style={{ fontSize: 13, color: "#e5e7eb" }}>{alert.msg}</span>
+                <span style={{ fontSize: 13, color: "#ffffff" }}>{alert.msg}</span>
               </div>
             ))}
           </div>

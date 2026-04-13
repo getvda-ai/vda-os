@@ -167,7 +167,7 @@ export default function DecisionCard({
             Governance clause
           </div>
           <div style={{
-            fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#cbd2e0", lineHeight: 1.6,
+            fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#ffffff", lineHeight: 1.6,
             maxHeight: clauseExpanded ? "none" : 72,
             overflow: "hidden",
           }}>

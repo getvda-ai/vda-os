@@ -80,7 +80,7 @@ function AgentStatusCard({ phase: phaseRow }) {
       borderRadius: 10, padding: "14px 16px",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>{agentLabel}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#ffffff" }}>{agentLabel}</span>
         <PhasePill phase={phase} />
       </div>
       {rate !== null && pc && (

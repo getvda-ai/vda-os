@@ -265,7 +265,7 @@ function renderMarkdown(text) {
     if (first.before) parts.push(<span key={key++}>{first.before}</span>);
 
     if (first.type === "bold") {
-      parts.push(<strong key={key++} style={{ fontWeight: 700, color: "#e2e4ea" }}>{first.inner}</strong>);
+      parts.push(<strong key={key++} style={{ fontWeight: 700, color: "#ffffff" }}>{first.inner}</strong>);
     } else if (first.type === "italic") {
       parts.push(<em key={key++} style={{ fontStyle: "italic" }}>{first.inner}</em>);
     } else if (first.type === "code") {
@@ -552,7 +552,7 @@ export default function VdaMdChatbot() {
             }}
           >
             <div style={{ pointerEvents: "none" }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#e2e4ea" }}>VDA-MD Expert</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#ffffff" }}>VDA-MD Expert</div>
               <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>Ask me anything about the framework</div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", pointerEvents: "all", cursor: "default" }}>
@@ -587,7 +587,7 @@ export default function VdaMdChatbot() {
                   <div style={{
                     maxWidth: isUser ? "80%" : "90%",
                     background: isUser ? "#1e3a5f" : (msg.isError ? "#2d1515" : "#1a1d26"),
-                    color: msg.isError ? "#f87171" : "#e2e4ea",
+                    color: msg.isError ? "#f87171" : "#ffffff",
                     borderRadius: isUser ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
                     padding: "9px 13px",
                     fontSize: 13,
@@ -618,7 +618,7 @@ export default function VdaMdChatbot() {
               rows={1}
               style={{
                 flex: 1, background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 8,
-                padding: "8px 11px", fontSize: 13, color: "#e2e4ea", fontFamily: "'DM Sans', sans-serif",
+                padding: "8px 11px", fontSize: 13, color: "#ffffff", fontFamily: "'DM Sans', sans-serif",
                 resize: "none", outline: "none", lineHeight: 1.5, maxHeight: 100, overflowY: "auto",
               }}
               onInput={e => {

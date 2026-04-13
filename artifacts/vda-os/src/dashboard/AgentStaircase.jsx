@@ -91,7 +91,7 @@ export default function AgentStaircase({ phases, allPhases, companyNames, nextAg
             </span>
 
             {/* Name */}
-            <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: isActivated ? "#e5e7eb" : "#6b7280" }}>
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: isActivated ? "#ffffff" : "#6b7280" }}>
               {DISPLAY_NAMES[agentId]}
             </span>
 
@@ -159,12 +159,12 @@ export default function AgentStaircase({ phases, allPhases, companyNames, nextAg
           <div style={{ fontSize: 11, color: "#4ade80", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
             Next to activate
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb", marginBottom: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", marginBottom: 4 }}>
             {DISPLAY_NAMES[nextAgent.agentId] ?? nextAgent.agentId}
           </div>
           <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.5 }}>
             In the last 30 days there were{" "}
-            <span style={{ color: "#e5e7eb", fontWeight: 600 }}>{nextAgent.totalDecisions ?? 0}</span>{" "}
+            <span style={{ color: "#ffffff", fontWeight: 600 }}>{nextAgent.totalDecisions ?? 0}</span>{" "}
             decisions this agent could have handled.{" "}
             <span style={{ color: "#4ade80", fontWeight: 600 }}>
               {nextAgent.potentialAutonomous ?? 0}

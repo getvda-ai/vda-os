@@ -113,7 +113,7 @@ function DecisionRow({ e, idx, isLast }) {
             <div>
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Governance clause</div>
-                <div style={{ fontSize: 12, color: "#e5e7eb", lineHeight: 1.55 }}>
+                <div style={{ fontSize: 12, color: "#ffffff", lineHeight: 1.55 }}>
                   {e.clauseApplied || <em style={{ color: "#6b7280" }}>None recorded</em>}
                 </div>
               </div>
@@ -121,7 +121,7 @@ function DecisionRow({ e, idx, isLast }) {
               {e.actionProposed && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 10, color: "#4b5563", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 4, textTransform: "uppercase" }}>Action proposed</div>
-                  <div style={{ fontSize: 12, color: "#e5e7eb", lineHeight: 1.55 }}>{e.actionProposed}</div>
+                  <div style={{ fontSize: 12, color: "#ffffff", lineHeight: 1.55 }}>{e.actionProposed}</div>
                 </div>
               )}
 
@@ -140,15 +140,15 @@ function DecisionRow({ e, idx, isLast }) {
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <div style={{ display: "flex", gap: 8 }}>
                     <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>Event category</span>
-                    <span style={{ fontSize: 11, color: "#e5e7eb", fontFamily: "'DM Mono', monospace" }}>{e.eventCategory ?? "—"}</span>
+                    <span style={{ fontSize: 11, color: "#ffffff", fontFamily: "'DM Mono', monospace" }}>{e.eventCategory ?? "—"}</span>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>File referenced</span>
-                    <span style={{ fontSize: 11, color: "#e5e7eb" }}>{e.fileReferenced ?? "—"}</span>
+                    <span style={{ fontSize: 11, color: "#ffffff" }}>{e.fileReferenced ?? "—"}</span>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <span style={{ fontSize: 11, color: "#6b7280", minWidth: 100 }}>Timestamp</span>
-                    <span style={{ fontSize: 11, color: "#e5e7eb" }}>{new Date(e.createdAt).toISOString()}</span>
+                    <span style={{ fontSize: 11, color: "#ffffff" }}>{new Date(e.createdAt).toISOString()}</span>
                   </div>
                   {e.escalationTarget && (
                     <div style={{ display: "flex", gap: 8 }}>
@@ -266,7 +266,7 @@ export default function HotelGMView({ companyId, onOpenTab }) {
           <StatCard label="Agents in RUN" value={phaseCounts.run} color="#4ade80" />
           <StatCard label="Agents in WALK" value={phaseCounts.walk} color="#f59e0b" />
           <StatCard label="Agents in CRAWL" value={phaseCounts.crawl} color="#60a5fa" />
-          <StatCard label="Guard rejections today" value={metricsData?.complianceRejectionsLast7d} color="#e5e7eb" subtitle="Last 7 days" />
+          <StatCard label="Guard rejections today" value={metricsData?.complianceRejectionsLast7d} color="#ffffff" subtitle="Last 7 days" />
           <StatCard label="Active exceptions" value={metricsData?.activeExceptions} color="#a855f7" />
         </div>
       </div>

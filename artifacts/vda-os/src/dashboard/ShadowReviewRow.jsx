@@ -87,7 +87,7 @@ export default function ShadowReviewRow({
         <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 3, fontWeight: 500 }}>
           {agentLabel}
         </div>
-        <div style={{ fontSize: 13, color: "#e5e7eb", lineHeight: 1.45, marginBottom: 8 }}>
+        <div style={{ fontSize: 13, color: "#ffffff", lineHeight: 1.45, marginBottom: 8 }}>
           {plainEnglish}
         </div>
         <div style={{ fontSize: 12, color: "#6b7280" }}>

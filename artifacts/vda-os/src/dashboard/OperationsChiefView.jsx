@@ -112,7 +112,7 @@ export default function OperationsChiefView() {
           {lastUpdated && <span style={{ fontSize: 11, color: "#6b7280" }}>Updated {updatedAgo}</span>}
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <StatCard label="Properties live" value={chain.properties_live ?? 5} color="#e5e7eb" />
+          <StatCard label="Properties live" value={chain.properties_live ?? 5} color="#ffffff" />
           <StatCard label="Agents in RUN" value={agentsPhase.run} color="#4ade80" />
           <StatCard label="Agents in WALK" value={agentsPhase.walk} color="#f59e0b" />
           <StatCard label="Agents in CRAWL" value={agentsPhase.crawl} color="#60a5fa" />
@@ -205,7 +205,7 @@ export default function OperationsChiefView() {
                 borderBottom: idx < matrix.length - 1 ? "1px solid #1e2130" : "none",
                 alignItems: "center",
               }}>
-                <div style={{ fontSize: 12, color: "#e5e7eb", fontWeight: 500 }}>
+                <div style={{ fontSize: 12, color: "#ffffff", fontWeight: 500 }}>
                   {AGENT_SHORT[agentId] ?? agentId}
                 </div>
                 {HOTELS.map((h) => (
