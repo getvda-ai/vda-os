@@ -8,7 +8,7 @@
  * POST /api/dashboard/phases/reset   (dev only — NODE_ENV !== 'production')
  */
 import { Router } from "express";
-import { db, agentPhases, witnessEntries, governanceFiles } from "@workspace/db";
+import { db, agentPhases, witnessEntries, governanceFiles, hitlTokens } from "@workspace/db";
 import { eq, and, gte, lte, sql, isNull, not, inArray, desc, lt } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { logger } from "../lib/logger.js";
@@ -365,6 +365,31 @@ router.post("/dashboard/phases/promote", async (req, res) => {
     if (VALID_TRANSITIONS[current.phase] !== targetPhase) {
       res.status(409).json({
         error: `Invalid transition: ${current.phase} → ${targetPhase}. Only crawl→walk and walk→run are permitted.`,
+        currentPhase: current.phase,
+      });
+      return;
+    }
+
+    // Server-side governance gate: block promotion when unresolved operational exception
+    // tokens exist for this agent+company. UI enforces this too, but API callers must
+    // not be able to bypass it with a direct request.
+    const unresolvedExceptions = await db
+      .select({ token: hitlTokens.token })
+      .from(hitlTokens)
+      .where(
+        and(
+          eq(hitlTokens.cardType, "operational_exception"),
+          eq(hitlTokens.agentId, agentId),
+          eq(hitlTokens.companyId, companyId),
+          isNull(hitlTokens.outcome),
+        )
+      )
+      .limit(1);
+
+    if (unresolvedExceptions.length > 0) {
+      res.status(409).json({
+        error: `Cannot promote '${agentId}': ${unresolvedExceptions.length} unresolved operational exception(s) must be reviewed first`,
+        blocked_by: "unresolved_operational_exceptions",
         currentPhase: current.phase,
       });
       return;

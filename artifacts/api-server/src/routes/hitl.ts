@@ -85,6 +85,14 @@ router.post("/hitl/respond/:token", async (req, res) => {
       .set({ outcome, decidedAt: new Date() })
       .where(eq(hitlTokens.token, String(token)));
 
+    // Reject acknowledged outcome for operational_exception cards — only approved/rejected are valid
+    if (hitl.cardType === "operational_exception" && outcome === "acknowledged") {
+      // Roll back the outcome we just wrote
+      await db.update(hitlTokens).set({ outcome: null, decidedAt: null }).where(eq(hitlTokens.token, String(token)));
+      res.status(400).json({ error: "operational_exception cards only accept 'approved' or 'rejected' outcomes" });
+      return;
+    }
+
     logger.info({ token, outcome, decided_by, card_type: hitl.cardType }, "HITL token resolved");
 
     // For raci_notification: acknowledged resolves the card, no orchestrator call
@@ -112,7 +120,9 @@ router.post("/hitl/respond/:token", async (req, res) => {
               )
             );
 
-          const resolved = allResolved.filter(r => r.outcome !== null);
+          // Only count approved/rejected outcomes — acknowledged is not valid for operational
+          // exception cards but may exist in legacy data; exclude it from rate computation.
+          const resolved = allResolved.filter(r => r.outcome === "approved" || r.outcome === "rejected");
           const total = resolved.length;
           const approvedCount = resolved.filter(r => r.outcome === "approved").length;
           const rejectedCount = resolved.filter(r => r.outcome === "rejected").length;
