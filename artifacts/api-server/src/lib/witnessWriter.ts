@@ -131,8 +131,17 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
 
   const witnessId = row.id;
 
-  // Fire-and-forget: create an operational HITL card for every ESCALATE decision
-  if (entry.decision.decision === "ESCALATE") {
+  // Fire-and-forget: create an operational HITL card for runtime ESCALATE decisions.
+  // Guards:
+  //   • companyId > 0 — skip platform-sentinel events (companyId === 0 is the
+  //     platform / onboarding-agent context, not a live hotel property)
+  //   • no scenarioRunId — skip sandbox evaluation runs; those are test traffic,
+  //     not real operational decisions that need a governance review
+  if (
+    entry.decision.decision === "ESCALATE" &&
+    entry.companyId > 0 &&
+    !entry.scenarioRunId
+  ) {
     void createOperationalHitlToken(witnessId, entry);
   }
 

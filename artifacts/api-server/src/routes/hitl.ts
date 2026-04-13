@@ -136,7 +136,7 @@ router.post("/hitl/respond/:token", async (req, res) => {
           await writeGovernanceEvent({
             companyId,
             agent: agentId,
-            eventCategory: "COMPLIANCE_BOUNDARY",
+            eventCategory: "HITL_RESOLVED",
             decision: outcome === "approved" ? "PASS" : "FAIL",
             clauseApplied: outcome === "approved"
               ? "Operational exception approved by authorised reviewer — agent decision validated"

@@ -7563,9 +7563,15 @@ function AgentOnboardingTab({ companyId }) {
 
   // Split pending into onboarding vs operational cards
   const onboardingPending = pending.filter(p => p.cardType !== "operational_exception");
-  const operationalPending = pending.filter(p => p.cardType === "operational_exception");
 
-  // Pending operational cards per agent (slug)
+  // Only show operational exception cards that belong to this specific property.
+  // companyId on the card may be a number or string; coerce both sides to compare safely.
+  const operationalPending = pending.filter(p =>
+    p.cardType === "operational_exception" &&
+    (p.companyId == null || String(p.companyId) === String(companyId))
+  );
+
+  // Index by agentId for O(1) lookup — already scoped to this companyId
   const opPendingByAgent = {};
   for (const card of operationalPending) {
     const aid = card.agentId || (card.payload && card.payload.agent_id);
