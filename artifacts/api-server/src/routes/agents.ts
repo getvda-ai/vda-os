@@ -2212,8 +2212,8 @@ router.get("/agents/token-stats", async (req, res) => {
       .select({
         agent: witnessEntries.agent,
         calls: sql<number>`count(*)::int`,
-        totalInputTokens: sql<number>`coalesce(sum(((${witnessEntries.apaleoData}->>'input_tokens')::numeric))::int, 0)`,
-        totalOutputTokens: sql<number>`coalesce(sum(((${witnessEntries.apaleoData}->>'output_tokens')::numeric))::int, 0)`,
+        totalInputTokens: sql<number>`coalesce(sum((nullif(regexp_replace(${witnessEntries.apaleoData}->>'input_tokens','[^0-9]','','g'),''))::numeric)::int, 0)`,
+        totalOutputTokens: sql<number>`coalesce(sum((nullif(regexp_replace(${witnessEntries.apaleoData}->>'output_tokens','[^0-9]','','g'),''))::numeric)::int, 0)`,
       })
       .from(witnessEntries)
       .where(eq(witnessEntries.companyId, companyId))
