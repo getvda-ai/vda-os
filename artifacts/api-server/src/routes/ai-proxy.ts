@@ -33,6 +33,27 @@ export async function callAI(params: {
   return block?.type === "text" ? block.text : "";
 }
 
+export async function callAIWithUsage(params: {
+  model?: string;
+  max_tokens?: number;
+  system?: string;
+  messages: { role: "user" | "assistant"; content: string }[];
+}): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+  const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
+  const response = await anthropic.messages.create({
+    model: resolvedModel,
+    max_tokens: params.max_tokens || 8192,
+    messages: params.messages,
+    ...(params.system ? { system: params.system } : {}),
+  });
+  const block = response.content[0];
+  return {
+    text: block?.type === "text" ? block.text : "",
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
+  };
+}
+
 export async function callAIFull(params: {
   model?: string;
   max_tokens?: number;
@@ -55,6 +76,35 @@ export async function callAIFull(params: {
   return {
     content: response.content as Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>,
     stop_reason: response.stop_reason ?? "end_turn",
+  };
+}
+
+export async function callAIFullWithUsage(params: {
+  model?: string;
+  max_tokens?: number;
+  system?: string;
+  messages: unknown[];
+  tools?: unknown[];
+}): Promise<{
+  content: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>;
+  stop_reason: string;
+  inputTokens: number;
+  outputTokens: number;
+}> {
+  const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
+  const createParams: Record<string, unknown> = {
+    model: resolvedModel,
+    max_tokens: params.max_tokens || 4096,
+    messages: params.messages,
+  };
+  if (params.system) createParams.system = params.system;
+  if (params.tools && params.tools.length > 0) createParams.tools = params.tools;
+  const response = await anthropic.messages.create(createParams as Parameters<typeof anthropic.messages.create>[0]);
+  return {
+    content: response.content as Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>,
+    stop_reason: response.stop_reason ?? "end_turn",
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
   };
 }
 

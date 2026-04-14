@@ -8,7 +8,7 @@ import type {
   ApaleoRatePlan,
   ReservationStatus,
 } from "../lib/apaleo-types.js";
-import { callAI, callAIFull } from "./ai-proxy.js";
+import { callAI, callAIFull, callAIFullWithUsage } from "./ai-proxy.js";
 import { db, governanceFiles, witnessEntries } from "@workspace/db";
 import { writeWitnessEntry, type AgentDecision, type WitnessEntryInput } from "../lib/witnessWriter.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
@@ -373,6 +373,8 @@ export interface AgenticEvalResult {
   toolCallsMade: number;
   usedMcp: boolean;
   filesLoaded: string[];
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export async function evaluateWithPolicyAndMcp(
@@ -400,8 +402,14 @@ export async function evaluateWithPolicyAndMcp(
       toolCallsMade: 0,
       usedMcp: false,
       filesLoaded: [],
+      inputTokens: 0,
+      outputTokens: 0,
     };
   }
+
+  // Token accumulator — summed across all AI iterations in this evaluation
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
 
   let anthropicTools: Array<{
     name: string;
@@ -472,10 +480,10 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
     ]);
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    let response: Awaited<ReturnType<typeof callAIFull>>;
+    let response: Awaited<ReturnType<typeof callAIFullWithUsage>>;
     try {
       response = await withStepTimeout(
-        callAIFull({
+        callAIFullWithUsage({
           model: "claude-haiku-4-5", // use fast model for scenario runs
           max_tokens: 1024,
           system: systemPrompt,
@@ -484,6 +492,8 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
         }),
         `${agentName} iteration ${i}`
       );
+      totalInputTokens += response.inputTokens;
+      totalOutputTokens += response.outputTokens;
     } catch (timeoutErr) {
       logger.warn({ agentName, iteration: i, err: String(timeoutErr) }, "Step AI call timed out — returning ESCALATE");
       return {
@@ -498,6 +508,8 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
         toolCallsMade,
         usedMcp: toolCallsMade > 0,
         filesLoaded,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
       };
     }
 
@@ -547,7 +559,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
       try {
         const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
         const decision = JSON.parse(jsonMatch ? jsonMatch[0] : textBlock.text) as AgentDecision;
-        return { decision, toolCallsMade, usedMcp: toolCallsMade > 0, filesLoaded };
+        return { decision, toolCallsMade, usedMcp: toolCallsMade > 0, filesLoaded, inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
       } catch {
         logger.warn({ agentName, text: textBlock.text.slice(0, 200) }, "Could not parse agent JSON response");
       }
@@ -567,6 +579,8 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
     toolCallsMade,
     usedMcp: toolCallsMade > 0,
     filesLoaded,
+    inputTokens: totalInputTokens,
+    outputTokens: totalOutputTokens,
   };
 }
 
@@ -594,7 +608,7 @@ router.post("/agents/availability", requireAgentCredential("availability-agent")
       return res.status(400).json({ error: "propertyId, arrival, departure, companyId required" });
     }
 
-    const { decision, toolCallsMade, usedMcp, filesLoaded: availFilesLoaded } = await evaluateWithPolicyAndMcp(
+    const { decision, toolCallsMade, usedMcp, filesLoaded: availFilesLoaded, inputTokens, outputTokens } = await evaluateWithPolicyAndMcp(
       "Availability Agent",
       "availability",
       `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults. Fetch live availability via GetAvailableUnitGroups, rate plans via ListRatePlans, and active offers via ListOffers from Apaleo.`,
@@ -605,6 +619,7 @@ router.post("/agents/availability", requireAgentCredential("availability-agent")
     const apaleoData: Record<string, unknown> = {
       propertyId, arrival, departure, adults,
       usedMcp, toolCallsMade,
+      input_tokens: inputTokens, output_tokens: outputTokens,
     };
 
     const witnessId = await writeWitnessEntry({
@@ -653,7 +668,7 @@ router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, re
     const reqRate = requestedRate ?? bar;
     const discountPct = bar > 0 ? Math.round(((bar - reqRate) / bar) * 100) : 0;
 
-    const { decision, toolCallsMade, usedMcp, filesLoaded } = await evaluateWithPolicyAndMcp(
+    const { decision, toolCallsMade, usedMcp, filesLoaded, inputTokens, outputTokens } = await evaluateWithPolicyAndMcp(
       "Rate Agent",
       "rate",
       `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans via ListRatePlans and revenue report via GetReport from Apaleo, then apply rate-override policy.`,
@@ -663,6 +678,7 @@ router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, re
 
     const apaleoData: Record<string, unknown> = {
       propertyId, barRate: bar, requestedRate: reqRate, discountPct, usedMcp, toolCallsMade,
+      input_tokens: inputTokens, output_tokens: outputTokens,
     };
 
     const witnessId = await writeWitnessEntry({
@@ -808,11 +824,13 @@ router.post("/agents/reservation", requireAgentCredential("reservation-bot"), as
       `Use MCP tools to verify live Apaleo data, then apply reservation policy and issue governance decision.`,
     ].filter(Boolean).join(" ");
 
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: resvFilesLoaded } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: resvFilesLoaded, inputTokens: resvInputTokens, outputTokens: resvOutputTokens } = await evaluateWithPolicyAndMcp(
       "Reservation Bot", "reservation", taskCtx, mcpTools, Number(companyId)
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
+    apaleoData.input_tokens = resvInputTokens;
+    apaleoData.output_tokens = resvOutputTokens;
 
     // ── STEP 3: Execute write ONLY if PASS ───────────────────────────────────
     if (decision.decision === "PASS") {
@@ -963,7 +981,7 @@ router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (
     }
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkinFilesLoaded } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkinFilesLoaded, inputTokens: checkinInputTokens, outputTokens: checkinOutputTokens } = await evaluateWithPolicyAndMcp(
       "Check-In Agent", "checkin",
       `Validate and process check-in for ${guestName ?? "guest"} at property ${propertyId}. ${resolvedReservationId ? `Use GetReservation to verify reservation ${resolvedReservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "Find today's arriving reservations."} Run all 5 validation gates per check-in policy before making your decision.`,
       [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts],
@@ -971,6 +989,8 @@ router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
+    apaleoData.input_tokens = checkinInputTokens;
+    apaleoData.output_tokens = checkinOutputTokens;
 
     // ── STEP 3: Execute check-in ONLY if policy returns PASS ─────────────────
     if (decision.decision === "PASS" && resolvedReservationId) {
@@ -1045,7 +1065,7 @@ router.post("/agents/folio", requireAgentCredential("folio-agent"), async (req, 
       "Apply folio-settlement-policy.md thresholds and issue a governance decision.",
     ].filter(Boolean).join(" ");
 
-    const { decision, toolCallsMade, usedMcp, filesLoaded: folioFilesLoaded } = await evaluateWithPolicyAndMcp(
+    const { decision, toolCallsMade, usedMcp, filesLoaded: folioFilesLoaded, inputTokens: folioInputTokens, outputTokens: folioOutputTokens } = await evaluateWithPolicyAndMcp(
       "Folio Agent",
       "folio",
       taskDesc,
@@ -1055,6 +1075,7 @@ router.post("/agents/folio", requireAgentCredential("folio-agent"), async (req, 
 
     const apaleoData: Record<string, unknown> = {
       propertyId, folioId, reservationId, usedMcp, toolCallsMade,
+      input_tokens: folioInputTokens, output_tokens: folioOutputTokens,
     };
 
     const witnessId = await writeWitnessEntry({
@@ -1144,7 +1165,7 @@ router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent")
     }
 
     // ── Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: folioChargeFilesLoaded } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: folioChargeFilesLoaded, inputTokens: fcInputTokens, outputTokens: fcOutputTokens } = await evaluateWithPolicyAndMcp(
       "Folio Agent", "folio_charge",
       `Post charge €${chargeAmount} ${currency} (${serviceType}: ${chargeName ?? "unnamed"}) to folio ${resolvedFolioId ?? "none"} at property ${propertyId}. ${resolvedFolioId ? `Use GetFolio to verify folio ${resolvedFolioId} is Open, ListPaymentAccounts to confirm payment method, ListInvoices to check for duplicate charges, then apply folio-charge-policy thresholds.` : "No folio resolved — apply FAIL decision."}`,
       [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices],
@@ -1152,6 +1173,8 @@ router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent")
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
+    apaleoData.input_tokens = fcInputTokens;
+    apaleoData.output_tokens = fcOutputTokens;
 
     // ── Execute charge ONLY if PASS ──────────────────────────────────────────
     if (decision.decision === "PASS" && resolvedFolioId && folioStatus === "Open") {
@@ -1289,7 +1312,7 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
     }
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkoutFilesLoaded } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkoutFilesLoaded, inputTokens: coInputTokens, outputTokens: coOutputTokens } = await evaluateWithPolicyAndMcp(
       "Checkout Agent", "checkout",
       `Process checkout for ${guestName ?? "guest"} (${loyaltyTier ?? "Standard"} tier) at property ${propertyId}. ${reservationId ? `Use GetReservation to verify InHouse status for reservation ${reservationId}, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges.` : `Find today's departing InHouse reservations at property ${propertyId}.`} Late checkout requested: ${lateCheckout ?? "No"}. Apply all checkout-policy.md gates.`,
       [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
@@ -1297,6 +1320,8 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
+    apaleoData.input_tokens = coInputTokens;
+    apaleoData.output_tokens = coOutputTokens;
 
     // ── STEP 3: Execute checkout ONLY if policy returns PASS ─────────────────
     if (decision.decision === "PASS" && reservationId) {
@@ -1426,7 +1451,7 @@ Rate plans: ${ratePlans.map((p) => p.name || p.id).slice(0, 6).join(", ")}
 Revenue report rows: ${revenueRows.length}
 Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id: r.id, status: r.status, ratePlanId: r.ratePlanId, total: r.totalGrossAmount })), null, 2)}`;
 
-    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: revFilesLoaded } = await evaluateWithPolicyAndMcp(
+    const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: revFilesLoaded, inputTokens: revInputTokens, outputTokens: revOutputTokens } = await evaluateWithPolicyAndMcp(
       "Revenue Reconciliation Agent", "revenue",
       `Reconcile daily revenue for property ${propertyId} on ${targetDate}. ${reservations.length} reservations fetched via REST with total ${totalRevenue} ${currency}. Use GetReport to pull live revenue report, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charge records. Apply revenue-reconciliation-policy variance thresholds.`,
       [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
@@ -1435,6 +1460,8 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
     );
     apaleoData.usedMcp = evalUsedMcp;
     apaleoData.toolCallsMade = evalToolCalls;
+    apaleoData.input_tokens = revInputTokens;
+    apaleoData.output_tokens = revOutputTokens;
 
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
@@ -1731,7 +1758,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       }).catch(() => ({ unitGroups: [] }));
       const liveUnitGroups = liveAvail.unitGroups ?? [];
 
-      const { decision, usedMcp: availUsedMcp, toolCallsMade: availToolCalls, filesLoaded: availScenarioFiles } = await evaluateWithPolicyAndMcp(
+      const { decision, usedMcp: availUsedMcp, toolCallsMade: availToolCalls, filesLoaded: availScenarioFiles, inputTokens: availInputTokens, outputTokens: availOutputTokens } = await evaluateWithPolicyAndMcp(
         "Availability Agent", "availability",
         `Availability audit for property ${propertyId} — dates ${scenarioArrival} to ${scenarioDeparture}.
 
@@ -1750,7 +1777,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Availability Agent", decision,
         fileReferenced: governanceFileReferenced(availScenarioFiles),
-        apaleoData: { propertyId, arrival: scenarioArrival, departure: scenarioDeparture, unitGroups: liveUnitGroups.slice(0, 3), usedMcp: availUsedMcp, toolCallsMade: availToolCalls },
+        apaleoData: { propertyId, arrival: scenarioArrival, departure: scenarioDeparture, unitGroups: liveUnitGroups.slice(0, 3), usedMcp: availUsedMcp, toolCallsMade: availToolCalls, input_tokens: availInputTokens, output_tokens: availOutputTokens },
         scenarioRunId,
         filesConsulted: availScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(availScenarioFiles),
@@ -1766,7 +1793,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       // 5% discount: €171 from BAR €180 — below the 10% escalation threshold, agent PASS
       // VIE-VDADEMO-SGL rate plan is now isBookable: true — ListRatePlans MCP call is safe
       const bar = 180; const requested = 171; const discountPct = 5;
-      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles } = await evaluateWithPolicyAndMcp(
+      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens } = await evaluateWithPolicyAndMcp(
         "Rate Agent", "rate",
         `Rate override evaluation for property ${propertyId}.
 
@@ -1786,7 +1813,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
         fileReferenced: governanceFileReferenced(rateScenarioFiles),
-        apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls },
+        apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, input_tokens: rateInputTokens, output_tokens: rateOutputTokens },
         scenarioRunId,
         filesConsulted: rateScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(rateScenarioFiles),
@@ -1815,7 +1842,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
         `Guest: Demo Guest (email: demo@vda-mk.com)`,
       ];
 
-      const { decision, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls, filesLoaded: resvScenarioFiles } = await evaluateWithPolicyAndMcp(
+      const { decision, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls, filesLoaded: resvScenarioFiles, inputTokens: resvInputTokens, outputTokens: resvOutputTokens } = await evaluateWithPolicyAndMcp(
         "Reservation Bot", "reservation",
         `Reservation creation audit for Demo Guest at property ${propertyId}.
 
@@ -1873,7 +1900,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Reservation Bot", decision,
         fileReferenced: governanceFileReferenced(resvScenarioFiles),
-        apaleoData: { createdId, writeExecuted, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls },
+        apaleoData: { createdId, writeExecuted, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls, input_tokens: resvInputTokens, output_tokens: resvOutputTokens },
         scenarioRunId,
         filesConsulted: resvScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(resvScenarioFiles),
@@ -1916,7 +1943,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
       // GetReservation shows future arrival (May 2) which the agent interprets as "cannot check in today",
       // causing ESCALATE. The governance demo pre-authorizes check-in policy compliance for the
       // arrival date — not same-day execution. Pre-flight confirmed LGODPFGH-1 = Confirmed.
-      const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, filesLoaded: ciScenarioFiles } = await evaluateWithPolicyAndMcp(
+      const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, filesLoaded: ciScenarioFiles, inputTokens: ciInputTokens, outputTokens: ciOutputTokens } = await evaluateWithPolicyAndMcp(
         "Check-In Agent", "checkin",
         `Check-in governance audit for property ${propertyId} — VDA-MD scenario step 4.
 
@@ -1956,7 +1983,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Check-In Agent", decision: ciDecision,
         fileReferenced: governanceFileReferenced(ciScenarioFiles),
-        apaleoData: { reservationId, checkinExecuted, folioId: folioFromCheckin, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls },
+        apaleoData: { reservationId, checkinExecuted, folioId: folioFromCheckin, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, input_tokens: ciInputTokens, output_tokens: ciOutputTokens },
         scenarioRunId,
         filesConsulted: ciScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(ciScenarioFiles),
@@ -1988,7 +2015,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       // Step 5 uses pre-flight verified context — GetFolio returns real accumulated charges from
       // previous runs which the agent misinterprets as a dispute trigger. The governance demo
       // evaluates the charge decision in isolation: a fresh €89 RoomRevenue charge on an Open folio.
-      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles } = await evaluateWithPolicyAndMcp(
+      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles, inputTokens: fcInputTokens, outputTokens: fcOutputTokens } = await evaluateWithPolicyAndMcp(
         "Folio Agent", "folio_charge",
         `Folio charge audit for property ${propertyId} — VDA-MD governance evaluation.
 
@@ -2033,6 +2060,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       const fcCrossdomainFile = fcScenarioFiles.find(f => f.toLowerCase().includes("shared-o2c") || f.toLowerCase().includes("finance-o2c"));
       const fcWitnessApaleoData: Record<string, unknown> = {
         folioId, chargePosted, chargeAmount: 89, currency: "EUR", usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls,
+        input_tokens: fcInputTokens, output_tokens: fcOutputTokens,
         ...(fcCrossdomainFile ? { crossDomainInheritance: true, inheritedPolicyFile: fcCrossdomainFile } : {}),
       };
       const wid = await writeWitnessEntry({
@@ -2059,7 +2087,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       // The demo scenario establishes that check-in (step 4) was completed and the guest is InHouse.
       {
         const coFolioId = ids.folioId;
-        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles } = await evaluateWithPolicyAndMcp(
+        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles, inputTokens: coInputTokens, outputTokens: coOutputTokens } = await evaluateWithPolicyAndMcp(
           "Checkout Agent", "checkout",
           `Checkout audit for Demo Guest (Gold loyalty tier) at property ${propertyId}.
 
@@ -2098,7 +2126,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
         const wid = await writeWitnessEntry({
           companyId: Number(companyId), agent: "Checkout Agent", decision: coDecision,
           fileReferenced: coFileRef,
-          apaleoData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", folioId: coFolioId, usedMcp: coUsedMcp, toolCallsMade: coToolCalls },
+          apaleoData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", folioId: coFolioId, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, input_tokens: coInputTokens, output_tokens: coOutputTokens },
           scenarioRunId,
           filesConsulted: coScenarioFiles,
           crossDomainInheritance: hasCrossDomainFiles(coScenarioFiles),
@@ -2123,7 +2151,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
       const total = resvList.reduce((s, r) => s + (r.totalGrossAmount?.amount ?? 0), 0);
       const currency = resvList[0]?.totalGrossAmount?.currency ?? "EUR";
 
-      const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, filesLoaded: revScenarioFiles } = await evaluateWithPolicyAndMcp(
+      const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, filesLoaded: revScenarioFiles, inputTokens: revInputTokens, outputTokens: revOutputTokens } = await evaluateWithPolicyAndMcp(
         "Revenue Reconciliation Agent", "revenue",
         `End-of-scenario revenue reconciliation for property ${propertyId} — VDA-MD governance audit on ${today}.
 
@@ -2149,7 +2177,7 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Revenue Reconciliation Agent", decision: revDecision,
         fileReferenced: governanceFileReferenced(revScenarioFiles),
-        apaleoData: { date: today, reservationCount: reservations.count, totalRevenue: total, currency, scenarioReservationId: ids.reservationId, usedMcp: revUsedMcp, toolCallsMade: revToolCalls },
+        apaleoData: { date: today, reservationCount: reservations.count, totalRevenue: total, currency, scenarioReservationId: ids.reservationId, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, input_tokens: revInputTokens, output_tokens: revOutputTokens },
         scenarioRunId,
         filesConsulted: revScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(revScenarioFiles),
@@ -2161,6 +2189,50 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
     }
 
     return res.json({ scenarioRunId, propertyId, apaleoIds: ids, steps: results, completedAt: new Date().toISOString() });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+// ─── Token Stats Endpoint ─────────────────────────────────────────────────────
+
+/**
+ * GET /api/agents/token-stats?companyId=X
+ * Aggregates input/output token usage from witness apaleoData by agent.
+ * Returns per-agent totals and a grand total for the given companyId.
+ */
+router.get("/agents/token-stats", async (req, res) => {
+  try {
+    const companyId = Number(req.query.companyId);
+    if (!companyId && companyId !== 0) {
+      return res.status(400).json({ error: "companyId required" });
+    }
+
+    const rows = await db
+      .select({
+        agent: witnessEntries.agent,
+        calls: sql<number>`count(*)::int`,
+        totalInputTokens: sql<number>`coalesce(sum(((${witnessEntries.apaleoData}->>'input_tokens')::numeric))::int, 0)`,
+        totalOutputTokens: sql<number>`coalesce(sum(((${witnessEntries.apaleoData}->>'output_tokens')::numeric))::int, 0)`,
+      })
+      .from(witnessEntries)
+      .where(eq(witnessEntries.companyId, companyId))
+      .groupBy(witnessEntries.agent)
+      .orderBy(sql`sum(((${witnessEntries.apaleoData}->>'input_tokens')::numeric)) desc nulls last`);
+
+    const grandTotalInput = rows.reduce((s, r) => s + (r.totalInputTokens ?? 0), 0);
+    const grandTotalOutput = rows.reduce((s, r) => s + (r.totalOutputTokens ?? 0), 0);
+
+    return res.json({
+      companyId,
+      agents: rows,
+      totals: {
+        calls: rows.reduce((s, r) => s + (r.calls ?? 0), 0),
+        totalInputTokens: grandTotalInput,
+        totalOutputTokens: grandTotalOutput,
+        totalTokens: grandTotalInput + grandTotalOutput,
+      },
+    });
   } catch (err: unknown) {
     return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }

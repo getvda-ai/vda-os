@@ -163,6 +163,9 @@ NIST SP 800-53 CONTROL MAPPINGS (precise):
 
 SOC 2 TYPE II: The SOC 2 SD tab auto-generates the System Description section, mapping each agent's governance files to Trust Services Criteria (CC6.1, CC6.2, CC7.1). Output is suitable for pasting directly into an auditor's SOC 2 report.
 
+TOKEN USAGE TRACKING:
+Every agent decision records input and output token counts in the Witness entry's apaleoData (fields: input_tokens, output_tokens). These are sourced directly from the Anthropic API usage object — each agentic iteration's tokens are summed across the full evaluation loop. The platform exposes a live aggregation endpoint: GET /api/agents/token-stats?companyId=X — returns per-agent call counts, total input tokens, total output tokens, and grand totals. Both the Witness Agent tab and the Live Demo result view display these token stats. Historical runs accumulate over time, so the token stats grow with every "Run Full Guest Journey" execution. An administrator can use the token stats to benchmark the cost profile of each agent, compare prompt efficiency across the 9 agents, and project monthly API spend at scale.
+
 Additional standards: ISO/IEC 42001 (AI management system references in frontmatter), PCI DSS (O2C baseline).
 
 LIVE PROOF OF CONCEPT:
