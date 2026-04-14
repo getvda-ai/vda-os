@@ -1785,7 +1785,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       if (hasCrossDomainFiles(availScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Availability Agent");
       }
-      results.push({ step: 1, agent: "Availability Agent", ...decision, witnessEntryId: wid, apaleoIds: { ...ids } });
+      results.push({ step: 1, agent: "Availability Agent", ...decision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: availInputTokens, outputTokens: availOutputTokens });
     }
 
     // ─ Step 2: Rate Agent ─────────────────────────────────────────────────
@@ -1821,7 +1821,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
       if (hasCrossDomainFiles(rateScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Rate Agent");
       }
-      results.push({ step: 2, agent: "Rate Agent", ...rateDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
+      results.push({ step: 2, agent: "Rate Agent", ...rateDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: rateInputTokens, outputTokens: rateOutputTokens });
     }
 
     // ─ Step 3: Reservation Bot (policy-first create) ──────────────────────
@@ -1908,7 +1908,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
       if (hasCrossDomainFiles(resvScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Reservation Bot");
       }
-      results.push({ step: 3, agent: "Reservation Bot", ...decision, witnessEntryId: wid, apaleoIds: { ...ids } });
+      results.push({ step: 3, agent: "Reservation Bot", ...decision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: resvInputTokens, outputTokens: resvOutputTokens });
     }
 
     // ─ Step 4: Check-In Agent (policy-first, execute on PASS) ────────────
@@ -1991,7 +1991,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       if (hasCrossDomainFiles(ciScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Check-In Agent");
       }
-      results.push({ step: 4, agent: "Check-In Agent", ...ciDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
+      results.push({ step: 4, agent: "Check-In Agent", ...ciDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: ciInputTokens, outputTokens: ciOutputTokens });
     }
 
     // ─ Step 5: Folio Charge Agent (policy-first, post charge on PASS) ─────
@@ -2074,7 +2074,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       if (hasCrossDomainFiles(fcScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Charge Agent");
       }
-      results.push({ step: 5, agent: "Folio Charge Agent", ...fcDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
+      results.push({ step: 5, agent: "Folio Charge Agent", ...fcDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: fcInputTokens, outputTokens: fcOutputTokens });
     }
 
     // ─ Step 6: Checkout Agent (policy-first, execute on PASS) ────────────
@@ -2134,7 +2134,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
         if (hasCrossDomainFiles(coScenarioFiles)) {
           void emitCrossDomainGovernanceEvent(Number(companyId), "Checkout Agent");
         }
-        results.push({ step: 6, agent: "Checkout Agent", ...coDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
+        results.push({ step: 6, agent: "Checkout Agent", ...coDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: coInputTokens, outputTokens: coOutputTokens });
       }
     }
 
@@ -2185,7 +2185,7 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
       if (hasCrossDomainFiles(revScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Revenue Reconciliation Agent");
       }
-      results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids } });
+      results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: revInputTokens, outputTokens: revOutputTokens });
     }
 
     return res.json({ scenarioRunId, propertyId, apaleoIds: ids, steps: results, completedAt: new Date().toISOString() });

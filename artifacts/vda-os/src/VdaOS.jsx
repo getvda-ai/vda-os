@@ -6537,6 +6537,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
   const [streamEntries,    setStreamEntries]       = useState([]);
   const [scenarioRunning,  setScenarioRunning]     = useState(false);
   const [scenarioComplete, setScenarioComplete]    = useState(false);
+  const [scenarioTokenData, setScenarioTokenData]  = useState(null);  // [{step,agent,inputTokens,outputTokens}]
   const [dbEntries,        setDbEntries]           = useState([]);
   const [loadingDbEntries, setLoadingDbEntries]    = useState(false);
   const [selectedAgent,    setSelectedAgent]       = useState(null);
@@ -6703,6 +6704,12 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
           }
         }
         setScenarioComplete(true);
+        setScenarioTokenData((data.steps || []).map(s => ({
+          step: s.step,
+          agent: s.agent,
+          inputTokens: s.inputTokens ?? 0,
+          outputTokens: s.outputTokens ?? 0,
+        })));
         fetchDbEntries();
       }
     } catch (e) {
@@ -6780,7 +6787,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
             Guest journey complete · {completedCount} agent decisions · all sealed in the Witness Ledger
           </span>
           <button
-            onClick={() => { setScenarioComplete(false); setCompletedSteps({}); setStreamEntries([]); setActiveStepIdx(-1); }}
+            onClick={() => { setScenarioComplete(false); setScenarioTokenData(null); setCompletedSteps({}); setStreamEntries([]); setActiveStepIdx(-1); }}
             style={{
               marginLeft: "auto", background: "none", border: `1px solid ${T.border}`,
               borderRadius: 6, padding: "3px 10px", fontSize: 10, color: T.dim, cursor: "pointer", fontFamily: T.mono,
@@ -6788,6 +6795,65 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
           >dismiss</button>
         </div>
       )}
+
+      {/* ── Token Usage Panel ─────────────────────────────────────────── */}
+      {scenarioTokenData && scenarioTokenData.length > 0 && (() => {
+        const totalIn  = scenarioTokenData.reduce((s, r) => s + r.inputTokens,  0);
+        const totalOut = scenarioTokenData.reduce((s, r) => s + r.outputTokens, 0);
+        const grandTotal = totalIn + totalOut;
+        return (
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13 }}>⚡</span>
+              <span style={{ fontWeight: 700, fontSize: 12 }}>Token Usage · This Run</span>
+              <span style={{ marginLeft: "auto", fontSize: 10, color: T.dim, fontFamily: T.mono }}>
+                Grand total: <strong style={{ color: T.fg }}>{grandTotal.toLocaleString()}</strong>
+                <span style={{ color: T.dim, marginLeft: 6 }}>({totalIn.toLocaleString()} in · {totalOut.toLocaleString()} out)</span>
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "24px 1fr 90px 90px 90px", gap: 0 }}>
+              {/* Header */}
+              {["#", "Agent", "Input", "Output", "Total"].map((h, i) => (
+                <div key={h} style={{
+                  padding: "5px 10px", fontSize: 9, fontWeight: 800, fontFamily: T.mono,
+                  color: T.dim, letterSpacing: "0.06em", textTransform: "uppercase",
+                  borderBottom: `1px solid ${T.border}`,
+                  textAlign: i >= 2 ? "right" : "left",
+                  background: `${T.surface}88`,
+                }}>{h}</div>
+              ))}
+              {scenarioTokenData.map((row, idx) => {
+                const rowTotal = row.inputTokens + row.outputTokens;
+                const barPct   = grandTotal > 0 ? Math.round((rowTotal / grandTotal) * 100) : 0;
+                const isLast   = idx === scenarioTokenData.length - 1;
+                return [
+                  <div key={`s-${row.step}`} style={{ padding: "7px 10px", fontSize: 10, fontFamily: T.mono, color: T.dim, borderBottom: isLast ? "none" : `1px solid ${T.border}88`, background: idx % 2 === 0 ? "transparent" : `${T.surface}55` }}>{row.step}</div>,
+                  <div key={`a-${row.step}`} style={{ padding: "7px 10px", fontSize: 11, fontWeight: 600, borderBottom: isLast ? "none" : `1px solid ${T.border}88`, background: idx % 2 === 0 ? "transparent" : `${T.surface}55`, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.agent}</span>
+                      <div style={{ height: 4, width: 60, background: T.border, borderRadius: 2, flexShrink: 0, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${barPct}%`, background: T.blue, borderRadius: 2, transition: "width 0.4s ease" }} />
+                      </div>
+                      <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, flexShrink: 0 }}>{barPct}%</span>
+                    </div>
+                  </div>,
+                  <div key={`i-${row.step}`} style={{ padding: "7px 10px", fontSize: 10, fontFamily: T.mono, color: T.dim, textAlign: "right", borderBottom: isLast ? "none" : `1px solid ${T.border}88`, background: idx % 2 === 0 ? "transparent" : `${T.surface}55` }}>{row.inputTokens.toLocaleString()}</div>,
+                  <div key={`o-${row.step}`} style={{ padding: "7px 10px", fontSize: 10, fontFamily: T.mono, color: T.dim, textAlign: "right", borderBottom: isLast ? "none" : `1px solid ${T.border}88`, background: idx % 2 === 0 ? "transparent" : `${T.surface}55` }}>{row.outputTokens.toLocaleString()}</div>,
+                  <div key={`t-${row.step}`} style={{ padding: "7px 10px", fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.fg, textAlign: "right", borderBottom: isLast ? "none" : `1px solid ${T.border}88`, background: idx % 2 === 0 ? "transparent" : `${T.surface}55` }}>{rowTotal.toLocaleString()}</div>,
+                ];
+              })}
+              {/* Totals row */}
+              {[
+                <div key="ts" style={{ padding: "7px 10px", borderTop: `1px solid ${T.border}`, background: `${T.surface}88` }} />,
+                <div key="ta" style={{ padding: "7px 10px", fontSize: 10, fontWeight: 800, fontFamily: T.mono, borderTop: `1px solid ${T.border}`, background: `${T.surface}88`, color: T.dim, letterSpacing: "0.04em" }}>TOTAL · 7 AGENTS</div>,
+                <div key="ti" style={{ padding: "7px 10px", fontSize: 10, fontWeight: 800, fontFamily: T.mono, textAlign: "right", borderTop: `1px solid ${T.border}`, background: `${T.surface}88`, color: T.dim }}>{totalIn.toLocaleString()}</div>,
+                <div key="to" style={{ padding: "7px 10px", fontSize: 10, fontWeight: 800, fontFamily: T.mono, textAlign: "right", borderTop: `1px solid ${T.border}`, background: `${T.surface}88`, color: T.dim }}>{totalOut.toLocaleString()}</div>,
+                <div key="tt" style={{ padding: "7px 10px", fontSize: 11, fontWeight: 900, fontFamily: T.mono, textAlign: "right", borderTop: `1px solid ${T.border}`, background: `${T.surface}88`, color: T.blue }}>{grandTotal.toLocaleString()}</div>,
+              ]}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Two-panel: Journey Timeline + Witness Ledger ──────────────── */}
       <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
