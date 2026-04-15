@@ -7469,6 +7469,254 @@ function ImpactDeltaSection({ report }) {
   );
 }
 
+// ─── HITL Dossier Helpers ─────────────────────────────────────────────────────
+
+function parseFm(md) {
+  if (!md) return {};
+  const m = md.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return {};
+  return Object.fromEntries(
+    m[1].split("\n")
+      .map(l => l.split(": "))
+      .filter(p => p.length >= 2)
+      .map(p => [p[0].trim(), p.slice(1).join(": ").trim().replace(/^"(.*)"$/, "$1")])
+  );
+}
+
+function parseSopClauses(sopMd) {
+  if (!sopMd) return { must: [], mustNot: [], may: [], escalation: "" };
+  const between = (text, a, b) => {
+    const start = text.indexOf(a);
+    if (start === -1) return "";
+    const sub = text.slice(start + a.length);
+    const end = b ? sub.search(new RegExp("^## ", "m")) : sub.length;
+    return end === -1 ? sub : sub.slice(0, end);
+  };
+  const splitClauses = (section) =>
+    section.split(/\n### /).slice(1).map(c => {
+      const lines = c.trim().split("\n");
+      return { id: lines[0].trim(), body: lines.slice(1).join("\n").trim() };
+    });
+  return {
+    must: splitClauses(between(sopMd, "## MUST Clauses\n", true)),
+    mustNot: splitClauses(between(sopMd, "## MUST NOT Clauses\n", true)),
+    may: splitClauses(between(sopMd, "## MAY Clauses\n", true)),
+    escalation: between(sopMd, "## Escalation Path\n", true).trim(),
+  };
+}
+
+function NotPermittedRows({ skillMd }) {
+  if (!skillMd) return null;
+  const m = skillMd.match(/## NOT Permitted\n([\s\S]*?)(?=## Auto-Removed|$)/);
+  if (!m) return null;
+  const rows = m[1].split("\n").filter(l => l.startsWith("|") && !l.includes("---") && !l.match(/Prohibited Skill/i));
+  if (!rows.length) return null;
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: T.red, marginBottom: 8, letterSpacing: 1 }}>PROHIBITED  ·  {rows.length} ENTRIES</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {rows.map((row, i) => {
+          const cells = row.split("|").filter(Boolean).map(c => c.trim());
+          return cells[0] ? (
+            <div key={i} style={{ background: `${T.red}08`, border: `1px solid ${T.red}25`, borderRadius: 6, padding: "8px 12px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.red, minWidth: 160, flexShrink: 0 }}>{cells[0]}</span>
+              {cells[1] && <span style={{ fontSize: 11, color: T.dim, opacity: 0.7, lineHeight: 1.5 }}>{cells[1]}</span>}
+            </div>
+          ) : null;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, setDocsTab }) {
+  if (loading) return <div style={{ padding: 20, textAlign: "center", color: T.dim, fontSize: 12, opacity: 0.6 }}>Loading full dossier…</div>;
+  if (!data) return null;
+
+  const ac = data.agentCard || {};
+  const cf = data.candidateFiles || {};
+  const delta = data.impactDeltaReport || {};
+  const fm = parseFm(cf.agents_md);
+  const sop = parseSopClauses(cf.sop_md);
+  const tab = activeTab || "overview";
+  const dt = docsTab || "agents";
+
+  const TABS = [
+    { id: "overview", label: "Overview" },
+    { id: "skills", label: "Skills" },
+    { id: "compliance", label: "SOP Compliance" },
+    { id: "impact", label: "Impact Delta" },
+    { id: "docs", label: "Governance Docs" },
+  ];
+
+  return (
+    <div style={{ marginTop: 16, borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
+      {/* Tab bar */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            style={{ background: tab === t.id ? `${T.purple}20` : "transparent", border: `1px solid ${tab === t.id ? T.purple : T.border}`, borderRadius: 5, padding: "4px 12px", fontSize: 11, color: tab === t.id ? T.purple : T.dim, cursor: "pointer", fontWeight: tab === t.id ? 700 : 400, transition: "all 0.15s" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Overview ─────────────────────────────────────── */}
+      {tab === "overview" && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+            {[
+              ["Control ID", fm.control_id, T.purple, true],
+              ["Domain", fm.domain, T.blue, false],
+              ["Owner", fm.owner, T.text, false],
+              ["NIST Control", fm.nist_control, T.text, false],
+              ["Risk Level", fm.risk_level, fm.risk_level === "high" ? T.red : fm.risk_level === "medium" ? T.amber : T.green, false],
+              ["Expires", fm.expires, T.text, false],
+              ["Version", ac.version, T.amber, true],
+              ["Status", data.status, data.status === "onboarded" ? T.green : T.amber, false],
+            ].filter(([, v]) => v).map(([k, v, c, mono]) => (
+              <div key={k} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px" }}>
+                <div style={{ fontSize: 9, color: T.dim, opacity: 0.5, marginBottom: 2, textTransform: "uppercase", letterSpacing: 1 }}>{k}</div>
+                <div style={{ fontSize: 12, color: c, fontFamily: mono ? T.mono : T.sans, fontWeight: 600, wordBreak: "break-all" }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          {ac.description && (
+            <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 12, padding: "12px 14px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7 }}>{ac.description}</div>
+          )}
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: T.dim, opacity: 0.7 }}>
+            {ac.provider?.organization && <span>Provider: <strong style={{ color: T.text }}>{ac.provider.organization}</strong></span>}
+            {ac.url && <span>Endpoint: <span style={{ fontFamily: T.mono, color: T.blue }}>{ac.url}</span></span>}
+            {ac.authentication?.schemes && <span>Auth: <span style={{ color: T.amber }}>{(ac.authentication.schemes || []).join(", ")}</span></span>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Skills ───────────────────────────────────────── */}
+      {tab === "skills" && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 10, letterSpacing: 1 }}>PERMITTED  ·  {(ac.skills || []).length} SKILLS</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 4 }}>
+            {(ac.skills || []).map(s => (
+              <div key={s.id} style={{ background: `${T.green}08`, border: `1px solid ${T.green}25`, borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, fontFamily: T.mono, background: `${T.green}20`, color: T.green, borderRadius: 4, padding: "2px 7px", fontWeight: 700 }}>{s.id}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{s.name}</span>
+                </div>
+                <div style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.8 }}>{s.description}</div>
+              </div>
+            ))}
+          </div>
+          <NotPermittedRows skillMd={cf.skill_md} />
+        </div>
+      )}
+
+      {/* ── SOP Compliance ────────────────────────────────── */}
+      {tab === "compliance" && (
+        <div>
+          {[
+            { label: "MUST", color: T.green, clauses: sop.must, note: "Mandatory obligations — violations trigger immediate halt" },
+            { label: "MUST NOT", color: T.red, clauses: sop.mustNot, note: "Explicit prohibitions — any breach is a critical governance violation" },
+            { label: "MAY", color: T.blue, clauses: sop.may, note: "Permitted discretionary behaviours" },
+          ].map(({ label, color, clauses, note }) => clauses.length > 0 && (
+            <div key={label} style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 900, background: `${color}20`, color, border: `1px solid ${color}40`, borderRadius: 4, padding: "2px 9px", letterSpacing: 1 }}>{label}</span>
+                <span style={{ fontSize: 11, color: T.dim, opacity: 0.6 }}>{clauses.length} clause{clauses.length > 1 ? "s" : ""} · {note}</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {clauses.map((c, i) => (
+                  <div key={i} style={{ background: `${color}05`, border: `1px solid ${color}20`, borderRadius: 7, padding: "10px 14px" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color, fontFamily: T.mono, marginBottom: 5, letterSpacing: 0.5 }}>{c.id}</div>
+                    <div style={{ fontSize: 11, lineHeight: 1.6, opacity: 0.8, whiteSpace: "pre-wrap" }}>{c.body.slice(0, 400)}{c.body.length > 400 ? "…" : ""}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {sop.escalation && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginBottom: 8, letterSpacing: 1 }}>ESCALATION PATH</div>
+              <div style={{ fontFamily: T.mono, fontSize: 10, lineHeight: 1.8, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: 12, whiteSpace: "pre-wrap", overflowX: "auto", maxHeight: 220, overflowY: "auto", opacity: 0.8 }}>{sop.escalation}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Impact Delta ──────────────────────────────────── */}
+      {tab === "impact" && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
+            {[
+              ["Files to Create", delta.files_to_create ?? 0, T.green],
+              ["Files to Modify", delta.files_to_modify ?? 0, T.amber],
+              ["Conflicts", (delta.conflicts || []).length, T.red],
+            ].map(([l, v, c]) => (
+              <div key={l} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px", textAlign: "center" }}>
+                <div style={{ fontSize: 28, fontWeight: 900, color: Number(v) === 0 ? T.green : c }}>{v}</div>
+                <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3, textTransform: "uppercase", letterSpacing: 1 }}>{l}</div>
+              </div>
+            ))}
+          </div>
+          {data.evalPassRate !== null && data.evalPassRate !== undefined && (
+            <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ fontSize: 28, fontWeight: 900, color: Number(data.evalPassRate) >= 0.95 ? T.green : T.red }}>{(Number(data.evalPassRate) * 100).toFixed(1)}%</div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700 }}>Sandbox Eval Pass Rate</div>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>{Number(data.evalPassRate) >= 0.95 ? "Passed — agent meets sandbox quality gate" : "Below threshold — review recommended"}</div>
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[
+              ["RACI EXCEPTIONS", delta.raci_exceptions || [], T.amber, "No RACI exceptions raised"],
+              ["CONFLICTS", delta.conflicts || [], T.red, "No conflicts detected"],
+              ["AUTO-REMOVED SKILLS", delta.auto_removed_skills || [], T.orange, "No skills auto-removed"],
+            ].map(([label, items, color, emptyMsg]) => (
+              <div key={label}>
+                <div style={{ fontSize: 10, fontWeight: 700, color, marginBottom: 5, letterSpacing: 1 }}>{label} ({items.length})</div>
+                {items.length === 0
+                  ? <div style={{ fontSize: 11, color: T.green, opacity: 0.8 }}>✓ {emptyMsg}</div>
+                  : items.map((item, i) => <div key={i} style={{ fontSize: 11, color, padding: "4px 0", opacity: 0.9 }}>• {typeof item === "string" ? item : JSON.stringify(item)}</div>)
+                }
+              </div>
+            ))}
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.dim, opacity: 0.6, marginBottom: 5, letterSpacing: 1 }}>ROLLBACK SCOPE</div>
+              <div style={{ fontSize: 11, background: `${T.red}08`, border: `1px solid ${T.red}20`, borderRadius: 6, padding: "10px 12px", lineHeight: 1.5, opacity: 0.9 }}>{delta.rollback_scope || "Not specified"}</div>
+            </div>
+            {data.prUrl && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.dim, opacity: 0.6, marginBottom: 5, letterSpacing: 1 }}>GITHUB PR</div>
+                <a href={data.prUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.blue }}>#{data.prNumber} — {data.prUrl}</a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Governance Docs ───────────────────────────────── */}
+      {tab === "docs" && (
+        <div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {[["agents", "AGENTS.md"], ["sop", "SOP.md"], ["skill", "SKILL.md"]].map(([id, label]) => (
+              <button key={id} onClick={() => setDocsTab(id)}
+                style={{ background: dt === id ? `${T.blue}20` : "transparent", border: `1px solid ${dt === id ? T.blue : T.border}`, borderRadius: 4, padding: "3px 12px", fontSize: 11, color: dt === id ? T.blue : T.dim, cursor: "pointer", fontFamily: T.mono, fontWeight: dt === id ? 700 : 400 }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <pre style={{ fontFamily: T.mono, fontSize: 10, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: 16, lineHeight: 1.75, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 480, overflowY: "auto", margin: 0, opacity: 0.85 }}>
+            {dt === "agents" ? cf.agents_md : dt === "sop" ? cf.sop_md : cf.skill_md}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function AgentOnboardingTab({ companyId }) {
   const [subTab, setSubTab] = useState("queue");
   const [requests, setRequests] = useState([]);
@@ -7491,6 +7739,11 @@ function AgentOnboardingTab({ companyId }) {
   const [phasesLoading, setPhasesLoading] = useState(false);
   const [promotingAgent, setPromotingAgent] = useState(null);
   const [promoteMsg, setPromoteMsg] = useState(null);
+  const [dossierOpen, setDossierOpen] = useState({});
+  const [dossierData, setDossierData] = useState({});
+  const [dossierLoading, setDossierLoading] = useState({});
+  const [dossierTab, setDossierTab] = useState({});
+  const [docsSubTab, setDocsSubTab] = useState({});
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
@@ -7519,6 +7772,16 @@ function AgentOnboardingTab({ companyId }) {
     } catch { /* silent */ }
     setPhasesLoading(false);
   }, [companyId]);
+
+  const fetchDossier = useCallback(async (token, requestId) => {
+    if (!requestId || dossierData[token]) return;
+    setDossierLoading(p => ({ ...p, [token]: true }));
+    try {
+      const r = await fetch(`/api/onboarding/${requestId}`);
+      if (r.ok) { const d = await r.json(); setDossierData(p => ({ ...p, [token]: d })); }
+    } catch { /* silent */ }
+    setDossierLoading(p => ({ ...p, [token]: false }));
+  }, [dossierData]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
   useEffect(() => { if (subTab === "approvals") fetchPending(); }, [subTab, fetchPending]);
@@ -7886,41 +8149,75 @@ function AgentOnboardingTab({ companyId }) {
           {onboardingPending.length === 0 && !pendingLoading && (
             <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>No pending onboarding approvals.</div>
           )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {onboardingPending.map(p => {
               const isRaci = p.cardType === "raci_notification";
               const payload = p.payload || {};
               const isResponding = respondingToken === p.token;
+              const isOpen = !!dossierOpen[p.token];
+              const accentColor = isRaci ? T.amber : T.orange;
               return (
-                <div key={p.token} style={{ background: T.surface, border: `1px solid ${isRaci ? T.amber : T.orange}40`, borderRadius: 10, padding: 18 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div key={p.token} style={{ background: T.surface, border: `1px solid ${accentColor}40`, borderRadius: 10, padding: 20 }}>
+                  {/* ── Card header ── */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{p.agent_name ?? payload.agent_name ?? "Unknown Agent"}</div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, background: (isRaci ? T.amber : T.orange) + "20", color: isRaci ? T.amber : T.orange, border: `1px solid ${(isRaci ? T.amber : T.orange)}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>{p.agent_name ?? payload.agent_name ?? "Unknown Agent"}</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, background: accentColor + "20", color: accentColor, border: `1px solid ${accentColor}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono }}>
                           {isRaci ? "FOR INFORMATION" : `PHASE ${p.phase} APPROVAL`}
                         </span>
-                        <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>Token: {p.token.slice(0, 12)}…</span>
+                        {payload.risk_level && (
+                          <span style={{ fontSize: 10, fontWeight: 700, background: (payload.risk_level === "high" ? T.red : payload.risk_level === "medium" ? T.amber : T.green) + "20", color: payload.risk_level === "high" ? T.red : payload.risk_level === "medium" ? T.amber : T.green, border: `1px solid ${(payload.risk_level === "high" ? T.red : payload.risk_level === "medium" ? T.amber : T.green)}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono, textTransform: "uppercase" }}>
+                            {payload.risk_level} risk
+                          </span>
+                        )}
+                        <span style={{ fontSize: 10, color: T.dim, opacity: 0.5, fontFamily: T.mono }}>Token: {p.token.slice(0, 12)}…</span>
                       </div>
                     </div>
-                    <div style={{ fontSize: 11, color: T.dim }}>{new Date(p.createdAt).toLocaleString("en-GB")}</div>
-                  </div>
-                  <div style={{ fontSize: 13, color: T.muted, marginBottom: 12, lineHeight: 1.6 }}>
-                    {payload.summary ?? payload.message ?? "Decision card payload"}
-                  </div>
-                  {payload.risk_level && (
-                    <div style={{ fontSize: 11, marginBottom: 12, display: "flex", gap: 8 }}>
-                      <span style={{ color: T.dim }}>Risk: </span>
-                      <span style={{ color: payload.risk_level === "high" ? T.red : payload.risk_level === "medium" ? T.amber : T.green, fontWeight: 700 }}>{payload.risk_level}</span>
-                      {payload.recommended_action && <><span style={{ color: T.dim }}>· Recommended: </span><span style={{ color: payload.recommended_action === "Approve" ? T.green : T.red, fontWeight: 700 }}>{payload.recommended_action}</span></>}
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
+                      <div style={{ fontSize: 11, color: T.dim, opacity: 0.6 }}>{new Date(p.createdAt).toLocaleString("en-GB")}</div>
+                      {payload.eval_pass_rate !== undefined && (
+                        <div style={{ fontSize: 11, marginTop: 3 }}>
+                          Eval: <span style={{ fontWeight: 700, color: payload.eval_pass_rate >= 0.95 ? T.green : T.red }}>{(payload.eval_pass_rate * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
                     </div>
+                  </div>
+
+                  {/* ── Summary ── */}
+                  <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 14, opacity: 0.85 }}>
+                    {payload.summary ?? payload.message ?? payload.statement ?? "Phase approval required — expand the full dossier to review agent identity, skills, SOP compliance, and impact before deciding."}
+                  </div>
+
+                  {/* ── Dossier toggle ── */}
+                  {!isRaci && p.onboardingRequestId && (
+                    <button
+                      onClick={() => {
+                        const next = !isOpen;
+                        setDossierOpen(prev => ({ ...prev, [p.token]: next }));
+                        if (next) fetchDossier(p.token, p.onboardingRequestId);
+                      }}
+                      style={{ background: isOpen ? `${T.purple}20` : T.bg, border: `1px solid ${isOpen ? T.purple : T.border}`, borderRadius: 6, padding: "7px 14px", fontSize: 11, color: isOpen ? T.purple : T.dim, cursor: "pointer", fontWeight: isOpen ? 700 : 400, marginBottom: 14, width: "100%", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>{isOpen ? "▲  Hide Full Dossier" : "▼  View Full Dossier — Identity · Skills · SOP Compliance · Impact Delta · Governance Docs"}</span>
+                      {dossierData[p.token] && !isOpen && <span style={{ fontSize: 10, color: T.green, opacity: 0.8 }}>Loaded</span>}
+                    </button>
                   )}
-                  {payload.eval_pass_rate !== undefined && (
-                    <div style={{ fontSize: 12, color: T.dim, marginBottom: 12 }}>
-                      Sandbox eval: <span style={{ color: payload.eval_pass_rate >= 0.95 ? T.green : T.red, fontWeight: 700 }}>{(payload.eval_pass_rate * 100).toFixed(1)}%</span> pass rate · {payload.statement}
-                    </div>
+
+                  {/* ── Dossier panel ── */}
+                  {isOpen && (
+                    <DossierPanel
+                      token={p.token}
+                      data={dossierData[p.token]}
+                      loading={!!dossierLoading[p.token]}
+                      activeTab={dossierTab[p.token] || "overview"}
+                      setActiveTab={t => setDossierTab(prev => ({ ...prev, [p.token]: t }))}
+                      docsTab={docsSubTab[p.token] || "agents"}
+                      setDocsTab={t => setDocsSubTab(prev => ({ ...prev, [p.token]: t }))}
+                    />
                   )}
-                  <div style={{ display: "flex", gap: 8 }}>
+
+                  {/* ── Action buttons ── */}
+                  <div style={{ display: "flex", gap: 8, marginTop: isOpen ? 20 : 0, paddingTop: isOpen ? 16 : 0, borderTop: isOpen ? `1px solid ${T.border}` : "none" }}>
                     {isRaci ? (
                       <button onClick={() => respond(p.token, "acknowledged")} disabled={isResponding}
                         style={{ background: `${T.amber}20`, border: `1px solid ${T.amber}40`, borderRadius: 6, padding: "7px 16px", fontSize: 12, color: T.amber, cursor: "pointer" }}>
@@ -7929,12 +8226,12 @@ function AgentOnboardingTab({ companyId }) {
                     ) : (
                       <>
                         <button onClick={() => respond(p.token, "approved")} disabled={isResponding}
-                          style={{ background: T.green, border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
-                          {isResponding ? "…" : "Approve →"}
+                          style={{ background: T.green, border: "none", borderRadius: 6, padding: "8px 22px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer", letterSpacing: 0.3 }}>
+                          {isResponding ? "…" : "✓  Approve"}
                         </button>
                         <button onClick={() => respond(p.token, "rejected")} disabled={isResponding}
-                          style={{ background: `${T.red}20`, border: `1px solid ${T.red}40`, borderRadius: 6, padding: "7px 16px", fontSize: 12, color: T.red, cursor: "pointer" }}>
-                          {isResponding ? "…" : "Reject"}
+                          style={{ background: `${T.red}15`, border: `1px solid ${T.red}50`, borderRadius: 6, padding: "8px 18px", fontSize: 13, color: T.red, cursor: "pointer" }}>
+                          {isResponding ? "…" : "✗  Reject"}
                         </button>
                       </>
                     )}

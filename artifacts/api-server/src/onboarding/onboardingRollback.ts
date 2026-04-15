@@ -153,20 +153,42 @@ router.get("/onboarding", async (_req, res) => {
   }
 });
 
-// ─── GET /api/onboarding/:id — single request ────────────────────────────────
+// ─── GET /api/onboarding/:id — single request (full dossier for HITL approvers)
 
 router.get("/onboarding/:id", async (req, res) => {
   try {
-    const rows = await db
-      .select()
-      .from(onboardingRequests)
-      .where(eq(onboardingRequests.id, String(req.params.id)))
-      .limit(1);
-    if (!rows[0]) {
+    const { sql } = await import("drizzle-orm");
+    const result = await db.execute(
+      sql`SELECT id, session_id, external_agent_did, agent_card, impact_delta_report,
+               candidate_files, eval_pass_rate, status, created_at, updated_at,
+               first_hitl_token, first_hitl_outcome, first_hitl_decided_at,
+               second_hitl_token, second_hitl_outcome, second_hitl_decided_at,
+               pr_number, pr_url
+          FROM onboarding_requests WHERE id = ${String(req.params.id)} LIMIT 1`
+    );
+    if (!result.rows[0]) {
       res.status(404).json({ error: "Not found" });
       return;
     }
-    res.json(rows[0]);
+    const row = result.rows[0] as Record<string, unknown>;
+    res.json({
+      id: row.id,
+      status: row.status,
+      externalAgentDid: row.external_agent_did,
+      agentCard: row.agent_card,
+      impactDeltaReport: row.impact_delta_report,
+      candidateFiles: row.candidate_files,
+      evalPassRate: row.eval_pass_rate,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      prNumber: row.pr_number,
+      prUrl: row.pr_url,
+      firstHitlToken: row.first_hitl_token,
+      firstHitlOutcome: row.first_hitl_outcome,
+      firstHitlDecidedAt: row.first_hitl_decided_at,
+      secondHitlToken: row.second_hitl_token,
+      secondHitlOutcome: row.second_hitl_outcome,
+    });
   } catch (err) {
     logger.error({ err }, "Onboarding get error");
     res.status(500).json({ error: "Failed to get onboarding request" });
