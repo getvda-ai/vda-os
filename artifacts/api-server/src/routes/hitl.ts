@@ -6,7 +6,7 @@
  */
 import { Router, type IRouter } from "express";
 import { db, hitlTokens, onboardingRequests, agentPhases } from "@workspace/db";
-import { eq, isNull, and } from "drizzle-orm";
+import { eq, isNull, and, sql } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { advanceOrchestratorPhase } from "../onboarding/onboardingOrchestrator.js";
 import { logger } from "../lib/logger.js";
@@ -209,38 +209,75 @@ router.post("/hitl/respond/:token", async (req, res) => {
 
 router.get("/hitl/pending", async (_req, res) => {
   try {
-    const pending = await db
-      .select()
-      .from(hitlTokens)
-      .where(isNull(hitlTokens.outcome));
+    // Use raw SQL to bypass Drizzle ORM table-object processing which can fail
+    // in production when schema differs from compiled bundle.
+    const result = await db.execute(
+      sql`SELECT token, onboarding_request_id, phase, card_type, payload,
+               outcome, decided_at, created_at, agent_id, company_id,
+               witness_entry_id, context
+          FROM hitl_tokens
+          WHERE outcome IS NULL
+          ORDER BY created_at DESC`
+    );
+
+    type RawRow = {
+      token: string;
+      onboarding_request_id: string | null;
+      phase: number;
+      card_type: string;
+      payload: Record<string, unknown>;
+      outcome: string | null;
+      decided_at: string | null;
+      created_at: string;
+      agent_id: string | null;
+      company_id: number | null;
+      witness_entry_id: string | null;
+      context: Record<string, unknown> | null;
+    };
+
+    const pending = result.rows as RawRow[];
+
+    // Map snake_case DB columns to camelCase to match frontend expectations
+    const mapRow = (p: RawRow, extras: Record<string, unknown> = {}) => ({
+      token: p.token,
+      onboardingRequestId: p.onboarding_request_id,
+      phase: p.phase,
+      cardType: p.card_type,
+      payload: p.payload,
+      outcome: p.outcome,
+      decidedAt: p.decided_at,
+      createdAt: p.created_at,
+      agentId: p.agent_id,
+      companyId: p.company_id,
+      witnessEntryId: p.witness_entry_id,
+      context: p.context,
+      ...extras,
+    });
 
     const enriched = await Promise.all(
       pending.map(async (p) => {
         // Operational exception cards carry their own agentId/companyId
-        if (p.cardType === "operational_exception") {
+        if (p.card_type === "operational_exception") {
           const pl = p.payload as Record<string, unknown>;
-          return {
-            ...p,
+          return mapRow(p, {
             onboarding_status: "operational",
-            agent_name: String(pl.agent_name ?? p.agentId ?? "Unknown Agent"),
-          };
+            agent_name: String(pl.agent_name ?? p.agent_id ?? "Unknown Agent"),
+          });
         }
 
         // Onboarding cards: join with onboarding_requests for status + agent name
-        if (!p.onboardingRequestId) {
-          return { ...p, onboarding_status: "unknown", agent_name: "Unknown Agent" };
+        if (!p.onboarding_request_id) {
+          return mapRow(p, { onboarding_status: "unknown", agent_name: "Unknown Agent" });
         }
-        const reqRows = await db
-          .select({ status: onboardingRequests.status, agentCard: onboardingRequests.agentCard, companyId: onboardingRequests.companyId })
-          .from(onboardingRequests)
-          .where(eq(onboardingRequests.id, p.onboardingRequestId))
-          .limit(1);
-        return {
-          ...p,
-          companyId: p.companyId ?? reqRows[0]?.companyId ?? null,
-          onboarding_status: reqRows[0]?.status ?? "unknown",
-          agent_name: (reqRows[0]?.agentCard as Record<string, unknown>)?.name ?? "Unknown Agent",
-        };
+        const reqResult = await db.execute(
+          sql`SELECT status, agent_card, company_id FROM onboarding_requests WHERE id = ${p.onboarding_request_id} LIMIT 1`
+        );
+        const req = reqResult.rows[0] as { status: string; agent_card: Record<string, unknown>; company_id: number } | undefined;
+        return mapRow(p, {
+          companyId: p.company_id ?? req?.company_id ?? null,
+          onboarding_status: req?.status ?? "unknown",
+          agent_name: (req?.agent_card as Record<string, unknown>)?.name ?? "Unknown Agent",
+        });
       })
     );
 
