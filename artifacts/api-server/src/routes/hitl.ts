@@ -270,11 +270,10 @@ router.get("/hitl/pending", async (_req, res) => {
           return mapRow(p, { onboarding_status: "unknown", agent_name: "Unknown Agent" });
         }
         const reqResult = await db.execute(
-          sql`SELECT status, agent_card, company_id FROM onboarding_requests WHERE id = ${p.onboarding_request_id} LIMIT 1`
+          sql`SELECT status, agent_card FROM onboarding_requests WHERE id = ${p.onboarding_request_id} LIMIT 1`
         );
-        const req = reqResult.rows[0] as { status: string; agent_card: Record<string, unknown>; company_id: number } | undefined;
+        const req = reqResult.rows[0] as { status: string; agent_card: Record<string, unknown> } | undefined;
         return mapRow(p, {
-          companyId: p.company_id ?? req?.company_id ?? null,
           onboarding_status: req?.status ?? "unknown",
           agent_name: (req?.agent_card as Record<string, unknown>)?.name ?? "Unknown Agent",
         });
