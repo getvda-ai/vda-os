@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useApaleoStats, useApaleoReservations } from "./hooks/use-apaleo";
 import VdaMdChatbot from "./VdaMdChatbot.jsx";
 import AmbassadorView      from "./dashboard/AmbassadorView.jsx";
