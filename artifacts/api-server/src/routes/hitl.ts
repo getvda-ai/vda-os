@@ -210,18 +210,7 @@ router.post("/hitl/respond/:token", async (req, res) => {
 router.get("/hitl/pending", async (_req, res) => {
   try {
     const pending = await db
-      .select({
-        token: hitlTokens.token,
-        onboardingRequestId: hitlTokens.onboardingRequestId,
-        phase: hitlTokens.phase,
-        cardType: hitlTokens.cardType,
-        payload: hitlTokens.payload,
-        createdAt: hitlTokens.createdAt,
-        agentId: hitlTokens.agentId,
-        companyId: hitlTokens.companyId,
-        witnessEntryId: hitlTokens.witnessEntryId,
-        context: hitlTokens.context,
-      })
+      .select()
       .from(hitlTokens)
       .where(isNull(hitlTokens.outcome));
 
