@@ -42,6 +42,19 @@ function toAgentSlug(name: string): string {
   return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 }
 
+// Canonical mapping from escalation_target → role_band (mirrors backfillRoleBand.ts).
+// Kept here so role_band is populated at insert time, avoiding NULL until next restart.
+const ESCALATION_TARGET_ROLE_BAND: Record<string, string> = {
+  "Revenue Manager":      "hotel_gm",
+  "Operations Director":  "hotel_gm",
+  "Credit Control team":  "hotel_gm",
+  "VP Revenue":           "regional_gm",
+  "CFO":                  "regional_gm",
+  "CISO":                 "operations_chief",
+  "first_hitl_approval":  "compliance_officer",
+  "second_hitl_approval": "compliance_officer",
+};
+
 // ─── Operational HITL creation ─────────────────────────────────────────────────
 
 async function createOperationalHitlToken(
@@ -64,12 +77,18 @@ async function createOperationalHitlToken(
 
     const currentPhase = phaseRows[0]?.phase ?? "crawl";
 
+    // Derive role_band from escalation_target at insert time so role-scoped queries work immediately.
+    const roleBand = entry.decision.escalationTarget
+      ? (ESCALATION_TARGET_ROLE_BAND[entry.decision.escalationTarget] ?? null)
+      : null;
+
     await db.insert(hitlTokens).values({
       onboardingRequestId: null,
       phase: 0,
       cardType: "operational_exception",
       agentId,
       companyId: entry.companyId,
+      roleBand,
       witnessEntryId: String(witnessEntryId),
       payload: {
         type: "operational_exception",

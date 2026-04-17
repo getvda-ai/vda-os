@@ -130,9 +130,11 @@ router.post("/hitl/respond/:token", async (req, res) => {
     if (hitl.cardType === "operational_exception") {
       const agentId = hitl.agentId;
       const companyId = hitl.companyId;
+      const roleBand = hitl.roleBand;
 
       if (agentId && companyId) {
         try {
+          // ── Overall agreement rate (across all bands for this agent+company) ──
           const allResolved = await db
             .select({ outcome: hitlTokens.outcome })
             .from(hitlTokens)
@@ -164,6 +166,47 @@ router.post("/hitl/respond/:token", async (req, res) => {
               );
           }
 
+          // ── Per-band agreement rate (persisted into role_band_phases[band]) ──
+          if (roleBand) {
+            const bandResolved = await db
+              .select({ outcome: hitlTokens.outcome })
+              .from(hitlTokens)
+              .where(
+                and(
+                  eq(hitlTokens.cardType, "operational_exception"),
+                  eq(hitlTokens.agentId, agentId),
+                  eq(hitlTokens.companyId, companyId),
+                  eq(hitlTokens.roleBand, roleBand),
+                )
+              );
+
+            const bResolved = bandResolved.filter(r => r.outcome === "approved" || r.outcome === "rejected");
+            const bTotal = bResolved.length;
+            const bApproved = bResolved.filter(r => r.outcome === "approved").length;
+
+            if (bTotal > 0) {
+              // Fetch current roleBandPhases JSON and merge the updated band rate.
+              const phaseRows = await db
+                .select({ roleBandPhases: agentPhases.roleBandPhases })
+                .from(agentPhases)
+                .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)))
+                .limit(1);
+
+              const currentBandPhases = (phaseRows[0]?.roleBandPhases ?? {}) as Record<string, { phase?: string; agreementRate?: number | null; overrideRate?: number | null }>;
+              const bandEntry = currentBandPhases[roleBand] ?? { phase: "crawl" };
+              currentBandPhases[roleBand] = {
+                ...bandEntry,
+                agreementRate: bApproved / bTotal,
+                overrideRate: (bTotal - bApproved) / bTotal,
+              };
+
+              await db
+                .update(agentPhases)
+                .set({ roleBandPhases: currentBandPhases })
+                .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)));
+            }
+          }
+
           const payload = hitl.payload as Record<string, unknown>;
           await writeGovernanceEvent({
             companyId,
@@ -182,6 +225,7 @@ router.post("/hitl/respond/:token", async (req, res) => {
               outcome,
               decided_by,
               agent_id: agentId,
+              role_band: roleBand,
               witness_entry_id: hitl.witnessEntryId,
               agreement_rate: total > 0 ? approvedCount / total : null,
               override_rate: total > 0 ? rejectedCount / total : null,
