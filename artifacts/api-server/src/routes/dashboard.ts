@@ -100,6 +100,40 @@ router.get("/dashboard/phases", async (req, res) => {
   }
 });
 
+// ─── GET /api/dashboard/phases/portfolio ──────────────────────────────────────
+// Returns per-hotel phase summary across all 5 citizenM properties.
+// Used by the Wizard Step 8 (Portfolio Rollout) to count hotels at walk/run phase.
+
+router.get("/dashboard/phases/portfolio", async (req, res) => {
+  try {
+    const rows = await db
+      .select({ companyId: agentPhases.companyId, phase: agentPhases.phase })
+      .from(agentPhases)
+      .where(inArray(agentPhases.companyId, COMPANIES));
+
+    // Summarise per-hotel: has at least one agent at walk or run phase
+    const summary: Record<number, { walkRunCount: number; totalAgents: number }> = {};
+    for (const cid of COMPANIES) {
+      summary[cid] = { walkRunCount: 0, totalAgents: 0 };
+    }
+    for (const row of rows) {
+      if (!summary[row.companyId]) continue;
+      summary[row.companyId].totalAgents += 1;
+      if (row.phase === "walk" || row.phase === "run") {
+        summary[row.companyId].walkRunCount += 1;
+      }
+    }
+
+    // Count hotels with at least one walk/run agent
+    const hotelsAtWalkRun = Object.values(summary).filter(s => s.walkRunCount > 0).length;
+
+    res.json({ summary, hotelsAtWalkRun, totalHotels: COMPANIES.length });
+  } catch (err) {
+    logger.error({ err }, "dashboard/phases/portfolio error");
+    res.status(500).json({ error: "Failed to load portfolio phase summary" });
+  }
+});
+
 // ─── GET /api/dashboard/shift-summary ─────────────────────────────────────────
 
 router.get("/dashboard/shift-summary", async (req, res) => {
@@ -556,15 +590,23 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
     }
 
     // Governance gate: block if ANY unresolved HITL tokens for this agent+band+company.
-    // Also catches null-company tokens (compliance-officer approval cards issued with company_id = NULL
-    // so all compliance officers see them globally — they must still block promotion until resolved).
+    // For compliance_officer band: also check null-company tokens (global CO approval cards).
+    // For all other bands: strict company_id scope only — null-company tokens do not affect them.
+    const complianceBand = roleBand === "compliance_officer";
     const unresolvedCheck = await db.execute(
-      sql`SELECT token, card_type FROM hitl_tokens
-          WHERE agent_id = ${agentId}
-            AND (company_id = ${companyId} OR company_id IS NULL)
-            AND role_band = ${roleBand}
-            AND outcome IS NULL
-          LIMIT 5`
+      complianceBand
+        ? sql`SELECT token, card_type FROM hitl_tokens
+              WHERE agent_id = ${agentId}
+                AND (company_id = ${companyId} OR company_id IS NULL)
+                AND role_band = ${roleBand}
+                AND outcome IS NULL
+              LIMIT 5`
+        : sql`SELECT token, card_type FROM hitl_tokens
+              WHERE agent_id = ${agentId}
+                AND company_id = ${companyId}
+                AND role_band = ${roleBand}
+                AND outcome IS NULL
+              LIMIT 5`
     );
     if (unresolvedCheck.rows.length > 0) {
       const cardTypes = [...new Set((unresolvedCheck.rows as { card_type: string }[]).map(r => r.card_type))];

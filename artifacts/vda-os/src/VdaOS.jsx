@@ -7738,6 +7738,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   // Phase Management state
   const [phases, setPhases] = useState([]);
   const [phasesLoading, setPhasesLoading] = useState(false);
+  const [portfolioPhases, setPortfolioPhases] = useState({ hotelsAtWalkRun: 0, totalHotels: 5 });
   const [promotingAgent, setPromotingAgent] = useState(null);
   const [promoteMsg, setPromoteMsg] = useState(null);
   const [dossierOpen, setDossierOpen] = useState({});
@@ -7789,6 +7790,13 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
     } catch { /* silent */ }
   }, [companyId, role]);
 
+  const fetchPortfolio = useCallback(async () => {
+    try {
+      const r = await fetch("/api/dashboard/phases/portfolio");
+      if (r.ok) { const d = await r.json(); setPortfolioPhases(d); }
+    } catch { /* silent */ }
+  }, []);
+
   const fetchPhases = useCallback(async () => {
     if (!companyId) return;
     setPhasesLoading(true);
@@ -7816,8 +7824,8 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
     if (subTab === "phases") { fetchPhases(); fetchPending(); fetchAllPending(); }
   }, [subTab, fetchPhases, fetchPending, fetchAllPending]);
   useEffect(() => {
-    if (subTab === "wizard") { fetchPending(); fetchPhases(); fetchRequests(); }
-  }, [subTab, fetchPending, fetchPhases, fetchRequests]);
+    if (subTab === "wizard") { fetchPending(); fetchPhases(); fetchRequests(); fetchPortfolio(); }
+  }, [subTab, fetchPending, fetchPhases, fetchRequests, fetchPortfolio]);
 
   // Poll pending every 15s when on approvals tab
   useEffect(() => {
@@ -8066,12 +8074,13 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
             if (agentAtWalkRun || agentAtCrawl) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 8 — Portfolio Rollout: NOT_STARTED until at least 2 hotels have walk/run agents
-          // (= the rollout is spreading across the portfolio). COMPLETE when all 5 hotels have walk/run.
+          // Step 8 — Portfolio Rollout: uses cross-hotel data from /api/dashboard/phases/portfolio.
+          // NOT_STARTED until ≥2 hotels have at least one walk/run agent.
+          // COMPLETE when all 5 hotels have at least one walk/run agent.
           if (idx === 7) {
-            const walkRunHotelCount = phases.filter(a => a.phase === "walk" || a.phase === "run").length;
-            if (walkRunHotelCount >= 5) return STEP_STATUS.COMPLETE;
-            if (walkRunHotelCount >= 2) return STEP_STATUS.IN_PROGRESS;
+            const hotelsAtWalkRun = portfolioPhases.hotelsAtWalkRun ?? 0;
+            if (hotelsAtWalkRun >= 5) return STEP_STATUS.COMPLETE;
+            if (hotelsAtWalkRun >= 2) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
           return STEP_STATUS.NOT_STARTED;
@@ -8238,8 +8247,8 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
             let queueRequests = requests;
             let roleFilter = null;
             if (role === "ambassador" || role === "senior_ambassador") {
-              queueRequests = requests.filter(r => r.status === "shadow_review");
-              roleFilter = { label: "Shadow Review stage only", desc: "Ambassadors see candidate requests currently in the shadow-review stage — evaluate and pass upward for HITL sign-off." };
+              queueRequests = requests.filter(r => !["onboarded"].includes(r.status));
+              roleFilter = { label: "Active candidates", desc: "Ambassadors see all active onboarding candidates — review progress and escalate to Hotel GM for HITL sign-off." };
             } else if (role === "hotel_gm") {
               queueRequests = requests.filter(r => r.status === "awaiting_first_hitl" || r.status === "awaiting_second_hitl");
               roleFilter = { label: "HITL approval gates only", desc: "Hotel GMs see requests awaiting Gate 1 or Gate 2 approval — these require your authority-band sign-off before the agent can progress." };

@@ -196,7 +196,6 @@ router.post("/hitl/respond/:token", async (req, res) => {
               const overallPhase = phaseRows[0]?.phase ?? "crawl";
               const FRONT_LINE_BANDS = ["ambassador", "senior_ambassador", "hotel_gm"];
               const CROSS_PROPERTY_BANDS = ["regional_gm", "operations_chief", "compliance_officer"];
-              const ALL_BANDS = [...FRONT_LINE_BANDS, ...CROSS_PROPERTY_BANDS];
               const stored = (phaseRows[0]?.roleBandPhases ?? {}) as Record<string, { phase?: string; agreementRate?: number | null; overrideRate?: number | null }>;
 
               // Synthesize full structure: defaults for missing bands, preserve stored values for others.
@@ -219,12 +218,6 @@ router.post("/hitl/respond/:token", async (req, res) => {
                 .update(agentPhases)
                 .set({ roleBandPhases: fullBandPhases })
                 .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)));
-
-              // Verify all 6 bands are in the written object (defensive sanity check)
-              const missingBands = ALL_BANDS.filter(b => !fullBandPhases[b]);
-              if (missingBands.length > 0) {
-                logger.warn({ agentId, companyId, roleBand, missingBands }, "roleBandPhases write has missing bands — check synthesizer logic");
-              }
             }
           }
 
