@@ -8002,6 +8002,9 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
         const pendingForRole = pending.filter(p => p.cardType === "approval" || p.cardType === "raci_notification");
         const hasPendingHitl = pendingForRole.length > 0;
         const totalWalkRun = phases.filter(a => a.phase === "walk" || a.phase === "run").length;
+        // Governance phase presence — agent in phases table = fully committed (Steps 5/6/7 COMPLETE)
+        const agentDid = latestReq?.externalAgentDid ?? latestReq?.agentCard?.id ?? latestReq?.agentId;
+        const agentCommitted = !!(agentDid && phases.some(p => p.agentId === agentDid));
 
         const STEP_STATUS = {
           NOT_STARTED: "not_started",
@@ -8017,33 +8020,36 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
           if (idx === 1) return ["skill_analyzing","impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["identity_checking"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 2) return ["impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["skill_analyzing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 3) return ["evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["impact_assessing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
-          // Step 5 — Sandbox eval: COMPLETE when evalPassRate ≥ 95% OR first HITL token exists (evidence agent entered HITL phase)
+          // Step 5 — Sandbox Eval: COMPLETE when agent appears in governance phases table (committed = all gates cleared)
+          // or when request status shows sandbox stage has been passed.
           if (idx === 4) {
-            const evalPassed = latestReq.evalPassRate != null && parseFloat(latestReq.evalPassRate) >= 0.95;
-            const hitlGateReached = latestReq.firstHitlToken != null; // HITL token issued = sandbox phase cleared
-            if (evalPassed || hitlGateReached || ["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
+            if (agentCommitted || ["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
             if (s === "evaluating") return STEP_STATUS.IN_PROGRESS;
+            // Also in-progress if evalPassRate exists but is below threshold
+            if (latestReq.evalPassRate != null && parseFloat(latestReq.evalPassRate) < 0.95) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 6 — HITL Gates: derive strictly from HITL token outcomes (phase-gate state)
+          // Step 6 — HITL Gates: COMPLETE when agent in governance phases (means both gates were approved)
+          // or when HITL token outcomes confirm full approval.
           if (idx === 5) {
-            if (latestReq.secondHitlOutcome === "approved" || ["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
-            if (latestReq.firstHitlOutcome === "approved" || s === "awaiting_hitl_2") return STEP_STATUS.IN_PROGRESS;
-            if (s === "awaiting_hitl" || latestReq.firstHitlToken != null) return STEP_STATUS.IN_PROGRESS;
+            if (agentCommitted || ["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
+            if (latestReq.secondHitlOutcome === "approved") return STEP_STATUS.COMPLETE;
+            if (latestReq.firstHitlOutcome === "approved" || ["awaiting_hitl","awaiting_hitl_2"].includes(s)) return STEP_STATUS.IN_PROGRESS;
+            if (latestReq.firstHitlToken != null) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 7 — Governance Commit: COMPLETE when prUrl exists (actual commit) or agent appears in governance phases table
+          // Step 7 — Governance Commit: COMPLETE solely when agent appears in the governance phases table
+          // (phases table is the canonical source of truth that governance files were committed).
           if (idx === 6) {
-            const agentId = latestReq.externalAgentDid ?? latestReq.agentCard?.id;
-            const agentInPhases = agentId && phases.some(p => p.agentId === agentId);
-            if (latestReq.prUrl || agentInPhases || s === "onboarded") return STEP_STATUS.COMPLETE;
-            if (s === "committing") return STEP_STATUS.IN_PROGRESS;
+            if (agentCommitted) return STEP_STATUS.COMPLETE;
+            if (s === "committing" || s === "onboarded") return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 8 — Portfolio Rollout: derive from governance phases across all hotels (walk/run = rollout evidence)
+          // Step 8 — Portfolio Rollout: COMPLETE when all 5 citizenM hotels have walk/run agents.
+          // Derives entirely from governance phase data across properties.
           if (idx === 7) {
-            if (totalWalkRun >= 5) return STEP_STATUS.COMPLETE;  // All 5 hotels at walk/run
-            if (totalWalkRun >= 1) return STEP_STATUS.IN_PROGRESS; // At least one hotel advanced
+            if (totalWalkRun >= 5) return STEP_STATUS.COMPLETE;
+            if (totalWalkRun >= 1) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
           return STEP_STATUS.NOT_STARTED;

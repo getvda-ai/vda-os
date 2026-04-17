@@ -69,16 +69,20 @@ router.get("/dashboard/phases", async (req, res) => {
     const CROSS_PROPERTY_BANDS = ["regional_gm", "operations_chief", "compliance_officer"];
 
     function synthesiseRoleBandPhases(overallPhase: string, stored: unknown) {
-      if (stored && typeof stored === "object") return stored;
       const defaultPhase = ["crawl", "walk", "run"].includes(overallPhase) ? overallPhase : "crawl";
-      const result: Record<string, { phase: string; agreementRate: null; overrideRate: null }> = {};
+      // Build the canonical 6-key default object
+      const defaults: Record<string, { phase: string; agreementRate: null; overrideRate: null }> = {};
       for (const band of FRONT_LINE_BANDS) {
-        result[band] = { phase: defaultPhase, agreementRate: null, overrideRate: null };
+        defaults[band] = { phase: defaultPhase, agreementRate: null, overrideRate: null };
       }
       for (const band of CROSS_PROPERTY_BANDS) {
-        result[band] = { phase: "not_applicable", agreementRate: null, overrideRate: null };
+        defaults[band] = { phase: "not_applicable", agreementRate: null, overrideRate: null };
       }
-      return result;
+      // Merge stored object over defaults — ensures all 6 keys are always present even when stored is partial
+      if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+        return { ...defaults, ...(stored as Record<string, unknown>) };
+      }
+      return defaults;
     }
 
     const enriched = phases.map((p) => ({
@@ -549,20 +553,22 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
       return;
     }
 
-    // Governance gate: block if unresolved HITL tokens for this agent+band+company
+    // Governance gate: block if ANY unresolved HITL tokens for this agent+band+company
+    // Covers operational exceptions, approvals, and RACI notifications alike.
     const unresolvedCheck = await db.execute(
-      sql`SELECT token FROM hitl_tokens
-          WHERE card_type = 'operational_exception'
-            AND agent_id = ${agentId}
+      sql`SELECT token, card_type FROM hitl_tokens
+          WHERE agent_id = ${agentId}
             AND company_id = ${companyId}
             AND role_band = ${roleBand}
             AND outcome IS NULL
-          LIMIT 1`
+          LIMIT 5`
     );
     if (unresolvedCheck.rows.length > 0) {
+      const cardTypes = [...new Set((unresolvedCheck.rows as { card_type: string }[]).map(r => r.card_type))];
       res.status(409).json({
-        error: `Cannot promote '${agentId}' band '${roleBand}': unresolved operational exception(s) must be reviewed first`,
-        blocked_by: "unresolved_operational_exceptions",
+        error: `Cannot promote '${agentId}' band '${roleBand}': ${unresolvedCheck.rows.length} unresolved HITL token(s) must be reviewed first`,
+        blocked_by: "unresolved_hitl_tokens",
+        card_types: cardTypes,
         currentBandPhase,
         roleBand,
       });
