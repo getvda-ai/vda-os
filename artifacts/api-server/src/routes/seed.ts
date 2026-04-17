@@ -2960,7 +2960,21 @@ router.post("/admin/seed-companies", async (_req, res) => {
     }
   }
 
-  // ── C2MD ENRICHMENT PASS ─────────────────────────────────────────────────────
+  // ── RESPOND IMMEDIATELY ───────────────────────────────────────────────────────
+  // Return the seeded company records now so the UI isn't blocked by the AI enrichment pass.
+  // C2MD enrichment runs asynchronously in the background after the response is sent.
+  {
+    const propertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
+    const seededRows = await db
+      .select()
+      .from(companies)
+      .where(inArray(companies.apaleoPropertyId, propertyIds))
+      .orderBy(companies.id);
+    const success = errors.length === 0 && seededRows.length === CITIZENM_PROPERTIES.length;
+    res.json({ success, created, existing, errors: errors.length > 0 ? errors : undefined, log, companies: seededRows, enrichment: "running_in_background" });
+  }
+
+  // ── C2MD ENRICHMENT PASS (background) ────────────────────────────────────────
   // Generate brand-adapted markdown for each of the 23 VDA-MD governance files using
   // Claude (up to 19 calls, shared across all 5 citizenM hotels since they share a brand).
   // Idempotent: files containing C2MD_MARKER are skipped.
@@ -3077,16 +3091,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
     c2mdLog.push(`C2MD: enrichment pass failed — ${msg}`);
   }
 
-  // Return exactly the 5 seeded citizenM property records
-  const propertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
-  const seededRows = await db
-    .select()
-    .from(companies)
-    .where(inArray(companies.apaleoPropertyId, propertyIds))
-    .orderBy(companies.id);
-
-  const success = errors.length === 0 && seededRows.length === CITIZENM_PROPERTIES.length;
-  res.json({ success, created, existing, errors: errors.length > 0 ? errors : undefined, log: [...log, ...c2mdLog], companies: seededRows });
+  // Response was already sent above — C2MD enrichment result is logged server-side only.
 });
 
 // ─── POST /api/admin/enrich-c2md ─────────────────────────────────────────────
