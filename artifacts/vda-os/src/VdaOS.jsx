@@ -7779,11 +7779,15 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   const fetchAllPending = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (companyId) params.set("company_id", String(companyId));
+      // Global roles (regional_gm, operations_chief, compliance_officer) span all properties —
+      // do NOT filter by company_id so other-queues counts include cross-property cards.
+      if (companyId && !["regional_gm", "operations_chief", "compliance_officer"].includes(role)) {
+        params.set("company_id", String(companyId));
+      }
       const r = await fetch(`/api/hitl/pending?${params}`);
       if (r.ok) { const d = await r.json(); setAllPending(d.pending || []); }
     } catch { /* silent */ }
-  }, [companyId]);
+  }, [companyId, role]);
 
   const fetchPhases = useCallback(async () => {
     if (!companyId) return;
@@ -7809,8 +7813,8 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   useEffect(() => { fetchPending(); }, [fetchPending]); // re-fetch when role or companyId changes
   useEffect(() => { if (subTab === "approvals") { fetchPending(); fetchAllPending(); } }, [subTab, fetchPending, fetchAllPending]);
   useEffect(() => {
-    if (subTab === "phases") { fetchPhases(); fetchPending(); }
-  }, [subTab, fetchPhases, fetchPending]);
+    if (subTab === "phases") { fetchPhases(); fetchPending(); fetchAllPending(); }
+  }, [subTab, fetchPhases, fetchPending, fetchAllPending]);
   useEffect(() => {
     if (subTab === "wizard") { fetchPending(); fetchPhases(); fetchRequests(); }
   }, [subTab, fetchPending, fetchPhases, fetchRequests]);
@@ -7933,6 +7937,18 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
     if (aid) { opPendingByAgent[aid] = [...(opPendingByAgent[aid] || []), card]; }
   }
 
+  // Cross-role HITL blocker index: uses allPending (not role-scoped) so that Phase Management
+  // promote buttons are blocked by tokens belonging to ANY role-band, not just the active role's bands.
+  const allOpPendingByAgent = {};
+  const allOperationalPending = allPending.filter(p =>
+    p.cardType === "operational_exception" &&
+    (p.companyId == null || String(p.companyId) === String(companyId))
+  );
+  for (const card of allOperationalPending) {
+    const aid = card.agentId || (card.payload && card.payload.agent_id);
+    if (aid) { allOpPendingByAgent[aid] = [...(allOpPendingByAgent[aid] || []), card]; }
+  }
+
   // Role display info (colours from DASHBOARD_ROLES)
   const roleInfo = DASHBOARD_ROLES.find(r => r.id === role) || DASHBOARD_ROLES[2];
 
@@ -8002,9 +8018,15 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
         const pendingForRole = pending.filter(p => p.cardType === "approval" || p.cardType === "raci_notification");
         const hasPendingHitl = pendingForRole.length > 0;
         const totalWalkRun = phases.filter(a => a.phase === "walk" || a.phase === "run").length;
-        // Governance phase presence — agent in phases table = fully committed (Steps 5/6/7 COMPLETE)
+        // Phase state — use governance phases table as canonical source for Steps 5-8.
+        // agentDid: try multiple fields since the request may use DID, agentCard.id, or agentId slug.
         const agentDid = latestReq?.externalAgentDid ?? latestReq?.agentCard?.id ?? latestReq?.agentId;
-        const agentCommitted = !!(agentDid && phases.some(p => p.agentId === agentDid));
+        // agentAtCrawl: agent has been onboarded — governance files committed, entered crawl phase.
+        const agentAtCrawl = !!(agentDid && phases.some(p => p.agentId === agentDid && p.phase === "crawl"));
+        // agentAtWalkRun: agent promoted beyond initial crawl — operating with established governance.
+        const agentAtWalkRun = !!(agentDid && phases.some(p => p.agentId === agentDid && (p.phase === "walk" || p.phase === "run")));
+        // agentInAnyPhase: agent is in governance phases table (crawl + walk + run combined).
+        const agentInAnyPhase = agentAtCrawl || agentAtWalkRun;
 
         const STEP_STATUS = {
           NOT_STARTED: "not_started",
@@ -8020,33 +8042,34 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
           if (idx === 1) return ["skill_analyzing","impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["identity_checking"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 2) return ["impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["skill_analyzing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 3) return ["evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["impact_assessing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
-          // Step 5 — Sandbox Eval: COMPLETE when agent appears in governance phases table (committed = all gates cleared)
-          // or when request status shows sandbox stage has been passed.
+          // Step 5 — Sandbox Eval: COMPLETE when agent enters crawl/walk/run phase (= onboarded,
+          // meaning sandbox + HITL gates were cleared). IN_PROGRESS during active evaluation.
           if (idx === 4) {
-            if (agentCommitted || ["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
-            if (s === "evaluating") return STEP_STATUS.IN_PROGRESS;
-            // Also in-progress if evalPassRate exists but is below threshold
-            if (latestReq.evalPassRate != null && parseFloat(latestReq.evalPassRate) < 0.95) return STEP_STATUS.IN_PROGRESS;
+            if (agentInAnyPhase) return STEP_STATUS.COMPLETE; // Any phase = sandbox cleared
+            if (["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
+            if (s === "evaluating" || (latestReq.evalPassRate != null && parseFloat(latestReq.evalPassRate) < 0.95)) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 6 — HITL Gates: COMPLETE when agent in governance phases (means both gates were approved)
-          // or when HITL token outcomes confirm full approval.
+          // Step 6 — HITL Gates: COMPLETE when agent enters any phase (= gates were approved and agent committed).
+          // Derives from HITL outcome state when phase data is not yet available.
           if (idx === 5) {
-            if (agentCommitted || ["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
+            if (agentInAnyPhase || ["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
             if (latestReq.secondHitlOutcome === "approved") return STEP_STATUS.COMPLETE;
             if (latestReq.firstHitlOutcome === "approved" || ["awaiting_hitl","awaiting_hitl_2"].includes(s)) return STEP_STATUS.IN_PROGRESS;
             if (latestReq.firstHitlToken != null) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 7 — Governance Commit: COMPLETE solely when agent appears in the governance phases table
-          // (phases table is the canonical source of truth that governance files were committed).
+          // Step 7 — Governance Commit: COMPLETE when agent is at walk or run phase
+          // (= has been operating under governance and earned phase promotion, confirming
+          // files were committed and the governance process is producing results).
+          // IN_PROGRESS when agent is at crawl (just committed, not yet promoted).
           if (idx === 6) {
-            if (agentCommitted) return STEP_STATUS.COMPLETE;
-            if (s === "committing" || s === "onboarded") return STEP_STATUS.IN_PROGRESS;
+            if (agentAtWalkRun) return STEP_STATUS.COMPLETE;
+            if (agentAtCrawl || s === "onboarded" || s === "committing") return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
           // Step 8 — Portfolio Rollout: COMPLETE when all 5 citizenM hotels have walk/run agents.
-          // Derives entirely from governance phase data across properties.
+          // Derives entirely from governance phase state across all hotel properties.
           if (idx === 7) {
             if (totalWalkRun >= 5) return STEP_STATUS.COMPLETE;
             if (totalWalkRun >= 1) return STEP_STATUS.IN_PROGRESS;
@@ -8729,14 +8752,18 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                             const isNA = bandData.phase === "not_applicable";
                             const bandPhase = isNA ? null : bandData.phase;
                             const nextBandPhase = bandPhase === "crawl" ? "walk" : bandPhase === "walk" ? "run" : null;
-                            const bandCards = cards.filter(c => c.roleBand === band.id);
-                            const hasBlocker = bandCards.length > 0;
+                            // Use cross-role allOpPendingByAgent so exceptions belonging to any band's role are counted.
+                            const allBandCards = (allOpPendingByAgent[agent.agentId] || []).filter(c => c.roleBand === band.id);
+                            const hasBlocker = allBandCards.length > 0;
                             const bandAgreement = bandData.agreementRate != null ? (parseFloat(bandData.agreementRate) * 100).toFixed(0) : null;
                             const isPromotingThisBand = promotingAgent === `${agent.agentId}:${band.id}`;
-                            const belowAgreementThreshold = bandData.agreementRate != null && parseFloat(bandData.agreementRate) < 0.95;
+                            // Null agreementRate = no operational exception history yet = insufficient data, block promotion.
+                            const belowAgreementThreshold = bandData.agreementRate == null || parseFloat(bandData.agreementRate) < 0.95;
                             const isPromoteDisabled = hasBlocker || belowAgreementThreshold || isPromotingThisBand;
                             const promoteTitle = hasBlocker
-                              ? `Resolve ${bandCards.length} pending exception(s) for this band first`
+                              ? `Resolve ${allBandCards.length} pending exception(s) for this band first`
+                              : bandData.agreementRate == null
+                              ? `No agreement-rate data yet — resolve at least one operational exception before promoting`
                               : belowAgreementThreshold
                               ? `Agreement rate ${bandAgreement}% is below the 95% threshold required to promote`
                               : `Promote ${band.label} → ${nextBandPhase}`;
