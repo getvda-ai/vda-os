@@ -356,6 +356,9 @@ async function runPhase4(
   await updateStatus(id, "awaiting_first_hitl");
   // Derive agentId from agentCard name (same algorithm used when committing to agentPhases).
   const candidateAgentId = agentCard.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  // Fetch companyId from the onboarding request (set from submitting agent's VC company claim).
+  const reqRow = await getRequest(id);
+  const submittingCompanyId = reqRow?.companyId ?? null;
 
   const riskLevel = impactDelta.conflicts.some(c => c.type === "must_not_boundary") ? "high"
     : impactDelta.conflicts.some(c => c.type === "authority_collision") ? "medium"
@@ -383,7 +386,8 @@ async function runPhase4(
     phase: 1,
   };
 
-  const token = await createHitlToken(id, 4, "approval", firstCardPayload, { agentId: candidateAgentId });
+  // First HITL approval is compliance-officer-scoped (global) — no companyId so all COs see it.
+  const token = await createHitlToken(id, 4, "approval", firstCardPayload, { agentId: candidateAgentId, companyId: null });
   await db.update(onboardingRequests)
     .set({ firstHitlToken: token, updatedAt: new Date() })
     .where(eq(onboardingRequests.id, id));
@@ -396,7 +400,7 @@ async function runPhase4(
     risk_level: riskLevel,
   });
 
-  // RACI notification cards — non-blocking; roleBand defaults to hotel_gm via ONBOARDING_PAYLOAD_ROLE_BAND.
+  // RACI notification cards — hotel-scoped to the submitting company so only that hotel's GM sees them.
   for (const raciEx of impactDelta.raci_exceptions) {
     for (const owner of raciEx.candidate_owners) {
       await createHitlToken(id, 4, "raci_notification", {
@@ -407,7 +411,7 @@ async function runPhase4(
         all_candidate_owners: raciEx.candidate_owners,
         message: `Cross-domain governance intersection detected for "${agentCard.name}" onboarding. This card is for information only — the main approval gate does not require your action. The intersection ${raciEx.intersection} has multiple candidate owners: ${raciEx.candidate_owners.join(", ")}.`,
         resolution: raciEx.resolution,
-      }, { agentId: candidateAgentId });
+      }, { agentId: candidateAgentId, companyId: submittingCompanyId ?? undefined });
     }
   }
 }
@@ -477,7 +481,8 @@ async function runPhase6(
   };
 
   const candidateAgentId = agentCard.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const token = await createHitlToken(id, 6, "approval", secondCardPayload, { agentId: candidateAgentId });
+  // Second HITL approval is also compliance-officer-scoped (global) — no companyId.
+  const token = await createHitlToken(id, 6, "approval", secondCardPayload, { agentId: candidateAgentId, companyId: null });
   await db.update(onboardingRequests)
     .set({ secondHitlToken: token, updatedAt: new Date() })
     .where(eq(onboardingRequests.id, id));
@@ -613,8 +618,9 @@ export async function startOnboarding(params: {
   agentCard: AgentCard;
   externalAgentDid: string;
   rpcId: string | number | null;
+  companyId?: number | null;
 }): Promise<{ onboardingId: string; artifact: string } | { error: ReturnType<typeof jsonRpcError> }> {
-  const { sessionId, agentCard, externalAgentDid, rpcId } = params;
+  const { sessionId, agentCard, externalAgentDid, rpcId, companyId } = params;
 
   // §2.1 Enforcement Rule — read the Onboarding Agent's own governance envelope
   // from the platform sentinel (companyId=0) before accepting any request.
@@ -679,9 +685,10 @@ export async function startOnboarding(params: {
     };
   }
 
-  // Create onboarding request record
+  // Create onboarding request record — store companyId from submitting agent's VC for token scoping.
   const rows = await db.insert(onboardingRequests).values({
     sessionId,
+    companyId: companyId ?? null,
     externalAgentDid,
     agentCard: agentCard as unknown as Record<string, unknown>,
     status: "received",

@@ -103,12 +103,16 @@ router.post("/a2a/onboarding",
       }
 
       const externalAgentDid = req.vcPayload?.agentId ?? "unknown";
+      // Extract companyId from the VC of the submitting agent — used to scope RACI notifications
+      // to the correct hotel. HITL approval cards remain NULL-company (global compliance visibility).
+      const submittingCompanyId = req.vcPayload?.companyId ? Number(req.vcPayload.companyId) : null;
 
       const result = await startOnboarding({
         sessionId,
         agentCard: agentCard as unknown as Parameters<typeof startOnboarding>[0]["agentCard"],
         externalAgentDid,
         rpcId,
+        companyId: submittingCompanyId,
       });
 
       if ("error" in result) {

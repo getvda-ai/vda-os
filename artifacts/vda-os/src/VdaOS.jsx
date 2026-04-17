@@ -8042,16 +8042,15 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
           if (idx === 1) return ["skill_analyzing","impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["identity_checking"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 2) return ["impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["skill_analyzing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 3) return ["evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["impact_assessing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
-          // Step 5 — Sandbox Eval: COMPLETE when agent enters crawl/walk/run phase (= onboarded,
-          // meaning sandbox + HITL gates were cleared). IN_PROGRESS during active evaluation.
+          // Step 5 — Sandbox Eval: IN_PROGRESS at crawl (= sandbox cleared, governance committed,
+          // but agent not yet promoted). COMPLETE when agent reaches walk/run (= sandbox proven by operations).
           if (idx === 4) {
-            if (agentInAnyPhase) return STEP_STATUS.COMPLETE; // Any phase = sandbox cleared
-            if (["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
-            if (s === "evaluating" || (latestReq.evalPassRate != null && parseFloat(latestReq.evalPassRate) < 0.95)) return STEP_STATUS.IN_PROGRESS;
+            if (agentAtWalkRun) return STEP_STATUS.COMPLETE;
+            if (agentAtCrawl || ["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) || s === "evaluating") return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 6 — HITL Gates: COMPLETE when agent enters any phase (= gates were approved and agent committed).
-          // Derives from HITL outcome state when phase data is not yet available.
+          // Step 6 — HITL Gates: COMPLETE when agent is in any governance phase (= all gates approved).
+          // Derives from HITL outcome state as fallback.
           if (idx === 5) {
             if (agentInAnyPhase || ["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
             if (latestReq.secondHitlOutcome === "approved") return STEP_STATUS.COMPLETE;
@@ -8059,20 +8058,19 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
             if (latestReq.firstHitlToken != null) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 7 — Governance Commit: COMPLETE when agent is at walk or run phase
-          // (= has been operating under governance and earned phase promotion, confirming
-          // files were committed and the governance process is producing results).
-          // IN_PROGRESS when agent is at crawl (just committed, not yet promoted).
+          // Step 7 — Governance Commit: IN_PROGRESS at walk (= governance proven operational).
+          // COMPLETE only when agent reaches run (= fully operational, governance files confirmed active).
           if (idx === 6) {
-            if (agentAtWalkRun) return STEP_STATUS.COMPLETE;
-            if (agentAtCrawl || s === "onboarded" || s === "committing") return STEP_STATUS.IN_PROGRESS;
+            if (phases.some(p => p.agentId === agentDid && p.phase === "run")) return STEP_STATUS.COMPLETE;
+            if (agentAtWalkRun || agentAtCrawl) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 8 — Portfolio Rollout: COMPLETE when all 5 citizenM hotels have walk/run agents.
-          // Derives entirely from governance phase state across all hotel properties.
+          // Step 8 — Portfolio Rollout: NOT_STARTED until at least 2 hotels have walk/run agents
+          // (= the rollout is spreading across the portfolio). COMPLETE when all 5 hotels have walk/run.
           if (idx === 7) {
-            if (totalWalkRun >= 5) return STEP_STATUS.COMPLETE;
-            if (totalWalkRun >= 1) return STEP_STATUS.IN_PROGRESS;
+            const walkRunHotelCount = phases.filter(a => a.phase === "walk" || a.phase === "run").length;
+            if (walkRunHotelCount >= 5) return STEP_STATUS.COMPLETE;
+            if (walkRunHotelCount >= 2) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
           return STEP_STATUS.NOT_STARTED;

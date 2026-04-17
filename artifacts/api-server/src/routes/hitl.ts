@@ -187,14 +187,29 @@ router.post("/hitl/respond/:token", async (req, res) => {
             if (bTotal > 0) {
               // Fetch current roleBandPhases JSON and merge the updated band rate.
               const phaseRows = await db
-                .select({ roleBandPhases: agentPhases.roleBandPhases })
+                .select({ roleBandPhases: agentPhases.roleBandPhases, phase: agentPhases.phase })
                 .from(agentPhases)
                 .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)))
                 .limit(1);
 
-              const currentBandPhases = (phaseRows[0]?.roleBandPhases ?? {}) as Record<string, { phase?: string; agreementRate?: number | null; overrideRate?: number | null }>;
-              const bandEntry = currentBandPhases[roleBand] ?? { phase: "crawl" };
-              currentBandPhases[roleBand] = {
+              // Always write full 6-band structure to keep storage normalized.
+              const overallPhase = phaseRows[0]?.phase ?? "crawl";
+              const FRONT_LINE_BANDS = ["ambassador", "senior_ambassador", "hotel_gm"];
+              const CROSS_PROPERTY_BANDS = ["regional_gm", "operations_chief", "compliance_officer"];
+              const ALL_BANDS = [...FRONT_LINE_BANDS, ...CROSS_PROPERTY_BANDS];
+              const stored = (phaseRows[0]?.roleBandPhases ?? {}) as Record<string, { phase?: string; agreementRate?: number | null; overrideRate?: number | null }>;
+
+              // Synthesize full structure: defaults for missing bands, preserve stored values for others.
+              const fullBandPhases: Record<string, { phase: string; agreementRate: number | null; overrideRate: number | null }> = {};
+              for (const b of FRONT_LINE_BANDS) {
+                fullBandPhases[b] = { phase: overallPhase, agreementRate: null, overrideRate: null, ...(stored[b] ?? {}) };
+              }
+              for (const b of CROSS_PROPERTY_BANDS) {
+                fullBandPhases[b] = { phase: "not_applicable", agreementRate: null, overrideRate: null, ...(stored[b] ?? {}) };
+              }
+              // Apply updated band rate
+              const bandEntry = fullBandPhases[roleBand] ?? { phase: "crawl", agreementRate: null, overrideRate: null };
+              fullBandPhases[roleBand] = {
                 ...bandEntry,
                 agreementRate: bApproved / bTotal,
                 overrideRate: (bTotal - bApproved) / bTotal,
@@ -202,8 +217,14 @@ router.post("/hitl/respond/:token", async (req, res) => {
 
               await db
                 .update(agentPhases)
-                .set({ roleBandPhases: currentBandPhases })
+                .set({ roleBandPhases: fullBandPhases })
                 .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)));
+
+              // Verify all 6 bands are in the written object (defensive sanity check)
+              const missingBands = ALL_BANDS.filter(b => !fullBandPhases[b]);
+              if (missingBands.length > 0) {
+                logger.warn({ agentId, companyId, roleBand, missingBands }, "roleBandPhases write has missing bands — check synthesizer logic");
+              }
             }
           }
 
@@ -301,13 +322,11 @@ router.get("/hitl/pending", async (req, res) => {
     if (companyIdParam) {
       // Only accept comma-separated positive integers to avoid injection
       const ids = companyIdParam.split(",").map(s => s.trim()).filter(s => /^\d+$/.test(s)).map(Number);
-      // Also include NULL-company tokens (platform-level onboarding cards) so hotel-scoped roles
-      // can see HITL cards for their role_band (e.g., hotel_gm RACI notifications from orchestrator).
       if (ids.length === 1) {
-        fragments.push(sql`(company_id = ${ids[0]} OR company_id IS NULL)`);
+        fragments.push(sql`company_id = ${ids[0]}`);
       } else if (ids.length > 1) {
         // Parameterized ANY(ARRAY[...]) — fully safe
-        fragments.push(sql`(company_id = ANY(ARRAY[${sql.join(ids.map(id => sql`${id}`), sql`, `)}]) OR company_id IS NULL)`);
+        fragments.push(sql`company_id = ANY(ARRAY[${sql.join(ids.map(id => sql`${id}`), sql`, `)}])`);
       }
     }
 

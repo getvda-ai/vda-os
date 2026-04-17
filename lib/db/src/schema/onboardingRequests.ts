@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 export const onboardingRequests = pgTable("onboarding_requests", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`),
   sessionId: text("session_id").notNull(),
+  companyId: integer("company_id"),
   externalAgentDid: text("external_agent_did"),
   agentCard: jsonb("agent_card").notNull(),
   impactDeltaReport: jsonb("impact_delta_report"),
