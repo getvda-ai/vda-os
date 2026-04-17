@@ -52,12 +52,24 @@ async function getRequest(id: string) {
   return rows[0] ?? null;
 }
 
+// Canonical mapping: payload.type → roleBand for onboarding cards
+const ONBOARDING_PAYLOAD_ROLE_BAND: Record<string, string> = {
+  first_hitl_approval: "compliance_officer",
+  second_hitl_approval: "compliance_officer",
+  raci_notification: "hotel_gm",
+};
+
 async function createHitlToken(
   onboardingRequestId: string,
   phase: number,
   cardType: "approval" | "raci_notification",
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  context?: { agentId?: string; companyId?: number; roleBand?: string }
 ): Promise<string> {
+  // Derive roleBand from payload type when not explicitly provided
+  const payloadType = payload.type as string | undefined;
+  const derivedRoleBand = context?.roleBand ?? (payloadType ? ONBOARDING_PAYLOAD_ROLE_BAND[payloadType] : undefined) ?? null;
+
   const rows = await db
     .insert(hitlTokens)
     .values({
@@ -65,6 +77,9 @@ async function createHitlToken(
       phase,
       cardType,
       payload,
+      agentId: context?.agentId ?? null,
+      companyId: context?.companyId ?? null,
+      roleBand: derivedRoleBand,
     })
     .returning({ token: hitlTokens.token });
   return rows[0].token;
@@ -339,6 +354,8 @@ async function runPhase4(
   candidateFiles: Awaited<ReturnType<typeof generateCandidateFiles>>
 ) {
   await updateStatus(id, "awaiting_first_hitl");
+  // Derive agentId from agentCard name (same algorithm used when committing to agentPhases).
+  const candidateAgentId = agentCard.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
   const riskLevel = impactDelta.conflicts.some(c => c.type === "must_not_boundary") ? "high"
     : impactDelta.conflicts.some(c => c.type === "authority_collision") ? "medium"
@@ -366,7 +383,7 @@ async function runPhase4(
     phase: 1,
   };
 
-  const token = await createHitlToken(id, 4, "approval", firstCardPayload);
+  const token = await createHitlToken(id, 4, "approval", firstCardPayload, { agentId: candidateAgentId });
   await db.update(onboardingRequests)
     .set({ firstHitlToken: token, updatedAt: new Date() })
     .where(eq(onboardingRequests.id, id));
@@ -379,7 +396,7 @@ async function runPhase4(
     risk_level: riskLevel,
   });
 
-  // RACI notification cards — non-blocking
+  // RACI notification cards — non-blocking; roleBand defaults to hotel_gm via ONBOARDING_PAYLOAD_ROLE_BAND.
   for (const raciEx of impactDelta.raci_exceptions) {
     for (const owner of raciEx.candidate_owners) {
       await createHitlToken(id, 4, "raci_notification", {
@@ -390,7 +407,7 @@ async function runPhase4(
         all_candidate_owners: raciEx.candidate_owners,
         message: `Cross-domain governance intersection detected for "${agentCard.name}" onboarding. This card is for information only — the main approval gate does not require your action. The intersection ${raciEx.intersection} has multiple candidate owners: ${raciEx.candidate_owners.join(", ")}.`,
         resolution: raciEx.resolution,
-      });
+      }, { agentId: candidateAgentId });
     }
   }
 }
@@ -459,7 +476,8 @@ async function runPhase6(
     phase: 2,
   };
 
-  const token = await createHitlToken(id, 6, "approval", secondCardPayload);
+  const candidateAgentId = agentCard.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const token = await createHitlToken(id, 6, "approval", secondCardPayload, { agentId: candidateAgentId });
   await db.update(onboardingRequests)
     .set({ secondHitlToken: token, updatedAt: new Date() })
     .where(eq(onboardingRequests.id, id));

@@ -32,9 +32,13 @@ export async function backfillRoleBand(): Promise<void> {
 
     logger.info({ cnt }, "[RoleBandBackfill] Backfilling role_band for rows with NULL value");
 
-    // Build a CASE expression from the mapping table
+    // Build a CASE expression: check escalation_target first, then fall back to payload.type.
+    // This handles both operational exception tokens (escalation_target) and onboarding
+    // HITL tokens (type: first_hitl_approval / second_hitl_approval) from the orchestrator.
     const caseExpression = Object.entries(ESCALATION_MAP)
-      .map(([target, band]) => `WHEN payload->>'escalation_target' = '${target.replace(/'/g, "''")}' THEN '${band}'`)
+      .map(([target, band]) =>
+        `WHEN COALESCE(payload->>'escalation_target', payload->>'type') = '${target.replace(/'/g, "''")}' THEN '${band}'`
+      )
       .join("\n      ");
 
     await db.execute(sql`
@@ -48,10 +52,10 @@ export async function backfillRoleBand(): Promise<void> {
 
     // Log any unrecognised escalation targets as a warning
     const unrecognised = await db.execute(sql`
-      SELECT DISTINCT payload->>'escalation_target' as target
+      SELECT DISTINCT COALESCE(payload->>'escalation_target', payload->>'type') as target
       FROM hitl_tokens
       WHERE role_band IS NULL
-        AND payload->>'escalation_target' IS NOT NULL
+        AND (payload->>'escalation_target' IS NOT NULL OR payload->>'type' IS NOT NULL)
     `);
     if (unrecognised.rows.length > 0) {
       logger.warn(
