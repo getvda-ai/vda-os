@@ -78,9 +78,17 @@ router.get("/dashboard/phases", async (req, res) => {
       for (const band of CROSS_PROPERTY_BANDS) {
         defaults[band] = { phase: "not_applicable", agreementRate: null, overrideRate: null };
       }
-      // Merge stored object over defaults — ensures all 6 keys are always present even when stored is partial
+      // Deep-merge stored bands over defaults — each band entry is merged field-by-field
+      // so partial stored objects (e.g. { phase: "crawl" } missing agreementRate) still return all keys.
       if (stored && typeof stored === "object" && !Array.isArray(stored)) {
-        return { ...defaults, ...(stored as Record<string, unknown>) };
+        const storedBands = stored as Record<string, Record<string, unknown>>;
+        const result = { ...defaults } as Record<string, { phase: string; agreementRate: unknown; overrideRate: unknown }>;
+        for (const band of Object.keys(result)) {
+          if (storedBands[band] && typeof storedBands[band] === "object") {
+            result[band] = { ...result[band], ...storedBands[band] };
+          }
+        }
+        return result;
       }
       return defaults;
     }

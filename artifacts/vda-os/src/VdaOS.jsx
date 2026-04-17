@@ -8461,6 +8461,9 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 13 }}>
               <span style={{ color: roleInfo.color, fontWeight: 700 }}>{roleInfo.label} queue</span>
+              {companyName && !["regional_gm","operations_chief","compliance_officer"].includes(role) && (
+                <span style={{ color: T.dim }}> · {companyName}</span>
+              )}
               <span style={{ color: T.dim }}> · {onboardingPending.length} pending · refreshes every 15s</span>
             </div>
             <button onClick={fetchPending} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>Refresh</button>
