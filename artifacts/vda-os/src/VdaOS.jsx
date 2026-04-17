@@ -7717,7 +7717,7 @@ function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onSwitchTab }) {
+function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleChange, onSwitchTab }) {
   const [subTab, setSubTab] = useState("wizard");
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -8017,30 +8017,33 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onSwitc
           if (idx === 1) return ["skill_analyzing","impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["identity_checking"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 2) return ["impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["skill_analyzing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 3) return ["evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["impact_assessing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
-          // Step 5 — Sandbox eval
+          // Step 5 — Sandbox eval: COMPLETE when evalPassRate ≥ 95% OR first HITL token exists (evidence agent entered HITL phase)
           if (idx === 4) {
-            if (latestReq.evalPassRate != null && parseFloat(latestReq.evalPassRate) >= 0.95) return STEP_STATUS.COMPLETE;
+            const evalPassed = latestReq.evalPassRate != null && parseFloat(latestReq.evalPassRate) >= 0.95;
+            const hitlGateReached = latestReq.firstHitlToken != null; // HITL token issued = sandbox phase cleared
+            if (evalPassed || hitlGateReached || ["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
             if (s === "evaluating") return STEP_STATUS.IN_PROGRESS;
-            if (["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 6 — HITL Gates
+          // Step 6 — HITL Gates: derive strictly from HITL token outcomes (phase-gate state)
           if (idx === 5) {
-            if (latestReq.secondHitlOutcome === "approved") return STEP_STATUS.COMPLETE;
+            if (latestReq.secondHitlOutcome === "approved" || ["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
             if (latestReq.firstHitlOutcome === "approved" || s === "awaiting_hitl_2") return STEP_STATUS.IN_PROGRESS;
-            if (s === "awaiting_hitl") return STEP_STATUS.IN_PROGRESS;
-            if (["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
+            if (s === "awaiting_hitl" || latestReq.firstHitlToken != null) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 7 — Governance Commit
+          // Step 7 — Governance Commit: COMPLETE when prUrl exists (actual commit) or agent appears in governance phases table
           if (idx === 6) {
-            if (s === "onboarded") return STEP_STATUS.COMPLETE;
+            const agentId = latestReq.externalAgentDid ?? latestReq.agentCard?.id;
+            const agentInPhases = agentId && phases.some(p => p.agentId === agentId);
+            if (latestReq.prUrl || agentInPhases || s === "onboarded") return STEP_STATUS.COMPLETE;
             if (s === "committing") return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
-          // Step 8 — Portfolio Rollout
+          // Step 8 — Portfolio Rollout: derive from governance phases across all hotels (walk/run = rollout evidence)
           if (idx === 7) {
-            if (totalWalkRun >= 2) return STEP_STATUS.IN_PROGRESS;
+            if (totalWalkRun >= 5) return STEP_STATUS.COMPLETE;  // All 5 hotels at walk/run
+            if (totalWalkRun >= 1) return STEP_STATUS.IN_PROGRESS; // At least one hotel advanced
             return STEP_STATUS.NOT_STARTED;
           }
           return STEP_STATUS.NOT_STARTED;
@@ -8166,7 +8169,11 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onSwitc
                           <span style={{ fontSize: 12, color: T.orange, fontWeight: 600 }}>
                             ⚠ {step.hitlAlert} approval{step.hitlAlert !== 1 ? "s" : ""} waiting for you
                           </span>
-                          <button onClick={() => setSubTab("approvals")} style={{ background: "none", border: "none", color: T.orange, fontSize: 11, cursor: "pointer", fontFamily: T.mono, padding: 0 }}>
+                          <button onClick={() => {
+                            setSubTab("approvals");
+                            const firstToken = pendingForRole[0]?.token;
+                            if (firstToken) setTimeout(() => document.getElementById(`hitl-card-${firstToken}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+                          }} style={{ background: "none", border: "none", color: T.orange, fontSize: 11, cursor: "pointer", fontFamily: T.mono, padding: 0 }}>
                             Review → Approvals ↗
                           </button>
                         </div>
@@ -8428,11 +8435,28 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onSwitc
           {pending.length === 0 && !pendingLoading && (
             <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, textAlign: "center" }}>
               <div style={{ fontSize: 14, color: T.muted, marginBottom: 8 }}>No {roleInfo.label} approvals pending.</div>
-              <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, marginBottom: 12 }}>
-                When agents reach the HITL gates in their onboarding workflow, approval cards will appear here for your role band.
+              <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, marginBottom: 4 }}>
+                {role === "hotel_gm"
+                  ? "Gate 1 and Gate 2 approval cards appear here once a candidate agent completes sandbox evaluation (≥95% pass rate) and enters Phase 5 of the onboarding pipeline."
+                  : role === "compliance_officer"
+                  ? "All HITL approval and RACI notification cards across all authority bands appear here. Gate 1 and Gate 2 sign-off cards arrive as agents pass Phase 5 sandbox evaluation."
+                  : role === "regional_gm"
+                  ? "Cross-property approval cards appear here when agents enter the HITL gates across any of the 5 citizenM hotels. RACI notifications for your cross-property role surface here too."
+                  : role === "operations_chief"
+                  ? "Security and operational approval cards appear here. Expect cards when an onboarding agent escalates a CISO-scoped governance exception."
+                  : "Shadow-review evaluation cards appear here during the early candidate review phase. Watch for agents entering Phase 2 of the onboarding pipeline."
+                }
+              </div>
+              <div style={{ fontSize: 11, color: T.dim, marginBottom: 12, lineHeight: 1.5, fontStyle: "italic" }}>
+                {role === "hotel_gm" && requests.some(r => r.status === "evaluating")
+                  ? `⟳ 1 agent currently in sandbox evaluation — Gate 1 card expected shortly.`
+                  : role === "hotel_gm" && requests.some(r => r.status === "awaiting_hitl_2")
+                  ? `Gate 1 approved. Gate 2 card awaiting your review — check the HITL Gates queue.`
+                  : "Next step: use the Wizard to track candidate progress through the 8-step pipeline."
+                }
               </div>
               <button onClick={() => setSubTab("wizard")} style={{ background: "none", border: "none", color: roleInfo.color, fontSize: 12, cursor: "pointer", padding: 0 }}>
-                View Progress in Wizard ↗
+                View Pipeline Progress in Wizard ↗
               </button>
             </div>
           )}
@@ -8445,7 +8469,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onSwitc
               const accentColor = isRaci ? T.amber : T.orange;
               const bandInfo = DASHBOARD_ROLES.find(r => r.id === p.roleBand);
               return (
-                <div key={p.token} style={{ background: T.surface, border: `1px solid ${accentColor}40`, borderRadius: 10, padding: 20 }}>
+                <div key={p.token} id={`hitl-card-${p.token}`} style={{ background: T.surface, border: `1px solid ${accentColor}40`, borderRadius: 10, padding: 20 }}>
                   {/* ── Card header ── */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                     <div>
@@ -8571,9 +8595,9 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onSwitc
                           <span style={{ fontSize: 12, color: b.color, fontWeight: 600 }}>{b.label}</span>
                           <span style={{ fontSize: 12, color: T.dim }}>— {b.count} card{b.count !== 1 ? "s" : ""}</span>
                         </div>
-                        {onSwitchTab && (
-                          <button onClick={() => onSwitchTab("dashboard")} style={{ background: "none", border: "none", color: T.dim, fontSize: 11, cursor: "pointer", padding: 0, fontFamily: T.mono }}>
-                            Switch role in Dashboard ↗
+                        {onRoleChange && (
+                          <button onClick={() => onRoleChange(b.id)} style={{ background: b.color + "15", border: `1px solid ${b.color}40`, borderRadius: 4, padding: "2px 8px", color: b.color, fontSize: 11, cursor: "pointer", fontFamily: T.mono }}>
+                            Switch to {b.label} ↗
                           </button>
                         )}
                       </div>
@@ -9723,7 +9747,7 @@ export default function VdaOS() {
           {tab === "soc2"        && <Soc2Tab companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} />}
           {tab === "credentials"  && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "a2a"          && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
-          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onSwitchTab={setTab} />}
+          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onRoleChange={setGlobalRole} onSwitchTab={setTab} />}
           {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
         </>
       )}
