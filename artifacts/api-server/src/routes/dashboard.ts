@@ -494,20 +494,20 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
       companyId: number;
       agentId: string;
       roleBand: string;
-      targetPhase: "walk" | "run";
+      targetPhase?: "walk" | "run";
       promotedBy?: string;
     };
 
     const VALID_BANDS = ["ambassador", "senior_ambassador", "hotel_gm", "regional_gm", "operations_chief", "compliance_officer"];
-    if (!companyId || !agentId || !roleBand || !targetPhase) {
-      res.status(400).json({ error: "companyId, agentId, roleBand, targetPhase required" });
+    if (!companyId || !agentId || !roleBand) {
+      res.status(400).json({ error: "companyId, agentId, roleBand required" });
       return;
     }
     if (!VALID_BANDS.includes(roleBand)) {
       res.status(400).json({ error: `roleBand must be one of: ${VALID_BANDS.join(", ")}` });
       return;
     }
-    if (!["walk", "run"].includes(targetPhase)) {
+    if (targetPhase && !["walk", "run"].includes(targetPhase)) {
       res.status(400).json({ error: "targetPhase must be 'walk' or 'run'" });
       return;
     }
@@ -544,9 +544,11 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
 
     const currentBandPhase = bandPhases[roleBand]?.phase ?? "crawl";
     const VALID_TRANSITIONS: Record<string, string> = { crawl: "walk", walk: "run" };
-    if (VALID_TRANSITIONS[currentBandPhase] !== targetPhase) {
+    // If targetPhase not supplied, infer it from the current band state.
+    const resolvedTargetPhase: string = targetPhase ?? VALID_TRANSITIONS[currentBandPhase];
+    if (!resolvedTargetPhase || VALID_TRANSITIONS[currentBandPhase] !== resolvedTargetPhase) {
       res.status(409).json({
-        error: `Invalid band transition: ${currentBandPhase} → ${targetPhase} for band '${roleBand}'`,
+        error: `Invalid band transition: ${currentBandPhase} → ${resolvedTargetPhase ?? "?"} for band '${roleBand}'`,
         currentBandPhase,
         roleBand,
       });
@@ -576,7 +578,7 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
     }
 
     // Write updated band phase
-    bandPhases[roleBand] = { ...bandPhases[roleBand], phase: targetPhase };
+    bandPhases[roleBand] = { ...bandPhases[roleBand], phase: resolvedTargetPhase };
 
     await db
       .update(agentPhases)
@@ -588,22 +590,22 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
       agent: agentId,
       eventCategory: "AGENT_LIFECYCLE",
       decision: "PASS",
-      clauseApplied: `VDA-MD Crawl/Walk/Run §${targetPhase}: Role-band phase promoted by authorised reviewer`,
-      actionProposed: `${roleBand} band promoted from ${currentBandPhase} to ${targetPhase} by ${promotedBy}`,
-      reasoning: `Band phase promotion: ${agentId} role_band=${roleBand} is ready for ${targetPhase}-phase autonomous operation`,
+      clauseApplied: `VDA-MD Crawl/Walk/Run §${resolvedTargetPhase}: Role-band phase promoted by authorised reviewer`,
+      actionProposed: `${roleBand} band promoted from ${currentBandPhase} to ${resolvedTargetPhase} by ${promotedBy}`,
+      reasoning: `Band phase promotion: ${agentId} role_band=${roleBand} is ready for ${resolvedTargetPhase}-phase autonomous operation`,
       fileReferenced: "VDA-MD Phase Management Protocol",
       apaleoData: {
         event_type: "agent_band_phase_promoted",
         agent_id: agentId,
         role_band: roleBand,
         from_phase: currentBandPhase,
-        to_phase: targetPhase,
+        to_phase: resolvedTargetPhase,
         promoted_by: promotedBy,
       },
     });
 
-    logger.info({ companyId, agentId, roleBand, from: currentBandPhase, to: targetPhase, promotedBy }, "Agent band phase promoted");
-    res.json({ ok: true, agentId, companyId, roleBand, from: currentBandPhase, to: targetPhase, promotedBy });
+    logger.info({ companyId, agentId, roleBand, from: currentBandPhase, to: resolvedTargetPhase, promotedBy }, "Agent band phase promoted");
+    res.json({ ok: true, agentId, companyId, roleBand, from: currentBandPhase, to: resolvedTargetPhase, promotedBy });
   } catch (err) {
     logger.error({ err }, "dashboard/phases/promote-band error");
     res.status(500).json({ error: "Failed to promote agent band phase" });
