@@ -1,0 +1,22 @@
+Assessment of Task #25 v2
+Short answer: This is ready to build. All four issues from the v1 review are properly resolved. Three smaller issues need flagging before the team starts.
+
+What v2 fixed correctly
+The canonical mapping table is now in the spec. This was the critical missing piece. The mapping is correct — Revenue Manager and Operations Director both map to hotel_gm, VP Revenue and CFO to regional_gm, CISO to operations_chief, and the two HITL approval types to compliance_officer. The "log a warning and leave NULL rather than erroring" fallback for unrecognised strings is the right defensive pattern.
+Role state lifting is now correctly specified. Task 5 explicitly says to move role/setRole to the VdaOS parent and not duplicate the switcher in AgentOnboardingTab — just pass it as a prop. This is the right architecture.
+Onboarding Queue filtering is now in scope. Task 6 includes it alongside the HITL Approvals filter. Good.
+Hidden-cards UX is now defined. Clickable element → tooltip with per-band counts → switches to band with most items on click. Concrete and buildable.
+
+Three issues to fix before starting
+Issue 1 — Company IDs in the Regional GM scope are wrong (blocking)
+The spec says Regional GM sees company_ids = 3,4,5,6,7. The live API returns: Berlin = 1, London = 2, Munich = 3, Paris = 4, Vienna = 5. London and Berlin are not in the list. The correct value is 1,2,3,4,5. This needs correcting in the spec before Task 3 and Task 5 are built, otherwise Regional GM silently misses two properties.
+Issue 2 — Task 3 NULL filter logic is inverted for most roles (blocking)
+Task 3 says: "filter to tokens where role_band matches OR role_band IS NULL". This means every role would see legacy NULL tokens alongside their own band tokens. That's only correct for Compliance Officer. For all other roles, the filter should be strictly role_band = ? with no NULL fallback. The NULL/legacy tokens should only surface to Compliance Officer (who is specified in the authority scope table as seeing compliance_officer + NULL). Fix the endpoint logic to: if role_band param is compliance_officer, return role_band = 'compliance_officer' OR role_band IS NULL; for all other bands, return strictly role_band = ?.
+Issue 3 — role_band_phases initialisation is unspecified (medium risk)
+Task 2 adds the role_band_phases JSONB column. Task 7 reads from it to render the 6×3 grid. Task 4 writes to it via promote-band. But nothing specifies what initialises the data when it is null — which it will be for all existing agents. If Task 7 reads a null column it will either render nothing or crash. The Phase Management tab currently shows "No agents found for this property" for London even though London has 9 agents in the A2A discovery endpoint — the data gap is real. The spec needs one of: (a) a seed migration that writes default { phase: 'crawl', agreementRate: 0, overrideRate: 0 } for each band for each existing agent_phases row, or (b) the Task 7 UI handles null gracefully by showing "Not started" for all bands when the column is null. Option (b) is lower risk and can be done entirely in the frontend without a migration.
+
+Sequencing confirmation
+The task order in the spec (1 → 2 → 3 → 4 → 5 → 6 → 7 → 8) is correct. Tasks 1–4 are backend-only and can be validated by API before any UI work. Three checkpoints worth calling out:
+After Task 1: run SELECT role_band, count(*) FROM hitl_tokens GROUP BY role_band to verify the backfill produced the expected distribution. With 5 live tokens (confirmed just now: 1 first_hitl_approval + 4 operational_exception with Revenue Manager/VP Revenue as targets), expect: compliance_officer = 1, hotel_gm = 3 (Revenue Manager), regional_gm = 1 (VP Revenue).
+After Task 3: test GET /api/hitl/pending?role_band=hotel_gm&company_id=2 — should return 3 tokens, not 5.
+After Task 4: test POST /api/dashboard/phases/promote-band with a real agent/band combination — currently returns 404, should return 200 after this task.

@@ -1,0 +1,33 @@
+Assessment of Replit Task #25
+Overall verdict: Well-scoped, correctly sequenced, one significant gap, two things to clarify before they start.
+
+What the spec gets right
+The DB tasks are correct and necessary. The role_band column on hitl_tokens is the right place — it matches where escalation_target already lives. Backfilling from payload->>'escalation_target' is the right migration strategy and is non-destructive. The role_band_phases JSONB on agent_phases is the right pattern for tracking independent band progression without breaking the existing phase column.
+The API task (Task 3) is architecturally sound. The ?role_band= and ?company_id= filter params are the right shape. The live API already accepts unknown query params gracefully — confirmed just now, /api/hitl/pending?role_band=hotel_gm returns 5 (unfiltered, since the column doesn't exist yet) rather than erroring. The Regional GM comma-separated company IDs is the right design for that role's cross-property scope.
+The Phase Management rework (Task 7) is correct. Currently /api/dashboard/phases returns { phases: [] } for London — the per-band breakdown is exactly what's needed to make that tab useful.
+Task 8 (8-Step Wizard replacing Protocol Tester) is the right call. The Protocol Tester is currently a raw dev tool — confirmed live. Replacing it with the wizard is correct. Keeping the A2A payload as a hidden advanced option is sensible — don't remove the underlying capability.
+
+The significant gap — role_band mapping is not defined
+The spec says "populate role_band from payload.escalation_target" but doesn't define the mapping. The live hitl_tokens currently contain these escalation targets: VP Revenue, Revenue Manager. The role hierarchy has: Ambassador, Senior Ambassador, Hotel GM, Regional GM, Operations Chief, Compliance Officer.
+These don't map 1:1. Revenue Manager is not a VDA-MD role — it's a job title that sits at the Hotel GM level for rate decisions. VP Revenue sits at Regional GM level. Before the DB migration runs, someone needs to define the canonical mapping table:
+escalation_target string  →  role_band enum
+"Revenue Manager"          →  hotel_gm
+"VP Revenue"               →  regional_gm  
+"Operations Director"      →  hotel_gm
+"Credit Control team"      →  hotel_gm
+"CISO"                     →  operations_chief
+"CFO"                      →  regional_gm or operations_chief
+"first_hitl_approval"      →  compliance_officer (onboarding type)
+"second_hitl_approval"     →  compliance_officer
+Without this mapping, the backfill will produce nulls for everything and the role filter will effectively return nothing useful. Raise this with the Replit team before Task 1 starts.
+
+Two things to clarify
+1. The "Viewing as" switcher location is slightly wrong. The spec says to add the switcher "inside the Agent Onboarding tab header." But the role switcher already exists in the Dashboard tab (VIEWING AS: Ambassador / Senior Ambassador / Hotel GM / Regional GM / Operations Chief — confirmed live). The spec should say: extend the existing Dashboard role switcher to also control the HITL Approvals queue filter in Agent Onboarding, and make it persistent across both tabs. Don't create a second independent switcher — one role state should drive both views.
+2. The "hidden cards" count UX needs a decision. Task 6 says "show a count of hidden cards so the user knows other queues have items." This is correct but needs a design decision: does the count link anywhere? Does clicking it switch role context? Define this before implementation or it'll ship as an inert number that confuses GMs.
+
+One thing the spec misses
+The Onboarding Queue tab also needs role-band awareness. Currently the queue shows all onboarding requests regardless of who is viewing. A Senior Ambassador should not see the Apaleo Smart Pricing Agent admission request — that's a Phase 5 Domain Owner gate, which is at Hotel GM level. The HITL Approvals filtering is specified but the Onboarding Queue filtering is not. Add it to Task 6 scope or it will feel inconsistent.
+
+Sequencing recommendation
+Run in this order: Task 1 (DB: hitl_tokens) → Task 2 (DB: agent_phases) → Task 3 (API: filtered pending) → Task 4 (API: promote-band) → Task 5 (UI: role switcher — extend existing, don't duplicate) → Task 6 (UI: filtered cards + hidden count) → Task 7 (UI: per-band Phase Management) → Task 8 (UI: Wizard). Tasks 1–4 are backend-only and can be validated via API before any UI work begins, which is the right order.
+Estimated complexity: Tasks 1–4 are straightforward and low-risk. Task 5 is low risk if they extend the existing switcher rather than creating a new one. Tasks 6 and 7 are medium complexity — the filtering logic needs to handle the legacy null role_band tokens cleanly. Task 8 is the most visible but least technically complex — it's mostly a React stepper wired to existing data endpoints.
