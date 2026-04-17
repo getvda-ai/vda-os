@@ -237,36 +237,43 @@ router.get("/hitl/pending", async (req, res) => {
     const roleBandParam = req.query.role_band as string | undefined;
     const companyIdParam = req.query.company_id as string | undefined;
 
-    // Build WHERE clauses dynamically
-    const conditions: string[] = ["outcome IS NULL"];
+    // All conditions use Drizzle parameterized sql`` — no sql.raw or string interpolation.
+    // Build each condition as a sql fragment, compose them with AND.
+    type SqlFragment = ReturnType<typeof sql>;
+
+    // Always filter resolved-out tokens
+    const fragments: SqlFragment[] = [sql`outcome IS NULL`];
 
     if (roleBandParam) {
       if (roleBandParam === "compliance_officer") {
-        // Compliance Officer sees their band + NULL (onboarding cards)
-        conditions.push(`(role_band = 'compliance_officer' OR role_band IS NULL)`);
+        // Compliance Officer sees their band + NULL (onboarding/legacy cards)
+        fragments.push(sql`(role_band = ${"compliance_officer"} OR role_band IS NULL)`);
       } else {
         // All other roles see strictly their band — no NULL fallback
-        conditions.push(`role_band = '${roleBandParam.replace(/'/g, "''")}'`);
+        fragments.push(sql`role_band = ${roleBandParam}`);
       }
     }
 
     if (companyIdParam) {
-      const ids = companyIdParam.split(",").map(s => s.trim()).filter(s => /^\d+$/.test(s));
+      // Only accept comma-separated positive integers to avoid injection
+      const ids = companyIdParam.split(",").map(s => s.trim()).filter(s => /^\d+$/.test(s)).map(Number);
       if (ids.length === 1) {
-        conditions.push(`company_id = ${ids[0]}`);
+        fragments.push(sql`company_id = ${ids[0]}`);
       } else if (ids.length > 1) {
-        conditions.push(`company_id IN (${ids.join(",")})`);
+        // Parameterized ANY(ARRAY[...]) — fully safe
+        fragments.push(sql`company_id = ANY(ARRAY[${sql.join(ids.map(id => sql`${id}`), sql`, `)}])`);
       }
     }
 
-    const whereClause = conditions.join(" AND ");
+    // Compose all conditions using Drizzle's sql.join helper
+    const whereClause = sql.join(fragments, sql` AND `);
 
     const result = await db.execute(
       sql`SELECT token, onboarding_request_id, phase, card_type, payload,
                outcome, decided_at, created_at, agent_id, company_id,
                witness_entry_id, context, role_band
           FROM hitl_tokens
-          WHERE ${sql.raw(whereClause)}
+          WHERE ${whereClause}
           ORDER BY created_at DESC`
     );
 

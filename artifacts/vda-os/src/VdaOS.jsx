@@ -7717,13 +7717,14 @@ function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
+function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onSwitchTab }) {
   const [subTab, setSubTab] = useState("wizard");
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
   const [expandedSection, setExpandedSection] = useState({});
   const [pending, setPending] = useState([]);
+  const [allPending, setAllPending] = useState([]);
   const [pendingLoading, setPendingLoading] = useState(false);
   const [respondingToken, setRespondingToken] = useState(null);
   const [testerCard, setTesterCard] = useState("");
@@ -7745,6 +7746,7 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
   const [dossierTab, setDossierTab] = useState({});
   const [docsSubTab, setDocsSubTab] = useState({});
   const [wizardTesterOpen, setWizardTesterOpen] = useState(false);
+  const [otherBandsOpen, setOtherBandsOpen] = useState(false);
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
@@ -7774,6 +7776,15 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
     setPendingLoading(false);
   }, [role, companyId]);
 
+  const fetchAllPending = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (companyId) params.set("company_id", String(companyId));
+      const r = await fetch(`/api/hitl/pending?${params}`);
+      if (r.ok) { const d = await r.json(); setAllPending(d.pending || []); }
+    } catch { /* silent */ }
+  }, [companyId]);
+
   const fetchPhases = useCallback(async () => {
     if (!companyId) return;
     setPhasesLoading(true);
@@ -7796,7 +7807,7 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
   useEffect(() => { fetchPending(); }, [fetchPending]); // re-fetch when role or companyId changes
-  useEffect(() => { if (subTab === "approvals") fetchPending(); }, [subTab, fetchPending]);
+  useEffect(() => { if (subTab === "approvals") { fetchPending(); fetchAllPending(); } }, [subTab, fetchPending, fetchAllPending]);
   useEffect(() => {
     if (subTab === "phases") { fetchPhases(); fetchPending(); }
   }, [subTab, fetchPhases, fetchPending]);
@@ -7950,6 +7961,7 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: roleInfo.color, flexShrink: 0, display: "inline-block" }} />
           <span style={{ fontSize: 12, fontWeight: 600, color: roleInfo.color }}>Viewing as {roleInfo.label}</span>
+          {companyName && <span style={{ fontSize: 12, color: T.muted }}>· {companyName}</span>}
           <span style={{ fontSize: 12, color: T.dim }}>· {roleInfo.description}</span>
         </div>
         {onSwitchTab && (
@@ -8186,19 +8198,41 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
       {/* ─── Onboarding Queue ─── */}
       {subTab === "queue" && (
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: T.dim }}>{requests.length} total request{requests.length !== 1 ? "s" : ""}</div>
-            <button onClick={fetchRequests} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>Refresh</button>
-          </div>
-          {loading && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
-          {requests.length === 0 && !loading && (
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>
-              No onboarding requests yet — use the Protocol Tester to submit a test request.
-            </div>
-          )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {requests.map(req => {
-              const card = req.agentCard || {};
+          {(() => {
+            // Role-based stage filtering
+            let queueRequests = requests;
+            let roleFilter = null;
+            if (role === "ambassador" || role === "senior_ambassador") {
+              queueRequests = requests.filter(r => r.status === "shadow_review");
+              roleFilter = { label: "Shadow Review stage only", desc: "Ambassadors see candidate requests currently in the shadow-review stage — evaluate and pass upward for HITL sign-off." };
+            } else if (role === "hotel_gm") {
+              queueRequests = requests.filter(r => r.status === "awaiting_hitl" || r.status === "awaiting_hitl_2");
+              roleFilter = { label: "HITL approval gates only", desc: "Hotel GMs see requests awaiting Gate 1 or Gate 2 approval — these require your authority-band sign-off before the agent can progress." };
+            }
+            return (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, color: T.dim }}>
+                    {queueRequests.length} request{queueRequests.length !== 1 ? "s" : ""}
+                    {roleFilter && <span style={{ color: roleInfo.color, marginLeft: 8, fontWeight: 600 }}>{roleFilter.label}</span>}
+                  </div>
+                  <button onClick={fetchRequests} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>Refresh</button>
+                </div>
+                {roleFilter && (
+                  <div style={{ fontSize: 11, color: T.dim, marginBottom: 14, fontStyle: "italic" }}>{roleFilter.desc}</div>
+                )}
+                {loading && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
+                {queueRequests.length === 0 && !loading && (
+                  <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>
+                    {roleFilter
+                      ? `No requests currently in the ${roleFilter.label.toLowerCase()} queue for your role. Use the Wizard to track active onboarding progress.`
+                      : "No onboarding requests yet — use the Protocol Tester to submit a test request."
+                    }
+                  </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {queueRequests.map(req => {
+                    const card = req.agentCard || {};
               const statusColor = STATUS_COLORS_OB[req.status] ?? T.dim;
               const isExpanded = expandedRow === req.id;
               const candidate = req.candidateFiles || null;
@@ -8367,9 +8401,12 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -8497,6 +8534,55 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
               );
             })}
           </div>
+
+          {/* ── Other-bands disclosure ── */}
+          {(() => {
+            const otherCards = allPending.filter(p =>
+              p.cardType !== "operational_exception" &&
+              p.roleBand !== role &&
+              !(role === "compliance_officer" && p.roleBand == null)
+            );
+            if (otherCards.length === 0) return null;
+            // Compute per-band counts
+            const bandCounts = {};
+            otherCards.forEach(p => {
+              const b = p.roleBand ?? "unassigned";
+              bandCounts[b] = (bandCounts[b] || 0) + 1;
+            });
+            const bandLabels = Object.entries(bandCounts).map(([b, n]) => {
+              const info = DASHBOARD_ROLES.find(r => r.id === b);
+              return { id: b, label: info?.label ?? b, count: n, color: info?.color ?? T.dim };
+            });
+            return (
+              <div style={{ marginTop: 16, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                <button
+                  onClick={() => setOtherBandsOpen(o => !o)}
+                  style={{ width: "100%", background: "none", border: "none", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", color: T.dim, fontFamily: T.sans }}
+                >
+                  <span style={{ fontSize: 12 }}>{otherCards.length} card{otherCards.length !== 1 ? "s" : ""} in other authority bands ▾</span>
+                  <span style={{ fontSize: 10 }}>{otherBandsOpen ? "▲" : "▼"}</span>
+                </button>
+                {otherBandsOpen && (
+                  <div style={{ borderTop: `1px solid ${T.border}`, padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+                    {bandLabels.map(b => (
+                      <div key={b.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: b.color, display: "inline-block" }} />
+                          <span style={{ fontSize: 12, color: b.color, fontWeight: 600 }}>{b.label}</span>
+                          <span style={{ fontSize: 12, color: T.dim }}>— {b.count} card{b.count !== 1 ? "s" : ""}</span>
+                        </div>
+                        {onSwitchTab && (
+                          <button onClick={() => onSwitchTab("dashboard")} style={{ background: "none", border: "none", color: T.dim, fontSize: 11, cursor: "pointer", padding: 0, fontFamily: T.mono }}>
+                            Switch role in Dashboard ↗
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -8617,6 +8703,13 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
                             const hasBlocker = bandCards.length > 0;
                             const bandAgreement = bandData.agreementRate != null ? (parseFloat(bandData.agreementRate) * 100).toFixed(0) : null;
                             const isPromotingThisBand = promotingAgent === `${agent.agentId}:${band.id}`;
+                            const belowAgreementThreshold = bandData.agreementRate != null && parseFloat(bandData.agreementRate) < 0.95;
+                            const isPromoteDisabled = hasBlocker || belowAgreementThreshold || isPromotingThisBand;
+                            const promoteTitle = hasBlocker
+                              ? `Resolve ${bandCards.length} pending exception(s) for this band first`
+                              : belowAgreementThreshold
+                              ? `Agreement rate ${bandAgreement}% is below the 95% threshold required to promote`
+                              : `Promote ${band.label} → ${nextBandPhase}`;
                             return (
                               <tr key={band.id} style={{ borderTop: `1px solid ${T.border}` }}>
                                 <td style={{ padding: "8px 10px" }}>
@@ -8665,13 +8758,13 @@ function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
                                         } catch { setPromoteMsg({ ok: false, msg: "Network error" }); }
                                         setPromotingAgent(null);
                                       }}
-                                      disabled={hasBlocker || isPromotingThisBand}
-                                      title={hasBlocker ? `Resolve ${bandCards.length} pending exception(s) for this band first` : `Promote ${band.label} → ${nextBandPhase}`}
+                                      disabled={isPromoteDisabled}
+                                      title={promoteTitle}
                                       style={{
                                         padding: "3px 10px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none",
-                                        cursor: hasBlocker ? "not-allowed" : "pointer",
-                                        background: hasBlocker ? T.dim + "20" : band.color + "30",
-                                        color: hasBlocker ? T.dim : band.color,
+                                        cursor: isPromoteDisabled ? "not-allowed" : "pointer",
+                                        background: isPromoteDisabled ? T.dim + "20" : band.color + "30",
+                                        color: isPromoteDisabled ? T.dim : band.color,
                                         opacity: isPromotingThisBand ? 0.6 : 1,
                                       }}>
                                       {isPromotingThisBand ? "…" : `→ ${nextBandPhase}`}
@@ -9630,7 +9723,7 @@ export default function VdaOS() {
           {tab === "soc2"        && <Soc2Tab companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} />}
           {tab === "credentials"  && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "a2a"          && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
-          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} role={globalRole} onSwitchTab={setTab} />}
+          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onSwitchTab={setTab} />}
           {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
         </>
       )}

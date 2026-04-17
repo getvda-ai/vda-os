@@ -55,7 +55,7 @@ export async function backfillRoleBand(): Promise<void> {
     `);
     if (unrecognised.rows.length > 0) {
       logger.warn(
-        { unrecognised: unrecognised.rows.map((r: any) => r.target) },
+        { unrecognised: unrecognised.rows.map((r) => (r as { target: string }).target) },
         "[RoleBandBackfill] Unrecognised escalation_target values — left as NULL"
       );
     }
