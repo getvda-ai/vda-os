@@ -7954,7 +7954,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
 
   const subTabs = [
     { id: "wizard",    label: "Wizard" },
-    { id: "approvals", label: `Approvals${pending.length > 0 ? ` (${pending.length})` : ""}` },
+    { id: "approvals", label: `Approvals${onboardingPending.length > 0 ? ` (${onboardingPending.length})` : ""}` },
     { id: "phases",    label: `Phase Management${operationalPending.length > 0 ? ` (${operationalPending.length})` : ""}` },
     { id: "queue",     label: "Onboarding Queue" },
     { id: "analytics", label: "Analytics" },
@@ -8038,15 +8038,16 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
           if (!latestReq) return idx === 0 ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           const s = latestReq.status || "submitted";
           // Static steps 1–4: derive from request status
-          if (idx === 0) return ["submitted","identity_checking","skill_analyzing","impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : STEP_STATUS.IN_PROGRESS;
-          if (idx === 1) return ["skill_analyzing","impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["identity_checking"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
-          if (idx === 2) return ["impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["skill_analyzing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
-          if (idx === 3) return ["evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["impact_assessing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
+          // Backend statuses (canonical): received → analysing → generating_files → awaiting_first_hitl → sandbox → awaiting_second_hitl → committing → onboarded
+          if (idx === 0) return ["analysing","generating_files","awaiting_first_hitl","sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : STEP_STATUS.IN_PROGRESS;
+          if (idx === 1) return ["generating_files","awaiting_first_hitl","sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : s === "analysing" ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
+          if (idx === 2) return ["awaiting_first_hitl","sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["analysing","generating_files"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
+          if (idx === 3) return ["sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["analysing","generating_files","awaiting_first_hitl"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           // Step 5 — Sandbox Eval: IN_PROGRESS at crawl (= sandbox cleared, governance committed,
           // but agent not yet promoted). COMPLETE when agent reaches walk/run (= sandbox proven by operations).
           if (idx === 4) {
             if (agentAtWalkRun) return STEP_STATUS.COMPLETE;
-            if (agentAtCrawl || ["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) || s === "evaluating") return STEP_STATUS.IN_PROGRESS;
+            if (agentAtCrawl || ["awaiting_second_hitl","committing","onboarded"].includes(s) || s === "sandbox") return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
           // Step 6 — HITL Gates: COMPLETE when agent is in any governance phase (= all gates approved).
@@ -8054,7 +8055,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
           if (idx === 5) {
             if (agentInAnyPhase || ["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
             if (latestReq.secondHitlOutcome === "approved") return STEP_STATUS.COMPLETE;
-            if (latestReq.firstHitlOutcome === "approved" || ["awaiting_hitl","awaiting_hitl_2"].includes(s)) return STEP_STATUS.IN_PROGRESS;
+            if (latestReq.firstHitlOutcome === "approved" || ["awaiting_first_hitl","awaiting_second_hitl"].includes(s)) return STEP_STATUS.IN_PROGRESS;
             if (latestReq.firstHitlToken != null) return STEP_STATUS.IN_PROGRESS;
             return STEP_STATUS.NOT_STARTED;
           }
@@ -8240,7 +8241,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
               queueRequests = requests.filter(r => r.status === "shadow_review");
               roleFilter = { label: "Shadow Review stage only", desc: "Ambassadors see candidate requests currently in the shadow-review stage — evaluate and pass upward for HITL sign-off." };
             } else if (role === "hotel_gm") {
-              queueRequests = requests.filter(r => r.status === "awaiting_hitl" || r.status === "awaiting_hitl_2");
+              queueRequests = requests.filter(r => r.status === "awaiting_first_hitl" || r.status === "awaiting_second_hitl");
               roleFilter = { label: "HITL approval gates only", desc: "Hotel GMs see requests awaiting Gate 1 or Gate 2 approval — these require your authority-band sign-off before the agent can progress." };
             }
             return (
@@ -8451,15 +8452,15 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 13 }}>
               <span style={{ color: roleInfo.color, fontWeight: 700 }}>{roleInfo.label} queue</span>
-              <span style={{ color: T.dim }}> · {pending.length} pending · refreshes every 15s</span>
+              <span style={{ color: T.dim }}> · {onboardingPending.length} pending · refreshes every 15s</span>
             </div>
             <button onClick={fetchPending} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>Refresh</button>
           </div>
           <div style={{ fontSize: 11, color: T.dim, marginBottom: 16, fontStyle: "italic" }}>
             RACI exceptions are non-blocking — acknowledging notifies the domain owner without affecting the approval gate. Operational exception cards appear in Phase Management.
           </div>
-          {pendingLoading && pending.length === 0 && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
-          {pending.length === 0 && !pendingLoading && (
+          {pendingLoading && onboardingPending.length === 0 && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
+          {onboardingPending.length === 0 && !pendingLoading && (
             <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, textAlign: "center" }}>
               <div style={{ fontSize: 14, color: T.muted, marginBottom: 8 }}>No {roleInfo.label} approvals pending.</div>
               <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, marginBottom: 4 }}>
@@ -8475,9 +8476,9 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                 }
               </div>
               <div style={{ fontSize: 11, color: T.dim, marginBottom: 12, lineHeight: 1.5, fontStyle: "italic" }}>
-                {role === "hotel_gm" && requests.some(r => r.status === "evaluating")
+                {role === "hotel_gm" && requests.some(r => r.status === "sandbox")
                   ? `⟳ 1 agent currently in sandbox evaluation — Gate 1 card expected shortly.`
-                  : role === "hotel_gm" && requests.some(r => r.status === "awaiting_hitl_2")
+                  : role === "hotel_gm" && requests.some(r => r.status === "awaiting_second_hitl")
                   ? `Gate 1 approved. Gate 2 card awaiting your review — check the HITL Gates queue.`
                   : "Next step: use the Wizard to track candidate progress through the 8-step pipeline."
                 }

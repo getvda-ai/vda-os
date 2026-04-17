@@ -555,12 +555,13 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
       return;
     }
 
-    // Governance gate: block if ANY unresolved HITL tokens for this agent+band+company
-    // Covers operational exceptions, approvals, and RACI notifications alike.
+    // Governance gate: block if ANY unresolved HITL tokens for this agent+band+company.
+    // Also catches null-company tokens (compliance-officer approval cards issued with company_id = NULL
+    // so all compliance officers see them globally — they must still block promotion until resolved).
     const unresolvedCheck = await db.execute(
       sql`SELECT token, card_type FROM hitl_tokens
           WHERE agent_id = ${agentId}
-            AND company_id = ${companyId}
+            AND (company_id = ${companyId} OR company_id IS NULL)
             AND role_band = ${roleBand}
             AND outcome IS NULL
           LIMIT 5`
