@@ -7717,8 +7717,8 @@ function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AgentOnboardingTab({ companyId }) {
-  const [subTab, setSubTab] = useState("queue");
+function AgentOnboardingTab({ companyId, role = "hotel_gm", onSwitchTab }) {
+  const [subTab, setSubTab] = useState("wizard");
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
@@ -7744,6 +7744,7 @@ function AgentOnboardingTab({ companyId }) {
   const [dossierLoading, setDossierLoading] = useState({});
   const [dossierTab, setDossierTab] = useState({});
   const [docsSubTab, setDocsSubTab] = useState({});
+  const [wizardTesterOpen, setWizardTesterOpen] = useState(false);
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
@@ -7757,11 +7758,21 @@ function AgentOnboardingTab({ companyId }) {
   const fetchPending = useCallback(async () => {
     setPendingLoading(true);
     try {
-      const r = await fetch("/api/hitl/pending");
+      // Build role-band + company_id filter for this role
+      const params = new URLSearchParams();
+      if (role) params.set("role_band", role);
+      // Scope by company: Ambassador/Senior Ambassador/Hotel GM → single hotel;
+      // Regional GM → all 5 hotels (1,2,3,4,5); Operations Chief/Compliance Officer → no filter
+      if (companyId && !["regional_gm", "operations_chief", "compliance_officer"].includes(role)) {
+        params.set("company_id", String(companyId));
+      } else if (role === "regional_gm") {
+        params.set("company_id", "1,2,3,4,5");
+      }
+      const r = await fetch(`/api/hitl/pending?${params}`);
       if (r.ok) { const d = await r.json(); setPending(d.pending || []); }
     } catch { /* silent */ }
     setPendingLoading(false);
-  }, []);
+  }, [role, companyId]);
 
   const fetchPhases = useCallback(async () => {
     if (!companyId) return;
@@ -7784,10 +7795,14 @@ function AgentOnboardingTab({ companyId }) {
   }, [dossierData]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  useEffect(() => { fetchPending(); }, [fetchPending]); // re-fetch when role or companyId changes
   useEffect(() => { if (subTab === "approvals") fetchPending(); }, [subTab, fetchPending]);
   useEffect(() => {
     if (subTab === "phases") { fetchPhases(); fetchPending(); }
   }, [subTab, fetchPhases, fetchPending]);
+  useEffect(() => {
+    if (subTab === "wizard") { fetchPending(); fetchPhases(); fetchRequests(); }
+  }, [subTab, fetchPending, fetchPhases, fetchRequests]);
 
   // Poll pending every 15s when on approvals tab
   useEffect(() => {
@@ -7907,12 +7922,15 @@ function AgentOnboardingTab({ companyId }) {
     if (aid) { opPendingByAgent[aid] = [...(opPendingByAgent[aid] || []), card]; }
   }
 
+  // Role display info (colours from DASHBOARD_ROLES)
+  const roleInfo = DASHBOARD_ROLES.find(r => r.id === role) || DASHBOARD_ROLES[2];
+
   const subTabs = [
-    { id: "queue", label: "Onboarding Queue" },
-    { id: "approvals", label: `HITL Approvals${onboardingPending.length > 0 ? ` (${onboardingPending.length})` : ""}` },
-    { id: "phases", label: `Phase Management${operationalPending.length > 0 ? ` (${operationalPending.length})` : ""}` },
-    { id: "analytics", label: "Impact Analytics" },
-    { id: "tester", label: "Protocol Tester" },
+    { id: "wizard",    label: "Wizard" },
+    { id: "approvals", label: `Approvals${pending.length > 0 ? ` (${pending.length})` : ""}` },
+    { id: "phases",    label: `Phase Management${operationalPending.length > 0 ? ` (${operationalPending.length})` : ""}` },
+    { id: "queue",     label: "Onboarding Queue" },
+    { id: "analytics", label: "Analytics" },
   ];
 
   const toggleSection = (rowId, section) => {
@@ -7923,12 +7941,32 @@ function AgentOnboardingTab({ companyId }) {
 
   return (
     <div style={{ padding: "28px 32px", maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Agent Onboarding</div>
-        <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6 }}>7-phase governed admission pipeline · W3C VC trust layer · dual HITL gates · sandbox eval · GitHub PR</div>
-        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-          {[{l:"Phase 1–7 Workflow",c:T.blue},{l:"Dual HITL Gates",c:T.orange},{l:"5-Scenario Sandbox",c:T.purple},{l:"Self-Referential",c:T.green}].map(b => (
-            <span key={b.l} style={{ fontSize: 10, fontWeight: 700, background: b.c + "20", color: b.c, border: `1px solid ${b.c}40`, borderRadius: 4, padding: "3px 8px", fontFamily: T.mono }}>{b.l}</span>
+      {/* ── Role-context banner — always visible ── */}
+      <div style={{
+        background: roleInfo.color + "12", border: `1px solid ${roleInfo.color}30`,
+        borderRadius: 8, padding: "8px 14px", marginBottom: 16,
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: roleInfo.color, flexShrink: 0, display: "inline-block" }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: roleInfo.color }}>Viewing as {roleInfo.label}</span>
+          <span style={{ fontSize: 12, color: T.dim }}>· {roleInfo.description}</span>
+        </div>
+        {onSwitchTab && (
+          <button onClick={() => onSwitchTab("dashboard")} style={{
+            background: "none", border: "none", color: roleInfo.color, fontSize: 11,
+            cursor: "pointer", fontFamily: T.mono, opacity: 0.8, padding: 0,
+          }}>
+            Change in Dashboard ↗
+          </button>
+        )}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Agent Onboarding</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[{l:"8-Step Wizard",c:T.blue},{l:"Dual HITL Gates",c:T.orange},{l:"W3C VC Trust",c:T.purple},{l:"Phase Lifecycle",c:T.green}].map(b => (
+            <span key={b.l} style={{ fontSize: 10, fontWeight: 700, background: b.c + "20", color: b.c, border: `1px solid ${b.c}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono }}>{b.l}</span>
           ))}
         </div>
       </div>
@@ -7944,6 +7982,206 @@ function AgentOnboardingTab({ companyId }) {
           }}>{t.label}</button>
         ))}
       </div>
+
+      {/* ─── 8-Step Hotel Onboarding Wizard ─── */}
+      {subTab === "wizard" && (() => {
+        // Derive live state from most recent onboarding request
+        const latestReq = requests.length > 0 ? requests[0] : null;
+        const pendingForRole = pending.filter(p => p.cardType === "approval" || p.cardType === "raci_notification");
+        const hasPendingHitl = pendingForRole.length > 0;
+        const totalWalkRun = phases.filter(a => a.phase === "walk" || a.phase === "run").length;
+
+        const STEP_STATUS = {
+          NOT_STARTED: "not_started",
+          IN_PROGRESS: "in_progress",
+          COMPLETE: "complete",
+        };
+
+        const stepStatus = (idx) => {
+          if (!latestReq) return idx === 0 ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
+          const s = latestReq.status || "submitted";
+          // Static steps 1–4: derive from request status
+          if (idx === 0) return ["submitted","identity_checking","skill_analyzing","impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : STEP_STATUS.IN_PROGRESS;
+          if (idx === 1) return ["skill_analyzing","impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["identity_checking"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
+          if (idx === 2) return ["impact_assessing","evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["skill_analyzing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
+          if (idx === 3) return ["evaluating","awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["impact_assessing"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
+          // Step 5 — Sandbox eval
+          if (idx === 4) {
+            if (latestReq.evalPassRate != null && parseFloat(latestReq.evalPassRate) >= 0.95) return STEP_STATUS.COMPLETE;
+            if (s === "evaluating") return STEP_STATUS.IN_PROGRESS;
+            if (["awaiting_hitl","awaiting_hitl_2","committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
+            return STEP_STATUS.NOT_STARTED;
+          }
+          // Step 6 — HITL Gates
+          if (idx === 5) {
+            if (latestReq.secondHitlOutcome === "approved") return STEP_STATUS.COMPLETE;
+            if (latestReq.firstHitlOutcome === "approved" || s === "awaiting_hitl_2") return STEP_STATUS.IN_PROGRESS;
+            if (s === "awaiting_hitl") return STEP_STATUS.IN_PROGRESS;
+            if (["committing","onboarded"].includes(s)) return STEP_STATUS.COMPLETE;
+            return STEP_STATUS.NOT_STARTED;
+          }
+          // Step 7 — Governance Commit
+          if (idx === 6) {
+            if (s === "onboarded") return STEP_STATUS.COMPLETE;
+            if (s === "committing") return STEP_STATUS.IN_PROGRESS;
+            return STEP_STATUS.NOT_STARTED;
+          }
+          // Step 8 — Portfolio Rollout
+          if (idx === 7) {
+            if (totalWalkRun >= 2) return STEP_STATUS.IN_PROGRESS;
+            return STEP_STATUS.NOT_STARTED;
+          }
+          return STEP_STATUS.NOT_STARTED;
+        };
+
+        const STEPS = [
+          {
+            title: "Agent Submission",
+            desc: "Candidate agent submits an A2A-compliant agent card via the A2A onboarding endpoint — triggering the 7-phase admission pipeline.",
+            roles: ["compliance_officer"],
+          },
+          {
+            title: "Identity Verification",
+            desc: "Onboarding agent verifies the candidate's W3C Verifiable Credential and confirms no DID conflicts exist in the trust registry.",
+            roles: ["compliance_officer"],
+          },
+          {
+            title: "Skill Inventory Analysis",
+            desc: "Onboarding agent maps the candidate's declared skills against the 25-clause VDA-MD framework and surfaces any gaps or duplicates.",
+            roles: ["hotel_gm", "compliance_officer"],
+          },
+          {
+            title: "Impact Delta Assessment",
+            desc: "Onboarding agent generates an impact report: friction removed, MAY clauses activated, cross-domain gaps closed, and RACI exceptions raised.",
+            roles: ["hotel_gm", "regional_gm"],
+          },
+          {
+            title: "Sandbox Evaluation",
+            desc: "Candidate agent is run through 5 VDA-MD governance scenarios in an isolated sandbox — must achieve ≥95% pass rate to proceed.",
+            roles: ["hotel_gm"],
+          },
+          {
+            title: "HITL Gates (Dual Approval)",
+            desc: "Two independent reviewers approve or reject the candidate at Gate 1 (Phase 5) and Gate 2 (Phase 6) — both approvals required for admission.",
+            roles: ["hotel_gm", "compliance_officer"],
+            hitlAlert: hasPendingHitl ? pendingForRole.length : 0,
+          },
+          {
+            title: "Governance File Commit",
+            desc: "Approved governance files (AGENTS.md, SOP.md, SKILL.md, EXCEPTION.md) are committed as a GitHub PR and the agent's W3C VC is issued.",
+            roles: ["compliance_officer"],
+          },
+          {
+            title: "Portfolio Rollout",
+            desc: "Once the agent reaches Walk phase at the first property, the rollout coordinator plans the 5-hotel citizenM deployment schedule.",
+            roles: ["regional_gm", "operations_chief"],
+          },
+        ];
+
+        // Find the current active step
+        let currentStep = 7;
+        for (let i = 0; i < STEPS.length; i++) {
+          const s = stepStatus(i);
+          if (s === STEP_STATUS.IN_PROGRESS || s === STEP_STATUS.NOT_STARTED) { currentStep = i; break; }
+        }
+
+        const statusColor = { complete: T.green, in_progress: T.blue, not_started: T.dim };
+        const statusLabel = { complete: "Complete", in_progress: "In Progress", not_started: "Not Started" };
+
+        return (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>8-Step Hotel Onboarding Wizard</div>
+                <div style={{ fontSize: 12, color: T.dim }}>
+                  {latestReq ? `Latest request: ${latestReq.status} · Agent: ${latestReq.agentName ?? latestReq.agent_name ?? "Unknown"}` : "No onboarding requests yet"}
+                </div>
+              </div>
+              {latestReq && (
+                <span style={{ fontSize: 10, fontFamily: T.mono, background: T.blue + "20", color: T.blue, border: `1px solid ${T.blue}40`, borderRadius: 4, padding: "3px 10px" }}>
+                  Step {Math.min(currentStep + 1, 8)} of 8
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {STEPS.map((step, idx) => {
+                const status = stepStatus(idx);
+                const isActive = status === STEP_STATUS.IN_PROGRESS;
+                const isDone = status === STEP_STATUS.COMPLETE;
+                const sColor = statusColor[status];
+                return (
+                  <div key={idx} style={{
+                    background: isActive ? T.surface : T.bg, border: `1px solid ${isActive ? T.blue + "60" : T.border}`,
+                    borderRadius: 10, padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start",
+                  }}>
+                    {/* Step indicator */}
+                    <div style={{ flexShrink: 0, width: 32, height: 32, borderRadius: "50%", background: isDone ? T.green : isActive ? T.blue : T.dim + "20", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2 }}>
+                      {isDone ? (
+                        <span style={{ fontSize: 14, color: "#000", fontWeight: 700 }}>✓</span>
+                      ) : isActive ? (
+                        <span style={{ fontSize: 11, color: "#fff", fontWeight: 700 }}>{idx + 1}</span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: T.dim, fontWeight: 700 }}>{idx + 1}</span>
+                      )}
+                    </div>
+
+                    {/* Step content */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>{step.title}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, background: sColor + "20", color: sColor, border: `1px solid ${sColor}40`, borderRadius: 4, padding: "1px 7px", fontFamily: T.mono }}>
+                          {isActive && <span style={{ marginRight: 4, opacity: 0.8 }}>●</span>}
+                          {statusLabel[status]}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, marginBottom: 8 }}>{step.desc}</div>
+                      {/* Role pills */}
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {step.roles.map(r => {
+                          const rInfo = DASHBOARD_ROLES.find(d => d.id === r);
+                          if (!rInfo) return null;
+                          return (
+                            <span key={r} style={{ fontSize: 10, background: rInfo.color + "15", color: rInfo.color, border: `1px solid ${rInfo.color}30`, borderRadius: 4, padding: "1px 7px", fontFamily: T.mono }}>
+                              {rInfo.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      {/* Inline HITL alert */}
+                      {step.hitlAlert > 0 && isActive && (
+                        <div style={{ marginTop: 10, background: T.orange + "15", border: `1px solid ${T.orange}40`, borderRadius: 6, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                          <span style={{ fontSize: 12, color: T.orange, fontWeight: 600 }}>
+                            ⚠ {step.hitlAlert} approval{step.hitlAlert !== 1 ? "s" : ""} waiting for you
+                          </span>
+                          <button onClick={() => setSubTab("approvals")} style={{ background: "none", border: "none", color: T.orange, fontSize: 11, cursor: "pointer", fontFamily: T.mono, padding: 0 }}>
+                            Review → Approvals ↗
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Advanced: A2A Protocol Tester accordion */}
+            <div style={{ marginTop: 24, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+              <button onClick={() => setWizardTesterOpen(o => !o)} style={{ width: "100%", background: "none", border: "none", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", color: T.dim, fontFamily: T.sans }}>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>Advanced: A2A Protocol Tester</span>
+                <span style={{ fontSize: 10 }}>{wizardTesterOpen ? "▲" : "▼"}</span>
+              </button>
+              {wizardTesterOpen && (
+                <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${T.border}` }}>
+                  <button onClick={() => setSubTab("tester")} style={{ marginTop: 12, background: `${T.purple}20`, border: `1px solid ${T.purple}40`, borderRadius: 6, padding: "7px 16px", fontSize: 12, color: T.purple, cursor: "pointer" }}>
+                    Open Protocol Tester →
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ─── Onboarding Queue ─── */}
       {subTab === "queue" && (
@@ -8135,27 +8373,40 @@ function AgentOnboardingTab({ companyId }) {
         </div>
       )}
 
-      {/* ─── HITL Approvals (onboarding cards only) ─── */}
+      {/* ─── HITL Approvals — action-first ─── */}
       {subTab === "approvals" && (
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: T.dim }}>{onboardingPending.length} pending · refreshes every 15s</div>
+          {/* Role-scoped context line */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 13 }}>
+              <span style={{ color: roleInfo.color, fontWeight: 700 }}>{roleInfo.label} queue</span>
+              <span style={{ color: T.dim }}> · {pending.length} pending · refreshes every 15s</span>
+            </div>
             <button onClick={fetchPending} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 12px", fontSize: 11, color: T.blue, fontFamily: T.mono, cursor: "pointer" }}>Refresh</button>
           </div>
           <div style={{ fontSize: 11, color: T.dim, marginBottom: 16, fontStyle: "italic" }}>
             RACI exceptions are non-blocking — acknowledging notifies the domain owner without affecting the approval gate. Operational exception cards appear in Phase Management.
           </div>
-          {pendingLoading && onboardingPending.length === 0 && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
-          {onboardingPending.length === 0 && !pendingLoading && (
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, color: T.dim, fontSize: 13, textAlign: "center" }}>No pending onboarding approvals.</div>
+          {pendingLoading && pending.length === 0 && <div style={{ color: T.dim, fontSize: 13 }}>Loading…</div>}
+          {pending.length === 0 && !pendingLoading && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, textAlign: "center" }}>
+              <div style={{ fontSize: 14, color: T.muted, marginBottom: 8 }}>No {roleInfo.label} approvals pending.</div>
+              <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, marginBottom: 12 }}>
+                When agents reach the HITL gates in their onboarding workflow, approval cards will appear here for your role band.
+              </div>
+              <button onClick={() => setSubTab("wizard")} style={{ background: "none", border: "none", color: roleInfo.color, fontSize: 12, cursor: "pointer", padding: 0 }}>
+                View Progress in Wizard ↗
+              </button>
+            </div>
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {onboardingPending.map(p => {
+            {pending.filter(p => p.cardType !== "operational_exception").map(p => {
               const isRaci = p.cardType === "raci_notification";
               const payload = p.payload || {};
               const isResponding = respondingToken === p.token;
               const isOpen = !!dossierOpen[p.token];
               const accentColor = isRaci ? T.amber : T.orange;
+              const bandInfo = DASHBOARD_ROLES.find(r => r.id === p.roleBand);
               return (
                 <div key={p.token} style={{ background: T.surface, border: `1px solid ${accentColor}40`, borderRadius: 10, padding: 20 }}>
                   {/* ── Card header ── */}
@@ -8166,6 +8417,12 @@ function AgentOnboardingTab({ companyId }) {
                         <span style={{ fontSize: 10, fontWeight: 700, background: accentColor + "20", color: accentColor, border: `1px solid ${accentColor}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono }}>
                           {isRaci ? "FOR INFORMATION" : `PHASE ${p.phase} APPROVAL`}
                         </span>
+                        {/* Authority Band badge */}
+                        {bandInfo && (
+                          <span style={{ fontSize: 10, fontWeight: 700, background: bandInfo.color + "20", color: bandInfo.color, border: `1px solid ${bandInfo.color}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono }}>
+                            {bandInfo.label} — {bandInfo.description}
+                          </span>
+                        )}
                         {payload.risk_level && (
                           <span style={{ fontSize: 10, fontWeight: 700, background: (payload.risk_level === "high" ? T.red : payload.risk_level === "medium" ? T.amber : T.green) + "20", color: payload.risk_level === "high" ? T.red : payload.risk_level === "medium" ? T.amber : T.green, border: `1px solid ${(payload.risk_level === "high" ? T.red : payload.risk_level === "medium" ? T.amber : T.green)}40`, borderRadius: 4, padding: "2px 7px", fontFamily: T.mono, textTransform: "uppercase" }}>
                             {payload.risk_level} risk
@@ -8186,10 +8443,31 @@ function AgentOnboardingTab({ companyId }) {
 
                   {/* ── Summary ── */}
                   <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 14, opacity: 0.85 }}>
-                    {payload.summary ?? payload.message ?? payload.statement ?? "Phase approval required — expand the full dossier to review agent identity, skills, SOP compliance, and impact before deciding."}
+                    {payload.summary ?? payload.message ?? payload.statement ?? "Phase approval required — review agent identity, skills, SOP compliance, and impact before deciding."}
                   </div>
 
-                  {/* ── Dossier toggle ── */}
+                  {/* ── Action buttons — ALWAYS VISIBLE (action-first) ── */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                    {isRaci ? (
+                      <button onClick={() => respond(p.token, "acknowledged")} disabled={isResponding}
+                        style={{ background: `${T.amber}20`, border: `1px solid ${T.amber}40`, borderRadius: 6, padding: "8px 18px", fontSize: 13, color: T.amber, cursor: "pointer", fontWeight: 700 }}>
+                        {isResponding ? "…" : "✓  Acknowledged"}
+                      </button>
+                    ) : (
+                      <>
+                        <button onClick={() => respond(p.token, "approved")} disabled={isResponding}
+                          style={{ background: T.green, border: "none", borderRadius: 6, padding: "8px 22px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer", letterSpacing: 0.3 }}>
+                          {isResponding ? "…" : "✓  Approve"}
+                        </button>
+                        <button onClick={() => respond(p.token, "rejected")} disabled={isResponding}
+                          style={{ background: `${T.red}15`, border: `1px solid ${T.red}50`, borderRadius: 6, padding: "8px 18px", fontSize: 13, color: T.red, cursor: "pointer" }}>
+                          {isResponding ? "…" : "✗  Reject"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* ── Dossier toggle — optional detail layer ── */}
                   {!isRaci && p.onboardingRequestId && (
                     <button
                       onClick={() => {
@@ -8197,7 +8475,7 @@ function AgentOnboardingTab({ companyId }) {
                         setDossierOpen(prev => ({ ...prev, [p.token]: next }));
                         if (next) fetchDossier(p.token, p.onboardingRequestId);
                       }}
-                      style={{ background: isOpen ? `${T.purple}20` : T.bg, border: `1px solid ${isOpen ? T.purple : T.border}`, borderRadius: 6, padding: "7px 14px", fontSize: 11, color: isOpen ? T.purple : T.dim, cursor: "pointer", fontWeight: isOpen ? 700 : 400, marginBottom: 14, width: "100%", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      style={{ background: isOpen ? `${T.purple}20` : T.bg, border: `1px solid ${isOpen ? T.purple : T.border}`, borderRadius: 6, padding: "7px 14px", fontSize: 11, color: isOpen ? T.purple : T.dim, cursor: "pointer", fontWeight: isOpen ? 700 : 400, width: "100%", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span>{isOpen ? "▲  Hide Full Dossier" : "▼  View Full Dossier — Identity · Skills · SOP Compliance · Impact Delta · Governance Docs"}</span>
                       {dossierData[p.token] && !isOpen && <span style={{ fontSize: 10, color: T.green, opacity: 0.8 }}>Loaded</span>}
                     </button>
@@ -8215,27 +8493,6 @@ function AgentOnboardingTab({ companyId }) {
                       setDocsTab={t => setDocsSubTab(prev => ({ ...prev, [p.token]: t }))}
                     />
                   )}
-
-                  {/* ── Action buttons ── */}
-                  <div style={{ display: "flex", gap: 8, marginTop: isOpen ? 20 : 0, paddingTop: isOpen ? 16 : 0, borderTop: isOpen ? `1px solid ${T.border}` : "none" }}>
-                    {isRaci ? (
-                      <button onClick={() => respond(p.token, "acknowledged")} disabled={isResponding}
-                        style={{ background: `${T.amber}20`, border: `1px solid ${T.amber}40`, borderRadius: 6, padding: "7px 16px", fontSize: 12, color: T.amber, cursor: "pointer" }}>
-                        {isResponding ? "…" : "Acknowledged"}
-                      </button>
-                    ) : (
-                      <>
-                        <button onClick={() => respond(p.token, "approved")} disabled={isResponding}
-                          style={{ background: T.green, border: "none", borderRadius: 6, padding: "8px 22px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer", letterSpacing: 0.3 }}>
-                          {isResponding ? "…" : "✓  Approve"}
-                        </button>
-                        <button onClick={() => respond(p.token, "rejected")} disabled={isResponding}
-                          style={{ background: `${T.red}15`, border: `1px solid ${T.red}50`, borderRadius: 6, padding: "8px 18px", fontSize: 13, color: T.red, cursor: "pointer" }}>
-                          {isResponding ? "…" : "✗  Reject"}
-                        </button>
-                      </>
-                    )}
-                  </div>
                 </div>
               );
             })}
@@ -8273,110 +8530,161 @@ function AgentOnboardingTab({ companyId }) {
             </div>
           )}
 
-          {/* 3-column phase matrix */}
+          {/* Per-agent role-band phase grids */}
           {phases.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 16 }}>
-              {["crawl", "walk", "run"].map(ph => {
-                const phaseAgents = phases.filter(a => a.phase === ph);
-                const phColor = ph === "crawl" ? T.amber : ph === "walk" ? T.blue : T.green;
-                const nextPhase = ph === "crawl" ? "walk" : ph === "walk" ? "run" : null;
+            <div style={{ display: "flex", flexDirection: "column", gap: 20, marginTop: 16 }}>
+              {phases.map(agent => {
+                const overallPhColor = agent.phase === "crawl" ? T.amber : agent.phase === "walk" ? T.blue : T.green;
+                const cards = opPendingByAgent[agent.agentId] || [];
+                const bandPhases = agent.roleBandPhases || {};
+                const BAND_ROWS = [
+                  { id: "ambassador",         label: "Ambassador",         color: "#ffffff" },
+                  { id: "senior_ambassador",   label: "Senior Ambassador",  color: "#f59e0b" },
+                  { id: "hotel_gm",            label: "Hotel GM",           color: "#60a5fa" },
+                  { id: "regional_gm",         label: "Regional GM",        color: "#a855f7" },
+                  { id: "operations_chief",    label: "Operations Chief",   color: "#34d399" },
+                  { id: "compliance_officer",  label: "Compliance Officer", color: "#f87171" },
+                ];
                 return (
-                  <div key={ph} style={{ background: T.surface, border: `1px solid ${phColor}30`, borderRadius: 12, padding: 16 }}>
-                    {/* Column header */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, background: phColor + "20", color: phColor, border: `1px solid ${phColor}40`, borderRadius: 4, padding: "3px 9px", fontFamily: T.mono, textTransform: "uppercase" }}>{ph}</span>
-                      <span style={{ fontSize: 12, color: T.dim }}>{phaseAgents.length} agent{phaseAgents.length !== 1 ? "s" : ""}</span>
+                  <div key={agent.agentId} style={{ background: T.surface, border: `1px solid ${overallPhColor}30`, borderRadius: 12, padding: 20 }}>
+                    {/* Agent header */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${T.border}` }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{agent.agentId}</div>
+                      <span style={{ fontSize: 10, fontWeight: 700, background: overallPhColor + "20", color: overallPhColor, border: `1px solid ${overallPhColor}40`, borderRadius: 4, padding: "2px 8px", fontFamily: T.mono, textTransform: "uppercase" }}>
+                        {agent.phase} overall
+                      </span>
+                      {agent.agreementRate != null && (
+                        <span style={{ fontSize: 10, fontFamily: T.mono, background: T.green + "15", color: T.green, border: `1px solid ${T.green}30`, borderRadius: 4, padding: "2px 6px" }}>
+                          ✓ {(parseFloat(agent.agreementRate) * 100).toFixed(0)}% agreed
+                        </span>
+                      )}
+                      {cards.length > 0 && (
+                        <span style={{ fontSize: 10, fontFamily: T.mono, background: T.orange + "15", color: T.orange, border: `1px solid ${T.orange}30`, borderRadius: 4, padding: "2px 6px" }}>
+                          ⚠ {cards.length} exception{cards.length !== 1 ? "s" : ""} pending
+                        </span>
+                      )}
                     </div>
 
-                    {phaseAgents.length === 0 && (
-                      <div style={{ fontSize: 12, color: T.dim, fontStyle: "italic", textAlign: "center", padding: "12px 0" }}>No agents in {ph} phase</div>
+                    {/* Operational exception cards for this agent */}
+                    {cards.length > 0 && (
+                      <div style={{ marginBottom: 16 }}>
+                        {cards.map(card => {
+                          const pl = card.payload || {};
+                          const isRes = respondingToken === card.token;
+                          return (
+                            <div key={card.token} style={{ background: `${T.orange}08`, border: `1px solid ${T.orange}25`, borderRadius: 7, padding: "8px 10px", marginBottom: 8 }}>
+                              <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, lineHeight: 1.5 }}>
+                                {pl.summary ?? pl.escalation_reason ?? pl.message ?? "Operational exception requires review"}
+                              </div>
+                              {pl.action_proposed && (
+                                <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginBottom: 6 }}>Action: {pl.action_proposed}</div>
+                              )}
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button onClick={() => respond(card.token, "approved")} disabled={isRes}
+                                  style={{ flex: 1, background: T.green, border: "none", borderRadius: 5, padding: "5px 0", fontSize: 11, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
+                                  {isRes ? "…" : "Validate"}
+                                </button>
+                                <button onClick={() => respond(card.token, "rejected")} disabled={isRes}
+                                  style={{ flex: 1, background: `${T.red}20`, border: `1px solid ${T.red}40`, borderRadius: 5, padding: "5px 0", fontSize: 11, color: T.red, cursor: "pointer" }}>
+                                  {isRes ? "…" : "Override"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
 
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {phaseAgents.map(agent => {
-                        const cards = opPendingByAgent[agent.agentId] || [];
-                        const hasBlocker = cards.length > 0;
-                        const isPromoting = promotingAgent === agent.agentId;
-                        const agreementPct = agent.agreementRate != null ? (parseFloat(agent.agreementRate) * 100).toFixed(0) : null;
-                        const overridePct = agent.overrideRate != null ? (parseFloat(agent.overrideRate) * 100).toFixed(0) : null;
-                        return (
-                          <div key={agent.agentId} style={{ background: T.bg, border: `1px solid ${hasBlocker ? T.orange : T.border}`, borderRadius: 9, padding: 12 }}>
-                            {/* Agent identity */}
-                            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agent.agentId}</div>
-                            {/* Rate pills */}
-                            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                              {agreementPct !== null && (
-                                <span style={{ fontSize: 10, fontFamily: T.mono, background: T.green + "15", color: T.green, border: `1px solid ${T.green}30`, borderRadius: 4, padding: "2px 6px" }}>
-                                  ✓ {agreementPct}% agreed
-                                </span>
-                              )}
-                              {overridePct !== null && parseInt(overridePct) > 0 && (
-                                <span style={{ fontSize: 10, fontFamily: T.mono, background: T.red + "15", color: T.red, border: `1px solid ${T.red}30`, borderRadius: 4, padding: "2px 6px" }}>
-                                  ✗ {overridePct}% overridden
-                                </span>
-                              )}
-                              {agreementPct === null && (
-                                <span style={{ fontSize: 10, color: T.dim, fontStyle: "italic" }}>No exceptions yet</span>
-                              )}
-                            </div>
-
-                            {/* Pending operational exception cards */}
-                            {cards.length > 0 && (
-                              <div style={{ marginBottom: 10 }}>
-                                <div style={{ fontSize: 11, color: T.orange, fontWeight: 700, marginBottom: 6 }}>⚠ {cards.length} pending exception{cards.length !== 1 ? "s" : ""}</div>
-                                {cards.map(card => {
-                                  const pl = card.payload || {};
-                                  const isRes = respondingToken === card.token;
+                    {/* 6-row × 3-col band phase grid */}
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: "left", padding: "6px 10px", color: T.dim, fontWeight: 600, fontFamily: T.mono, fontSize: 10 }}>ROLE BAND</th>
+                            {["CRAWL", "WALK", "RUN"].map(ph => (
+                              <th key={ph} style={{ textAlign: "center", padding: "6px 8px", color: ph === "CRAWL" ? T.amber : ph === "WALK" ? T.blue : T.green, fontWeight: 700, fontFamily: T.mono, fontSize: 10 }}>{ph}</th>
+                            ))}
+                            <th style={{ textAlign: "center", padding: "6px 8px", color: T.dim, fontWeight: 600, fontFamily: T.mono, fontSize: 10 }}>PROMOTE</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {BAND_ROWS.map(band => {
+                            const bandData = bandPhases[band.id] || { phase: "crawl", agreementRate: null, overrideRate: null };
+                            const isNA = bandData.phase === "not_applicable";
+                            const bandPhase = isNA ? null : bandData.phase;
+                            const nextBandPhase = bandPhase === "crawl" ? "walk" : bandPhase === "walk" ? "run" : null;
+                            const bandCards = cards.filter(c => c.roleBand === band.id);
+                            const hasBlocker = bandCards.length > 0;
+                            const bandAgreement = bandData.agreementRate != null ? (parseFloat(bandData.agreementRate) * 100).toFixed(0) : null;
+                            const isPromotingThisBand = promotingAgent === `${agent.agentId}:${band.id}`;
+                            return (
+                              <tr key={band.id} style={{ borderTop: `1px solid ${T.border}` }}>
+                                <td style={{ padding: "8px 10px" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: band.color, display: "inline-block", flexShrink: 0 }} />
+                                    <span style={{ color: band.color, fontWeight: 600 }}>{band.label}</span>
+                                    {bandAgreement !== null && (
+                                      <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>({bandAgreement}% ✓)</span>
+                                    )}
+                                  </div>
+                                </td>
+                                {["crawl", "walk", "run"].map(ph => {
+                                  const phColor = ph === "crawl" ? T.amber : ph === "walk" ? T.blue : T.green;
+                                  const isActive = !isNA && bandPhase === ph;
+                                  const isPast = !isNA && (bandPhase === "run" || (bandPhase === "walk" && ph === "crawl"));
                                   return (
-                                    <div key={card.token} style={{ background: `${T.orange}08`, border: `1px solid ${T.orange}25`, borderRadius: 7, padding: "8px 10px", marginBottom: 6 }}>
-                                      <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, lineHeight: 1.5 }}>
-                                        {pl.summary ?? pl.escalation_reason ?? pl.message ?? "Operational exception requires review"}
-                                      </div>
-                                      {pl.action_proposed && (
-                                        <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginBottom: 6 }}>
-                                          Action: {pl.action_proposed}
-                                        </div>
+                                    <td key={ph} style={{ textAlign: "center", padding: "8px 8px" }}>
+                                      {isNA ? (
+                                        <span style={{ fontSize: 10, color: T.dim, fontStyle: "italic" }}>N/A</span>
+                                      ) : isActive ? (
+                                        <span style={{ fontSize: 11, fontWeight: 700, background: phColor + "25", color: phColor, border: `1px solid ${phColor}50`, borderRadius: 4, padding: "2px 8px" }}>●</span>
+                                      ) : isPast ? (
+                                        <span style={{ fontSize: 11, color: T.green }}>✓</span>
+                                      ) : (
+                                        <span style={{ fontSize: 11, color: T.dim, opacity: 0.3 }}>○</span>
                                       )}
-                                      <div style={{ display: "flex", gap: 6 }}>
-                                        <button onClick={() => respond(card.token, "approved")} disabled={isRes}
-                                          style={{ flex: 1, background: T.green, border: "none", borderRadius: 5, padding: "5px 0", fontSize: 11, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
-                                          {isRes ? "…" : "Validate"}
-                                        </button>
-                                        <button onClick={() => respond(card.token, "rejected")} disabled={isRes}
-                                          style={{ flex: 1, background: `${T.red}20`, border: `1px solid ${T.red}40`, borderRadius: 5, padding: "5px 0", fontSize: 11, color: T.red, cursor: "pointer" }}>
-                                          {isRes ? "…" : "Override"}
-                                        </button>
-                                      </div>
-                                    </div>
+                                    </td>
                                   );
                                 })}
-                              </div>
-                            )}
-
-                            {/* Promote button */}
-                            {nextPhase && (
-                              <button
-                                onClick={() => promoteAgent(agent.agentId, nextPhase)}
-                                disabled={hasBlocker || isPromoting}
-                                title={hasBlocker ? "Resolve all pending exceptions before promoting" : `Promote to ${nextPhase}`}
-                                style={{
-                                  width: "100%", padding: "6px 0", fontSize: 11, fontWeight: 700,
-                                  borderRadius: 6, border: "none", cursor: hasBlocker ? "not-allowed" : "pointer",
-                                  background: hasBlocker ? T.dim + "30" : phColor,
-                                  color: hasBlocker ? T.dim : "#fff",
-                                  opacity: isPromoting ? 0.6 : 1,
-                                }}>
-                                {isPromoting ? "Promoting…" : hasBlocker ? `Blocked · resolve exceptions` : `Promote → ${nextPhase}`}
-                              </button>
-                            )}
-                            {!nextPhase && (
-                              <div style={{ fontSize: 11, color: T.green, fontWeight: 700, textAlign: "center", padding: "6px 0" }}>
-                                ✓ Fully autonomous
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                                <td style={{ textAlign: "center", padding: "8px 8px" }}>
+                                  {isNA ? (
+                                    <span style={{ fontSize: 10, color: T.dim }}>—</span>
+                                  ) : nextBandPhase ? (
+                                    <button
+                                      onClick={async () => {
+                                        setPromotingAgent(`${agent.agentId}:${band.id}`);
+                                        setPromoteMsg(null);
+                                        try {
+                                          const r = await fetch("/api/dashboard/phases/promote-band", {
+                                            method: "POST", headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ companyId, agentId: agent.agentId, roleBand: band.id, targetPhase: nextBandPhase, promotedBy: "Dashboard User" }),
+                                          });
+                                          const d = await r.json();
+                                          if (r.ok) { setPromoteMsg({ ok: true, msg: `${band.label} band promoted to ${nextBandPhase}` }); fetchPhases(); }
+                                          else setPromoteMsg({ ok: false, msg: d.error || "Promotion failed" });
+                                        } catch { setPromoteMsg({ ok: false, msg: "Network error" }); }
+                                        setPromotingAgent(null);
+                                      }}
+                                      disabled={hasBlocker || isPromotingThisBand}
+                                      title={hasBlocker ? `Resolve ${bandCards.length} pending exception(s) for this band first` : `Promote ${band.label} → ${nextBandPhase}`}
+                                      style={{
+                                        padding: "3px 10px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none",
+                                        cursor: hasBlocker ? "not-allowed" : "pointer",
+                                        background: hasBlocker ? T.dim + "20" : band.color + "30",
+                                        color: hasBlocker ? T.dim : band.color,
+                                        opacity: isPromotingThisBand ? 0.6 : 1,
+                                      }}>
+                                      {isPromotingThisBand ? "…" : `→ ${nextBandPhase}`}
+                                    </button>
+                                  ) : (
+                                    <span style={{ fontSize: 10, color: T.green, fontWeight: 700 }}>✓ Max</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 );
@@ -8867,20 +9175,20 @@ function A2AProtocolTab({ companyId, companyName }) {
 //   regional_gm         — Cluster head; 5-property overview + cross-property alerts
 //   operations_chief    — Ops chief; chain-wide governance health + adoption staircase
 //
-// companyId: derived from setup.id — maps to BER=3, LND=4, MUC=5, PAR=6, VIE=7.
+// companyId: derived from setup.id — BER=1, LND=2, MUC=3, PAR=4, VIE=5.
 // RegionalGMView and OperationsChiefView fetch all hotels internally.
 // ─────────────────────────────────────────────────────────────────
 
 const DASHBOARD_ROLES = [
-  { id: "ambassador",          label: "Ambassador",        description: "HITL + shadow review",      color: "#ffffff" },
-  { id: "senior_ambassador",   label: "Senior Ambassador", description: "Shift lead · decision queue", color: "#f59e0b" },
-  { id: "hotel_gm",            label: "Hotel GM",          description: "Property staircase",         color: "#60a5fa" },
-  { id: "regional_gm",         label: "Regional GM",       description: "5-property cluster",         color: "#a855f7" },
-  { id: "operations_chief",    label: "Operations Chief",  description: "Chain governance",           color: "#34d399" },
+  { id: "ambassador",          label: "Ambassador",          description: "HITL + shadow review",        color: "#ffffff" },
+  { id: "senior_ambassador",   label: "Senior Ambassador",   description: "Shift lead · decision queue",  color: "#f59e0b" },
+  { id: "hotel_gm",            label: "Hotel GM",            description: "Property staircase",           color: "#60a5fa" },
+  { id: "regional_gm",         label: "Regional GM",         description: "5-property cluster",           color: "#a855f7" },
+  { id: "operations_chief",    label: "Operations Chief",    description: "Chain governance",             color: "#34d399" },
+  { id: "compliance_officer",  label: "Compliance Officer",  description: "Governance sign-off · Gate 2", color: "#f87171" },
 ];
 
-function DashboardTab({ companyId, onOpenTab }) {
-  const [role, setRole] = useState("senior_ambassador");
+function DashboardTab({ companyId, onOpenTab, role, setRole }) {
   // viewCompanyId allows Regional GM to drill into a specific hotel via Hotel GM view
   const [viewCompanyId, setViewCompanyId] = useState(companyId);
 
@@ -8943,6 +9251,24 @@ function DashboardTab({ companyId, onOpenTab }) {
       {role === "hotel_gm"          && <HotelGMView          companyId={viewCompanyId} onOpenTab={onOpenTab} />}
       {role === "regional_gm"       && <RegionalGMView       companyId={viewCompanyId} onSelectCompany={handleSelectCompany} />}
       {role === "operations_chief"  && <OperationsChiefView  />}
+      {role === "compliance_officer" && (
+        <div style={{ padding: "28px 32px", maxWidth: 900 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#f87171", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", marginBottom: 8 }}>COMPLIANCE OFFICER — GOVERNANCE SIGN-OFF</div>
+          <div style={{ fontSize: 14, color: "#9ca3af", marginBottom: 20 }}>
+            Cross-portfolio governance oversight · Gate 1 + Gate 2 approvals · All hotels
+          </div>
+          <div style={{ background: "#f87171" + "12", border: "1px solid #f87171" + "30", borderRadius: 8, padding: "14px 18px" }}>
+            <div style={{ fontSize: 13, color: "#f87171", fontWeight: 600, marginBottom: 8 }}>Compliance Officer View</div>
+            <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>
+              Compliance Officers review and sign off on HITL Gate 1 and Gate 2 approvals across all 5 citizenM hotels.
+              Open the <strong>Agent Onboarding</strong> tab to see your role-specific approval queue.
+            </div>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <OperationsChiefView />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -8962,6 +9288,10 @@ export default function VdaOS() {
   const [c2mdCache, setC2mdCache] = useState({}); // persists across tab switches
   const fmNavigateRef = useRef(null); // ref for FileManagerTab's file navigation fn
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Lifted role state — shared between DashboardTab and AgentOnboardingTab
+  const [globalRole, setGlobalRole] = useState("senior_ambassador");
+  // Pending count for onboarding tab badge (role-filtered)
+  const [onboardingBadgeCount, setOnboardingBadgeCount] = useState(0);
 
   const apaleoPropertyId = setup?.apaleoPropertyId || null;
   const { stats: apaleoStats, loading: statsLoading } = useApaleoStats(screen === "hub" ? apaleoPropertyId : null);
@@ -9071,8 +9401,35 @@ export default function VdaOS() {
 
   const config = setup ? { ...INDUSTRY_CONFIGS[setup.industry], id: setup.industry } : null;
 
+  // Poll onboarding pending badge count for the active role (refreshes every 30s)
+  useEffect(() => {
+    if (!setup?.id) { setOnboardingBadgeCount(0); return; }
+    const fetchBadge = async () => {
+      try {
+        const params = new URLSearchParams({ role_band: globalRole });
+        if (!["regional_gm", "operations_chief", "compliance_officer"].includes(globalRole)) {
+          params.set("company_id", String(setup.id));
+        } else if (globalRole === "regional_gm") {
+          params.set("company_id", "1,2,3,4,5");
+        }
+        const r = await fetch(`/api/hitl/pending?${params}`);
+        if (r.ok) {
+          const d = await r.json();
+          setOnboardingBadgeCount((d.pending || []).filter(p => p.cardType !== "operational_exception").length);
+        }
+      } catch { /* silent */ }
+    };
+    fetchBadge();
+    const t = setInterval(fetchBadge, 30000);
+    return () => clearInterval(t);
+  }, [setup?.id, globalRole]);
+
+  // Primary tabs — first 2 are always visible; rest in Advanced sub-nav
+  const onboardingLabel = "Agent Onboarding" + (onboardingBadgeCount > 0 ? ` (${onboardingBadgeCount})` : "");
+
   const tabs = setup ? [
     { id: "dashboard",   label: "Dashboard",        icon: "📊" },
+    { id: "onboarding",  label: onboardingLabel,    icon: "🏨" },
     { id: "journey",     label: "Journey Map",      icon: "🗺" },
     { id: "demo",        label: "Live Demo",        icon: "🚀" },
     { id: "c2md",        label: "C2MD Studio",      icon: "🔬" },
@@ -9082,7 +9439,6 @@ export default function VdaOS() {
     { id: "soc2",        label: "SOC 2 SD",          icon: "📋" },
     { id: "credentials",  label: "Agent Credentials", icon: "🔐" },
     { id: "a2a",          label: "A2A Protocol",      icon: "🔗" },
-    { id: "onboarding",   label: "Agent Onboarding",  icon: "🚀" },
     { id: "filemanager",  label: "File Manager",      icon: "📁" },
   ] : [];
 
@@ -9189,15 +9545,15 @@ export default function VdaOS() {
             </div>
           )}
 
-          {/* Nav — primary bar: Dashboard always visible + Advanced toggle */}
+          {/* Nav — primary bar: Dashboard + Agent Onboarding always visible + Advanced toggle */}
           <div style={{ background: "#08090c", borderBottom: `1px solid ${T.border}`, padding: "0 28px", display: "flex", gap: 0, alignItems: "stretch" }}>
-            {/* Dashboard — always visible */}
-            {tabs.filter(t => t.id === "dashboard").map(t => (
+            {/* Dashboard + Onboarding — always visible in primary bar */}
+            {tabs.filter(t => t.id === "dashboard" || t.id === "onboarding").map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
                 padding: "12px 18px", background: "none", border: "none",
                 borderBottom: `2px solid ${tab === t.id ? T.orange : "transparent"}`,
-                color: tab === t.id ? T.orange : T.dim,
-                cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 400,
+                color: tab === t.id ? T.orange : (t.id === "onboarding" && onboardingBadgeCount > 0 ? "#f87171" : T.dim),
+                cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : (t.id === "onboarding" && onboardingBadgeCount > 0 ? 700 : 400),
                 fontFamily: T.sans, transition: "all 0.2s",
                 display: "flex", gap: 8, alignItems: "center",
               }}>
@@ -9212,8 +9568,8 @@ export default function VdaOS() {
             <button
               onClick={() => {
                 setAdvancedOpen(o => !o);
-                // If closing advanced and current tab is not dashboard, reset to dashboard
-                if (advancedOpen && tab !== "dashboard") setTab("dashboard");
+                // If closing advanced and current tab is not a primary tab, reset to dashboard
+                if (advancedOpen && tab !== "dashboard" && tab !== "onboarding") setTab("dashboard");
               }}
               style={{
                 padding: "12px 16px", background: "none", border: "none",
@@ -9236,7 +9592,7 @@ export default function VdaOS() {
           {/* Advanced sub-nav — collapsed by default */}
           {advancedOpen && (
             <div style={{ background: "#060709", borderBottom: `1px solid ${T.border}`, padding: "0 28px", display: "flex", gap: 0, alignItems: "stretch", overflowX: "auto" }}>
-              {tabs.filter(t => t.id !== "dashboard").map(t => (
+              {tabs.filter(t => t.id !== "dashboard" && t.id !== "onboarding").map(t => (
                 <button key={t.id} onClick={() => setTab(t.id)} style={{
                   padding: "10px 16px", background: "none", border: "none",
                   borderBottom: `2px solid ${tab === t.id ? T.orange : "transparent"}`,
@@ -9253,7 +9609,7 @@ export default function VdaOS() {
           )}
 
           {/* Content */}
-          {tab === "dashboard"   && <DashboardTab companyId={setup.id} onOpenTab={setTab} />}
+          {tab === "dashboard"   && <DashboardTab companyId={setup.id} onOpenTab={setTab} role={globalRole} setRole={setGlobalRole} />}
           {tab === "journey"     && <JourneyMapTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} apaleoStats={apaleoStats} />}
           {tab === "demo"        && <LiveDemoTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} companyId={setup.id} onLogEntry={addLog} />}
           {tab === "c2md"        && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} companyId={setup.id} onSaveToFM={(content, filename, fileType) => {
@@ -9274,7 +9630,7 @@ export default function VdaOS() {
           {tab === "soc2"        && <Soc2Tab companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} />}
           {tab === "credentials"  && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "a2a"          && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
-          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} />}
+          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} role={globalRole} onSwitchTab={setTab} />}
           {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
         </>
       )}

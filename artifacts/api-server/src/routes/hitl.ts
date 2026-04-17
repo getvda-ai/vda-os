@@ -2,7 +2,7 @@
  * HITL Token System — token-based human approval for onboarding workflow.
  * POST /api/hitl/escalate — create a decision card token
  * POST /api/hitl/respond/:token — approve/reject (calls orchestrator directly)
- * GET  /api/hitl/pending — all unresolved tokens for dashboard
+ * GET  /api/hitl/pending — all unresolved tokens for dashboard (role-band filtered)
  */
 import { Router, type IRouter } from "express";
 import { db, hitlTokens, onboardingRequests, agentPhases } from "@workspace/db";
@@ -16,6 +16,29 @@ const router: IRouter = Router();
 const REPLIT_URL = process.env.REPLIT_DEV_DOMAIN
   ? `https://${process.env.REPLIT_DEV_DOMAIN}`
   : process.env.REPLIT_URL ?? "http://localhost:8080";
+
+// Canonical escalation_target → role_band mapping
+const ESCALATION_TO_ROLE_BAND: Record<string, string> = {
+  "Revenue Manager":      "hotel_gm",
+  "Operations Director":  "hotel_gm",
+  "Credit Control team":  "hotel_gm",
+  "VP Revenue":           "regional_gm",
+  "CFO":                  "regional_gm",
+  "CISO":                 "operations_chief",
+  "first_hitl_approval":  "compliance_officer",
+  "second_hitl_approval": "compliance_officer",
+};
+
+function deriveRoleBand(payload: Record<string, unknown>): string | null {
+  const target = payload?.escalation_target as string | undefined;
+  if (!target) return null;
+  const band = ESCALATION_TO_ROLE_BAND[target];
+  if (!band) {
+    logger.warn({ escalation_target: target }, "[HITL] Unrecognised escalation_target — role_band left NULL");
+    return null;
+  }
+  return band;
+}
 
 // ─── POST /api/hitl/escalate ──────────────────────────────────────────────────
 
@@ -33,19 +56,22 @@ router.post("/hitl/escalate", async (req, res) => {
       return;
     }
 
+    const roleBand = deriveRoleBand(payload);
+
     const rows = await db.insert(hitlTokens).values({
       onboardingRequestId: onboarding_request_id,
       phase,
       cardType: card_type,
       payload,
+      roleBand,
     }).returning({ token: hitlTokens.token });
 
     const token = rows[0].token;
     const respondUrl = `${REPLIT_URL}/api/hitl/respond/${token}`;
 
-    logger.info({ token, onboarding_request_id, phase, card_type }, "HITL token created");
+    logger.info({ token, onboarding_request_id, phase, card_type, roleBand }, "HITL token created");
 
-    res.json({ token, respond_url: respondUrl, phase, card_type });
+    res.json({ token, respond_url: respondUrl, phase, card_type, role_band: roleBand });
   } catch (err) {
     logger.error({ err }, "HITL escalate error");
     res.status(500).json({ error: "Failed to create HITL token" });
@@ -87,7 +113,6 @@ router.post("/hitl/respond/:token", async (req, res) => {
 
     // Reject acknowledged outcome for operational_exception cards — only approved/rejected are valid
     if (hitl.cardType === "operational_exception" && outcome === "acknowledged") {
-      // Roll back the outcome we just wrote
       await db.update(hitlTokens).set({ outcome: null, decidedAt: null }).where(eq(hitlTokens.token, String(token)));
       res.status(400).json({ error: "operational_exception cards only accept 'approved' or 'rejected' outcomes" });
       return;
@@ -108,7 +133,6 @@ router.post("/hitl/respond/:token", async (req, res) => {
 
       if (agentId && companyId) {
         try {
-          // Recompute rates from all resolved operational_exception tokens for this agent+company
           const allResolved = await db
             .select({ outcome: hitlTokens.outcome })
             .from(hitlTokens)
@@ -120,8 +144,6 @@ router.post("/hitl/respond/:token", async (req, res) => {
               )
             );
 
-          // Only count approved/rejected outcomes — acknowledged is not valid for operational
-          // exception cards but may exist in legacy data; exclude it from rate computation.
           const resolved = allResolved.filter(r => r.outcome === "approved" || r.outcome === "rejected");
           const total = resolved.length;
           const approvedCount = resolved.filter(r => r.outcome === "approved").length;
@@ -188,7 +210,6 @@ router.post("/hitl/respond/:token", async (req, res) => {
         await advanceOrchestratorPhase(hitl.onboardingRequestId ?? "", outcome, decided_by);
       } catch (orchErr) {
         logger.error({ orchErr, onboardingRequestId: hitl.onboardingRequestId }, "Orchestrator phase advance failed");
-        // Don't fail the HTTP response — token is already resolved
       }
     }
 
@@ -206,17 +227,46 @@ router.post("/hitl/respond/:token", async (req, res) => {
 });
 
 // ─── GET /api/hitl/pending ────────────────────────────────────────────────────
+// Optional query params:
+//   ?role_band=hotel_gm          — filter to that band (compliance_officer also sees NULL-band tokens)
+//   ?company_id=2                — filter to that company (comma-separated for Regional GM, e.g. 1,2,3,4,5)
+//   No params                    — return all (existing behaviour)
 
-router.get("/hitl/pending", async (_req, res) => {
+router.get("/hitl/pending", async (req, res) => {
   try {
-    // Use raw SQL to bypass Drizzle ORM table-object processing which can fail
-    // in production when schema differs from compiled bundle.
+    const roleBandParam = req.query.role_band as string | undefined;
+    const companyIdParam = req.query.company_id as string | undefined;
+
+    // Build WHERE clauses dynamically
+    const conditions: string[] = ["outcome IS NULL"];
+
+    if (roleBandParam) {
+      if (roleBandParam === "compliance_officer") {
+        // Compliance Officer sees their band + NULL (onboarding cards)
+        conditions.push(`(role_band = 'compliance_officer' OR role_band IS NULL)`);
+      } else {
+        // All other roles see strictly their band — no NULL fallback
+        conditions.push(`role_band = '${roleBandParam.replace(/'/g, "''")}'`);
+      }
+    }
+
+    if (companyIdParam) {
+      const ids = companyIdParam.split(",").map(s => s.trim()).filter(s => /^\d+$/.test(s));
+      if (ids.length === 1) {
+        conditions.push(`company_id = ${ids[0]}`);
+      } else if (ids.length > 1) {
+        conditions.push(`company_id IN (${ids.join(",")})`);
+      }
+    }
+
+    const whereClause = conditions.join(" AND ");
+
     const result = await db.execute(
       sql`SELECT token, onboarding_request_id, phase, card_type, payload,
                outcome, decided_at, created_at, agent_id, company_id,
-               witness_entry_id, context
+               witness_entry_id, context, role_band
           FROM hitl_tokens
-          WHERE outcome IS NULL
+          WHERE ${sql.raw(whereClause)}
           ORDER BY created_at DESC`
     );
 
@@ -233,11 +283,11 @@ router.get("/hitl/pending", async (_req, res) => {
       company_id: number | null;
       witness_entry_id: string | null;
       context: Record<string, unknown> | null;
+      role_band: string | null;
     };
 
     const pending = result.rows as RawRow[];
 
-    // Map snake_case DB columns to camelCase to match frontend expectations
     const mapRow = (p: RawRow, extras: Record<string, unknown> = {}) => ({
       token: p.token,
       onboardingRequestId: p.onboarding_request_id,
@@ -251,12 +301,12 @@ router.get("/hitl/pending", async (_req, res) => {
       companyId: p.company_id,
       witnessEntryId: p.witness_entry_id,
       context: p.context,
+      roleBand: p.role_band,
       ...extras,
     });
 
     const enriched = await Promise.all(
       pending.map(async (p) => {
-        // Operational exception cards carry their own agentId/companyId
         if (p.card_type === "operational_exception") {
           const pl = p.payload as Record<string, unknown>;
           return mapRow(p, {
@@ -265,7 +315,6 @@ router.get("/hitl/pending", async (_req, res) => {
           });
         }
 
-        // Onboarding cards: join with onboarding_requests for status + agent name
         if (!p.onboarding_request_id) {
           return mapRow(p, { onboarding_status: "unknown", agent_name: "Unknown Agent" });
         }

@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { startCredentialRotationScheduler } from "./lib/credentialRotation.js";
 import { startGovernanceIntegrityCheck } from "./lib/governanceIntegrityCheck.js";
 import { seedOnboardingAgentGovernanceFiles } from "./onboarding/seedOnboardingAgent.js";
+import { backfillRoleBand } from "./lib/backfillRoleBand.js";
 
 const rawPort = process.env["PORT"];
 
@@ -29,5 +30,8 @@ app.listen(port, (err) => {
   startGovernanceIntegrityCheck();
   seedOnboardingAgentGovernanceFiles().catch(err =>
     logger.warn({ err }, "Onboarding agent seed deferred")
+  );
+  backfillRoleBand().catch(err =>
+    logger.warn({ err }, "Role band backfill deferred")
   );
 });

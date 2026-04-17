@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, numeric, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const agentPhases = pgTable("agent_phases", {
@@ -11,6 +11,7 @@ export const agentPhases = pgTable("agent_phases", {
   agreementRate: numeric("agreement_rate"),
   overrideRate: numeric("override_rate"),
   notes: text("notes"),
+  roleBandPhases: jsonb("role_band_phases"),
 });
 
 export type AgentPhase = typeof agentPhases.$inferSelect;

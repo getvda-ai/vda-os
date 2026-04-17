@@ -14,6 +14,7 @@ export const hitlTokens = pgTable("hitl_tokens", {
   companyId: integer("company_id"),
   witnessEntryId: text("witness_entry_id"),
   context: jsonb("context"),
+  roleBand: text("role_band"),
 });
 
 export type HitlToken = typeof hitlTokens.$inferSelect;

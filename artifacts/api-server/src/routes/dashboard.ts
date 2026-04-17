@@ -15,7 +15,8 @@ import { logger } from "../lib/logger.js";
 
 const router = Router();
 
-const COMPANIES = [3, 4, 5, 6, 7];
+// Live DB company IDs: BER=1, LND=2, MUC=3, PAR=4, VIE=5
+const COMPANIES = [1, 2, 3, 4, 5];
 
 // ─── GET /api/dashboard/phases ────────────────────────────────────────────────
 
@@ -62,11 +63,30 @@ router.get("/dashboard/phases", async (req, res) => {
       passByAgent[slug] = (passByAgent[slug] ?? 0) + Number(r.count);
     }
 
+    // Synthesise roleBandPhases default when column is NULL (all existing agents post-migration).
+    // Front-line bands inherit overall phase; cross-property bands are "not_applicable".
+    const FRONT_LINE_BANDS = ["ambassador", "senior_ambassador", "hotel_gm"];
+    const CROSS_PROPERTY_BANDS = ["regional_gm", "operations_chief", "compliance_officer"];
+
+    function synthesiseRoleBandPhases(overallPhase: string, stored: unknown) {
+      if (stored && typeof stored === "object") return stored;
+      const defaultPhase = ["crawl", "walk", "run"].includes(overallPhase) ? overallPhase : "crawl";
+      const result: Record<string, { phase: string; agreementRate: null; overrideRate: null }> = {};
+      for (const band of FRONT_LINE_BANDS) {
+        result[band] = { phase: defaultPhase, agreementRate: null, overrideRate: null };
+      }
+      for (const band of CROSS_PROPERTY_BANDS) {
+        result[band] = { phase: "not_applicable", agreementRate: null, overrideRate: null };
+      }
+      return result;
+    }
+
     const enriched = phases.map((p) => ({
       ...p,
       agreementRate: p.agreementRate !== null ? Number(p.agreementRate) : null,
       overrideRate: p.overrideRate !== null ? Number(p.overrideRate) : null,
       potential_autonomous_decisions: passByAgent[toSlug(p.agentId)] ?? 0,
+      roleBandPhases: synthesiseRoleBandPhases(p.phase, p.roleBandPhases),
     }));
 
     res.json({ phases: enriched });
@@ -453,6 +473,134 @@ router.post("/dashboard/phases/promote", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "dashboard/phases/promote error");
     res.status(500).json({ error: "Failed to promote agent phase" });
+  }
+});
+
+// ─── POST /api/dashboard/phases/promote-band ─────────────────────────────────
+
+router.post("/dashboard/phases/promote-band", async (req, res) => {
+  try {
+    const {
+      companyId,
+      agentId,
+      roleBand,
+      targetPhase,
+      promotedBy = "Dashboard User",
+    } = req.body as {
+      companyId: number;
+      agentId: string;
+      roleBand: string;
+      targetPhase: "walk" | "run";
+      promotedBy?: string;
+    };
+
+    const VALID_BANDS = ["ambassador", "senior_ambassador", "hotel_gm", "regional_gm", "operations_chief", "compliance_officer"];
+    if (!companyId || !agentId || !roleBand || !targetPhase) {
+      res.status(400).json({ error: "companyId, agentId, roleBand, targetPhase required" });
+      return;
+    }
+    if (!VALID_BANDS.includes(roleBand)) {
+      res.status(400).json({ error: `roleBand must be one of: ${VALID_BANDS.join(", ")}` });
+      return;
+    }
+    if (!["walk", "run"].includes(targetPhase)) {
+      res.status(400).json({ error: "targetPhase must be 'walk' or 'run'" });
+      return;
+    }
+
+    const rows = await db
+      .select()
+      .from(agentPhases)
+      .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)))
+      .limit(1);
+
+    const current = rows[0];
+    if (!current) {
+      res.status(404).json({ error: `No phase row found for agent '${agentId}' in company ${companyId}` });
+      return;
+    }
+
+    // Build current roleBandPhases (or initialise from scratch)
+    const FRONT_LINE_BANDS = ["ambassador", "senior_ambassador", "hotel_gm"];
+    const CROSS_PROPERTY_BANDS = ["regional_gm", "operations_chief", "compliance_officer"];
+    const overallPhase = ["crawl", "walk", "run"].includes(current.phase) ? current.phase : "crawl";
+
+    let bandPhases: Record<string, { phase: string; agreementRate: number | null; overrideRate: number | null }>;
+    if (current.roleBandPhases && typeof current.roleBandPhases === "object") {
+      bandPhases = current.roleBandPhases as typeof bandPhases;
+    } else {
+      bandPhases = {};
+      for (const band of FRONT_LINE_BANDS) {
+        bandPhases[band] = { phase: overallPhase, agreementRate: null, overrideRate: null };
+      }
+      for (const band of CROSS_PROPERTY_BANDS) {
+        bandPhases[band] = { phase: "not_applicable", agreementRate: null, overrideRate: null };
+      }
+    }
+
+    const currentBandPhase = bandPhases[roleBand]?.phase ?? "crawl";
+    const VALID_TRANSITIONS: Record<string, string> = { crawl: "walk", walk: "run" };
+    if (VALID_TRANSITIONS[currentBandPhase] !== targetPhase) {
+      res.status(409).json({
+        error: `Invalid band transition: ${currentBandPhase} → ${targetPhase} for band '${roleBand}'`,
+        currentBandPhase,
+        roleBand,
+      });
+      return;
+    }
+
+    // Governance gate: block if unresolved HITL tokens for this agent+band+company
+    const unresolvedCheck = await db.execute(
+      sql`SELECT token FROM hitl_tokens
+          WHERE card_type = 'operational_exception'
+            AND agent_id = ${agentId}
+            AND company_id = ${companyId}
+            AND role_band = ${roleBand}
+            AND outcome IS NULL
+          LIMIT 1`
+    );
+    if (unresolvedCheck.rows.length > 0) {
+      res.status(409).json({
+        error: `Cannot promote '${agentId}' band '${roleBand}': unresolved operational exception(s) must be reviewed first`,
+        blocked_by: "unresolved_operational_exceptions",
+        currentBandPhase,
+        roleBand,
+      });
+      return;
+    }
+
+    // Write updated band phase
+    bandPhases[roleBand] = { ...bandPhases[roleBand], phase: targetPhase };
+
+    await db
+      .update(agentPhases)
+      .set({ roleBandPhases: bandPhases, phaseChangedAt: new Date() })
+      .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, agentId)));
+
+    await writeGovernanceEvent({
+      companyId,
+      agent: agentId,
+      eventCategory: "AGENT_LIFECYCLE",
+      decision: "PASS",
+      clauseApplied: `VDA-MD Crawl/Walk/Run §${targetPhase}: Role-band phase promoted by authorised reviewer`,
+      actionProposed: `${roleBand} band promoted from ${currentBandPhase} to ${targetPhase} by ${promotedBy}`,
+      reasoning: `Band phase promotion: ${agentId} role_band=${roleBand} is ready for ${targetPhase}-phase autonomous operation`,
+      fileReferenced: "VDA-MD Phase Management Protocol",
+      apaleoData: {
+        event_type: "agent_band_phase_promoted",
+        agent_id: agentId,
+        role_band: roleBand,
+        from_phase: currentBandPhase,
+        to_phase: targetPhase,
+        promoted_by: promotedBy,
+      },
+    });
+
+    logger.info({ companyId, agentId, roleBand, from: currentBandPhase, to: targetPhase, promotedBy }, "Agent band phase promoted");
+    res.json({ ok: true, agentId, companyId, roleBand, from: currentBandPhase, to: targetPhase, promotedBy });
+  } catch (err) {
+    logger.error({ err }, "dashboard/phases/promote-band error");
+    res.status(500).json({ error: "Failed to promote agent band phase" });
   }
 });
 
