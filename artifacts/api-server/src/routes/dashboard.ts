@@ -297,11 +297,13 @@ router.get("/dashboard/chain-health", async (_req, res) => {
       inArray(agentPhases.companyId, COMPANIES),
     );
 
+    // Cumulative counts: a RUN agent also counts towards WALK+ and CRAWL+,
+    // matching the staircase visual that highlights all phases reached up to current.
     let run = 0, walk = 0, crawl = 0;
     for (const p of phaseRows) {
-      if (p.phase === "run") run++;
-      else if (p.phase === "walk") walk++;
-      else if (p.phase === "crawl") crawl++;
+      if (p.phase === "run")                                        run++;
+      if (p.phase === "run" || p.phase === "walk")                  walk++;
+      if (p.phase === "run" || p.phase === "walk" || p.phase === "crawl") crawl++;
     }
 
     // Guard violations today (COMPLIANCE_BOUNDARY/FAIL)

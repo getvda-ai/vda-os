@@ -228,9 +228,13 @@ export default function HotelGMView({ companyId, onOpenTab }) {
   const updatedAgo = useSecondsAgo(lastUpdated);
 
   const phases = phasesData?.phases ?? [];
-  const phaseCounts = { run: 0, walk: 0, crawl: 0, not_activated: 0 };
+  // Cumulative counts to match the staircase visual (which highlights all phases reached up to current).
+  // A RUN agent contributes to RUN, WALK, and CRAWL counts; a WALK agent to WALK and CRAWL, etc.
+  const phaseCounts = { run: 0, walk: 0, crawl: 0 };
   for (const p of phases) {
-    phaseCounts[p.phase] = (phaseCounts[p.phase] ?? 0) + 1;
+    if (p.phase === "run")                                     phaseCounts.run++;
+    if (p.phase === "run" || p.phase === "walk")               phaseCounts.walk++;
+    if (p.phase === "run" || p.phase === "walk" || p.phase === "crawl") phaseCounts.crawl++;
   }
 
   // Find next agent to activate
@@ -263,9 +267,9 @@ export default function HotelGMView({ companyId, onOpenTab }) {
           {lastUpdated && <span style={{ fontSize: 11, color: "#ffffff" }}>Updated {updatedAgo}</span>}
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <StatCard label="Agents in RUN" value={phaseCounts.run} color="#4ade80" />
-          <StatCard label="Agents in WALK" value={phaseCounts.walk} color="#f59e0b" />
-          <StatCard label="Agents in CRAWL" value={phaseCounts.crawl} color="#60a5fa" />
+          <StatCard label="Agents at RUN" value={phaseCounts.run} color="#4ade80" />
+          <StatCard label="Agents at WALK+" value={phaseCounts.walk} color="#f59e0b" />
+          <StatCard label="Agents at CRAWL+" value={phaseCounts.crawl} color="#60a5fa" />
           <StatCard label="Guard rejections today" value={metricsData?.complianceRejectionsLast7d} color="#ffffff" subtitle="Last 7 days" />
           <StatCard label="Active exceptions" value={metricsData?.activeExceptions} color="#a855f7" />
         </div>

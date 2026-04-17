@@ -113,9 +113,9 @@ export default function OperationsChiefView() {
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <StatCard label="Properties live" value={chain.properties_live ?? 5} color="#ffffff" />
-          <StatCard label="Agents in RUN" value={agentsPhase.run} color="#4ade80" />
-          <StatCard label="Agents in WALK" value={agentsPhase.walk} color="#f59e0b" />
-          <StatCard label="Agents in CRAWL" value={agentsPhase.crawl} color="#60a5fa" />
+          <StatCard label="Agents at RUN" value={agentsPhase.run} color="#4ade80" />
+          <StatCard label="Agents at WALK+" value={agentsPhase.walk} color="#f59e0b" />
+          <StatCard label="Agents at CRAWL+" value={agentsPhase.crawl} color="#60a5fa" />
           <StatCard label="Guard violations today" value={chain.guard_violations_today} color="#f87171" />
           <StatCard label="Exceptions expiring" value={chain.exceptions_expiring_soon} color="#a855f7" subtitle="next 30 days" />
         </div>
