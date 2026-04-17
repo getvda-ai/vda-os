@@ -301,11 +301,13 @@ router.get("/hitl/pending", async (req, res) => {
     if (companyIdParam) {
       // Only accept comma-separated positive integers to avoid injection
       const ids = companyIdParam.split(",").map(s => s.trim()).filter(s => /^\d+$/.test(s)).map(Number);
+      // Also include NULL-company tokens (platform-level onboarding cards) so hotel-scoped roles
+      // can see HITL cards for their role_band (e.g., hotel_gm RACI notifications from orchestrator).
       if (ids.length === 1) {
-        fragments.push(sql`company_id = ${ids[0]}`);
+        fragments.push(sql`(company_id = ${ids[0]} OR company_id IS NULL)`);
       } else if (ids.length > 1) {
         // Parameterized ANY(ARRAY[...]) — fully safe
-        fragments.push(sql`company_id = ANY(ARRAY[${sql.join(ids.map(id => sql`${id}`), sql`, `)}])`);
+        fragments.push(sql`(company_id = ANY(ARRAY[${sql.join(ids.map(id => sql`${id}`), sql`, `)}]) OR company_id IS NULL)`);
       }
     }
 
