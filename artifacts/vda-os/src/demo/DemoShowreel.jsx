@@ -275,8 +275,14 @@ export default function DemoShowreel({
           }
         }
 
-        if (!cancelled && Object.keys(completedSteps).length === TOTAL) {
-          setPhase("summary");
+        // Note: completedSteps may be stale here due to closure;
+        // [DONE] event is the authoritative signal — this is a safety fallback
+        // only and uses a ref-safe check via the set state updater
+        if (!cancelled) {
+          setCompletedSteps(prev => {
+            if (Object.keys(prev).length >= TOTAL) setPhase("summary");
+            return prev;
+          });
         }
       } catch (e) {
         if (!cancelled) setError(e.message);
