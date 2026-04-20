@@ -4,7 +4,7 @@ import AgentPipeline from "./AgentPipeline.jsx";
 import ShowreelSummary from "./ShowreelSummary.jsx";
 
 const C = {
-  bg: "#07090e",
+  bg: "#070a0f",
   card: "#111318",
   border: "#1e2130",
   text: "#ffffff",
@@ -299,7 +299,8 @@ export default function DemoShowreel({
 
   useEffect(() => {
     if (phase === "summary" && onAllComplete) {
-      onAllComplete(Object.values(completedSteps));
+      const sorted = Object.values(completedSteps).sort((a, b) => a.step - b.step);
+      onAllComplete(sorted);
     }
   }, [phase]);
 
