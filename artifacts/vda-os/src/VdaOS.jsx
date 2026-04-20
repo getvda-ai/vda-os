@@ -6,6 +6,7 @@ import SeniorAmbassadorView from "./dashboard/SeniorAmbassadorView.jsx";
 import HotelGMView         from "./dashboard/HotelGMView.jsx";
 import RegionalGMView      from "./dashboard/RegionalGMView.jsx";
 import OperationsChiefView from "./dashboard/OperationsChiefView.jsx";
+import DemoShowreel        from "./demo/DemoShowreel.jsx";
 
 // ─────────────────────────────────────────────
 // DESIGN TOKENS — identical to citizenM version
@@ -6544,6 +6545,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
   const [completedSteps,   setCompletedSteps]      = useState({});  // { [stepNum]: stepData }
   const [activeStepIdx,    setActiveStepIdx]       = useState(-1);  // -1 = none active
   const [showAdvanced,     setShowAdvanced]        = useState(false);
+  const [showShowreel,     setShowShowreel]        = useState(false);
   const [agentParams, setAgentParams] = useState({
     availability:   { arrival: new Date().toISOString().split("T")[0], departure: new Date(Date.now() + 86400000).toISOString().split("T")[0], adults: "2" },
     rate:           { requestedRate: "162", barRate: "180" },
@@ -6570,6 +6572,48 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
   }, [companyId]);
 
   useEffect(() => { fetchDbEntries(); }, [fetchDbEntries]);
+
+  // ── Showreel callbacks — keep background JourneyTimeline in sync ──────────
+  const handleShowreelStep = useCallback((step) => {
+    setCompletedSteps(prev => ({ ...prev, [step.step]: step }));
+    setActiveStepIdx(step.step - 1);
+    const agentDef = AGENT_DEFS.find(a => a.name === step.agent);
+    const entry = { ...step, fileReferenced: agentDef?.policy || "", createdAt: new Date().toISOString() };
+    setStreamEntries(prev => [...prev, entry]);
+    if (agentDef) setAgentLastEntries(prev => ({ ...prev, [agentDef.id]: entry }));
+    if (onLogEntry) {
+      onLogEntry({
+        id: Date.now() + Math.random(),
+        timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        agent: step.agent, decision: step.decision,
+        fileReferenced: agentDef?.policy || "",
+        clauseApplied: step.clauseApplied || "", actionProposed: step.actionProposed || "",
+        exceptionApplied: step.exceptionApplied || false, escalationTarget: step.escalationTarget || null,
+        reasoning: step.reasoning || "",
+      });
+    }
+  }, [onLogEntry]);
+
+  const handleShowreelDone = useCallback((allSteps) => {
+    setScenarioComplete(true);
+    setScenarioRunning(false);
+    setActiveStepIdx(-1);
+    setScenarioTokenData(allSteps.map(s => ({
+      step: s.step, agent: s.agent,
+      inputTokens: s.inputTokens ?? 0, outputTokens: s.outputTokens ?? 0,
+    })));
+    fetchDbEntries();
+  }, [fetchDbEntries]);
+
+  const handleShowreelClose = useCallback((goToTimeline) => {
+    setShowShowreel(false);
+    setScenarioRunning(false);
+    if (goToTimeline) {
+      setTimeout(() => {
+        document.getElementById("journey-timeline")?.scrollIntoView({ behavior: "smooth" });
+      }, 200);
+    }
+  }, []);
 
   const addStreamEntry = useCallback((entry) => {
     setStreamEntries(prev => [entry, ...prev].slice(0, 100));
@@ -6752,7 +6796,15 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
             </div>
           )}
           <button
-            onClick={runFullScenario}
+            onClick={() => {
+              setScenarioComplete(false);
+              setCompletedSteps({});
+              setStreamEntries([]);
+              setAgentLastEntries({});
+              setActiveStepIdx(0);
+              setScenarioRunning(true);
+              setShowShowreel(true);
+            }}
             disabled={!hasCredentials || !hasCompany || scenarioRunning}
             style={{
               background: scenarioRunning ? `${T.orange}18` : hasCredentials && hasCompany ? T.orange : T.border,
@@ -6768,7 +6820,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
             {scenarioRunning
               ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Running…</>
               : scenarioComplete
-                ? <><span>↺</span> Run Again</>
+                ? <><span>▶</span> Run Again</>
                 : <><span>▶</span> Run Full Guest Journey</>
             }
           </button>
@@ -6859,7 +6911,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
       <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
 
         {/* Left: Journey Timeline (58%) */}
-        <div style={{ flex: "0 0 58%", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+        <div id="journey-timeline" style={{ flex: "0 0 58%", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "13px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 15 }}>🗺</span>
             <span style={{ fontWeight: 700, fontSize: 13 }}>Guest Journey · 7 Steps</span>
@@ -7031,6 +7083,17 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
           </div>
         )}
       </div>
+
+      {/* ── Demo Showreel overlay (fullscreen, mounts when button clicked) ── */}
+      {showShowreel && (
+        <DemoShowreel
+          propertyId={propertyId}
+          companyId={companyId}
+          onStepComplete={handleShowreelStep}
+          onAllComplete={handleShowreelDone}
+          onClose={handleShowreelClose}
+        />
+      )}
     </div>
   );
 }

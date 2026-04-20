@@ -1624,6 +1624,20 @@ router.post("/agents/scenario/run", async (req, res) => {
       return res.status(400).json({ error: "propertyId and companyId required" });
     }
 
+    // SSE streaming mode — emit each step as it completes rather than batching at the end.
+    const isSse = (req.headers.accept ?? "").includes("text/event-stream");
+    if (isSse) {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+    }
+
+    const emitStep = (step: ScenarioStep) => {
+      if (isSse) res.write(`data: ${JSON.stringify(step)}\n\n`);
+    };
+
     const scenarioRunId = `scenario-${Date.now()}`;
     const results: ScenarioStep[] = [];
     const ids: Record<string, string | undefined> = { propertyId };
@@ -1786,6 +1800,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
         void emitCrossDomainGovernanceEvent(Number(companyId), "Availability Agent");
       }
       results.push({ step: 1, agent: "Availability Agent", ...decision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: availInputTokens, outputTokens: availOutputTokens });
+      emitStep(results[results.length - 1]);
     }
 
     // ─ Step 2: Rate Agent ─────────────────────────────────────────────────
@@ -1822,6 +1837,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
         void emitCrossDomainGovernanceEvent(Number(companyId), "Rate Agent");
       }
       results.push({ step: 2, agent: "Rate Agent", ...rateDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: rateInputTokens, outputTokens: rateOutputTokens });
+      emitStep(results[results.length - 1]);
     }
 
     // ─ Step 3: Reservation Bot (policy-first create) ──────────────────────
@@ -1909,6 +1925,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
         void emitCrossDomainGovernanceEvent(Number(companyId), "Reservation Bot");
       }
       results.push({ step: 3, agent: "Reservation Bot", ...decision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: resvInputTokens, outputTokens: resvOutputTokens });
+      emitStep(results[results.length - 1]);
     }
 
     // ─ Step 4: Check-In Agent (policy-first, execute on PASS) ────────────
@@ -1992,6 +2009,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
         void emitCrossDomainGovernanceEvent(Number(companyId), "Check-In Agent");
       }
       results.push({ step: 4, agent: "Check-In Agent", ...ciDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: ciInputTokens, outputTokens: ciOutputTokens });
+      emitStep(results[results.length - 1]);
     }
 
     // ─ Step 5: Folio Charge Agent (policy-first, post charge on PASS) ─────
@@ -2075,6 +2093,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
         void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Charge Agent");
       }
       results.push({ step: 5, agent: "Folio Charge Agent", ...fcDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: fcInputTokens, outputTokens: fcOutputTokens });
+      emitStep(results[results.length - 1]);
     }
 
     // ─ Step 6: Checkout Agent (policy-first, execute on PASS) ────────────
@@ -2135,6 +2154,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
           void emitCrossDomainGovernanceEvent(Number(companyId), "Checkout Agent");
         }
         results.push({ step: 6, agent: "Checkout Agent", ...coDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: coInputTokens, outputTokens: coOutputTokens });
+        emitStep(results[results.length - 1]);
       }
     }
 
@@ -2186,11 +2206,22 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
         void emitCrossDomainGovernanceEvent(Number(companyId), "Revenue Reconciliation Agent");
       }
       results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: revInputTokens, outputTokens: revOutputTokens });
+      emitStep(results[results.length - 1]);
     }
 
-    return res.json({ scenarioRunId, propertyId, apaleoIds: ids, steps: results, completedAt: new Date().toISOString() });
+    if (isSse) {
+      res.write(`data: [DONE]\n\n`);
+      res.end();
+    } else {
+      return res.json({ scenarioRunId, propertyId, apaleoIds: ids, steps: results, completedAt: new Date().toISOString() });
+    }
   } catch (err: unknown) {
-    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    if ((res as { headersSent?: boolean }).headersSent) {
+      res.write(`data: {"error":"${err instanceof Error ? err.message : "Unknown error"}"}\n\n`);
+      res.end();
+    } else {
+      return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    }
   }
 });
 
