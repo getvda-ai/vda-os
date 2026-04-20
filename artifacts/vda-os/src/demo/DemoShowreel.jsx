@@ -245,14 +245,25 @@ export default function DemoShowreel({
               const step = JSON.parse(payload);
               if (cancelled) break;
 
+              // Guard: skip error event payloads from the SSE stream
+              if (step.error) {
+                setError(String(step.error));
+                break;
+              }
+              if (typeof step.step !== "number") break;
+
               setCompletedSteps(prev => ({ ...prev, [step.step]: step }));
               setCompletedSet(prev => new Set([...prev, step.step]));
               setFilesConsulted(prev => ({
                 ...prev,
                 [step.step]: step.filesConsulted ?? [],
               }));
+              // Delay advancing the active step so the decision+seal reveal
+              // animation has time to render before switching to the next agent
               if (step.step < TOTAL) {
-                setActiveStep(step.step + 1);
+                setTimeout(() => {
+                  if (!cancelled) setActiveStep(step.step + 1);
+                }, 900);
               }
               if (step.decision === "ESCALATE") {
                 setHitlStep(step);
@@ -306,7 +317,14 @@ export default function DemoShowreel({
 
   const handleHitlDecide = useCallback((choice) => {
     if (!hitlStep) return;
-    setHitlChoices(prev => ({ ...prev, [hitlStep.step]: choice }));
+    const stepNum = hitlStep.step;
+    setHitlChoices(prev => ({ ...prev, [stepNum]: choice }));
+    // Reflect the HITL decision back into completedSteps so summary and
+    // onAllComplete callbacks carry the human's choice alongside the agent data
+    setCompletedSteps(prev => ({
+      ...prev,
+      [stepNum]: { ...(prev[stepNum] ?? hitlStep), hitlDecision: choice },
+    }));
     setHitlStep(null);
   }, [hitlStep]);
 

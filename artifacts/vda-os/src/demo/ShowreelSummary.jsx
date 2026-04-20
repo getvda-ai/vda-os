@@ -120,7 +120,7 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: C.text }}>{step.agent}</div>
                 </div>
-                <div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 3, alignItems: "center" }}>
                   <span style={{
                     fontSize: 9, fontWeight: 700,
                     color: dc.color, background: dc.bg,
@@ -129,9 +129,19 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
                   }}>
                     {dc.label}
                   </span>
+                  {step.hitlDecision && (
+                    <span style={{
+                      fontSize: 8, fontWeight: 700,
+                      color: step.hitlDecision === "APPROVED" ? C.green : C.red,
+                      background: step.hitlDecision === "APPROVED" ? "#14532d" : "#450a0a",
+                      padding: "1px 5px", borderRadius: 3, letterSpacing: "0.05em",
+                    }}>
+                      {step.hitlDecision === "APPROVED" ? "✓ Approved" : "✗ Rejected"}
+                    </span>
+                  )}
                   {step.exceptionApplied && (
                     <span style={{
-                      marginLeft: 4, fontSize: 8, color: C.purple, background: "#2d1b4e",
+                      fontSize: 8, color: C.purple, background: "#2d1b4e",
                       padding: "1px 4px", borderRadius: 3,
                     }}>EXC</span>
                   )}
