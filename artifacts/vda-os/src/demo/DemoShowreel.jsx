@@ -77,6 +77,102 @@ function CountdownRing({ step, total }) {
   );
 }
 
+// ── HITL Decision Card ────────────────────────────────────────────────────
+function HitlDecisionCard({ step, onDecide }) {
+  return (
+    <div style={{
+      position: "absolute", inset: 0, zIndex: 10,
+      background: "rgba(7,9,14,0.88)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      animation: "fadeIn 0.25s ease",
+      backdropFilter: "blur(4px)",
+    }}>
+      <div style={{
+        background: "#111318",
+        border: `1.5px solid #f59e0b60`,
+        borderRadius: 14,
+        padding: "24px 28px",
+        maxWidth: 380,
+        width: "90%",
+        boxShadow: "0 0 40px rgba(245,158,11,0.15)",
+        animation: "fadeIn 0.3s ease",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: "50%",
+            background: "#451a03", border: "1.5px solid #f59e0b",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 18,
+            animation: "pulse-ring 1.5s ease infinite",
+          }}>⚠</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 900, color: "#f59e0b" }}>Human Approval Required</div>
+            <div style={{ fontSize: 10, color: "#8b92a5", marginTop: 1 }}>
+              Step {step.step} · {step.agent}
+            </div>
+          </div>
+        </div>
+
+        {step.reasoning && (
+          <div style={{
+            background: "#0a0c10", border: "1px solid #1e2130",
+            borderRadius: 8, padding: "10px 12px", marginBottom: 16,
+            fontSize: 10, color: "#8b92a5", lineHeight: 1.6, fontStyle: "italic",
+          }}>
+            "{step.reasoning.slice(0, 160)}{step.reasoning.length > 160 ? "…" : ""}"
+          </div>
+        )}
+
+        {step.escalationTarget && (
+          <div style={{
+            fontSize: 10, color: "#60a5fa", marginBottom: 14,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <span style={{ opacity: 0.6 }}>Escalated to:</span>
+            <span style={{ fontWeight: 700 }}>{step.escalationTarget}</span>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={() => onDecide("APPROVED")}
+            style={{
+              flex: 1, padding: "10px 0",
+              background: "#14532d", border: "1.5px solid #4ade80",
+              borderRadius: 8, fontSize: 13, fontWeight: 900,
+              color: "#4ade80", cursor: "pointer",
+              fontFamily: "'DM Sans', sans-serif",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "#166534"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#14532d"; }}
+          >
+            ✓ Approve
+          </button>
+          <button
+            onClick={() => onDecide("REJECTED")}
+            style={{
+              flex: 1, padding: "10px 0",
+              background: "#450a0a", border: "1.5px solid #f87171",
+              borderRadius: 8, fontSize: 13, fontWeight: 900,
+              color: "#f87171", cursor: "pointer",
+              fontFamily: "'DM Sans', sans-serif",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "#7f1d1d"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#450a0a"; }}
+          >
+            ✗ Reject
+          </button>
+        </div>
+        <div style={{ marginTop: 10, fontSize: 9, color: "#555d72", textAlign: "center" }}>
+          Your decision is recorded in the witness ledger
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DemoShowreel({
   propertyId,
   companyId,
@@ -91,6 +187,8 @@ export default function DemoShowreel({
   const [phase, setPhase]                           = useState("running"); // "running" | "summary"
   const [startedAt]                                 = useState(() => Date.now());
   const [error, setError]                           = useState(null);
+  const [hitlStep, setHitlStep]                     = useState(null);  // step needing HITL
+  const [hitlChoices, setHitlChoices]               = useState({});    // { [stepNum]: "APPROVED"|"REJECTED" }
   const readerRef                                   = useRef(null);
   const bufferRef                                   = useRef("");
 
@@ -156,6 +254,9 @@ export default function DemoShowreel({
               if (step.step < TOTAL) {
                 setActiveStep(step.step + 1);
               }
+              if (step.decision === "ESCALATE") {
+                setHitlStep(step);
+              }
               if (onStepComplete) onStepComplete(step);
             } catch (e) {
               // malformed SSE line — ignore
@@ -202,6 +303,12 @@ export default function DemoShowreel({
     stopStream();
     onClose(true);
   };
+
+  const handleHitlDecide = useCallback((choice) => {
+    if (!hitlStep) return;
+    setHitlChoices(prev => ({ ...prev, [hitlStep.step]: choice }));
+    setHitlStep(null);
+  }, [hitlStep]);
 
   const steps = Object.values(completedSteps);
   const currentStepData = completedSteps[activeStep];
@@ -390,7 +497,11 @@ export default function DemoShowreel({
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            position: "relative",
           }}>
+            {hitlStep && (
+              <HitlDecisionCard step={hitlStep} onDecide={handleHitlDecide} />
+            )}
             <div style={{
               padding: "12px 20px 8px",
               borderBottom: `1px solid ${C.border}`,

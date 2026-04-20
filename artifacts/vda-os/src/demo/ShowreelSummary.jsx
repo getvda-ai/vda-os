@@ -78,12 +78,12 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
       }}>
         <div style={{
           display: "grid",
-          gridTemplateColumns: "32px 1fr 80px 60px 60px",
+          gridTemplateColumns: "32px 1fr 80px 48px 48px 90px",
           gap: 0,
           borderBottom: `1px solid ${C.border}`,
           padding: "8px 14px",
         }}>
-          {["#", "Agent", "Decision", "In", "Out"].map(h => (
+          {["#", "Agent", "Decision", "In", "Out", "Witness Seal"].map(h => (
             <div key={h} style={{
               fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
               textTransform: "uppercase", color: C.dim,
@@ -94,6 +94,9 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
         {sortedSteps.map((step, idx) => {
           const dc = DEC[step.decision] ?? DEC.PASS;
           const clause = step.clauseApplied ?? "";
+          const seal = step.witnessEntryId
+            ? `#${String(step.witnessEntryId).slice(0, 8)}`
+            : "—";
           const isLast = idx === sortedSteps.length - 1;
           return (
             <div key={step.step} style={{
@@ -101,7 +104,7 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
             }}>
               <div style={{
                 display: "grid",
-                gridTemplateColumns: "32px 1fr 80px 60px 60px",
+                gridTemplateColumns: "32px 1fr 80px 48px 48px 90px",
                 gap: 0,
                 padding: "10px 14px",
                 alignItems: "center",
@@ -139,13 +142,23 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
                 <div style={{ fontSize: 9, color: C.muted, fontFamily: "monospace" }}>
                   {(step.outputTokens ?? 0).toLocaleString()}
                 </div>
+                <div style={{
+                  fontSize: 8, color: C.blue, fontFamily: "monospace",
+                  background: seal === "—" ? "transparent" : "#0f2744",
+                  border: seal === "—" ? "none" : "1px solid #1e3a5f",
+                  padding: seal === "—" ? 0 : "1px 5px",
+                  borderRadius: 4,
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                }}>
+                  {seal}
+                </div>
               </div>
               {clause && (
                 <div style={{
                   padding: "0 14px 10px 46px",
                   fontSize: 9, color: C.dim, fontStyle: "italic", lineHeight: 1.5,
                 }}>
-                  "{clause.slice(0, 140)}{clause.length > 140 ? "…" : ""}"
+                  "{clause.slice(0, 100)}{clause.length > 100 ? "…" : ""}"
                 </div>
               )}
             </div>
