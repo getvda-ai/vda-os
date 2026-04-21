@@ -12,3 +12,9 @@ id = "sewKoLcQD5dU-44Vuywd5"
 uri = "file://exports/vda-mk-platform-report.txt"
 type = "text"
 title = "VDA-MD Platform — Complete Technical & Functional Report"
+
+[[outputs]]
+id = "bz6QMQcUVhXDtZJt7JV-9"
+uri = "file://vda-md-architecture-description.txt"
+type = "text"
+title = "VDA-MD Architecture Description"

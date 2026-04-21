@@ -1,0 +1,410 @@
+================================================================================
+VDA-MD GOVERNANCE PLATFORM — FULL ARCHITECTURE DESCRIPTION
+For use as input to a technical diagram
+================================================================================
+
+WHAT THIS SYSTEM IS
+-------------------
+VDA-MD (Value-Driven AI — Governance-as-Markdown) is an AI governance operating
+system built specifically for hotel property management using the Apaleo PMS. It
+enforces that every AI agent decision is governed entirely by Markdown files
+stored in a database — no hardcoded policy fallbacks exist anywhere. The system
+is deployed for 5 citizenM hotels:
+  1. Berlin (BER)
+  2. London x2 (LND)
+  3. Munich (MUC)
+  4. Paris (PAR)
+  5. Vienna (VIE)
+
+There are 8 governed agents and 1 onboarding agent.
+
+================================================================================
+OVERALL ARCHITECTURE
+================================================================================
+
+The platform is a TypeScript pnpm monorepo with three main layers:
+  1. Frontend  — React/Vite dashboard (VDA-OS)
+  2. Backend   — Express API server with agent + governance logic
+  3. Database  — PostgreSQL with Drizzle ORM
+
+Shared libraries:
+  - lib/db                          — Drizzle schema and query helpers
+  - lib/integrations-anthropic-ai   — Claude API wrapper with prompt caching
+  - lib/api-spec                    — OpenAPI spec and generated TypeScript types
+
+================================================================================
+FRONTEND: VDA-OS DASHBOARD
+================================================================================
+
+Path: artifacts/vda-os
+Tech: React 19, Vite, Tailwind CSS, Framer Motion, Lucide Icons
+
+The dashboard is a role-stratified operating system with three user roles:
+  - Hotel GM (General Manager) — operational overview
+  - Compliance Officer — governance file health, audit trail
+  - Revenue Manager — agent decisions, Apaleo data
+
+Key UI sections:
+  - Live Demo Tab: runs the 7-step scenario in real time via Server-Sent Events
+    (SSE). Each of the 8 agents fires sequentially and streams its decision and
+    token usage to the UI. Includes a replay ("Watch Again") button.
+  - File Manager: create, edit, version, and archive VDA-MD governance files.
+    Enforces §3 compliance guards (GDPR / EU AI Act / ISO 42001 terms cannot be
+    reduced without rejection). Enforces §4 audit standard guards (NIST / SOC 2
+    / ISO 27001 require accountable owner sign-off to reduce).
+  - Compliance Dashboard: shows per-agent governance file status, compliance
+    scores, HITL (Human-In-The-Loop) approval queues, and phase promotion.
+  - VDA-MD Chatbot: embedded AI assistant (Claude) that answers questions about
+    governance files stored in the database.
+  - Onboarding Flow: UI for onboarding new AI agents into the platform.
+
+================================================================================
+BACKEND: API SERVER
+================================================================================
+
+Path: artifacts/api-server
+Tech: Express 5, Node.js 24, TypeScript 5.9, esbuild (CJS bundle), Pino logging
+
+Key route groups:
+
+/api/agents/*
+  — POST /agents/scenario/run    Runs the full 8-step hotel demo scenario.
+                                  Streams each step result via SSE.
+  — POST /agents/availability    Single-agent evaluation endpoint
+  — POST /agents/rate            (and one per each of the 8 agents)
+  — POST /agents/reservation
+  — POST /agents/checkin
+  — POST /agents/folio-charge
+  — POST /agents/checkout
+  — POST /agents/revenue-recon
+  Each agent route: loads governance files from DB → calls Claude with
+  caching → optionally calls Apaleo MCP tools → writes Witness entry → returns
+  structured decision (PASS / FAIL / ESCALATE).
+
+/api/fm/*
+  — File Manager CRUD for governance Markdown files
+  — Versioning, referential integrity checks, compliance guards
+  — Cross-domain inheritance validation
+
+/api/apaleo/*
+  — Direct REST proxy to Apaleo APIs (properties, reservations, folios,
+    availability, rate plans, revenue reports, unit groups, maintenance)
+
+/api/apaleo/mcp/*
+  — Transparent proxy to Apaleo's MCP server (https://mcp.apaleo.com/mcp)
+  — Injects Apaleo Bearer token automatically
+  — Maintains MCP session IDs
+  — Supports SSE streaming for long-running tool executions
+
+/api/ai/messages
+  — General Claude proxy used by the VDA-MD chatbot
+  — Routes through Anthropic integration with prompt caching
+
+/api/hitl/*
+  — Human-In-The-Loop token creation and approval endpoints
+  — Role-stratified queues (GM, Compliance Officer, Revenue Manager)
+
+/api/a2a
+  — Agent-to-Agent protocol (Google A2A / JSON-RPC 2.0)
+  — Agents identify themselves with W3C Verifiable Credentials (DIDs)
+  — Each agent has a signed Agent Card
+
+/api/onboarding/*
+  — Onboarding orchestrator for registering new agents
+
+/api/healthz
+  — Health check endpoint
+
+================================================================================
+THE GOVERNANCE ENGINE (VDA-MD CORE)
+================================================================================
+
+Markdown is the sole source of truth. Three file types are MANDATORY per agent:
+
+  1. AGENTS.md   — agent charter, scope, permissions, RACI matrix
+  2. SOP.md      — operational rules using RFC 2119 keywords:
+                   MUST / MUST NOT / SHOULD / MAY with escalation paths
+  3. SKILL.md    — permitted Apaleo MCP tool list and authority limits
+
+File naming convention:
+  Hospitality-[Domain]-[Stage]-[AgentName].[FileType].md
+  Example: Hospitality-Revenue-Pre-Book-availability-agent.SOP.md
+
+Additional file types:
+  - EXCEPTION.md — activates only when stated conditions are met; extends
+                   (never replaces) the SOP baseline; cited in Witness Stream
+  - COMPLIANCE.md — immutable legal terms
+  - CUSTOM.md    — hotel-specific overrides
+
+23 canonical files per hotel (7 agents × 3 files + 1 Finance O2C shared +
+1 EXCEPTION overlay) × 5 hotels = 115 governance files total.
+
+Pre-flight enforcement (§2.1):
+  Before any agent can make an AI call or touch Apaleo, the API layer confirms
+  all three required file types exist for that agent. Missing files → immediate
+  ESCALATE. No governance file = no execution.
+
+Compliance scoring:
+  Each file is scored by density of RFC 2119 keywords and compliance references.
+  A compliance score 0–100 is shown on the dashboard per file.
+
+Compliance guards (§3 — hard block):
+  Any edit that reduces occurrences of: GDPR, EU AI Act, ISO 42001 → HTTP 409.
+
+Audit standard guards (§4 — requires sign-off):
+  Reductions to: NIST SP 800-53, SOC 2, ISO 27001 → HTTP 409 unless
+  accountable owner provides a signedOffBy field in the save request.
+
+Cross-domain inheritance (§7):
+  Agents that need shared services policy (e.g. Finance O2C) load those
+  files as a pre-condition block AFTER their own three files are satisfied.
+
+================================================================================
+THE 8 GOVERNED AGENTS + 1 ONBOARDING AGENT
+================================================================================
+
+Scenario run order (hotel guest lifecycle):
+
+  Step 1 — Availability Agent     (Revenue | Pre-Book)
+    Checks room availability via Apaleo MCP. Governs PASS/FAIL on unit groups.
+
+  Step 2 — Rate Agent             (Revenue | Book)
+    Evaluates rate override requests. Authority band: 0–9% autonomous,
+    10–24% escalate to Revenue Manager, ≥25% FAIL.
+
+  Step 3 — Reservation Bot        (Revenue | Book)
+    Creates or confirms reservations via Apaleo MCP booking tools.
+
+  Step 4 — Check-In Agent         (Operations | Stay)
+    Governs check-in including early check-in exceptions and room upgrades.
+
+  Step 5 — Folio Charge Agent     (Operations | Stay)
+    Validates folio charges against policy before applying to guest account.
+
+  Step 6 — Checkout Agent         (Operations | Post-Stay)
+    Governs checkout process, late checkout exceptions, final folio review.
+
+  Step 7 — Revenue Reconciliation Agent  (Finance | Reconciliation)
+    Cross-checks revenue data against Apaleo reports. Flags variances.
+
+  Step 8 — Witness Agent          (Audit | All stages)
+    Non-decision agent. Writes tamper-evident audit entries for every
+    decision made by all 7 agents (Witness Stream).
+
+  Onboarding Agent (separate flow)
+    Orchestrates the registration of new AI agents into the platform.
+    Generates DIDs, issues Verifiable Credentials, creates Agent Cards,
+    runs eval report jobs, and stages agents through onboarding phases.
+
+================================================================================
+AI MODELS (ANTHROPIC CLAUDE)
+================================================================================
+
+Two models are used, routed via lib/integrations-anthropic-ai:
+
+  claude-haiku-4-5   — scenario step evaluations (8 agent calls per run)
+                       Fast, lower cost; used for structured decision output
+  claude-sonnet-4-6  — governance reasoning, chatbot, onboarding orchestration
+                       Used when nuanced compliance interpretation is needed
+
+Token usage per agent call is tracked with 4 fields:
+  inputTokens         — non-cached input tokens
+  outputTokens        — generated output tokens
+  cacheCreationTokens — tokens written to Claude's prompt cache (first call)
+  cacheReadTokens     — tokens served from cache (subsequent calls; ~5x cheaper)
+
+The system prompt for each agent (the full governance file content) is cached
+using Anthropic's prompt caching feature. On warm cache calls, the large
+governance document is not re-processed.
+
+All AI calls go through the internal /api/ai/messages proxy, which means
+no user API key is needed — credentials are managed by Replit AI Integrations.
+
+================================================================================
+APALEO INTEGRATION
+================================================================================
+
+--- Authentication ---
+
+OAuth 2.0 Client Credentials Grant:
+  Token endpoint: https://identity.apaleo.com/connect/token
+  Credentials:    APALEO_CLIENT_ID and APALEO_CLIENT_SECRET (environment secrets)
+  Grant type:     client_credentials
+  Token caching:  In-memory cache with 30-second pre-expiry refresh
+  Header:         Authorization: Bearer {access_token}
+  File:           artifacts/api-server/src/lib/apaleo-auth.ts
+
+The same Bearer token is used for both direct REST API calls AND MCP calls.
+
+--- Direct REST API Calls ---
+
+File: artifacts/api-server/src/lib/apaleo-client.ts
+      artifacts/api-server/src/routes/apaleo.ts
+
+Apaleo API base: https://api.apaleo.com
+
+Endpoints consumed:
+
+  INVENTORY MODULE
+  GET /inventory/v1/properties              — list / get properties
+  GET /inventory/v1/unit-groups             — room category listings
+  GET /inventory/v1/units                   — specific room details and status
+
+  BOOKING MODULE
+  GET /booking/v1/reservations              — search reservations by property,
+                                              date, status (arrivals/departures/
+                                              in-house)
+  GET /booking/v1/reservations$count        — dashboard KPI counts
+
+  FINANCE MODULE
+  GET /finance/v1/folios                    — guest invoice / folio retrieval
+  GET /finance/v1/folios$count              — open folio counts
+
+  OPERATIONS MODULE
+  GET /operations/v1/maintenances           — housekeeping / maintenance tasks
+
+  RATE PLAN MODULE
+  GET /rateplan/v1/rate-plans               — pricing and rate plan configs
+
+  REPORTS MODULE
+  GET /reports/v1/reports/revenue           — revenue performance data
+
+  AVAILABILITY MODULE
+  GET /availability/v1/unit-groups          — real-time room availability check
+
+--- MCP (Model Context Protocol) Integration ---
+
+File: artifacts/api-server/src/routes/mcp-proxy.ts
+
+Apaleo MCP server: https://mcp.apaleo.com/mcp
+
+The API server acts as a transparent MCP proxy:
+  1. Receives MCP request from internal agent or frontend
+  2. Injects Apaleo Bearer token into the Authorization header
+  3. Forwards to Apaleo MCP server as JSON-RPC 2.0
+  4. Maintains Mcp-Session-Id headers for stateful sessions
+  5. Supports Server-Sent Events (SSE) for streaming tool responses
+  6. Returns tool result to the caller
+
+Exposed proxy endpoints:
+  GET  /api/apaleo/mcp/tools           — lists available MCP tools
+  POST /api/apaleo/mcp/tools/:toolName — executes a named MCP tool
+
+MCP tools used by agents (defined per agent in SKILL.md):
+  - ListUnitGroups     (Availability Agent)
+  - ListRatePlans      (Rate Agent)
+  - SearchReservations (Reservation Bot)
+  - CreateReservation  (Reservation Bot)
+  - CheckInReservation (Check-In Agent)
+  - PostCharge         (Folio Charge Agent)
+  - CheckOutReservation (Checkout Agent)
+
+When an agent calls a MCP tool, it counts as a "tool_use" stop reason in
+Claude's response. The agent loop catches tool_use, executes the tool via the
+proxy, feeds results back to Claude, and continues until a text decision is
+returned.
+
+================================================================================
+TRUST AND AUDIT LAYER
+================================================================================
+
+W3C Verifiable Credentials (DIDs):
+  Each agent has a Decentralized Identifier (DID) and a signed Verifiable
+  Credential stored in the agentCredentials table. Agent-to-Agent (A2A)
+  calls verify these credentials before processing any request.
+
+Agent Cards:
+  JSON metadata document per agent describing its capabilities, endpoints,
+  and governance scope. Used in A2A protocol handshakes.
+
+Witness Stream (§5 — non-negotiable audit trail):
+  Every agent decision — PASS, FAIL, or ESCALATE — writes a tamper-evident
+  entry to the witnessEntries table containing:
+    - verbatim clauseApplied (the exact policy clause cited)
+    - filesConsulted array (which governance files were loaded)
+    - crossDomainInheritance flag
+    - Apaleo data snapshot used in the decision
+    - inputTokens / outputTokens for cost tracking
+  Governance failure entries carry: fileReferenced = "VDA-MD §2.1 — No governance file"
+
+HITL (Human-In-The-Loop):
+  ESCALATE decisions create HITL tokens in the hitlTokens table.
+  Tokens are role-stratified: GM, Compliance Officer, Revenue Manager.
+  HITL approval UI is in the compliance dashboard.
+  Approved or rejected decisions are recorded with decidedBy and witnessEntryId.
+
+Phase Promotion:
+  Agents move through onboarding phases (e.g. PROPOSED → ACTIVE → CERTIFIED).
+  Phase transitions require HITL approval and are tracked in agentPhases.
+
+Exception Overlay (§6):
+  EXCEPTION.md files activate only when their stated conditions are met.
+  They extend (never replace) the SOP baseline.
+  When applied: exceptionApplied: true is recorded in the Witness Stream
+  along with the verbatim exception clause.
+
+================================================================================
+DATABASE SCHEMA (PostgreSQL / Drizzle ORM)
+================================================================================
+
+Key tables:
+
+  companies               — hotel / organisation records
+  governanceFiles         — all VDA-MD Markdown files (content + YAML front matter)
+  governanceFileVersions  — full version history of every governance file
+  witnessEntries          — immutable audit log of all agent decisions
+  agentCredentials        — DID + Verifiable Credential per agent
+  a2aTasks                — JSON-RPC task records for A2A protocol
+  hitlTokens              — HITL approval tokens with role, status, decidedBy
+  agentPhases             — phase lifecycle records per agent
+  onboardingRequests      — agent onboarding session data
+
+================================================================================
+DATA FLOW: ONE SCENARIO STEP (e.g. Rate Agent)
+================================================================================
+
+1. Frontend sends POST /api/agents/scenario/run with propertyId + companyId
+2. API server switches to SSE mode; streams events as steps complete
+3. For each agent step:
+   a. Pre-flight: load AGENTS.md + SOP.md + SKILL.md from DB (§2.1 check)
+   b. If any file missing → return ESCALATE immediately, write Witness entry
+   c. Get Apaleo Bearer token (cached in memory)
+   d. Call Apaleo REST API to fetch live property data (e.g. rate plans)
+   e. Build Claude system prompt from governance files (cached via Anthropic
+      prompt caching — cache_control: ephemeral on system block)
+   f. Call Claude claude-haiku-4-5 with governance context + live Apaleo data
+   g. If Claude returns tool_use → proxy call to Apaleo MCP → feed result back
+   h. Claude returns structured JSON decision: {decision, clauseApplied,
+      actionProposed, exceptionApplied, escalationTarget, reasoning}
+   i. Write Witness entry to DB with decision + Apaleo snapshot + token counts
+   j. If ESCALATE → create HITL token for appropriate role
+   k. Emit SSE event to frontend with step result
+4. Frontend renders each step card in real time as SSE events arrive
+5. After all steps: frontend shows ShowreelSummary with totals and replay button
+
+================================================================================
+TECH STACK SUMMARY
+================================================================================
+
+Layer             Technology
+---------         --------------------------------------------------
+Frontend          React 19, Vite, Tailwind CSS, Framer Motion
+Backend           Node.js 24, Express 5, TypeScript 5.9, esbuild
+Database          PostgreSQL, Drizzle ORM, drizzle-zod
+AI Models         Anthropic Claude Haiku 4.5 (agents) + Sonnet 4.6 (governance)
+AI SDK            @anthropic-ai/sdk 0.78.0 with prompt caching
+AI Auth           Replit AI Integrations proxy (no user API key required)
+Apaleo Auth       OAuth 2.0 Client Credentials (token cached in memory)
+Apaleo REST       Direct HTTPS calls to api.apaleo.com
+Apaleo MCP        JSON-RPC 2.0 proxy to mcp.apaleo.com with SSE streaming
+Streaming         Server-Sent Events (SSE) for scenario step delivery
+Trust             W3C Verifiable Credentials, DIDs, A2A JSON-RPC 2.0
+Audit             Witness Stream (tamper-evident DB entries, no deletes)
+HITL              Role-stratified approval queues in PostgreSQL
+Monorepo          pnpm workspaces
+Logging           Pino (structured JSON logs)
+Validation        Zod v4
+
+================================================================================
+END OF DOCUMENT
+================================================================================
