@@ -16,6 +16,11 @@ export function resolveModel(requested: string): string {
   return "claude-sonnet-4-6";
 }
 
+function toCacheableSystem(system: string | undefined) {
+  if (!system) return undefined;
+  return [{ type: "text" as const, text: system, cache_control: { type: "ephemeral" as const } }];
+}
+
 export async function callAI(params: {
   model?: string;
   max_tokens?: number;
@@ -23,11 +28,12 @@ export async function callAI(params: {
   messages: { role: "user" | "assistant"; content: string }[];
 }): Promise<string> {
   const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
+  const cachedSystem = toCacheableSystem(params.system);
   const response = await anthropic.messages.create({
     model: resolvedModel,
     max_tokens: params.max_tokens || 8192,
     messages: params.messages,
-    ...(params.system ? { system: params.system } : {}),
+    ...(cachedSystem ? { system: cachedSystem } : {}),
   });
   const block = response.content[0];
   return block?.type === "text" ? block.text : "";
@@ -40,17 +46,22 @@ export async function callAIWithUsage(params: {
   messages: { role: "user" | "assistant"; content: string }[];
 }): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
   const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
+  const cachedSystem = toCacheableSystem(params.system);
   const response = await anthropic.messages.create({
     model: resolvedModel,
     max_tokens: params.max_tokens || 8192,
     messages: params.messages,
-    ...(params.system ? { system: params.system } : {}),
+    ...(cachedSystem ? { system: cachedSystem } : {}),
   });
   const block = response.content[0];
+  const usage = response.usage as typeof response.usage & {
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
   return {
     text: block?.type === "text" ? block.text : "",
-    inputTokens: response.usage?.input_tokens ?? 0,
-    outputTokens: response.usage?.output_tokens ?? 0,
+    inputTokens: (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0),
+    outputTokens: usage?.output_tokens ?? 0,
   };
 }
 
@@ -70,7 +81,8 @@ export async function callAIFull(params: {
     max_tokens: params.max_tokens || 4096,
     messages: params.messages,
   };
-  if (params.system) createParams.system = params.system;
+  const cachedSystem = toCacheableSystem(params.system);
+  if (cachedSystem) createParams.system = cachedSystem;
   if (params.tools && params.tools.length > 0) createParams.tools = params.tools;
   const response = await anthropic.messages.create(createParams as Parameters<typeof anthropic.messages.create>[0]);
   return {
@@ -97,14 +109,19 @@ export async function callAIFullWithUsage(params: {
     max_tokens: params.max_tokens || 4096,
     messages: params.messages,
   };
-  if (params.system) createParams.system = params.system;
+  const cachedSystem = toCacheableSystem(params.system);
+  if (cachedSystem) createParams.system = cachedSystem;
   if (params.tools && params.tools.length > 0) createParams.tools = params.tools;
   const response = await anthropic.messages.create(createParams as Parameters<typeof anthropic.messages.create>[0]);
+  const usage = response.usage as typeof response.usage & {
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
   return {
     content: response.content as Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>,
     stop_reason: response.stop_reason ?? "end_turn",
-    inputTokens: response.usage?.input_tokens ?? 0,
-    outputTokens: response.usage?.output_tokens ?? 0,
+    inputTokens: (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0),
+    outputTokens: usage?.output_tokens ?? 0,
   };
 }
 
@@ -121,7 +138,8 @@ router.post("/ai/messages", async (req, res) => {
       ...rest,
     };
 
-    if (system) params.system = system;
+    const cachedSystem = toCacheableSystem(system);
+    if (cachedSystem) params.system = cachedSystem;
     if (tools) params.tools = tools;
     if (tool_choice) params.tool_choice = tool_choice;
 
