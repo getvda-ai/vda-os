@@ -21,7 +21,7 @@ const DEC = {
 
 const STEP_ICONS = { 1: "🔍", 2: "💰", 3: "📋", 4: "✅", 5: "💳", 6: "🚪", 7: "📊" };
 
-export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimeline }) {
+export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimeline, onReplay }) {
   const sortedSteps = [...steps].sort((a, b) => a.step - b.step);
   const totalIn    = sortedSteps.reduce((s, r) => s + (r.inputTokens  ?? 0), 0);
   const totalOut   = sortedSteps.reduce((s, r) => s + (r.outputTokens ?? 0), 0);
@@ -192,7 +192,24 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+      <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+        {onReplay && (
+          <button
+            onClick={onReplay}
+            style={{
+              background: C.orange,
+              border: "none",
+              borderRadius: 8, padding: "10px 22px",
+              fontSize: 12, fontWeight: 900, color: "#fff",
+              cursor: "pointer",
+              fontFamily: "'DM Sans', sans-serif",
+              display: "flex", alignItems: "center", gap: 6,
+              boxShadow: `0 0 18px ${C.orange}40`,
+            }}
+          >
+            ▶ Watch Again
+          </button>
+        )}
         <button
           onClick={onViewTimeline}
           style={{

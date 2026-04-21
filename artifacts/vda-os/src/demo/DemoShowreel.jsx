@@ -180,12 +180,13 @@ export default function DemoShowreel({
   onStepComplete,
   onAllComplete,
 }) {
+  const [runKey, setRunKey]                         = useState(0);
   const [activeStep, setActiveStep]                 = useState(1);
   const [completedSteps, setCompletedSteps]         = useState({});
   const [filesConsultedByStep, setFilesConsulted]   = useState({});
   const [completedSet, setCompletedSet]             = useState(new Set());
   const [phase, setPhase]                           = useState("running"); // "running" | "summary"
-  const [startedAt]                                 = useState(() => Date.now());
+  const [startedAt, setStartedAt]                   = useState(() => Date.now());
   const [error, setError]                           = useState(null);
   const [hitlStep, setHitlStep]                     = useState(null);  // step needing HITL
   const [hitlChoices, setHitlChoices]               = useState({});    // { [stepNum]: "APPROVED"|"REJECTED" }
@@ -283,7 +284,7 @@ export default function DemoShowreel({
       cancelled = true;
       stopStream();
     };
-  }, []);
+  }, [runKey]);
 
   // Show Next/Summary button when the active step's result has arrived
   useEffect(() => {
@@ -339,6 +340,22 @@ export default function DemoShowreel({
     stopStream();
     onClose(true);
   };
+
+  const handleReplay = useCallback(() => {
+    stopStream();
+    bufferRef.current = "";
+    setActiveStep(1);
+    setCompletedSteps({});
+    setFilesConsulted({});
+    setCompletedSet(new Set());
+    setPhase("running");
+    setStartedAt(Date.now());
+    setError(null);
+    setHitlStep(null);
+    setHitlChoices({});
+    setAwaitingNext(false);
+    setRunKey(k => k + 1);
+  }, [stopStream]);
 
   const handleHitlDecide = useCallback((choice) => {
     if (!hitlStep) return;
@@ -468,6 +485,7 @@ export default function DemoShowreel({
           startedAt={startedAt}
           onClose={handleClose}
           onViewTimeline={handleViewTimeline}
+          onReplay={handleReplay}
         />
       ) : (
         <div style={{
