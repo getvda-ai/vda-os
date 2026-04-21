@@ -184,6 +184,7 @@ export default function DemoShowreel({
   const [activeStep, setActiveStep]                 = useState(1);
   const [completedSteps, setCompletedSteps]         = useState({});
   const [filesConsultedByStep, setFilesConsulted]   = useState({});
+  const [fileReferencedByStep, setFileReferenced]   = useState({});
   const [completedSet, setCompletedSet]             = useState(new Set());
   const [phase, setPhase]                           = useState("running"); // "running" | "summary"
   const [startedAt, setStartedAt]                   = useState(() => Date.now());
@@ -260,6 +261,9 @@ export default function DemoShowreel({
                 ...prev,
                 [step.step]: step.filesConsulted ?? [],
               }));
+              if (step.fileReferenced) {
+                setFileReferenced(prev => ({ ...prev, [step.step]: step.fileReferenced }));
+              }
               // Do NOT auto-advance activeStep — user controls advancement via Next
               if (step.decision === "ESCALATE") {
                 setHitlStep(step);
@@ -347,6 +351,7 @@ export default function DemoShowreel({
     setActiveStep(1);
     setCompletedSteps({});
     setFilesConsulted({});
+    setFileReferenced({});
     setCompletedSet(new Set());
     setPhase("running");
     setStartedAt(Date.now());
@@ -602,6 +607,7 @@ export default function DemoShowreel({
                 completedSteps={completedSteps}
                 activeStepNum={activeStep}
                 filesConsultedByStep={filesConsultedByStep}
+                fileReferencedByStep={fileReferencedByStep}
               />
             </div>
 

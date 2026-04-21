@@ -80,7 +80,7 @@ function StepBadge({ stepNum, name, decision, isActive, isComplete }) {
   );
 }
 
-function ActivePipeline({ stepResult, agentName, stepNum, filesConsulted }) {
+function ActivePipeline({ stepResult, agentName, stepNum, filesConsulted, fileReferenced }) {
   const [revealed, setRevealed] = useState([]);
   const decided = !!stepResult;
   const dc = DEC_COLORS[stepResult?.decision] ?? null;
@@ -121,11 +121,29 @@ function ActivePipeline({ stepResult, agentName, stepNum, filesConsulted }) {
       marginBottom: 10,
     }}>
       <div style={{
-        fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-        color: C.orange, marginBottom: 12, display: "flex", alignItems: "center", gap: 6,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: 12,
       }}>
-        <span style={{ animation: "spin 2s linear infinite", display: "inline-block" }}>⟳</span>
-        Step {stepNum} · {agentName}
+        <div style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+          color: C.orange, display: "flex", alignItems: "center", gap: 6,
+        }}>
+          <span style={{ animation: "spin 2s linear infinite", display: "inline-block" }}>⟳</span>
+          Step {stepNum} · {agentName}
+        </div>
+        {fileReferenced && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 4,
+            fontSize: 9, fontFamily: "monospace",
+            color: "#93c5fd",
+            background: "#0c1a2e",
+            border: "1px solid #1e3a5f",
+            padding: "2px 7px", borderRadius: 4,
+            flexShrink: 0,
+          }}>
+            📄 {fileReferenced.split("/").pop()}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -229,6 +247,7 @@ export default function AgentPipeline({
   completedSteps,
   activeStepNum,
   filesConsultedByStep = {},
+  fileReferencedByStep = {},
 }) {
   const scrollRef = useRef(null);
 
@@ -260,6 +279,7 @@ export default function AgentPipeline({
               agentName={step.name}
               stepResult={completedSteps[step.step]}
               filesConsulted={filesConsultedByStep[step.step]}
+              fileReferenced={fileReferencedByStep[step.step]}
             />
           );
         }
