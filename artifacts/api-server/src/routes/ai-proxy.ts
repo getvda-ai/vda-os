@@ -151,7 +151,7 @@ router.post("/ai/messages", async (req, res) => {
       ...rest,
     };
 
-    const cachedSystem = toCacheableSystem(system);
+    const cachedSystem = typeof system === "string" ? toCacheableSystem(system) : system;
     if (cachedSystem) params.system = cachedSystem;
     if (tools) params.tools = tools;
     if (tool_choice) params.tool_choice = tool_choice;
