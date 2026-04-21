@@ -375,6 +375,8 @@ export interface AgenticEvalResult {
   filesLoaded: string[];
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
 }
 
 export async function evaluateWithPolicyAndMcp(
@@ -404,12 +406,16 @@ export async function evaluateWithPolicyAndMcp(
       filesLoaded: [],
       inputTokens: 0,
       outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
     };
   }
 
   // Token accumulator — summed across all AI iterations in this evaluation
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
+  let totalCacheCreationTokens = 0;
+  let totalCacheReadTokens = 0;
 
   let anthropicTools: Array<{
     name: string;
@@ -494,6 +500,8 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
       );
       totalInputTokens += response.inputTokens;
       totalOutputTokens += response.outputTokens;
+      totalCacheCreationTokens += response.cacheCreationTokens;
+      totalCacheReadTokens += response.cacheReadTokens;
     } catch (timeoutErr) {
       logger.warn({ agentName, iteration: i, err: String(timeoutErr) }, "Step AI call timed out — returning ESCALATE");
       return {
@@ -510,6 +518,8 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
         filesLoaded,
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
+        cacheCreationTokens: totalCacheCreationTokens,
+        cacheReadTokens: totalCacheReadTokens,
       };
     }
 
@@ -559,7 +569,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
       try {
         const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
         const decision = JSON.parse(jsonMatch ? jsonMatch[0] : textBlock.text) as AgentDecision;
-        return { decision, toolCallsMade, usedMcp: toolCallsMade > 0, filesLoaded, inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
+        return { decision, toolCallsMade, usedMcp: toolCallsMade > 0, filesLoaded, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, cacheCreationTokens: totalCacheCreationTokens, cacheReadTokens: totalCacheReadTokens };
       } catch {
         logger.warn({ agentName, text: textBlock.text.slice(0, 200) }, "Could not parse agent JSON response");
       }
@@ -581,6 +591,8 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
     filesLoaded,
     inputTokens: totalInputTokens,
     outputTokens: totalOutputTokens,
+    cacheCreationTokens: totalCacheCreationTokens,
+    cacheReadTokens: totalCacheReadTokens,
   };
 }
 
@@ -1615,6 +1627,8 @@ interface ScenarioStep {
   reasoning: string;
   witnessEntryId: number;
   apaleoIds: Record<string, string | undefined>;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 router.post("/agents/scenario/run", async (req, res) => {

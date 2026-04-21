@@ -21,6 +21,13 @@ function toCacheableSystem(system: string | undefined) {
   return [{ type: "text" as const, text: system, cache_control: { type: "ephemeral" as const } }];
 }
 
+type AnthropicUsageWithCache = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+};
+
 export async function callAI(params: {
   model?: string;
   max_tokens?: number;
@@ -44,7 +51,13 @@ export async function callAIWithUsage(params: {
   max_tokens?: number;
   system?: string;
   messages: { role: "user" | "assistant"; content: string }[];
-}): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+}): Promise<{
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}> {
   const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
   const cachedSystem = toCacheableSystem(params.system);
   const response = await anthropic.messages.create({
@@ -54,14 +67,13 @@ export async function callAIWithUsage(params: {
     ...(cachedSystem ? { system: cachedSystem } : {}),
   });
   const block = response.content[0];
-  const usage = response.usage as typeof response.usage & {
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
-  };
+  const usage = response.usage as AnthropicUsageWithCache;
   return {
     text: block?.type === "text" ? block.text : "",
-    inputTokens: (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0),
+    inputTokens: usage?.input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
+    cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
   };
 }
 
@@ -102,6 +114,8 @@ export async function callAIFullWithUsage(params: {
   stop_reason: string;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
 }> {
   const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
   const createParams: Record<string, unknown> = {
@@ -113,15 +127,14 @@ export async function callAIFullWithUsage(params: {
   if (cachedSystem) createParams.system = cachedSystem;
   if (params.tools && params.tools.length > 0) createParams.tools = params.tools;
   const response = await anthropic.messages.create(createParams as Parameters<typeof anthropic.messages.create>[0]);
-  const usage = response.usage as typeof response.usage & {
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
-  };
+  const usage = response.usage as AnthropicUsageWithCache;
   return {
     content: response.content as Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>,
     stop_reason: response.stop_reason ?? "end_turn",
-    inputTokens: (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0),
+    inputTokens: usage?.input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
+    cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
   };
 }
 
