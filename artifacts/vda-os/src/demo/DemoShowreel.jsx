@@ -189,6 +189,7 @@ export default function DemoShowreel({
   const [error, setError]                           = useState(null);
   const [hitlStep, setHitlStep]                     = useState(null);  // step needing HITL
   const [hitlChoices, setHitlChoices]               = useState({});    // { [stepNum]: "APPROVED"|"REJECTED" }
+  const [awaitingNext, setAwaitingNext]             = useState(false); // waiting for user to click Next
   const readerRef                                   = useRef(null);
   const bufferRef                                   = useRef("");
 
@@ -238,7 +239,7 @@ export default function DemoShowreel({
             if (!line.startsWith("data: ")) continue;
             const payload = line.slice(6).trim();
             if (payload === "[DONE]") {
-              if (!cancelled) setPhase("summary");
+              // Stream complete; user advances to summary via View Summary button
               break;
             }
             try {
@@ -258,13 +259,7 @@ export default function DemoShowreel({
                 ...prev,
                 [step.step]: step.filesConsulted ?? [],
               }));
-              // Delay advancing the active step so the decision+seal reveal
-              // animation has time to render before switching to the next agent
-              if (step.step < TOTAL) {
-                setTimeout(() => {
-                  if (!cancelled) setActiveStep(step.step + 1);
-                }, 900);
-              }
+              // Do NOT auto-advance activeStep — user controls advancement via Next
               if (step.decision === "ESCALATE") {
                 setHitlStep(step);
               }
@@ -275,15 +270,8 @@ export default function DemoShowreel({
           }
         }
 
-        // Note: completedSteps may be stale here due to closure;
-        // [DONE] event is the authoritative signal — this is a safety fallback
-        // only and uses a ref-safe check via the set state updater
-        if (!cancelled) {
-          setCompletedSteps(prev => {
-            if (Object.keys(prev).length >= TOTAL) setPhase("summary");
-            return prev;
-          });
-        }
+        // Stream ended — [DONE] event already set streamDone; no auto-phase transition
+        // User controls advancement via Next/View Summary buttons
       } catch (e) {
         if (!cancelled) setError(e.message);
       }
@@ -296,6 +284,36 @@ export default function DemoShowreel({
       stopStream();
     };
   }, []);
+
+  // Show Next/Summary button when the active step's result has arrived
+  useEffect(() => {
+    if (completedSteps[activeStep] && !hitlStep) {
+      setAwaitingNext(true);
+    }
+  }, [completedSteps, activeStep, hitlStep]);
+
+  // When HITL is resolved, re-check if we should show Next
+  useEffect(() => {
+    if (!hitlStep && completedSteps[activeStep]) {
+      setAwaitingNext(true);
+    }
+  }, [hitlStep]);
+
+  // Advance to next step or transition to summary
+  const handleNext = useCallback(() => {
+    setAwaitingNext(false);
+    if (activeStep < TOTAL) {
+      const next = activeStep + 1;
+      setActiveStep(next);
+      // If next step's data already arrived (fast server), show Next immediately
+      setCompletedSteps(prev => {
+        if (prev[next] && !hitlStep) setTimeout(() => setAwaitingNext(true), 50);
+        return prev;
+      });
+    } else {
+      setPhase("summary");
+    }
+  }, [activeStep, hitlStep]);
 
   useEffect(() => {
     if (phase === "summary" && onAllComplete) {
@@ -574,12 +592,16 @@ export default function DemoShowreel({
               borderTop: `1px solid ${C.border}`,
               background: "#0a0c10",
               display: "flex",
-              gap: 16,
+              gap: 12,
               alignItems: "center",
+              minHeight: 50,
             }}>
-              <div style={{ fontSize: 9, color: C.dim }}>
-                {completedSet.size} of {TOTAL} decisions sealed
+              {/* Progress counter */}
+              <div style={{ fontSize: 9, color: C.dim, flexShrink: 0 }}>
+                {completedSet.size} of {TOTAL} sealed
               </div>
+
+              {/* Progress bar */}
               <div style={{
                 flex: 1,
                 height: 3,
@@ -595,9 +617,51 @@ export default function DemoShowreel({
                   transition: "width 0.5s ease",
                 }} />
               </div>
-              <div style={{ fontSize: 9, color: C.muted }}>
-                {Math.round((completedSet.size / TOTAL) * 100)}%
-              </div>
+
+              {/* Next / View Summary button — appears when step result is ready */}
+              {awaitingNext && !hitlStep ? (
+                activeStep < TOTAL ? (
+                  <button
+                    onClick={handleNext}
+                    style={{
+                      background: C.orange, border: "none",
+                      borderRadius: 8, padding: "7px 18px",
+                      fontSize: 12, fontWeight: 900, color: "#fff",
+                      cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+                      display: "flex", alignItems: "center", gap: 6,
+                      flexShrink: 0,
+                      boxShadow: `0 0 16px ${C.orange}40`,
+                      animation: "glow-pulse 2s ease infinite",
+                    }}
+                  >
+                    Next
+                    <span style={{ fontSize: 11 }}>›</span>
+                    <span style={{ fontSize: 10, opacity: 0.8, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {JOURNEY_META[activeStep + 1]?.name.split(" ")[0]}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleNext}
+                    style={{
+                      background: C.green, border: "none",
+                      borderRadius: 8, padding: "7px 18px",
+                      fontSize: 12, fontWeight: 900, color: "#000",
+                      cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+                      display: "flex", alignItems: "center", gap: 6,
+                      flexShrink: 0,
+                      boxShadow: `0 0 16px ${C.green}40`,
+                    }}
+                  >
+                    View Summary →
+                  </button>
+                )
+              ) : (
+                <div style={{ fontSize: 9, color: C.muted, flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ animation: "spin 1.5s linear infinite", display: "inline-block" }}>⟳</span>
+                  {completedSteps[activeStep] ? "Decide above" : "Awaiting result…"}
+                </div>
+              )}
             </div>
           </div>
         </div>
