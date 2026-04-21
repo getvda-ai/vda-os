@@ -2225,14 +2225,14 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
 
     if (isSse) {
       res.write(`data: [DONE]\n\n`);
-      res.end();
+      return res.end();
     } else {
       return res.json({ scenarioRunId, propertyId, apaleoIds: ids, steps: results, completedAt: new Date().toISOString() });
     }
   } catch (err: unknown) {
     if ((res as { headersSent?: boolean }).headersSent) {
       res.write(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" })}\n\n`);
-      res.end();
+      return res.end();
     } else {
       return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
     }

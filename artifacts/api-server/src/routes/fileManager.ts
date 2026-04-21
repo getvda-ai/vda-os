@@ -113,9 +113,9 @@ router.post("/fm/init", async (req, res) => {
     if (!companyId) return res.status(400).json({ error: "companyId required" });
     const existing = await db.select({ id: governanceFiles.id }).from(governanceFiles)
       .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)));
-    res.json({ count: existing.length, initialised: existing.length > 0 });
+    return res.json({ count: existing.length, initialised: existing.length > 0 });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -202,9 +202,9 @@ router.post("/fm/compliance-check", async (req, res) => {
     const covered = elements.filter(e => e.status === "present").length;
     const hasDilution = elements.some(e => e.status === "diluted");
 
-    res.json({ elements, total, covered, hasDilution, clauses: currentClauses });
+    return res.json({ elements, total, covered, hasDilution, clauses: currentClauses });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -242,9 +242,9 @@ router.get("/fm/files/:companyId", async (req, res) => {
     }).from(governanceFiles)
       .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)))
       .orderBy(governanceFiles.axis, governanceFiles.filename);
-    res.json(files);
+    return res.json(files);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -267,9 +267,9 @@ router.get("/fm/file/:id", async (req, res) => {
         ? and(eq(governanceFiles.id, id), eq(governanceFiles.companyId, companyId))
         : eq(governanceFiles.id, id));
     if (!file) return res.status(404).json({ error: "Not found" });
-    res.json(file);
+    return res.json(file);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -314,9 +314,9 @@ router.post("/fm/file", async (req, res) => {
       versionNumber: 1,
       ...clauses,
     });
-    res.json(file);
+    return res.json(file);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -389,9 +389,9 @@ router.put("/fm/file/:id", async (req, res) => {
         ...clauses,
       });
     }
-    res.json(file);
+    return res.json(file);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -413,9 +413,9 @@ router.post("/fm/sign/:id", async (req, res) => {
       updatedAt: new Date(),
     }).where(eq(governanceFiles.id, id)).returning();
     if (!file) return res.status(404).json({ error: "Not found" });
-    res.json(file);
+    return res.json(file);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -458,9 +458,9 @@ router.post("/fm/integrity-check", async (req, res) => {
 
     const missingCoreTypes = CORE_FILE_TYPES.filter(t => !presentTypes.has(t));
 
-    res.json({ outboundRefs, inboundRefs, missingCoreTypes });
+    return res.json({ outboundRefs, inboundRefs, missingCoreTypes });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -510,9 +510,9 @@ router.delete("/fm/file/:id", async (req, res) => {
 
     await db.update(governanceFiles).set({ isArchived: true, updatedAt: new Date() })
       .where(eq(governanceFiles.id, id));
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -538,9 +538,9 @@ router.get("/fm/history/:id", async (req, res) => {
     }).from(governanceFileVersions)
       .where(eq(governanceFileVersions.fileId, id))
       .orderBy(desc(governanceFileVersions.versionNumber));
-    res.json(versions);
+    return res.json(versions);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -555,9 +555,9 @@ router.get("/fm/version/:versionId", async (req, res) => {
       const owned = await assertFileOwnership(version.fileId, companyId);
       if (!owned) return res.status(404).json({ error: "Not found" });
     }
-    res.json(version);
+    return res.json(version);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -597,9 +597,9 @@ router.get("/fm/diff/:id", async (req, res) => {
     let toV = toVersion ? versions.find(v => v.id === parseInt(toVersion)) : versions[0];
     if (!fromV || !toV) return res.status(404).json({ error: "Version not found" });
     const diff = computeDiff(fromV.content, toV.content);
-    res.json({ diff, from: fromV, to: toV });
+    return res.json({ diff, from: fromV, to: toV });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -613,7 +613,7 @@ router.post("/fm/release/:companyId", async (req, res) => {
       .where(and(eq(governanceFiles.companyId, companyId), eq(governanceFiles.isArchived, false)));
     const liveFiles = files.filter(f => f.status === "live");
     const draftFiles = files.filter(f => f.status === "draft");
-    res.json({
+    return res.json({
       releaseName: releaseName || `Release ${new Date().toISOString().slice(0, 10)}`,
       liveCount: liveFiles.length,
       draftCount: draftFiles.length,
@@ -623,7 +623,7 @@ router.post("/fm/release/:companyId", async (req, res) => {
       createdAt: new Date().toISOString(),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -669,9 +669,9 @@ router.post("/fm/search/:companyId", async (req, res) => {
         return f.content.slice(Math.max(0, idx - 60), idx + 120);
       })(),
     }));
-    res.json(results.map(r => ({ ...r, content: undefined })));
+    return res.json(results.map(r => ({ ...r, content: undefined })));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -765,9 +765,9 @@ OTHER REQUIREMENTS:
     if (thresholds.mustNot > 0 && clauses.mustNotCount < thresholds.mustNot) complianceWarnings.push(`Generated file has ${clauses.mustNotCount} MUST NOT clauses (minimum ${thresholds.mustNot})`);
     if (thresholds.may > 0 && clauses.mayCount < thresholds.may) complianceWarnings.push(`Generated file has ${clauses.mayCount} MAY clauses (minimum ${thresholds.may})`);
 
-    res.json({ content, ...clauses, meta, complianceWarnings });
+    return res.json({ content, ...clauses, meta, complianceWarnings });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -794,9 +794,9 @@ Write professional release notes under 300 words. Include a compliance summary a
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     });
-    res.json({ releaseNotes: notes });
+    return res.json({ releaseNotes: notes });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 

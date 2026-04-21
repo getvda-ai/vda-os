@@ -3215,10 +3215,10 @@ router.post("/admin/enrich-c2md", async (req, res) => {
     }
 
     log.push(`Wrote enriched content to ${updatedCount} file row(s) across ${companyIds.length} hotel(s)`);
-    res.json({ success: errors.length === 0, enriched: updatedCount, skipped: allFiles.length - targets.length, uniqueCalls: enrichedByFilename.size, log, errors: errors.length ? errors : undefined });
+    return res.json({ success: errors.length === 0, enriched: updatedCount, skipped: allFiles.length - targets.length, uniqueCalls: enrichedByFilename.size, log, errors: errors.length ? errors : undefined });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ success: false, error: msg });
+    return res.status(500).json({ success: false, error: msg });
   }
 });
 
@@ -3283,7 +3283,7 @@ router.post("/admin/seed-company-governance", async (req, res) => {
     errors.push(`seed-company-governance failed: ${msg}`);
   }
 
-  res.json({
+  return res.json({
     success: errors.length === 0,
     companyId,
     companyName,
@@ -3571,10 +3571,10 @@ The following constitute the Type II operational evidence trail:
       crossDomainInheritance: false,
     });
 
-    res.json({ success: true, fileId, filename, wordCount, hotelCode, companyName });
+    return res.json({ success: true, fileId, filename, wordCount, hotelCode, companyName });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    return res.status(500).json({ error: msg });
   }
 });
 
@@ -3627,7 +3627,7 @@ router.get("/admin/soc2-sd-status/:companyId", async (req, res) => {
       : null;
     const isStale = daysSinceGeneration === null ? true : daysSinceGeneration > 90;
 
-    res.json({
+    return res.json({
       exists: !!sdFile,
       fileId: sdFile?.id ?? null,
       filename,
@@ -3643,7 +3643,7 @@ router.get("/admin/soc2-sd-status/:companyId", async (req, res) => {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    return res.status(500).json({ error: msg });
   }
 });
 

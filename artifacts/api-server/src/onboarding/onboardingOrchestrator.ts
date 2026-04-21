@@ -387,7 +387,7 @@ async function runPhase4(
   };
 
   // First HITL approval is compliance-officer-scoped (global) — no companyId so all COs see it.
-  const token = await createHitlToken(id, 4, "approval", firstCardPayload, { agentId: candidateAgentId, companyId: null });
+  const token = await createHitlToken(id, 4, "approval", firstCardPayload, { agentId: candidateAgentId, companyId: undefined });
   await db.update(onboardingRequests)
     .set({ firstHitlToken: token, updatedAt: new Date() })
     .where(eq(onboardingRequests.id, id));
@@ -482,7 +482,7 @@ async function runPhase6(
 
   const candidateAgentId = agentCard.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   // Second HITL approval is also compliance-officer-scoped (global) — no companyId.
-  const token = await createHitlToken(id, 6, "approval", secondCardPayload, { agentId: candidateAgentId, companyId: null });
+  const token = await createHitlToken(id, 6, "approval", secondCardPayload, { agentId: candidateAgentId, companyId: undefined });
   await db.update(onboardingRequests)
     .set({ secondHitlToken: token, updatedAt: new Date() })
     .where(eq(onboardingRequests.id, id));

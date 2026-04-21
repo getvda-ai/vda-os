@@ -1,5 +1,11 @@
 import { Router, type IRouter } from "express";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import {
+  anthropic,
+  type Message,
+  type MessageParam,
+  type Tool,
+  type MessageCreateParamsNonStreaming,
+} from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
 
@@ -88,15 +94,15 @@ export async function callAIFull(params: {
   stop_reason: string;
 }> {
   const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
-  const createParams: Record<string, unknown> = {
+  const cachedSystem = toCacheableSystem(params.system);
+  const createParams: MessageCreateParamsNonStreaming = {
     model: resolvedModel,
     max_tokens: params.max_tokens || 4096,
-    messages: params.messages,
+    messages: params.messages as MessageParam[],
+    ...(cachedSystem ? { system: cachedSystem } : {}),
+    ...(params.tools && params.tools.length > 0 ? { tools: params.tools as Tool[] } : {}),
   };
-  const cachedSystem = toCacheableSystem(params.system);
-  if (cachedSystem) createParams.system = cachedSystem;
-  if (params.tools && params.tools.length > 0) createParams.tools = params.tools;
-  const response = await anthropic.messages.create(createParams as Parameters<typeof anthropic.messages.create>[0]);
+  const response: Message = await anthropic.messages.create(createParams);
   return {
     content: response.content as Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>,
     stop_reason: response.stop_reason ?? "end_turn",
@@ -118,15 +124,15 @@ export async function callAIFullWithUsage(params: {
   cacheReadTokens: number;
 }> {
   const resolvedModel = resolveModel(params.model || "claude-sonnet-4-6");
-  const createParams: Record<string, unknown> = {
+  const cachedSystem = toCacheableSystem(params.system);
+  const createParams: MessageCreateParamsNonStreaming = {
     model: resolvedModel,
     max_tokens: params.max_tokens || 4096,
-    messages: params.messages,
+    messages: params.messages as MessageParam[],
+    ...(cachedSystem ? { system: cachedSystem } : {}),
+    ...(params.tools && params.tools.length > 0 ? { tools: params.tools as Tool[] } : {}),
   };
-  const cachedSystem = toCacheableSystem(params.system);
-  if (cachedSystem) createParams.system = cachedSystem;
-  if (params.tools && params.tools.length > 0) createParams.tools = params.tools;
-  const response = await anthropic.messages.create(createParams as Parameters<typeof anthropic.messages.create>[0]);
+  const response: Message = await anthropic.messages.create(createParams);
   const usage = response.usage as AnthropicUsageWithCache;
   return {
     content: response.content as Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>,

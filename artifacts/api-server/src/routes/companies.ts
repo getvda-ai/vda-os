@@ -47,9 +47,9 @@ router.post("/companies", async (req, res) => {
       })
       .returning();
 
-    res.json(row);
+    return res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -59,9 +59,9 @@ router.delete("/companies/:id", async (req, res) => {
     if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
 
     await db.delete(companies).where(eq(companies.id, id));
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
