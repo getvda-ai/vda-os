@@ -108,12 +108,12 @@ router.post("/hitl/respond/:token", async (req, res) => {
 
     // Mark as resolved
     await db.update(hitlTokens)
-      .set({ outcome, decidedAt: new Date() })
+      .set({ outcome, decidedBy: decided_by, decidedAt: new Date() })
       .where(eq(hitlTokens.token, String(token)));
 
     // Reject acknowledged outcome for operational_exception cards — only approved/rejected are valid
     if (hitl.cardType === "operational_exception" && outcome === "acknowledged") {
-      await db.update(hitlTokens).set({ outcome: null, decidedAt: null }).where(eq(hitlTokens.token, String(token)));
+      await db.update(hitlTokens).set({ outcome: null, decidedBy: null, decidedAt: null }).where(eq(hitlTokens.token, String(token)));
       res.status(400).json({ error: "operational_exception cards only accept 'approved' or 'rejected' outcomes" });
       return;
     }

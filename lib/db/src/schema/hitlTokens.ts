@@ -8,6 +8,7 @@ export const hitlTokens = pgTable("hitl_tokens", {
   cardType: text("card_type").notNull().default("approval"),
   payload: jsonb("payload").notNull(),
   outcome: text("outcome"),
+  decidedBy: text("decided_by"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   agentId: text("agent_id"),

@@ -5,8 +5,9 @@ import AmbassadorView      from "./dashboard/AmbassadorView.jsx";
 import SeniorAmbassadorView from "./dashboard/SeniorAmbassadorView.jsx";
 import HotelGMView         from "./dashboard/HotelGMView.jsx";
 import RegionalGMView      from "./dashboard/RegionalGMView.jsx";
-import OperationsChiefView from "./dashboard/OperationsChiefView.jsx";
-import DemoShowreel        from "./demo/DemoShowreel.jsx";
+import OperationsChiefView   from "./dashboard/OperationsChiefView.jsx";
+import ComplianceOfficerView from "./dashboard/ComplianceOfficerView.jsx";
+import DemoShowreel          from "./demo/DemoShowreel.jsx";
 
 // ─────────────────────────────────────────────
 // DESIGN TOKENS — identical to citizenM version
@@ -9407,24 +9408,7 @@ function DashboardTab({ companyId, onOpenTab, role, setRole }) {
       {role === "hotel_gm"          && <HotelGMView          companyId={viewCompanyId} onOpenTab={onOpenTab} />}
       {role === "regional_gm"       && <RegionalGMView       companyId={viewCompanyId} onSelectCompany={handleSelectCompany} />}
       {role === "operations_chief"  && <OperationsChiefView  />}
-      {role === "compliance_officer" && (
-        <div style={{ padding: "28px 32px", maxWidth: 900 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#f87171", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", marginBottom: 8 }}>COMPLIANCE OFFICER — GOVERNANCE SIGN-OFF</div>
-          <div style={{ fontSize: 14, color: "#9ca3af", marginBottom: 20 }}>
-            Cross-portfolio governance oversight · Gate 1 + Gate 2 approvals · All hotels
-          </div>
-          <div style={{ background: "#f87171" + "12", border: "1px solid #f87171" + "30", borderRadius: 8, padding: "14px 18px" }}>
-            <div style={{ fontSize: 13, color: "#f87171", fontWeight: 600, marginBottom: 8 }}>Compliance Officer View</div>
-            <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>
-              Compliance Officers review and sign off on HITL Gate 1 and Gate 2 approvals across all 5 citizenM hotels.
-              Open the <strong>Agent Onboarding</strong> tab to see your role-specific approval queue.
-            </div>
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <OperationsChiefView />
-          </div>
-        </div>
-      )}
+      {role === "compliance_officer" && <ComplianceOfficerView />}
     </div>
   );
 }
