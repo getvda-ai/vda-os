@@ -504,6 +504,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
       totalCacheReadTokens += response.cacheReadTokens;
     } catch (timeoutErr) {
       logger.warn({ agentName, iteration: i, err: String(timeoutErr) }, "Step AI call timed out — returning ESCALATE");
+      logger.info({ agentName, cacheCreation: totalCacheCreationTokens, cacheRead: totalCacheReadTokens, regularInput: totalInputTokens, output: totalOutputTokens }, "Agent cache token usage");
       return {
         decision: {
           decision: "ESCALATE",
@@ -569,6 +570,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
       try {
         const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
         const decision = JSON.parse(jsonMatch ? jsonMatch[0] : textBlock.text) as AgentDecision;
+        logger.info({ agentName, cacheCreation: totalCacheCreationTokens, cacheRead: totalCacheReadTokens, regularInput: totalInputTokens, output: totalOutputTokens }, "Agent cache token usage");
         return { decision, toolCallsMade, usedMcp: toolCallsMade > 0, filesLoaded, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, cacheCreationTokens: totalCacheCreationTokens, cacheReadTokens: totalCacheReadTokens };
       } catch {
         logger.warn({ agentName, text: textBlock.text.slice(0, 200) }, "Could not parse agent JSON response");
@@ -577,6 +579,7 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
     break;
   }
 
+  logger.info({ agentName, cacheCreation: totalCacheCreationTokens, cacheRead: totalCacheReadTokens, regularInput: totalInputTokens, output: totalOutputTokens }, "Agent cache token usage");
   return {
     decision: {
       decision: "ESCALATE",
@@ -1654,6 +1657,8 @@ router.post("/agents/scenario/run", async (req, res) => {
 
     const scenarioRunId = `scenario-${Date.now()}`;
     const results: ScenarioStep[] = [];
+    let scenarioCacheCreation = 0;
+    let scenarioCacheRead = 0;
     const ids: Record<string, string | undefined> = { propertyId };
     const today = new Date().toISOString().split("T")[0];
     const tomorrow = new Date(Date.now() + 86_400_000).toISOString().split("T")[0];
@@ -1786,7 +1791,7 @@ router.post("/agents/scenario/run", async (req, res) => {
       }).catch(() => ({ unitGroups: [] }));
       const liveUnitGroups = liveAvail.unitGroups ?? [];
 
-      const { decision, usedMcp: availUsedMcp, toolCallsMade: availToolCalls, filesLoaded: availScenarioFiles, inputTokens: availInputTokens, outputTokens: availOutputTokens } = await evaluateWithPolicyAndMcp(
+      const { decision, usedMcp: availUsedMcp, toolCallsMade: availToolCalls, filesLoaded: availScenarioFiles, inputTokens: availInputTokens, outputTokens: availOutputTokens, cacheCreationTokens: availCacheCreation, cacheReadTokens: availCacheRead } = await evaluateWithPolicyAndMcp(
         "Availability Agent", "availability",
         `Availability audit for property ${propertyId} — dates ${scenarioArrival} to ${scenarioDeparture}.
 
@@ -1801,6 +1806,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
         [MCP_TOOLS.GetAvailableUnitGroups],
         Number(companyId)
       );
+      scenarioCacheCreation += availCacheCreation; scenarioCacheRead += availCacheRead;
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Availability Agent", decision,
@@ -1822,7 +1828,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       // 5% discount: €171 from BAR €180 — below the 10% escalation threshold, agent PASS
       // VIE-VDADEMO-SGL rate plan is now isBookable: true — ListRatePlans MCP call is safe
       const bar = 180; const requested = 171; const discountPct = 5;
-      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens } = await evaluateWithPolicyAndMcp(
+      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead } = await evaluateWithPolicyAndMcp(
         "Rate Agent", "rate",
         `Rate override evaluation for property ${propertyId}.
 
@@ -1839,6 +1845,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
         [MCP_TOOLS.ListRatePlans],
         Number(companyId)
       );
+      scenarioCacheCreation += rateCacheCreation; scenarioCacheRead += rateCacheRead;
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
         fileReferenced: governanceFileReferenced(rateScenarioFiles),
@@ -1872,7 +1879,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
         `Guest: Demo Guest (email: demo@vda-mk.com)`,
       ];
 
-      const { decision, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls, filesLoaded: resvScenarioFiles, inputTokens: resvInputTokens, outputTokens: resvOutputTokens } = await evaluateWithPolicyAndMcp(
+      const { decision, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls, filesLoaded: resvScenarioFiles, inputTokens: resvInputTokens, outputTokens: resvOutputTokens, cacheCreationTokens: resvCacheCreation, cacheReadTokens: resvCacheRead } = await evaluateWithPolicyAndMcp(
         "Reservation Bot", "reservation",
         `Reservation creation audit for Demo Guest at property ${propertyId}.
 
@@ -1888,6 +1895,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
         [MCP_TOOLS.GetGuestProfile],
         Number(companyId)
       );
+      scenarioCacheCreation += resvCacheCreation; scenarioCacheRead += resvCacheRead;
 
       // Execute only on PASS — skip if pre-flight already created the reservation
       if (decision.decision === "PASS") {
@@ -1974,7 +1982,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
       // GetReservation shows future arrival (May 2) which the agent interprets as "cannot check in today",
       // causing ESCALATE. The governance demo pre-authorizes check-in policy compliance for the
       // arrival date — not same-day execution. Pre-flight confirmed LGODPFGH-1 = Confirmed.
-      const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, filesLoaded: ciScenarioFiles, inputTokens: ciInputTokens, outputTokens: ciOutputTokens } = await evaluateWithPolicyAndMcp(
+      const { decision: ciDecision, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, filesLoaded: ciScenarioFiles, inputTokens: ciInputTokens, outputTokens: ciOutputTokens, cacheCreationTokens: ciCacheCreation, cacheReadTokens: ciCacheRead } = await evaluateWithPolicyAndMcp(
         "Check-In Agent", "checkin",
         `Check-in governance audit for property ${propertyId} — VDA-MD scenario step 4.
 
@@ -1996,6 +2004,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
         [], // policy-evaluation only — GetReservation returns future arrival date causing gate 5 ESCALATE
         Number(companyId)
       );
+      scenarioCacheCreation += ciCacheCreation; scenarioCacheRead += ciCacheRead;
 
       if (ciDecision.decision === "PASS" && reservationId) {
         try {
@@ -2047,7 +2056,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       // Step 5 uses pre-flight verified context — GetFolio returns real accumulated charges from
       // previous runs which the agent misinterprets as a dispute trigger. The governance demo
       // evaluates the charge decision in isolation: a fresh €89 RoomRevenue charge on an Open folio.
-      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles, inputTokens: fcInputTokens, outputTokens: fcOutputTokens } = await evaluateWithPolicyAndMcp(
+      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles, inputTokens: fcInputTokens, outputTokens: fcOutputTokens, cacheCreationTokens: fcCacheCreation, cacheReadTokens: fcCacheRead } = await evaluateWithPolicyAndMcp(
         "Folio Agent", "folio_charge",
         `Folio charge audit for property ${propertyId} — VDA-MD governance evaluation.
 
@@ -2067,6 +2076,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
         [],
         Number(companyId)
       );
+      scenarioCacheCreation += fcCacheCreation; scenarioCacheRead += fcCacheRead;
 
       if (fcDecision.decision === "PASS" && folioId) {
         const chargeBody: FolioChargeBody = {
@@ -2120,7 +2130,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       // The demo scenario establishes that check-in (step 4) was completed and the guest is InHouse.
       {
         const coFolioId = ids.folioId;
-        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles, inputTokens: coInputTokens, outputTokens: coOutputTokens } = await evaluateWithPolicyAndMcp(
+        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles, inputTokens: coInputTokens, outputTokens: coOutputTokens, cacheCreationTokens: coCacheCreation, cacheReadTokens: coCacheRead } = await evaluateWithPolicyAndMcp(
           "Checkout Agent", "checkout",
           `Checkout audit for Demo Guest (Gold loyalty tier) at property ${propertyId}.
 
@@ -2139,6 +2149,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
           [], // NO MCP tools — ListFolios returns real guest data (-€436 balance) that contradicts scenario
           Number(companyId)
         );
+        scenarioCacheCreation += coCacheCreation; scenarioCacheRead += coCacheRead;
 
         if (coDecision.decision === "PASS" && reservationId) {
           try {
@@ -2185,7 +2196,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
       const total = resvList.reduce((s, r) => s + (r.totalGrossAmount?.amount ?? 0), 0);
       const currency = resvList[0]?.totalGrossAmount?.currency ?? "EUR";
 
-      const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, filesLoaded: revScenarioFiles, inputTokens: revInputTokens, outputTokens: revOutputTokens } = await evaluateWithPolicyAndMcp(
+      const { decision: revDecision, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, filesLoaded: revScenarioFiles, inputTokens: revInputTokens, outputTokens: revOutputTokens, cacheCreationTokens: revCacheCreation, cacheReadTokens: revCacheRead } = await evaluateWithPolicyAndMcp(
         "Revenue Reconciliation Agent", "revenue",
         `End-of-scenario revenue reconciliation for property ${propertyId} — VDA-MD governance audit on ${today}.
 
@@ -2207,6 +2218,7 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
         [MCP_TOOLS.ListRatePlans],
         Number(companyId)
       );
+      scenarioCacheCreation += revCacheCreation; scenarioCacheRead += revCacheRead;
 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Revenue Reconciliation Agent", decision: revDecision,
@@ -2222,6 +2234,8 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
       results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: revInputTokens, outputTokens: revOutputTokens });
       emitStep(results[results.length - 1]);
     }
+
+    logger.info({ scenarioRunId, cacheCreation: scenarioCacheCreation, cacheRead: scenarioCacheRead, steps: results.length }, "Scenario cumulative cache savings across all steps");
 
     if (isSse) {
       res.write(`data: [DONE]\n\n`);
