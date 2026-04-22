@@ -1632,6 +1632,8 @@ interface ScenarioStep {
   apaleoIds: Record<string, string | undefined>;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
 }
 
 router.post("/agents/scenario/run", async (req, res) => {
@@ -1819,7 +1821,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       if (hasCrossDomainFiles(availScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Availability Agent");
       }
-      results.push({ step: 1, agent: "Availability Agent", ...decision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: availInputTokens, outputTokens: availOutputTokens });
+      results.push({ step: 1, agent: "Availability Agent", ...decision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: availInputTokens, outputTokens: availOutputTokens, cacheCreationTokens: availCacheCreation, cacheReadTokens: availCacheRead });
       emitStep(results[results.length - 1]);
     }
 
@@ -1857,7 +1859,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
       if (hasCrossDomainFiles(rateScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Rate Agent");
       }
-      results.push({ step: 2, agent: "Rate Agent", ...rateDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: rateInputTokens, outputTokens: rateOutputTokens });
+      results.push({ step: 2, agent: "Rate Agent", ...rateDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead });
       emitStep(results[results.length - 1]);
     }
 
@@ -1946,7 +1948,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
       if (hasCrossDomainFiles(resvScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Reservation Bot");
       }
-      results.push({ step: 3, agent: "Reservation Bot", ...decision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: resvInputTokens, outputTokens: resvOutputTokens });
+      results.push({ step: 3, agent: "Reservation Bot", ...decision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: resvInputTokens, outputTokens: resvOutputTokens, cacheCreationTokens: resvCacheCreation, cacheReadTokens: resvCacheRead });
       emitStep(results[results.length - 1]);
     }
 
@@ -2031,7 +2033,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       if (hasCrossDomainFiles(ciScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Check-In Agent");
       }
-      results.push({ step: 4, agent: "Check-In Agent", ...ciDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: ciInputTokens, outputTokens: ciOutputTokens });
+      results.push({ step: 4, agent: "Check-In Agent", ...ciDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: ciInputTokens, outputTokens: ciOutputTokens, cacheCreationTokens: ciCacheCreation, cacheReadTokens: ciCacheRead });
       emitStep(results[results.length - 1]);
     }
 
@@ -2117,7 +2119,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       if (hasCrossDomainFiles(fcScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Charge Agent");
       }
-      results.push({ step: 5, agent: "Folio Charge Agent", ...fcDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: fcInputTokens, outputTokens: fcOutputTokens });
+      results.push({ step: 5, agent: "Folio Charge Agent", ...fcDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: fcInputTokens, outputTokens: fcOutputTokens, cacheCreationTokens: fcCacheCreation, cacheReadTokens: fcCacheRead });
       emitStep(results[results.length - 1]);
     }
 
@@ -2179,7 +2181,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
         if (hasCrossDomainFiles(coScenarioFiles)) {
           void emitCrossDomainGovernanceEvent(Number(companyId), "Checkout Agent");
         }
-        results.push({ step: 6, agent: "Checkout Agent", ...coDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: coInputTokens, outputTokens: coOutputTokens });
+        results.push({ step: 6, agent: "Checkout Agent", ...coDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: coInputTokens, outputTokens: coOutputTokens, cacheCreationTokens: coCacheCreation, cacheReadTokens: coCacheRead });
         emitStep(results[results.length - 1]);
       }
     }
@@ -2232,7 +2234,7 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
       if (hasCrossDomainFiles(revScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Revenue Reconciliation Agent");
       }
-      results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: revInputTokens, outputTokens: revOutputTokens });
+      results.push({ step: 7, agent: "Revenue Reconciliation Agent", ...revDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: revInputTokens, outputTokens: revOutputTokens, cacheCreationTokens: revCacheCreation, cacheReadTokens: revCacheRead });
       emitStep(results[results.length - 1]);
     }
 

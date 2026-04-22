@@ -378,6 +378,16 @@ export default function DemoShowreel({
   const steps = Object.values(completedSteps);
   const currentStepData = completedSteps[activeStep];
 
+  const liveTokens = steps.reduce(
+    (acc, s) => ({
+      input:         acc.input         + (s.inputTokens         ?? 0),
+      output:        acc.output        + (s.outputTokens        ?? 0),
+      cacheCreation: acc.cacheCreation + (s.cacheCreationTokens ?? 0),
+      cacheRead:     acc.cacheRead     + (s.cacheReadTokens     ?? 0),
+    }),
+    { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }
+  );
+
   return (
     <div style={{
       position: "fixed",
@@ -610,6 +620,67 @@ export default function DemoShowreel({
                 fileReferencedByStep={fileReferencedByStep}
               />
             </div>
+
+            {/* Live token counter — shows cache savings as steps complete */}
+            {(liveTokens.input + liveTokens.output + liveTokens.cacheRead + liveTokens.cacheCreation) > 0 && (
+              <div style={{
+                padding: "6px 16px",
+                borderTop: `1px solid ${C.border}`,
+                background: "#070a0f",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}>
+                <div style={{ fontSize: 8, color: C.dim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", flexShrink: 0 }}>
+                  Token spend
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1 }}>
+                  <span style={{ fontSize: 9, color: C.muted, fontFamily: "monospace" }}>
+                    <span style={{ color: C.dim }}>in </span>{liveTokens.input.toLocaleString()}
+                  </span>
+                  <span style={{ color: C.dim, fontSize: 8 }}>·</span>
+                  <span style={{ fontSize: 9, color: C.muted, fontFamily: "monospace" }}>
+                    <span style={{ color: C.dim }}>out </span>{liveTokens.output.toLocaleString()}
+                  </span>
+                  {liveTokens.cacheRead > 0 && (
+                    <>
+                      <span style={{ color: C.dim, fontSize: 8 }}>·</span>
+                      <span style={{
+                        fontSize: 9, fontFamily: "monospace",
+                        color: "#34d399",
+                        background: "#064e3b",
+                        border: "1px solid #065f46",
+                        borderRadius: 4,
+                        padding: "1px 6px",
+                        display: "flex", alignItems: "center", gap: 4,
+                        animation: "glow-pulse 2s ease infinite",
+                      }}>
+                        ⚡ {liveTokens.cacheRead.toLocaleString()} from cache
+                      </span>
+                    </>
+                  )}
+                  {liveTokens.cacheCreation > 0 && (
+                    <>
+                      <span style={{ color: C.dim, fontSize: 8 }}>·</span>
+                      <span style={{
+                        fontSize: 9, fontFamily: "monospace",
+                        color: "#60a5fa",
+                        background: "#0f2744",
+                        border: "1px solid #1e3a5f",
+                        borderRadius: 4,
+                        padding: "1px 6px",
+                      }}>
+                        📦 {liveTokens.cacheCreation.toLocaleString()} cached
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div style={{ fontSize: 9, color: C.blue, fontFamily: "monospace", fontWeight: 700, flexShrink: 0 }}>
+                  {(liveTokens.input + liveTokens.output + liveTokens.cacheCreation + liveTokens.cacheRead).toLocaleString()} total
+                </div>
+              </div>
+            )}
 
             <div style={{
               padding: "10px 16px",

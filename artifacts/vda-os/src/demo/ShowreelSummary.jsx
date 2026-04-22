@@ -22,14 +22,16 @@ const DEC = {
 const STEP_ICONS = { 1: "🔍", 2: "💰", 3: "📋", 4: "✅", 5: "💳", 6: "🚪", 7: "📊" };
 
 export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimeline, onReplay }) {
-  const sortedSteps = [...steps].sort((a, b) => a.step - b.step);
-  const totalIn    = sortedSteps.reduce((s, r) => s + (r.inputTokens  ?? 0), 0);
-  const totalOut   = sortedSteps.reduce((s, r) => s + (r.outputTokens ?? 0), 0);
-  const totalTokens = totalIn + totalOut;
-  const elapsedSec = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
-  const passCount  = sortedSteps.filter(s => s.decision === "PASS").length;
-  const escalCount = sortedSteps.filter(s => s.decision === "ESCALATE").length;
-  const failCount  = sortedSteps.filter(s => s.decision === "FAIL").length;
+  const sortedSteps      = [...steps].sort((a, b) => a.step - b.step);
+  const totalIn          = sortedSteps.reduce((s, r) => s + (r.inputTokens         ?? 0), 0);
+  const totalOut         = sortedSteps.reduce((s, r) => s + (r.outputTokens        ?? 0), 0);
+  const totalCacheRead   = sortedSteps.reduce((s, r) => s + (r.cacheReadTokens     ?? 0), 0);
+  const totalCacheCreate = sortedSteps.reduce((s, r) => s + (r.cacheCreationTokens ?? 0), 0);
+  const totalTokens      = totalIn + totalOut;
+  const elapsedSec       = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
+  const passCount        = sortedSteps.filter(s => s.decision === "PASS").length;
+  const escalCount       = sortedSteps.filter(s => s.decision === "ESCALATE").length;
+  const failCount        = sortedSteps.filter(s => s.decision === "FAIL").length;
 
   return (
     <div style={{
@@ -69,6 +71,41 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
           </div>
         ))}
       </div>
+
+      {/* Cache savings highlight */}
+      {(totalCacheRead + totalCacheCreate) > 0 && (
+        <div style={{
+          background: "#022c22",
+          border: "1px solid #065f46",
+          borderRadius: 10,
+          padding: "10px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}>
+          <div style={{ fontSize: 16 }}>⚡</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#34d399" }}>
+              {totalCacheRead > 0
+                ? `${totalCacheRead.toLocaleString()} tokens served from cache this run`
+                : `${totalCacheCreate.toLocaleString()} tokens written to cache`}
+            </div>
+            <div style={{ fontSize: 9, color: "#6ee7b7", marginTop: 2 }}>
+              {totalCacheRead.toLocaleString()} cache hits (saved) · {totalCacheCreate.toLocaleString()} cache writes (invested)
+            </div>
+          </div>
+          {totalCacheRead > 0 && totalIn > 0 && (
+            <div style={{
+              fontSize: 11, fontWeight: 900, color: "#34d399",
+              background: "#064e3b", border: "1px solid #065f46",
+              borderRadius: 6, padding: "4px 10px",
+            }}>
+              {Math.round((totalCacheRead / (totalIn + totalCacheRead)) * 100)}% cache hit rate
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{
         background: C.card,
@@ -146,8 +183,11 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
                     }}>EXC</span>
                   )}
                 </div>
-                <div style={{ fontSize: 9, color: C.muted, fontFamily: "monospace" }}>
-                  {(step.inputTokens ?? 0).toLocaleString()}
+                <div style={{ fontFamily: "monospace" }}>
+                  <div style={{ fontSize: 9, color: C.muted }}>{(step.inputTokens ?? 0).toLocaleString()}</div>
+                  {(step.cacheReadTokens ?? 0) > 0 && (
+                    <div style={{ fontSize: 7, color: "#34d399" }}>⚡{(step.cacheReadTokens).toLocaleString()}</div>
+                  )}
                 </div>
                 <div style={{ fontSize: 9, color: C.muted, fontFamily: "monospace" }}>
                   {(step.outputTokens ?? 0).toLocaleString()}
@@ -179,16 +219,26 @@ export default function ShowreelSummary({ steps, startedAt, onClose, onViewTimel
           borderTop: `1px solid ${C.border}`,
           padding: "10px 14px",
           display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
+          flexDirection: "column",
+          gap: 4,
         }}>
-          <span style={{ fontSize: 10, color: C.muted }}>
-            Total tokens
-          </span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.text, fontFamily: "monospace" }}>
-            {totalIn.toLocaleString()} in + {totalOut.toLocaleString()} out
-            = <span style={{ color: C.blue }}>{totalTokens.toLocaleString()}</span>
-          </span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: C.muted }}>Total tokens</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.text, fontFamily: "monospace" }}>
+              {totalIn.toLocaleString()} in + {totalOut.toLocaleString()} out
+              = <span style={{ color: C.blue }}>{totalTokens.toLocaleString()}</span>
+            </span>
+          </div>
+          {(totalCacheRead + totalCacheCreate) > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 9, color: C.dim }}>Cache</span>
+              <span style={{ fontSize: 9, fontFamily: "monospace" }}>
+                <span style={{ color: "#34d399" }}>⚡ {totalCacheRead.toLocaleString()} read</span>
+                <span style={{ color: C.dim }}> · </span>
+                <span style={{ color: C.blue }}>📦 {totalCacheCreate.toLocaleString()} written</span>
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
