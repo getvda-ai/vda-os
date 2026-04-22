@@ -201,6 +201,26 @@ function DecisionList({ decisions }) {
   );
 }
 
+function CacheBar({ pct }) {
+  const clamped = Math.min(100, Math.max(0, pct ?? 0));
+  const color = clamped >= 50 ? "#4ade80" : clamped >= 20 ? "#f59e0b" : "#60a5fa";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+      <div style={{
+        flex: 1, height: 6, background: "#1e2130", borderRadius: 3, overflow: "hidden",
+      }}>
+        <div style={{
+          width: `${clamped}%`, height: "100%", background: color,
+          borderRadius: 3, transition: "width 0.4s ease",
+        }} />
+      </div>
+      <span style={{ fontSize: 11, color, fontFamily: "'DM Mono', monospace", minWidth: 38, textAlign: "right" }}>
+        {clamped.toFixed(1)}%
+      </span>
+    </div>
+  );
+}
+
 export default function HotelGMView({ companyId, onOpenTab }) {
   const { data: phasesData, loading: phasesLoading, lastUpdated } = usePoll(async () => {
     if (!companyId) return null;
@@ -224,6 +244,12 @@ export default function HotelGMView({ companyId, onOpenTab }) {
     const r = await fetch("/api/hitl/pending");
     return r.json();
   }, 30000);
+
+  const { data: tokenStatsData } = usePoll(async () => {
+    if (!companyId) return null;
+    const r = await fetch(`/api/agents/token-stats?companyId=${companyId}`);
+    return r.json();
+  }, 60000);
 
   const updatedAgo = useSecondsAgo(lastUpdated);
 
@@ -257,6 +283,11 @@ export default function HotelGMView({ companyId, onOpenTab }) {
     .slice(0, 8);
 
   const pendingHitl = hitlData?.pending?.length ?? 0;
+  void pendingHitl;
+
+  const agentCacheRows = tokenStatsData?.agents ?? [];
+  const cacheTotals = tokenStatsData?.totals ?? {};
+  const hasCacheData = agentCacheRows.some((r) => (r.totalCacheReadTokens ?? 0) > 0 || (r.totalCacheCreationTokens ?? 0) > 0);
 
   return (
     <div style={{ ...DM, padding: "24px 28px", maxWidth: 1100 }}>
@@ -290,7 +321,84 @@ export default function HotelGMView({ companyId, onOpenTab }) {
         </div>
       </div>
 
-      {/* Section C — Yesterday's decisions */}
+      {/* Section C — AI cache efficiency */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+          <SectionHeader title="AI cache efficiency" />
+          {cacheTotals.cacheSavingsPct != null && (
+            <span style={{ fontSize: 11, color: "#4ade80", fontFamily: "'DM Mono', monospace" }}>
+              {cacheTotals.cacheSavingsPct.toFixed(1)}% overall cache hit rate
+            </span>
+          )}
+        </div>
+        <div style={{
+          background: "#111318", border: "1px solid #1e2130",
+          borderRadius: 10, overflow: "hidden",
+        }}>
+          {!hasCacheData ? (
+            <div style={{ padding: "18px 20px", fontSize: 13, color: "#ffffff" }}>
+              No cache data yet — run the demo scenario to populate.
+            </div>
+          ) : (
+            <>
+              {/* Header row */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "180px 1fr 80px 80px",
+                gap: 12, padding: "8px 16px",
+                borderBottom: "1px solid #1e2130",
+                fontSize: 10, color: "#ffffff", fontWeight: 600,
+                letterSpacing: "0.07em", textTransform: "uppercase",
+              }}>
+                <span>Agent</span>
+                <span>Cache hit rate</span>
+                <span style={{ textAlign: "right" }}>Calls</span>
+                <span style={{ textAlign: "right" }}>Saved tokens</span>
+              </div>
+              {agentCacheRows.map((row, i) => (
+                <div
+                  key={row.agent ?? i}
+                  style={{
+                    display: "grid", gridTemplateColumns: "180px 1fr 80px 80px",
+                    gap: 12, padding: "10px 16px", alignItems: "center",
+                    borderBottom: i < agentCacheRows.length - 1 ? "1px solid #1e2130" : "none",
+                  }}
+                >
+                  <span style={{ fontSize: 12, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {(row.agent ?? "").replace(/ Agent$/, "").replace(/ Bot$/, " Bot")}
+                  </span>
+                  <CacheBar pct={row.cacheSavingsPct ?? 0} />
+                  <span style={{ fontSize: 11, color: "#ffffff", textAlign: "right", fontFamily: "'DM Mono', monospace" }}>
+                    {row.calls ?? 0}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#4ade80", textAlign: "right", fontFamily: "'DM Mono', monospace" }}>
+                    {(row.totalCacheReadTokens ?? 0).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+              {/* Totals footer */}
+              {cacheTotals.calls > 0 && (
+                <div style={{
+                  display: "grid", gridTemplateColumns: "180px 1fr 80px 80px",
+                  gap: 12, padding: "10px 16px", alignItems: "center",
+                  borderTop: "1px solid #1e2130",
+                  background: "#0d0f14",
+                }}>
+                  <span style={{ fontSize: 11, color: "#ffffff", fontWeight: 600 }}>Total</span>
+                  <CacheBar pct={cacheTotals.cacheSavingsPct ?? 0} />
+                  <span style={{ fontSize: 11, color: "#ffffff", textAlign: "right", fontFamily: "'DM Mono', monospace" }}>
+                    {cacheTotals.calls ?? 0}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#4ade80", textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>
+                    {(cacheTotals.totalCacheReadTokens ?? 0).toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Section D — Yesterday's decisions */}
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <SectionHeader title="Yesterday's decisions" />

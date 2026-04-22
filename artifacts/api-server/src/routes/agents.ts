@@ -1811,7 +1811,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Availability Agent", decision,
         fileReferenced: governanceFileReferenced(availScenarioFiles),
-        apaleoData: { propertyId, arrival: scenarioArrival, departure: scenarioDeparture, unitGroups: liveUnitGroups.slice(0, 3), usedMcp: availUsedMcp, toolCallsMade: availToolCalls, input_tokens: availInputTokens, output_tokens: availOutputTokens },
+        apaleoData: { propertyId, arrival: scenarioArrival, departure: scenarioDeparture, unitGroups: liveUnitGroups.slice(0, 3), usedMcp: availUsedMcp, toolCallsMade: availToolCalls, input_tokens: availInputTokens, output_tokens: availOutputTokens, cache_creation_tokens: availCacheCreation, cache_read_tokens: availCacheRead },
         scenarioRunId,
         filesConsulted: availScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(availScenarioFiles),
@@ -1849,7 +1849,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
         fileReferenced: governanceFileReferenced(rateScenarioFiles),
-        apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, input_tokens: rateInputTokens, output_tokens: rateOutputTokens },
+        apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, input_tokens: rateInputTokens, output_tokens: rateOutputTokens, cache_creation_tokens: rateCacheCreation, cache_read_tokens: rateCacheRead },
         scenarioRunId,
         filesConsulted: rateScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(rateScenarioFiles),
@@ -1938,7 +1938,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Reservation Bot", decision,
         fileReferenced: governanceFileReferenced(resvScenarioFiles),
-        apaleoData: { createdId, writeExecuted, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls, input_tokens: resvInputTokens, output_tokens: resvOutputTokens },
+        apaleoData: { createdId, writeExecuted, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, usedMcp: resvUsedMcp, toolCallsMade: resvToolCalls, input_tokens: resvInputTokens, output_tokens: resvOutputTokens, cache_creation_tokens: resvCacheCreation, cache_read_tokens: resvCacheRead },
         scenarioRunId,
         filesConsulted: resvScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(resvScenarioFiles),
@@ -2023,7 +2023,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Check-In Agent", decision: ciDecision,
         fileReferenced: governanceFileReferenced(ciScenarioFiles),
-        apaleoData: { reservationId, checkinExecuted, folioId: folioFromCheckin, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, input_tokens: ciInputTokens, output_tokens: ciOutputTokens },
+        apaleoData: { reservationId, checkinExecuted, folioId: folioFromCheckin, usedMcp: ciUsedMcp, toolCallsMade: ciToolCalls, input_tokens: ciInputTokens, output_tokens: ciOutputTokens, cache_creation_tokens: ciCacheCreation, cache_read_tokens: ciCacheRead },
         scenarioRunId,
         filesConsulted: ciScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(ciScenarioFiles),
@@ -2103,6 +2103,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       const fcWitnessApaleoData: Record<string, unknown> = {
         folioId, chargePosted, chargeAmount: 89, currency: "EUR", usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls,
         input_tokens: fcInputTokens, output_tokens: fcOutputTokens,
+        cache_creation_tokens: fcCacheCreation, cache_read_tokens: fcCacheRead,
         ...(fcCrossdomainFile ? { crossDomainInheritance: true, inheritedPolicyFile: fcCrossdomainFile } : {}),
       };
       const wid = await writeWitnessEntry({
@@ -2170,7 +2171,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
         const wid = await writeWitnessEntry({
           companyId: Number(companyId), agent: "Checkout Agent", decision: coDecision,
           fileReferenced: coFileRef,
-          apaleoData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", folioId: coFolioId, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, input_tokens: coInputTokens, output_tokens: coOutputTokens },
+          apaleoData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", folioId: coFolioId, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, input_tokens: coInputTokens, output_tokens: coOutputTokens, cache_creation_tokens: coCacheCreation, cache_read_tokens: coCacheRead },
           scenarioRunId,
           filesConsulted: coScenarioFiles,
           crossDomainInheritance: hasCrossDomainFiles(coScenarioFiles),
@@ -2223,7 +2224,7 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
       const wid = await writeWitnessEntry({
         companyId: Number(companyId), agent: "Revenue Reconciliation Agent", decision: revDecision,
         fileReferenced: governanceFileReferenced(revScenarioFiles),
-        apaleoData: { date: today, reservationCount: reservations.count, totalRevenue: total, currency, scenarioReservationId: ids.reservationId, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, input_tokens: revInputTokens, output_tokens: revOutputTokens },
+        apaleoData: { date: today, reservationCount: reservations.count, totalRevenue: total, currency, scenarioReservationId: ids.reservationId, usedMcp: revUsedMcp, toolCallsMade: revToolCalls, input_tokens: revInputTokens, output_tokens: revOutputTokens, cache_creation_tokens: revCacheCreation, cache_read_tokens: revCacheRead },
         scenarioRunId,
         filesConsulted: revScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(revScenarioFiles),
@@ -2273,23 +2274,38 @@ router.get("/agents/token-stats", async (req, res) => {
         calls: sql<number>`count(*)::int`,
         totalInputTokens: sql<number>`coalesce(sum((nullif(regexp_replace(${witnessEntries.apaleoData}->>'input_tokens','[^0-9]','','g'),''))::numeric)::int, 0)`,
         totalOutputTokens: sql<number>`coalesce(sum((nullif(regexp_replace(${witnessEntries.apaleoData}->>'output_tokens','[^0-9]','','g'),''))::numeric)::int, 0)`,
+        totalCacheCreationTokens: sql<number>`coalesce(sum((nullif(regexp_replace(${witnessEntries.apaleoData}->>'cache_creation_tokens','[^0-9]','','g'),''))::numeric)::int, 0)`,
+        totalCacheReadTokens: sql<number>`coalesce(sum((nullif(regexp_replace(${witnessEntries.apaleoData}->>'cache_read_tokens','[^0-9]','','g'),''))::numeric)::int, 0)`,
       })
       .from(witnessEntries)
       .where(eq(witnessEntries.companyId, companyId))
       .groupBy(witnessEntries.agent)
       .orderBy(sql`sum(((${witnessEntries.apaleoData}->>'input_tokens')::numeric)) desc nulls last`);
 
-    const grandTotalInput = rows.reduce((s, r) => s + (r.totalInputTokens ?? 0), 0);
-    const grandTotalOutput = rows.reduce((s, r) => s + (r.totalOutputTokens ?? 0), 0);
+    const rowsWithPct = rows.map((r) => {
+      const totalInput = r.totalCacheCreationTokens + r.totalCacheReadTokens + r.totalInputTokens;
+      const cacheSavingsPct = totalInput > 0 ? Math.round((r.totalCacheReadTokens / totalInput) * 1000) / 10 : 0;
+      return { ...r, cacheSavingsPct };
+    });
+
+    const grandTotalInput = rowsWithPct.reduce((s, r) => s + (r.totalInputTokens ?? 0), 0);
+    const grandTotalOutput = rowsWithPct.reduce((s, r) => s + (r.totalOutputTokens ?? 0), 0);
+    const grandTotalCacheCreation = rowsWithPct.reduce((s, r) => s + (r.totalCacheCreationTokens ?? 0), 0);
+    const grandTotalCacheRead = rowsWithPct.reduce((s, r) => s + (r.totalCacheReadTokens ?? 0), 0);
+    const grandAllInput = grandTotalCacheCreation + grandTotalCacheRead + grandTotalInput;
+    const grandCacheSavingsPct = grandAllInput > 0 ? Math.round((grandTotalCacheRead / grandAllInput) * 1000) / 10 : 0;
 
     return res.json({
       companyId,
-      agents: rows,
+      agents: rowsWithPct,
       totals: {
-        calls: rows.reduce((s, r) => s + (r.calls ?? 0), 0),
+        calls: rowsWithPct.reduce((s, r) => s + (r.calls ?? 0), 0),
         totalInputTokens: grandTotalInput,
         totalOutputTokens: grandTotalOutput,
         totalTokens: grandTotalInput + grandTotalOutput,
+        totalCacheCreationTokens: grandTotalCacheCreation,
+        totalCacheReadTokens: grandTotalCacheRead,
+        cacheSavingsPct: grandCacheSavingsPct,
       },
     });
   } catch (err: unknown) {
