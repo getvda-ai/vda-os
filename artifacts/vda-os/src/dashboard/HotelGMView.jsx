@@ -282,9 +282,6 @@ export default function HotelGMView({ companyId, onOpenTab }) {
     .filter((e) => new Date(e.createdAt).getTime() > oneDayAgo)
     .slice(0, 8);
 
-  const pendingHitl = hitlData?.pending?.length ?? 0;
-  void pendingHitl;
-
   const agentCacheRows = tokenStatsData?.agents ?? [];
   const cacheTotals = tokenStatsData?.totals ?? {};
   const hasCacheData = agentCacheRows.some((r) => (r.totalCacheReadTokens ?? 0) > 0 || (r.totalCacheCreationTokens ?? 0) > 0);
