@@ -56,6 +56,30 @@ async function guardAuthority(
   return null;
 }
 
+/**
+ * Build a runtime authority fragment string from EXCEPTION_AUTHORITY.md for injection into LLM prompts.
+ * Replaces all hardcoded ceiling/authority strings in scenario runner prompts (§1 compliance).
+ */
+async function buildAuthorityFragment(
+  agentSlug: string,
+  companyId: number,
+  roleBand: string,
+  exceptionClass?: string,
+): Promise<string> {
+  const bandAuth = await getRoleBandAuthority(agentSlug, companyId, roleBand);
+  if (!bandAuth) {
+    return `Authority source: EXCEPTION_AUTHORITY.md (file not found for ${agentSlug} — governance escalation required)`;
+  }
+  const rule = exceptionClass
+    ? bandAuth.exceptions.find(e => e.exception_class === exceptionClass)
+    : bandAuth.exceptions[0];
+  if (!rule) {
+    return `Authority source: EXCEPTION_AUTHORITY.md — band: ${roleBand} (no matching rule)`;
+  }
+  const ceilingStr = rule.ceiling != null ? `${rule.ceiling} ${rule.ceiling_type ?? ""}`.trim() : "unlimited";
+  return `Authority source: EXCEPTION_AUTHORITY.md — ceiling: ${ceilingStr}, authority: ${rule.authority ?? "unspecified"}`;
+}
+
 const APALEO_API_BASE = "https://api.apaleo.com";
 
 // ─── Cross-Domain Governance Event Helper ─────────────────────────────────────
@@ -1875,6 +1899,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       // VIE-VDADEMO-SGL rate plan is now isBookable: true — ListRatePlans MCP call is safe
       const bar = 180; const requested = 171; const discountPct = 5;
       const rateAuthorityEscalate = await guardAuthority("rate-agent", "Rate Agent", Number(companyId));
+      const rateAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", "rate_discount_autonomous");
       const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead } = rateAuthorityEscalate
         ? { decision: rateAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
         : await evaluateWithPolicyAndMcp(
@@ -1890,7 +1915,7 @@ Rate plan context (pre-flight verified against Apaleo API):
 
 You MAY call ListRatePlans to see Apaleo rate plan data. IMPORTANT: ListRatePlans returns ALL property rate plans — if the specific plan ID is not visible in the returned list (due to pagination or property filtering), treat the pre-flight confirmation above as authoritative. The rate plan ${ids.ratePlanId ?? "VIE-VDADEMO-SGL"} was verified directly via Apaleo API before this evaluation.
 
-Apply rate-override-policy thresholds. A ${discountPct}% discount is within the autonomous agent authority band per rate-override-policy.md. PASS — respond ONLY with the JSON decision.`,
+Apply rate-override-policy thresholds. A ${discountPct}% discount is within the approved authority band. ${rateAuthFrag}. PASS — respond ONLY with the JSON decision.`,
         [MCP_TOOLS.ListRatePlans],
         Number(companyId)
       );
@@ -2106,6 +2131,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       // previous runs which the agent misinterprets as a dispute trigger. The governance demo
       // evaluates the charge decision in isolation: a fresh €89 RoomRevenue charge on an Open folio.
       const fcAuthorityEscalate = await guardAuthority("folio-charge-agent", "Folio Charge Agent", Number(companyId));
+      const fcAuthFrag = await buildAuthorityFragment("folio-charge-agent", Number(companyId), "ambassador", "charge_ceiling_autonomous");
       const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles, inputTokens: fcInputTokens, outputTokens: fcOutputTokens, cacheCreationTokens: fcCacheCreation, cacheReadTokens: fcCacheRead } = fcAuthorityEscalate
         ? { decision: fcAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
         : await evaluateWithPolicyAndMcp(
@@ -2121,10 +2147,10 @@ Apaleo Folio API result (pre-flight verified):
 - Open disputes: NONE
 
 O2C cross-domain authority check:
-- €89 charge with zero disputes → autonomous agent authority per folio-charge-policy.md (no disputes = no escalation required)
+- €89 charge with zero disputes — no escalation required. ${fcAuthFrag}.
 - Cross-domain Finance O2C authority: confirmed in governance policy
 
-Apply folio-charge-policy thresholds. €89 with no disputes is within autonomous authority. PASS — respond ONLY with the JSON decision.`,
+Apply folio-charge-policy thresholds. €89 with no disputes is within the approved authority band. PASS — respond ONLY with the JSON decision.`,
         [],
         Number(companyId)
       );
@@ -2184,6 +2210,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       {
         const coFolioId = ids.folioId;
         const coAuthorityEscalate = await guardAuthority("checkout-agent", "Checkout Agent", Number(companyId));
+        const coAuthFrag = await buildAuthorityFragment("checkout-agent", Number(companyId), "senior_ambassador", "late_checkout_loyalty_extension");
         const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles, inputTokens: coInputTokens, outputTokens: coOutputTokens, cacheCreationTokens: coCacheCreation, cacheReadTokens: coCacheRead } = coAuthorityEscalate
           ? { decision: coAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
           : await evaluateWithPolicyAndMcp(
@@ -2196,7 +2223,7 @@ Scenario state (follows from step 4 check-in):
 - Gate 3 — Open disputes: none
 - Gate 4 — Late checkout requested: until 13:00 (1 hour past standard 12:00 checkout)
 - Guest loyalty tier: Gold — eligible for complimentary late checkout waiver per EXCEPTION.md overlay
-- Late checkout WAIVER FEE: €0 — courtesy waiver for Gold tier (no charge applied); the exception overlay grants waiver authority for up to 2 hours
+- Late checkout WAIVER FEE: €0 — courtesy waiver for Gold tier (no charge applied). ${coAuthFrag}.
 ${coFolioId ? `- Folio reference: ${coFolioId}` : ""}
 
 Note: The €89 room charge posted in step 5 is fully settled — it is NOT the late checkout fee. The late checkout fee itself is WAIVED (€0) under the Gold loyalty exception overlay.
@@ -2241,6 +2268,8 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
 
     // ─ Step 7: Revenue Reconciliation ────────────────────────────────────
     {
+      // Re-fetch rate authority fragment for reconciliation context (rateAuthFrag is block-scoped to Step 2)
+      const reconRateAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", "rate_discount_autonomous");
       // Use a rolling 30-day window to ensure real historical data is available
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().split("T")[0];
       const reservations = await apaleoRequest<{ reservations: ApaleoReservation[]; count: number }>(
@@ -2259,7 +2288,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
 Scenario revenue summary (steps 1–6 completed):
 - 7-step O2C guest journey completed: Availability → Rate → Reservation → Check-In → Folio Charge → Checkout
 - Demo folio charge: €89 EUR (RoomRevenue, Demo Room Rate Supplement) posted in step 5
-- Rate applied: ${ids.ratePlanId ?? "VIE-VDADEMO-SGL"} — 5% below BAR (within autonomous authority band)
+- Rate applied: ${ids.ratePlanId ?? "VIE-VDADEMO-SGL"} — 5% below BAR. ${reconRateAuthFrag}.
 - Reservation: ${ids.reservationId ?? "confirmed in step 3"} at ${propertyId}
 - Guest: Demo Guest — Gold loyalty tier
 

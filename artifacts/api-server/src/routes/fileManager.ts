@@ -20,8 +20,10 @@ import yaml from "js-yaml";
 function checkExceptionAuthorityDilution(existingContent: string, newContent: string): string[] {
   const violations: string[] = [];
 
+  // Higher rank = more oversight (hitl_required is most oversight, autonomous is least).
+  // Dilution = moving to a lower rank (e.g. hitl_required → autonomous removes human approval).
   const AUTH_RANK: Record<string, number> = {
-    autonomous: 4, advisory: 3, hitl_required: 2, monitor: 1, not_applicable: 0,
+    hitl_required: 4, advisory: 3, monitor: 2, autonomous: 1, not_applicable: 0,
   };
 
   type BandDoc = {
@@ -33,83 +35,84 @@ function checkExceptionAuthorityDilution(existingContent: string, newContent: st
   };
 
   type ParsedAuth = {
-    bands: Map<string, BandDoc>;
+    bands: Map<string, BandDoc[]>;  // Array to preserve all exception classes per band
     mustNotOverride: string[];
-    escalationTargets: Map<string, string>;
   };
 
   function parseAuthContent(src: string): ParsedAuth {
-    const result: ParsedAuth = { bands: new Map(), mustNotOverride: [], escalationTargets: new Map() };
+    const result: ParsedAuth = { bands: new Map(), mustNotOverride: [] };
 
-    // Build band-index from headings to align with YAML documents
-    const rawLines = src.split("\n");
-    let bandForNext: string | null = null;
-    const bandAtSep: (string | null)[] = [];
-    for (const line of rawLines) {
-      const bm = line.match(/###\s+role_band:\s*(\S+)/);
-      if (bm) { bandForNext = bm[1]; }
-      if (/^---\s*$/.test(line.trim())) { bandAtSep.push(bandForNext); }
-    }
+    let currentBand: string | null = null;
+    const chunks = src.split(/\n---\n/);
 
-    const stripped = rawLines
-      .filter(l => !/^#{1,6}\s/.test(l) && !/^>\s/.test(l))
-      .join("\n");
+    for (const chunk of chunks) {
+      const bm = chunk.match(/###\s+role_band:\s*(\S+)/);
+      if (bm) currentBand = bm[1];
 
-    let docIdx = 0;
-    try {
-      yaml.loadAll(stripped, (doc) => {
-        if (!doc || typeof doc !== "object") { docIdx++; return; }
-        const obj = doc as Record<string, unknown>;
-        const inferredBand = bandAtSep[docIdx] ?? null;
-        docIdx++;
+      const yamlLines = chunk
+        .split("\n")
+        .filter(l => !/^#{1,6}\s/.test(l) && !/^>\s/.test(l))
+        .join("\n")
+        .trim();
 
-        if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
-          result.mustNotOverride = obj.must_not_override as string[];
-        } else if (obj.escalation_targets && typeof obj.escalation_targets === "object") {
-          for (const [k, v] of Object.entries(obj.escalation_targets as object)) {
-            result.escalationTargets.set(k, String(v));
-          }
-        } else if (obj.exception_class !== undefined || obj.authority !== undefined) {
-          const band = (obj.role_band as string | undefined) ?? inferredBand;
-          if (band) result.bands.set(band, obj as BandDoc);
+      if (!yamlLines) continue;
+
+      const yamlWithBand = currentBand ? `role_band: ${currentBand}\n${yamlLines}` : yamlLines;
+      let parsed: unknown;
+      try { parsed = yaml.load(yamlWithBand); } catch { continue; }
+      if (!parsed || typeof parsed !== "object") continue;
+      const obj = parsed as Record<string, unknown>;
+
+      if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
+        result.mustNotOverride = obj.must_not_override as string[];
+      } else if (obj.exception_class !== undefined || obj.authority !== undefined) {
+        const band = (obj.role_band as string | undefined) ?? currentBand;
+        if (band) {
+          if (!result.bands.has(band)) result.bands.set(band, []);
+          result.bands.get(band)!.push(obj as BandDoc);
         }
-      });
-    } catch { /* malformed content — empty result */ }
+      }
+    }
     return result;
   }
 
   const before = parseAuthContent(existingContent);
   const after  = parseAuthContent(newContent);
 
-  // Per-band ceiling_reduction, authority_downgrade, escalate_to removal
-  for (const [band, bDoc] of before.bands) {
-    const aDoc = after.bands.get(band);
-    if (!aDoc) continue; // band removed entirely — not a dilution concern here
+  // Per-band, per-exception-class: ceiling_reduction, authority_downgrade, escalate_to removal
+  for (const [band, bDocs] of before.bands) {
+    const aDocs = after.bands.get(band) ?? [];
 
-    // ceiling_reduction
-    if (typeof bDoc.ceiling === "number" && typeof aDoc.ceiling === "number" && aDoc.ceiling < bDoc.ceiling) {
-      violations.push(
-        `DILUTION [§10]: band "${band}" ceiling reduced from ${bDoc.ceiling} to ${aDoc.ceiling}. ` +
-        "Ceiling can only be increased or unchanged under VDA-MD §10.",
-      );
-    }
+    for (const bDoc of bDocs) {
+      // Match by exception_class if available; otherwise positional
+      const aDoc = aDocs.find(d => d.exception_class === bDoc.exception_class) ?? aDocs[0];
+      if (!aDoc) continue;
 
-    // authority_downgrade
-    const rankBefore = AUTH_RANK[String(bDoc.authority ?? "")] ?? -1;
-    const rankAfter  = AUTH_RANK[String(aDoc.authority  ?? "")] ?? -1;
-    if (rankBefore >= 0 && rankAfter >= 0 && rankAfter < rankBefore) {
-      violations.push(
-        `DILUTION [§10]: band "${band}" authority downgraded from "${bDoc.authority}" to "${aDoc.authority}". ` +
-        "Authority class can only be upgraded or left unchanged.",
-      );
-    }
+      // ceiling_reduction
+      if (typeof bDoc.ceiling === "number" && typeof aDoc.ceiling === "number" && aDoc.ceiling < bDoc.ceiling) {
+        violations.push(
+          `DILUTION [§10]: band "${band}" class "${bDoc.exception_class ?? "?"}" ceiling reduced from ${bDoc.ceiling} to ${aDoc.ceiling}. ` +
+          "Ceiling can only be increased or unchanged under VDA-MD §10.",
+        );
+      }
 
-    // escalate_to removal
-    if (bDoc.escalate_to && !aDoc.escalate_to) {
-      violations.push(
-        `DILUTION [§10]: band "${band}" escalate_to removed (was "${bDoc.escalate_to}"). ` +
-        "Removing escalation routes reduces oversight coverage.",
-      );
+      // authority_downgrade (includes hitl_required → autonomous)
+      const rankBefore = AUTH_RANK[String(bDoc.authority ?? "")] ?? -1;
+      const rankAfter  = AUTH_RANK[String(aDoc.authority  ?? "")] ?? -1;
+      if (rankBefore >= 0 && rankAfter >= 0 && rankAfter < rankBefore) {
+        violations.push(
+          `DILUTION [§10]: band "${band}" class "${bDoc.exception_class ?? "?"}" authority downgraded from "${bDoc.authority}" to "${aDoc.authority}". ` +
+          "Authority class can only be upgraded or left unchanged.",
+        );
+      }
+
+      // escalate_to removal
+      if (bDoc.escalate_to && !aDoc.escalate_to) {
+        violations.push(
+          `DILUTION [§10]: band "${band}" class "${bDoc.exception_class ?? "?"}" escalate_to removed (was "${bDoc.escalate_to}"). ` +
+          "Removing escalation routes reduces oversight coverage.",
+        );
+      }
     }
   }
 

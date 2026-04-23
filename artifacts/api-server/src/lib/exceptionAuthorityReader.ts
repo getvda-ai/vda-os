@@ -67,50 +67,49 @@ function parseExceptionAuthorityBody(body: string): ExceptionAuthority {
     escalationTargets: {},
   };
 
-  // Strip markdown heading lines and prose before parsing as YAML multi-document.
-  // The body uses '---' as YAML document separators between role-band blocks.
-  const yamlSrc = body
-    .split("\n")
-    .filter((line) => {
-      if (/^#{1,6}\s/.test(line)) return false; // markdown headings
-      if (/^>\s/.test(line)) return false;       // blockquotes
-      return true;
-    })
-    .join("\n");
+  // Split body on --- separators; each chunk is an independent YAML block.
+  // role_band is derived from the markdown heading in the same chunk, or
+  // inherited from the most recent heading (for multi-class bands).
+  let currentBand: string | null = null;
+  const chunks = body.split(/\n---\n/);
 
-  // Track current band heading from the raw body for documents that lack a
-  // role_band field (only the heading identifies which band they belong to).
-  const rawLines = body.split("\n");
-  let bandForNextDoc: string | null = null;
-  const bandSequence: (string | null)[] = [];
-  for (const line of rawLines) {
-    const bm = line.match(/###\s+role_band:\s*(\S+)/);
-    if (bm) { bandForNextDoc = bm[1]; }
-    if (/^---\s*$/.test(line.trim())) { bandSequence.push(bandForNextDoc); }
-  }
+  for (const chunk of chunks) {
+    const bandMatch = chunk.match(/###\s+role_band:\s*(\S+)/);
+    if (bandMatch) currentBand = bandMatch[1];
 
-  let docIndex = 0;
-  try {
-    yaml.loadAll(yamlSrc, (doc) => {
-      if (!doc || typeof doc !== "object") { docIndex++; return; }
-      const obj = doc as Record<string, unknown>;
-      const inferredBand = bandSequence[docIndex] ?? null;
-      docIndex++;
+    const yamlLines = chunk
+      .split("\n")
+      .filter((l) => !/^#{1,6}\s/.test(l) && !/^>\s/.test(l))
+      .join("\n")
+      .trim();
 
-      if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
-        result.mustNotOverride = obj.must_not_override as string[];
-      } else if (obj.escalation_targets && typeof obj.escalation_targets === "object") {
-        result.escalationTargets = obj.escalation_targets as Record<string, string>;
-      } else if (obj.exception_class !== undefined || obj.authority !== undefined) {
-        const band = (obj.role_band as string | undefined) ?? inferredBand;
-        if (band) {
-          if (!result.roleBands[band]) result.roleBands[band] = { exceptions: [] };
-          result.roleBands[band].exceptions.push(obj as ExceptionRule);
-        }
+    if (!yamlLines) continue;
+
+    // Inject role_band so each parsed document is self-describing
+    const yamlWithBand = currentBand ? `role_band: ${currentBand}\n${yamlLines}` : yamlLines;
+
+    let parsed: unknown;
+    try {
+      parsed = yaml.load(yamlWithBand);
+    } catch (parseErr) {
+      logger.warn({ parseErr, snippet: yamlLines.slice(0, 120) }, "[exceptionAuthorityReader] YAML block unparseable — skipping");
+      continue;
+    }
+
+    if (!parsed || typeof parsed !== "object") continue;
+    const obj = parsed as Record<string, unknown>;
+
+    if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
+      result.mustNotOverride = obj.must_not_override as string[];
+    } else if (obj.escalation_targets && typeof obj.escalation_targets === "object") {
+      result.escalationTargets = obj.escalation_targets as Record<string, string>;
+    } else if (obj.exception_class !== undefined || obj.authority !== undefined) {
+      const band = (obj.role_band as string | undefined) ?? currentBand;
+      if (band) {
+        if (!result.roleBands[band]) result.roleBands[band] = { exceptions: [] };
+        result.roleBands[band].exceptions.push(obj as ExceptionRule);
       }
-    });
-  } catch (parseErr) {
-    logger.warn({ parseErr }, "[exceptionAuthorityReader] EXCEPTION_AUTHORITY.md yaml.loadAll failed");
+    }
   }
 
   return result;
