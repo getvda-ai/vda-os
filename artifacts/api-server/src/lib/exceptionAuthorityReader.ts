@@ -55,64 +55,54 @@ let _policyCacheTs = 0;
 const POLICY_CACHE_TTL_MS = 60_000;
 
 // ─── Internal YAML parser for EXCEPTION_AUTHORITY.md ─────────────────────────
+// Files use a single-document YAML body after front-matter is stripped.
+// The canonical format has top-level keys: role_bands, must_not_override, escalation_targets.
+// role_bands is a map of band name → { exceptions: ExceptionRule[] }.
 
 function stripFrontMatter(content: string): string {
+  // Strip the ---...--- front-matter block (first occurrence only).
   return content.replace(/^---[\s\S]*?---\s*\n/, "");
 }
 
 function parseExceptionAuthorityBody(body: string): ExceptionAuthority {
-  const result: ExceptionAuthority = {
-    roleBands: {},
-    mustNotOverride: [],
-    escalationTargets: {},
-  };
+  // Parse as a single YAML document. Throws deterministically on any parse error.
+  let doc: unknown;
+  try {
+    doc = yaml.load(body);
+  } catch (err) {
+    throw new Error(`[exceptionAuthorityReader] EXCEPTION_AUTHORITY.md is not valid YAML: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-  // Split body on --- separators; each chunk is an independent YAML block.
-  // role_band is derived from the markdown heading in the same chunk, or
-  // inherited from the most recent heading (for multi-class bands).
-  let currentBand: string | null = null;
-  const chunks = body.split(/\n---\n/);
+  if (!doc || typeof doc !== "object") {
+    throw new Error("[exceptionAuthorityReader] EXCEPTION_AUTHORITY.md parsed to a non-object — check file format");
+  }
 
-  for (const chunk of chunks) {
-    const bandMatch = chunk.match(/###\s+role_band:\s*(\S+)/);
-    if (bandMatch) currentBand = bandMatch[1];
+  const obj = doc as Record<string, unknown>;
 
-    const yamlLines = chunk
-      .split("\n")
-      .filter((l) => !/^#{1,6}\s/.test(l) && !/^>\s/.test(l))
-      .join("\n")
-      .trim();
-
-    if (!yamlLines) continue;
-
-    // Inject role_band so each parsed document is self-describing
-    const yamlWithBand = currentBand ? `role_band: ${currentBand}\n${yamlLines}` : yamlLines;
-
-    let parsed: unknown;
-    try {
-      parsed = yaml.load(yamlWithBand);
-    } catch (parseErr) {
-      logger.warn({ parseErr, snippet: yamlLines.slice(0, 120) }, "[exceptionAuthorityReader] YAML block unparseable — skipping");
-      continue;
-    }
-
-    if (!parsed || typeof parsed !== "object") continue;
-    const obj = parsed as Record<string, unknown>;
-
-    if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
-      result.mustNotOverride = obj.must_not_override as string[];
-    } else if (obj.escalation_targets && typeof obj.escalation_targets === "object") {
-      result.escalationTargets = obj.escalation_targets as Record<string, string>;
-    } else if (obj.exception_class !== undefined || obj.authority !== undefined) {
-      const band = (obj.role_band as string | undefined) ?? currentBand;
-      if (band) {
-        if (!result.roleBands[band]) result.roleBands[band] = { exceptions: [] };
-        result.roleBands[band].exceptions.push(obj as ExceptionRule);
-      }
+  // Parse role_bands: { ambassador: { exceptions: [...] }, ... }
+  const roleBands: Record<string, { exceptions: ExceptionRule[] }> = {};
+  const rawBands = obj.role_bands;
+  if (rawBands && typeof rawBands === "object" && !Array.isArray(rawBands)) {
+    for (const [band, data] of Object.entries(rawBands as Record<string, unknown>)) {
+      if (!data || typeof data !== "object") continue;
+      const bandData = data as Record<string, unknown>;
+      const exceptions: ExceptionRule[] = Array.isArray(bandData.exceptions)
+        ? (bandData.exceptions as ExceptionRule[])
+        : [];
+      roleBands[band] = { exceptions };
     }
   }
 
-  return result;
+  const mustNotOverride: string[] = Array.isArray(obj.must_not_override)
+    ? (obj.must_not_override as string[])
+    : [];
+
+  const escalationTargets: Record<string, string> =
+    obj.escalation_targets && typeof obj.escalation_targets === "object" && !Array.isArray(obj.escalation_targets)
+      ? (obj.escalation_targets as Record<string, string>)
+      : {};
+
+  return { roleBands, mustNotOverride, escalationTargets };
 }
 
 function parseOnboardingPolicyBody(body: string): OnboardingPolicy {

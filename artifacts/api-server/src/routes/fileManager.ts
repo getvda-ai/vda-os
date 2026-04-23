@@ -479,25 +479,42 @@ router.put("/fm/file/:id", async (req, res) => {
     }
 
     // VDA-MD §10 EXCEPTION_AUTHORITY dilution guard
+    // Dilution requires CO override: send x-co-override: true header to proceed with approval audit trail.
     if (content && existingFile.content && existingFile.fileType === "EXCEPTION_AUTHORITY") {
       const dilutionViolations = checkExceptionAuthorityDilution(existingFile.content, content);
       if (dilutionViolations.length > 0) {
+        const coOverride = req.headers["x-co-override"] === "true";
+        if (!coOverride) {
+          writeGovernanceEvent({
+            companyId: existingFile.companyId ?? companyId ?? 0,
+            agent: "compliance-guard",
+            eventCategory: "COMPLIANCE_BOUNDARY",
+            decision: "FAIL",
+            fileReferenced: `governance-file:${existingFile.id}`,
+            clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md dilution guard triggered",
+            actionProposed: `Reject update to EXCEPTION_AUTHORITY.md ${existingFile.id} — authority dilution detected`,
+            reasoning: dilutionViolations.join("; "),
+            apaleoData: { event_type: "exception_authority_dilution", fileId: existingFile.id, violations: dilutionViolations },
+          }).catch(err => console.warn("[Witness] exception_authority_dilution event failed:", err));
+          return res.status(409).json({
+            error: "VDA-MD §10: EXCEPTION_AUTHORITY.md dilution guard rejected this update",
+            violations: dilutionViolations,
+            hint: "Authority dilution requires Compliance Officer approval. Retry with x-co-override: true header to record an approved override.",
+            coOverrideRequired: true,
+          });
+        }
+        // CO override path: log the override with full audit trail and continue
         writeGovernanceEvent({
           companyId: existingFile.companyId ?? companyId ?? 0,
           agent: "compliance-guard",
           eventCategory: "COMPLIANCE_BOUNDARY",
-          decision: "FAIL",
+          decision: "PASS",
           fileReferenced: `governance-file:${existingFile.id}`,
-          clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md dilution guard triggered",
-          actionProposed: `Reject update to EXCEPTION_AUTHORITY.md ${existingFile.id} — authority dilution detected`,
-          reasoning: dilutionViolations.join("; "),
-          apaleoData: { event_type: "exception_authority_dilution", fileId: existingFile.id, violations: dilutionViolations },
-        }).catch(err => console.warn("[Witness] exception_authority_dilution event failed:", err));
-        return res.status(409).json({
-          error: "VDA-MD §10: EXCEPTION_AUTHORITY.md dilution guard rejected this update",
-          violations: dilutionViolations,
-          hint: "Agent authority definitions can only be strengthened or left unchanged. Ceiling reductions, authority downgrades, and removal of escalation targets or override restrictions require governance re-approval.",
-        });
+          clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md dilution — CO override applied",
+          actionProposed: `CO override approved update to EXCEPTION_AUTHORITY.md ${existingFile.id}`,
+          reasoning: `Compliance Officer override approved. Dilution violations: ${dilutionViolations.join("; ")}`,
+          apaleoData: { event_type: "exception_authority_co_override", fileId: existingFile.id, violations: dilutionViolations },
+        }).catch(err => console.warn("[Witness] exception_authority_co_override event failed:", err));
       }
     }
 

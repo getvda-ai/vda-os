@@ -679,10 +679,15 @@ router.post("/agents/availability", requireAgentCredential("availability-agent")
       return res.status(400).json({ error: "propertyId, arrival, departure, companyId required" });
     }
 
+    const availAuthorityEscalate = await guardAuthority("availability-agent", "Availability Agent", Number(companyId));
+    if (availAuthorityEscalate) {
+      return res.json(availAuthorityEscalate);
+    }
+    const availAuthFrag = await buildAuthorityFragment("availability-agent", Number(companyId), "ambassador", "unit_group_hold");
     const { decision, toolCallsMade, usedMcp, filesLoaded: availFilesLoaded, inputTokens, outputTokens } = await evaluateWithPolicyAndMcp(
       "Availability Agent",
       "availability",
-      `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults. Fetch live availability via GetAvailableUnitGroups, rate plans via ListRatePlans, and active offers via ListOffers from Apaleo.`,
+      `Check unit availability for property ${propertyId} from ${arrival} to ${departure} for ${adults} adults. Fetch live availability via GetAvailableUnitGroups, rate plans via ListRatePlans, and active offers via ListOffers from Apaleo. ${availAuthFrag}.`,
       [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListOffers],
       Number(companyId)
     );
@@ -739,10 +744,15 @@ router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, re
     const reqRate = requestedRate ?? bar;
     const discountPct = bar > 0 ? Math.round(((bar - reqRate) / bar) * 100) : 0;
 
+    const rateAgentAuthorityEscalate = await guardAuthority("rate-agent", "Rate Agent", Number(companyId));
+    if (rateAgentAuthorityEscalate) {
+      return res.json(rateAgentAuthorityEscalate);
+    }
+    const rateAgentAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", "rate_discount_autonomous");
     const { decision, toolCallsMade, usedMcp, filesLoaded, inputTokens, outputTokens } = await evaluateWithPolicyAndMcp(
       "Rate Agent",
       "rate",
-      `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans via ListRatePlans and revenue report via GetReport from Apaleo, then apply rate-override policy.`,
+      `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans via ListRatePlans and revenue report via GetReport from Apaleo, then apply rate-override policy. ${rateAgentAuthFrag}.`,
       [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport],
       Number(companyId)
     );
@@ -887,12 +897,17 @@ router.post("/agents/reservation", requireAgentCredential("reservation-bot"), as
       ? [MCP_TOOLS.GetAvailableUnitGroups, MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetGuestProfile]
       : [MCP_TOOLS.GetReservation, MCP_TOOLS.GetGuestProfile];
 
+    const resvAuthorityEscalate = await guardAuthority("reservation-bot", "Reservation Bot", Number(companyId));
+    if (resvAuthorityEscalate) {
+      return res.json(resvAuthorityEscalate);
+    }
+    const resvAuthFrag = await buildAuthorityFragment("reservation-bot", Number(companyId), "ambassador", "reservation_create");
     const taskCtx = [
       `Execute reservation action "${action}" for property ${propertyId}.`,
       guestName ? `Guest: ${guestName}.` : "",
       reservationId ? `Reservation ID: ${reservationId}.` : "",
       action === "create" && arrival ? `Requested dates: ${arrival}–${departure}.` : "",
-      `Use MCP tools to verify live Apaleo data, then apply reservation policy and issue governance decision.`,
+      `Use MCP tools to verify live Apaleo data, then apply reservation policy and issue governance decision. ${resvAuthFrag}.`,
     ].filter(Boolean).join(" ");
 
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: resvFilesLoaded, inputTokens: resvInputTokens, outputTokens: resvOutputTokens } = await evaluateWithPolicyAndMcp(
@@ -1052,9 +1067,14 @@ router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (
     }
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
+    const checkinAuthorityEscalate = await guardAuthority("check-in-agent", "Check-In Agent", Number(companyId));
+    if (checkinAuthorityEscalate) {
+      return res.json({ decision: checkinAuthorityEscalate, contextLines });
+    }
+    const checkinAuthFrag = await buildAuthorityFragment("check-in-agent", Number(companyId), "ambassador", "folio_preauth_limit");
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkinFilesLoaded, inputTokens: checkinInputTokens, outputTokens: checkinOutputTokens } = await evaluateWithPolicyAndMcp(
       "Check-In Agent", "checkin",
-      `Validate and process check-in for ${guestName ?? "guest"} at property ${propertyId}. ${resolvedReservationId ? `Use GetReservation to verify reservation ${resolvedReservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "Find today's arriving reservations."} Run all 5 validation gates per check-in policy before making your decision.`,
+      `Validate and process check-in for ${guestName ?? "guest"} at property ${propertyId}. ${resolvedReservationId ? `Use GetReservation to verify reservation ${resolvedReservationId}, ListFolios to confirm open folio (Gate 3), GetGuestProfile to verify guest identity (Gate 2), and ListPaymentAccounts to confirm payment method (Gate 4).` : "Find today's arriving reservations."} Run all 5 validation gates per check-in policy before making your decision. ${checkinAuthFrag}.`,
       [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.GetGuestProfile, MCP_TOOLS.ListPaymentAccounts],
       Number(companyId)
     );
@@ -1128,12 +1148,17 @@ router.post("/agents/folio", requireAgentCredential("folio-agent"), async (req, 
       return res.status(400).json({ error: "propertyId, companyId required" });
     }
 
+    const folioAuthorityEscalate = await guardAuthority("folio-agent", "Folio Agent", Number(companyId));
+    if (folioAuthorityEscalate) {
+      return res.json(folioAuthorityEscalate);
+    }
+    const folioAuthFrag = await buildAuthorityFragment("folio-agent", Number(companyId), "ambassador", "folio_read");
     const taskDesc = [
       `Analyse folio charges for property ${propertyId}.`,
       folioId ? `Use the GetFolio tool to fetch folio ${folioId}.` : "",
       reservationId ? `Use the ListFolios tool to fetch folios for reservation ${reservationId}.` : "",
       !folioId && !reservationId ? `Use the ListFolios tool to list open folios for property ${propertyId}.` : "",
-      "Apply folio-settlement-policy.md thresholds and issue a governance decision.",
+      `Apply folio-settlement-policy.md thresholds and issue a governance decision. ${folioAuthFrag}.`,
     ].filter(Boolean).join(" ");
 
     const { decision, toolCallsMade, usedMcp, filesLoaded: folioFilesLoaded, inputTokens: folioInputTokens, outputTokens: folioOutputTokens } = await evaluateWithPolicyAndMcp(
@@ -1240,11 +1265,12 @@ router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent")
     if (folioChargeAuthorityEscalate) {
       return res.json({ decision: folioChargeAuthorityEscalate, contextLines });
     }
+    const liveChargeFrag = await buildAuthorityFragment("folio-charge-agent", Number(companyId), "ambassador", "charge_ceiling_autonomous");
 
     // ── Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: folioChargeFilesLoaded, inputTokens: fcInputTokens, outputTokens: fcOutputTokens } = await evaluateWithPolicyAndMcp(
       "Folio Agent", "folio_charge",
-      `Post charge €${chargeAmount} ${currency} (${serviceType}: ${chargeName ?? "unnamed"}) to folio ${resolvedFolioId ?? "none"} at property ${propertyId}. ${resolvedFolioId ? `Use GetFolio to verify folio ${resolvedFolioId} is Open, ListPaymentAccounts to confirm payment method, ListInvoices to check for duplicate charges, then apply folio-charge-policy thresholds.` : "No folio resolved — apply FAIL decision."}`,
+      `Post charge €${chargeAmount} ${currency} (${serviceType}: ${chargeName ?? "unnamed"}) to folio ${resolvedFolioId ?? "none"} at property ${propertyId}. ${resolvedFolioId ? `Use GetFolio to verify folio ${resolvedFolioId} is Open, ListPaymentAccounts to confirm payment method, ListInvoices to check for duplicate charges, then apply folio-charge-policy thresholds.` : "No folio resolved — apply FAIL decision."} ${liveChargeFrag}.`,
       [MCP_TOOLS.GetFolio, MCP_TOOLS.ListFolios, MCP_TOOLS.ListPaymentAccounts, MCP_TOOLS.ListInvoices],
       Number(companyId)
     );
@@ -1393,11 +1419,12 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
     if (checkoutAuthorityEscalate) {
       return res.json({ decision: checkoutAuthorityEscalate, contextLines, apaleoData });
     }
+    const liveCheckoutAuthFrag = await buildAuthorityFragment("checkout-agent", Number(companyId), "ambassador", "late_checkout_fee_waiver");
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkoutFilesLoaded, inputTokens: coInputTokens, outputTokens: coOutputTokens } = await evaluateWithPolicyAndMcp(
       "Checkout Agent", "checkout",
-      `Process checkout for ${guestName ?? "guest"} (${loyaltyTier ?? "Standard"} tier) at property ${propertyId}. ${reservationId ? `Use GetReservation to verify InHouse status for reservation ${reservationId}, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges.` : `Find today's departing InHouse reservations at property ${propertyId}.`} Late checkout requested: ${lateCheckout ?? "No"}. Apply all checkout-policy.md gates.`,
+      `Process checkout for ${guestName ?? "guest"} (${loyaltyTier ?? "Standard"} tier) at property ${propertyId}. ${reservationId ? `Use GetReservation to verify InHouse status for reservation ${reservationId}, ListFolios to check folio settlement balance, and ListInvoices to confirm no open disputed charges.` : `Find today's departing InHouse reservations at property ${propertyId}.`} Late checkout requested: ${lateCheckout ?? "No"}. Apply all checkout-policy.md gates. ${liveCheckoutAuthFrag}.`,
       [MCP_TOOLS.GetReservation, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
       Number(companyId)
     );
@@ -1534,9 +1561,14 @@ Rate plans: ${ratePlans.map((p) => p.name || p.id).slice(0, 6).join(", ")}
 Revenue report rows: ${revenueRows.length}
 Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id: r.id, status: r.status, ratePlanId: r.ratePlanId, total: r.totalGrossAmount })), null, 2)}`;
 
+    const revAuthorityEscalate = await guardAuthority("revenue-reconciliation-agent", "Revenue Reconciliation Agent", Number(companyId));
+    if (revAuthorityEscalate) {
+      return res.json(revAuthorityEscalate);
+    }
+    const revAuthFrag = await buildAuthorityFragment("revenue-reconciliation-agent", Number(companyId), "hotel_gm", "variance_threshold");
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: revFilesLoaded, inputTokens: revInputTokens, outputTokens: revOutputTokens } = await evaluateWithPolicyAndMcp(
       "Revenue Reconciliation Agent", "revenue",
-      `Reconcile daily revenue for property ${propertyId} on ${targetDate}. ${reservations.length} reservations fetched via REST with total ${totalRevenue} ${currency}. Use GetReport to pull live revenue report, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charge records. Apply revenue-reconciliation-policy variance thresholds.`,
+      `Reconcile daily revenue for property ${propertyId} on ${targetDate}. ${reservations.length} reservations fetched via REST with total ${totalRevenue} ${currency}. Use GetReport to pull live revenue report, ListRatePlans to verify rate plan expectations, ListFolios to identify unmatched folios, and ListInvoices to cross-reference charge records. Apply revenue-reconciliation-policy variance thresholds. ${revAuthFrag}.`,
       [MCP_TOOLS.GetReport, MCP_TOOLS.ListRatePlans, MCP_TOOLS.ListFolios, MCP_TOOLS.ListInvoices],
       Number(companyId),
       govResult  // pass pre-loaded governance to avoid double DB lookup
