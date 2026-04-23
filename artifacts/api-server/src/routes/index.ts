@@ -12,6 +12,7 @@ import hitlRouter from "./hitl";
 import onboardingRollbackRouter from "../onboarding/onboardingRollback";
 import dashboardRouter from "./dashboard";
 import adminRouter from "./admin";
+import euAiActRouter from "./euAiAct";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(hitlRouter);
 router.use(onboardingRollbackRouter);
 router.use(dashboardRouter);
 router.use(adminRouter);
+router.use(euAiActRouter);
 
 export default router;

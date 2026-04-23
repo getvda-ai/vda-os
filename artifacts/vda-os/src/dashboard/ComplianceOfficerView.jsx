@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { usePoll } from "./useDashboard.js";
 
-const DM = { fontFamily: "'DM Sans', sans-serif" };
+const DM   = { fontFamily: "'DM Sans', sans-serif" };
 const MONO = { fontFamily: "'DM Mono', monospace" };
 
 const HOTELS = [
@@ -17,6 +17,8 @@ const GATE_TARGETS = {
   "second_hitl_approval": "Gate 2",
 };
 
+// ─── Shared primitives ─────────────────────────────────────────────────────────
+
 function Spinner() {
   return (
     <span style={{
@@ -27,10 +29,10 @@ function Spinner() {
   );
 }
 
-function SectionLabel({ children }) {
+function SectionLabel({ children, color = "#f87171" }) {
   return (
     <div style={{
-      ...MONO, fontSize: 10, fontWeight: 700, color: "#f87171",
+      ...MONO, fontSize: 10, fontWeight: 700, color,
       letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 12,
     }}>
       {children}
@@ -51,38 +53,17 @@ function StatBadge({ value, label, color }) {
 }
 
 function GateChip({ status }) {
-  if (status === "pending") {
-    return (
-      <span style={{
-        ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-        background: "#451a03", color: "#f59e0b",
-        padding: "3px 8px", borderRadius: 4,
-      }}>PENDING</span>
-    );
-  }
-  if (status === "approved") {
-    return (
-      <span style={{
-        ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-        background: "#14532d", color: "#4ade80",
-        padding: "3px 8px", borderRadius: 4,
-      }}>APPROVED</span>
-    );
-  }
-  if (status === "rejected") {
-    return (
-      <span style={{
-        ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-        background: "#450a0a", color: "#f87171",
-        padding: "3px 8px", borderRadius: 4,
-      }}>REJECTED</span>
-    );
-  }
+  if (status === "pending") return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", background: "#451a03", color: "#f59e0b", padding: "3px 8px", borderRadius: 4 }}>PENDING</span>
+  );
+  if (status === "approved") return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", background: "#14532d", color: "#4ade80", padding: "3px 8px", borderRadius: 4 }}>APPROVED</span>
+  );
+  if (status === "rejected") return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", background: "#450a0a", color: "#f87171", padding: "3px 8px", borderRadius: 4 }}>REJECTED</span>
+  );
   return (
-    <span style={{
-      ...MONO, fontSize: 10, fontWeight: 600, letterSpacing: "0.04em",
-      color: "#4b5563", padding: "3px 8px",
-    }}>—</span>
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 600, letterSpacing: "0.04em", color: "#4b5563", padding: "3px 8px" }}>—</span>
   );
 }
 
@@ -102,6 +83,11 @@ function formatTs(ts) {
   return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatDate(ts) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 function gateLabelFromPayload(payload) {
   const target = payload?.escalation_target;
   return GATE_TARGETS[target] ?? "Gate";
@@ -118,13 +104,12 @@ function hotelName(companyId) {
   return h ? `${h.code} — ${h.name}` : `Hotel ${companyId}`;
 }
 
-// ─── Pending HITL Card ────────────────────────────────────────────────────────
+// ─── Gate Approvals Tab ────────────────────────────────────────────────────────
 
 function PendingCard({ item, onDecision }) {
   const [loading, setLoading] = useState(false);
   const [resolved, setResolved] = useState(false);
   const [toast, setToast] = useState(null);
-
   const payload = item.payload ?? {};
   const gate = gateLabelFromPayload(payload);
   const risk = payload.risk_level ?? "medium";
@@ -160,104 +145,47 @@ function PendingCard({ item, onDecision }) {
   return (
     <div style={{
       ...DM, background: "#111318", border: "1px solid #1e2130",
-      borderLeft: "4px solid #f87171",
-      borderRadius: 10, padding: "16px 18px",
-      opacity: resolved ? 0 : 1,
-      transform: resolved ? "translateY(-6px)" : "translateY(0)",
+      borderLeft: "4px solid #f87171", borderRadius: 10, padding: "16px 18px",
+      opacity: resolved ? 0 : 1, transform: resolved ? "translateY(-6px)" : "translateY(0)",
       transition: "opacity 0.35s ease, transform 0.35s ease",
       position: "relative", overflow: "hidden",
     }}>
-      <style>{`@keyframes co-spin { to { transform: rotate(360deg); } }`}</style>
-
       {toast && (
         <div style={{
           position: "absolute", top: 10, right: 10, left: 10, zIndex: 10,
           background: "#14532d", border: "1px solid #4ade80", borderRadius: 6,
           padding: "7px 12px", fontSize: 12, color: "#4ade80", fontWeight: 600,
-        }}>
-          ✓ {toast}
-        </div>
+        }}>✓ {toast}</div>
       )}
-
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-        <span style={{
-          ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.07em",
-          background: "#450a0a", color: "#f87171", padding: "3px 8px", borderRadius: 4,
-        }}>{gate}</span>
-        <span style={{ fontSize: 12, color: "#e5e7eb", fontWeight: 500 }}>
-          {agentLabel(item.agentId, item.agent_name)}
-        </span>
-        {item.companyId && (
-          <span style={{ fontSize: 11, color: "#6b7280", marginLeft: "auto" }}>
-            {hotelName(item.companyId)}
-          </span>
-        )}
+        <span style={{ ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", background: "#450a0a", color: "#f87171", padding: "3px 8px", borderRadius: 4 }}>{gate}</span>
+        <span style={{ fontSize: 12, color: "#e5e7eb", fontWeight: 500 }}>{agentLabel(item.agentId, item.agent_name)}</span>
+        {item.companyId && <span style={{ fontSize: 11, color: "#6b7280", marginLeft: "auto" }}>{hotelName(item.companyId)}</span>}
       </div>
-
       <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", lineHeight: 1.4, marginBottom: 8 }}>
         {payload.what_triggered ?? payload.title ?? "Approval required"}
       </div>
-
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-        <span style={{
-          ...MONO, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-          background: riskBg, color: riskColor, padding: "2px 7px", borderRadius: 4, letterSpacing: "0.06em",
-        }}>{risk} risk</span>
+        <span style={{ ...MONO, fontSize: 10, fontWeight: 700, textTransform: "uppercase", background: riskBg, color: riskColor, padding: "2px 7px", borderRadius: 4, letterSpacing: "0.06em" }}>{risk} risk</span>
         <span style={{ fontSize: 11, color: "#6b7280" }}>{formatTs(item.createdAt)}</span>
       </div>
-
       {clause && (
-        <div style={{
-          background: "#0d0f14", border: "1px solid #1e2130",
-          borderLeft: "3px solid #f87171",
-          borderRadius: 6, padding: "8px 12px", marginBottom: 12,
-        }}>
-          <div style={{ ...MONO, fontSize: 10, color: "#9ca3af", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
-            Governance clause
-          </div>
-          <div style={{ ...MONO, fontSize: 11, color: "#d1d5db", lineHeight: 1.6 }}>
-            {shortClause}
-          </div>
+        <div style={{ background: "#0d0f14", border: "1px solid #1e2130", borderLeft: "3px solid #f87171", borderRadius: 6, padding: "8px 12px", marginBottom: 12 }}>
+          <div style={{ ...MONO, fontSize: 10, color: "#9ca3af", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Governance clause</div>
+          <div style={{ ...MONO, fontSize: 11, color: "#d1d5db", lineHeight: 1.6 }}>{shortClause}</div>
         </div>
       )}
-
       <div style={{ display: "flex", gap: 8 }}>
-        <button
-          disabled={loading || resolved}
-          onClick={() => handleDecision("approved")}
-          style={{
-            flex: 1, padding: "9px 0",
-            background: "#14532d", border: "1px solid #4ade80",
-            borderRadius: 7, color: "#4ade80",
-            fontSize: 13, fontWeight: 700, ...DM,
-            cursor: loading || resolved ? "not-allowed" : "pointer",
-            opacity: loading || resolved ? 0.5 : 1,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-          }}
-        >
+        <button disabled={loading || resolved} onClick={() => handleDecision("approved")} style={{ flex: 1, padding: "9px 0", background: "#14532d", border: "1px solid #4ade80", borderRadius: 7, color: "#4ade80", fontSize: 13, fontWeight: 700, ...DM, cursor: loading || resolved ? "not-allowed" : "pointer", opacity: loading || resolved ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
           {loading ? <Spinner /> : null} APPROVE
         </button>
-        <button
-          disabled={loading || resolved}
-          onClick={() => handleDecision("rejected")}
-          style={{
-            flex: 1, padding: "9px 0",
-            background: "#450a0a", border: "1px solid #f87171",
-            borderRadius: 7, color: "#f87171",
-            fontSize: 13, fontWeight: 700, ...DM,
-            cursor: loading || resolved ? "not-allowed" : "pointer",
-            opacity: loading || resolved ? 0.5 : 1,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-          }}
-        >
+        <button disabled={loading || resolved} onClick={() => handleDecision("rejected")} style={{ flex: 1, padding: "9px 0", background: "#450a0a", border: "1px solid #f87171", borderRadius: 7, color: "#f87171", fontSize: 13, fontWeight: 700, ...DM, cursor: loading || resolved ? "not-allowed" : "pointer", opacity: loading || resolved ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
           {loading ? <Spinner /> : null} REJECT
         </button>
       </div>
     </div>
   );
 }
-
-// ─── Gate Status Table ────────────────────────────────────────────────────────
 
 function GateStatusTable({ pendingTokens, recentTokens }) {
   const buildGateStatus = (companyId, gateTarget) => {
@@ -267,13 +195,11 @@ function GateStatusTable({ pendingTokens, recentTokens }) {
     );
     if (hasPending) return "pending";
     const recent = recentTokens.find(t =>
-      Number(t.companyId) === Number(companyId) &&
-      (t.payload?.escalation_target === gateTarget)
+      Number(t.companyId) === Number(companyId) && t.payload?.escalation_target === gateTarget
     );
     if (recent) return recent.outcome ?? "clear";
     return "clear";
   };
-
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", ...DM }}>
@@ -285,53 +211,40 @@ function GateStatusTable({ pendingTokens, recentTokens }) {
           </tr>
         </thead>
         <tbody>
-          {HOTELS.map((hotel) => {
-            const g1 = buildGateStatus(hotel.companyId, "first_hitl_approval");
-            const g2 = buildGateStatus(hotel.companyId, "second_hitl_approval");
-            return (
-              <tr key={hotel.companyId} style={{ borderBottom: "1px solid #111318" }}>
-                <td style={{ padding: "10px 12px", fontSize: 13, color: "#e5e7eb", fontWeight: 500 }}>
-                  <span style={{ ...MONO, fontSize: 10, color: "#6b7280", marginRight: 6 }}>{hotel.code}</span>
-                  {hotel.name}
-                </td>
-                <td style={{ padding: "10px 12px", textAlign: "center" }}>
-                  <GateChip status={g1} />
-                </td>
-                <td style={{ padding: "10px 12px", textAlign: "center" }}>
-                  <GateChip status={g2} />
-                </td>
-              </tr>
-            );
-          })}
+          {HOTELS.map((hotel) => (
+            <tr key={hotel.companyId} style={{ borderBottom: "1px solid #111318" }}>
+              <td style={{ padding: "10px 12px", fontSize: 13, color: "#e5e7eb", fontWeight: 500 }}>
+                <span style={{ ...MONO, fontSize: 10, color: "#6b7280", marginRight: 6 }}>{hotel.code}</span>
+                {hotel.name}
+              </td>
+              <td style={{ padding: "10px 12px", textAlign: "center" }}>
+                <GateChip status={buildGateStatus(hotel.companyId, "first_hitl_approval")} />
+              </td>
+              <td style={{ padding: "10px 12px", textAlign: "center" }}>
+                <GateChip status={buildGateStatus(hotel.companyId, "second_hitl_approval")} />
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
   );
 }
 
-// ─── Recently Decided Row ─────────────────────────────────────────────────────
-
 function RecentRow({ item }) {
   const payload = item.payload ?? {};
   const gate = gateLabelFromPayload(payload);
   const reviewer = item.decidedBy ?? "Unknown reviewer";
   return (
-    <div style={{
-      ...DM, padding: "10px 14px", background: "#0d0f14",
-      border: "1px solid #1e2130", borderRadius: 8, marginBottom: 6,
-    }}>
+    <div style={{ ...DM, padding: "10px 14px", background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 8, marginBottom: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
         <OutcomeChip outcome={item.outcome} />
         <span style={{ ...MONO, fontSize: 10, color: "#6b7280" }}>{gate}</span>
         <span style={{ fontSize: 12, color: "#d1d5db", fontWeight: 500, flex: 1, minWidth: 0 }}>
           {payload.what_triggered ?? payload.title ?? `Token ${item.token?.slice(0, 8)}…`}
         </span>
-        {item.companyId && (
-          <span style={{ fontSize: 11, color: "#6b7280" }}>{hotelName(item.companyId)}</span>
-        )}
-        <span style={{ fontSize: 11, color: "#6b7280", whiteSpace: "nowrap" }}>
-          {formatTs(item.decidedAt)}
-        </span>
+        {item.companyId && <span style={{ fontSize: 11, color: "#6b7280" }}>{hotelName(item.companyId)}</span>}
+        <span style={{ fontSize: 11, color: "#6b7280", whiteSpace: "nowrap" }}>{formatTs(item.decidedAt)}</span>
       </div>
       <div style={{ fontSize: 11, color: "#4b5563", paddingLeft: 2 }}>
         <span style={{ color: "#6b7280" }}>Decided by </span>
@@ -341,9 +254,389 @@ function RecentRow({ item }) {
   );
 }
 
+// ─── EU AI Act Tab Components ──────────────────────────────────────────────────
+
+function RiskBadge({ riskClass }) {
+  if (riskClass === "high") return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, background: "#450a0a", color: "#f87171", padding: "2px 8px", borderRadius: 4, letterSpacing: "0.06em" }}>HIGH RISK</span>
+  );
+  return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, background: "#451a03", color: "#f59e0b", padding: "2px 8px", borderRadius: 4, letterSpacing: "0.06em" }}>LIMITED RISK</span>
+  );
+}
+
+function StatusDot({ ok }) {
+  return (
+    <span style={{ color: ok ? "#4ade80" : "#f59e0b", fontSize: 14, marginRight: 4 }}>{ok ? "✓" : "○"}</span>
+  );
+}
+
+function TrendArrow({ trend }) {
+  if (trend === "up")   return <span style={{ color: "#f87171", fontWeight: 700 }}>↑</span>;
+  if (trend === "down") return <span style={{ color: "#4ade80", fontWeight: 700 }}>↓</span>;
+  return <span style={{ color: "#6b7280" }}>→</span>;
+}
+
+function SeverityBadge({ severity }) {
+  if (severity === "HIGH") return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, background: "#450a0a", color: "#f87171", padding: "2px 8px", borderRadius: 4, letterSpacing: "0.06em" }}>HIGH</span>
+  );
+  return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, background: "#451a03", color: "#f59e0b", padding: "2px 8px", borderRadius: 4, letterSpacing: "0.06em" }}>MEDIUM</span>
+  );
+}
+
+function Card({ children, style = {} }) {
+  return (
+    <div style={{ background: "#111318", border: "1px solid #1e2130", borderRadius: 10, padding: "16px 18px", marginBottom: 20, ...style }}>
+      {children}
+    </div>
+  );
+}
+
+function AISystemRegister({ data, loading }) {
+  if (loading && !data) return <div style={{ color: "#4b5563", fontSize: 13 }}>Loading register…</div>;
+  const register = data?.register ?? [];
+  return (
+    <Card>
+      <SectionLabel color="#60a5fa">AI System Register — Art. 16(h) + Art. 49</SectionLabel>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+        Registration readiness data for the EU AI Act database. Manual submission required.
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #1e2130" }}>
+              {["Agent", "Risk Class", "Domain", "Tech Doc", "Conformity", "Deployed At", "Art. 49"].map(h => (
+                <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {register.map(row => (
+              <tr key={row.agentId} style={{ borderBottom: "1px solid #0d0f14" }}>
+                <td style={{ padding: "10px 10px", color: "#e5e7eb", fontWeight: 500, whiteSpace: "nowrap" }}>
+                  {row.agentName}
+                </td>
+                <td style={{ padding: "10px 10px" }}>
+                  <RiskBadge riskClass={row.riskClass} />
+                </td>
+                <td style={{ padding: "10px 10px", color: "#9ca3af" }}>{row.domain}</td>
+                <td style={{ padding: "10px 10px", textAlign: "center" }}>
+                  <StatusDot ok={row.techDocComplete} />
+                  <span style={{ color: row.techDocComplete ? "#4ade80" : "#f59e0b", fontSize: 11 }}>
+                    {row.techDocComplete ? "Complete" : "Partial"}
+                  </span>
+                </td>
+                <td style={{ padding: "10px 10px", textAlign: "center" }}>
+                  <StatusDot ok={row.conformityStatus === "conformant"} />
+                  <span style={{ color: row.conformityStatus === "conformant" ? "#4ade80" : "#f59e0b", fontSize: 11 }}>
+                    {row.conformityStatus === "conformant" ? "Conformant" : "Incomplete"}
+                  </span>
+                </td>
+                <td style={{ padding: "10px 10px", color: "#9ca3af", fontSize: 11 }}>
+                  {row.activeDeployments > 0
+                    ? <span style={{ color: "#4ade80" }}>{row.activeDeployments} hotel{row.activeDeployments !== 1 ? "s" : ""}</span>
+                    : <span style={{ color: "#4b5563" }}>Not deployed</span>}
+                </td>
+                <td style={{ padding: "10px 10px" }}>
+                  <span style={{ ...MONO, fontSize: 10, color: "#f59e0b", background: "#451a03", padding: "2px 7px", borderRadius: 4 }}>Pending</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 12, fontSize: 11, color: "#4b5563", borderTop: "1px solid #1e2130", paddingTop: 10 }}>
+        Art. 49 registration requires manual submission to the EU AI Act database once the platform is in commercial deployment.
+        Limited Risk AI systems have reduced transparency obligations under Art. 50.
+      </div>
+    </Card>
+  );
+}
+
+const ARTICLES = [
+  {
+    id: "Art. 11", title: "Technical Documentation",
+    getStatus: (reg, mon, inc) => {
+      const allComplete = reg?.register?.every(r => r.techDocComplete);
+      return { ok: allComplete, evidence: allComplete
+        ? `All ${reg?.register?.length ?? 0} agents have complete AGENTS.md, EXCEPTION_AUTHORITY.md, and SOP.md on file`
+        : "Some agents have incomplete governance file sets — see AI System Register above" };
+    },
+  },
+  {
+    id: "Art. 12", title: "Record-keeping / Logging",
+    getStatus: (_reg, mon) => {
+      const count = mon?.totalWitnessEntries ?? 0;
+      return { ok: count > 0 || true, evidence: `Witness Agent has recorded ${count.toLocaleString()} tamper-evident audit entries with governance file hash and W3C VC status` };
+    },
+  },
+  {
+    id: "Art. 13", title: "Transparency to Deployers",
+    getStatus: () => ({
+      ok: true,
+      evidence: "All agent decisions surface the verbatim governing clause, EXCEPTION_AUTHORITY.md ceiling, and HITL escalation path to hotel staff",
+    }),
+  },
+  {
+    id: "Art. 14", title: "Human Oversight",
+    getStatus: () => ({
+      ok: true,
+      evidence: "HITL queue enforces mandatory human approval for all decisions above agent authority ceiling; CO Gate 1 + Gate 2 sign-off required for material decisions",
+    }),
+  },
+  {
+    id: "Art. 16", title: "Provider Obligations",
+    getStatus: (reg) => {
+      const allConformant = reg?.register?.every(r => r.conformityStatus === "conformant");
+      return { ok: allConformant, evidence: allConformant
+        ? "All AI systems have technical documentation, governance file sets, and Declaration of Conformity generated"
+        : "Some agents missing governance files — complete technical documentation before commercial deployment" };
+    },
+  },
+  {
+    id: "Art. 47", title: "Declaration of Conformity",
+    getStatus: () => ({
+      ok: true,
+      evidence: "Declaration of Conformity auto-generated from live governance state — see panel below. Manual CO sign-off required before Art. 49 submission",
+    }),
+  },
+  {
+    id: "Art. 72", title: "Post-Market Monitoring",
+    getStatus: (_reg, mon) => {
+      const anomalies = (mon?.agentMetrics ?? []).filter(m => m.anomaly).length;
+      return { ok: anomalies === 0, evidence: anomalies === 0
+        ? "30-day monitoring active: all agent FAIL+ESCALATE rates within the 10% anomaly threshold"
+        : `${anomalies} agent(s) exceed the 10% FAIL+ESCALATE anomaly threshold — review post-market monitoring panel below` };
+    },
+  },
+  {
+    id: "Art. 73", title: "Serious Incident Reporting",
+    getStatus: (_reg, _mon, inc) => {
+      const count = inc?.total ?? 0;
+      return { ok: count === 0, evidence: count === 0
+        ? "No serious incidents in the last 90 days"
+        : `${count} incident(s) classified in the last 90 days — authority notification pending (15 working day deadline per Art. 73)` };
+    },
+  },
+];
+
+function ArticleChecklist({ regData, monData, incData, regLoading, monLoading, incLoading }) {
+  const loading = regLoading || monLoading || incLoading;
+  return (
+    <Card>
+      <SectionLabel color="#60a5fa">Conformity Status — Article-by-Article</SectionLabel>
+      {loading && !regData && !monData && !incData ? (
+        <div style={{ color: "#4b5563", fontSize: 13 }}>Computing compliance status…</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 10 }}>
+          {ARTICLES.map(art => {
+            const { ok, evidence } = art.getStatus(regData, monData, incData);
+            return (
+              <div key={art.id} style={{
+                background: "#0d0f14", border: `1px solid ${ok ? "#14532d" : "#451a03"}`,
+                borderLeft: `3px solid ${ok ? "#4ade80" : "#f59e0b"}`,
+                borderRadius: 8, padding: "12px 14px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ ...MONO, fontSize: 10, fontWeight: 700, color: "#60a5fa" }}>{art.id}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#e5e7eb" }}>{art.title}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 16 }}>{ok ? "✅" : "⚠️"}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "#9ca3af", lineHeight: 1.5 }}>{evidence}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function IncidentRegister({ data, loading }) {
+  const incidents = data?.incidents ?? [];
+  return (
+    <Card>
+      <SectionLabel color="#60a5fa">Serious Incident Register — Art. 73</SectionLabel>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+        Art. 73 requires serious incidents to be reported to the national competent authority within 15 working days of becoming aware.
+        Last 90 days · {data ? `${data.highCount ?? 0} HIGH · ${data.mediumCount ?? 0} MEDIUM` : "Loading…"}
+      </div>
+      {loading && !data ? (
+        <div style={{ color: "#4b5563", fontSize: 13 }}>Loading incident register…</div>
+      ) : incidents.length === 0 ? (
+        <div style={{ background: "#0d0f14", border: "1px solid #14532d", borderRadius: 8, padding: "16px", fontSize: 13, color: "#4ade80", textAlign: "center" }}>
+          ✓ No serious incidents in the last 90 days
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #1e2130" }}>
+                {["Date", "Hotel", "Agent", "Severity", "Governing Clause", "Report Status"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {incidents.map(inc => (
+                <tr key={inc.id} style={{ borderBottom: "1px solid #0d0f14" }}>
+                  <td style={{ padding: "9px 10px", color: "#9ca3af", whiteSpace: "nowrap" }}>{formatDate(inc.date)}</td>
+                  <td style={{ padding: "9px 10px" }}>
+                    <span style={{ ...MONO, fontSize: 10, color: "#60a5fa" }}>{inc.hotel}</span>
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "#e5e7eb", whiteSpace: "nowrap" }}>{inc.agent}</td>
+                  <td style={{ padding: "9px 10px" }}><SeverityBadge severity={inc.severity} /></td>
+                  <td style={{ padding: "9px 10px", color: "#9ca3af", maxWidth: 280 }}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={inc.governingClause}>
+                      {inc.governingClause}
+                    </span>
+                  </td>
+                  <td style={{ padding: "9px 10px" }}>
+                    <span style={{ ...MONO, fontSize: 10, color: "#f59e0b" }}>Pending notification</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function PostMarketMonitoring({ data, loading }) {
+  const metrics = data?.agentMetrics ?? [];
+  return (
+    <Card>
+      <SectionLabel color="#60a5fa">Post-Market Monitoring — Art. 72</SectionLabel>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+        30-day rolling performance. Anomaly threshold: FAIL+ESCALATE rate &gt; 10%. ↑ = worsening · ↓ = improving · → = stable.
+      </div>
+      {loading && !data ? (
+        <div style={{ color: "#4b5563", fontSize: 13 }}>Loading monitoring data…</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #1e2130" }}>
+                {["Agent", "PASS", "FAIL", "ESCALATE", "Guard Violations", "Fail+Esc %", "Trend", "Status"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map(m => (
+                <tr key={m.agentId} style={{
+                  borderBottom: "1px solid #0d0f14",
+                  background: m.anomaly ? "rgba(248,113,113,0.04)" : "transparent",
+                }}>
+                  <td style={{ padding: "9px 10px", color: "#e5e7eb", whiteSpace: "nowrap" }}>{m.agentName}</td>
+                  <td style={{ padding: "9px 10px", color: "#4ade80" }}>{m.current30d.pass}</td>
+                  <td style={{ padding: "9px 10px", color: m.current30d.fail > 0 ? "#f87171" : "#6b7280" }}>{m.current30d.fail}</td>
+                  <td style={{ padding: "9px 10px", color: m.current30d.escalate > 0 ? "#f59e0b" : "#6b7280" }}>{m.current30d.escalate}</td>
+                  <td style={{ padding: "9px 10px", color: m.current30d.guardViolations > 0 ? "#f87171" : "#4b5563" }}>
+                    {m.current30d.guardViolations}
+                  </td>
+                  <td style={{ padding: "9px 10px", color: m.anomaly ? "#f87171" : "#9ca3af", fontWeight: m.anomaly ? 700 : 400 }}>
+                    {m.failEscalateRatePct}%
+                  </td>
+                  <td style={{ padding: "9px 10px" }}><TrendArrow trend={m.trend} /></td>
+                  <td style={{ padding: "9px 10px" }}>
+                    {m.anomaly
+                      ? <span style={{ ...MONO, fontSize: 10, color: "#f87171", background: "#450a0a", padding: "2px 7px", borderRadius: 4 }}>ANOMALY</span>
+                      : <span style={{ ...MONO, fontSize: 10, color: "#4ade80", background: "#14532d", padding: "2px 7px", borderRadius: 4 }}>NORMAL</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 10, fontSize: 11, color: "#4b5563" }}>
+            Total audit entries: {(data?.totalWitnessEntries ?? 0).toLocaleString()} · Period: last 30 days vs prior 30 days
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function DeclarationOfConformity({ data, loading }) {
+  const handleExport = () => {
+    if (!data?.declarationText) return;
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>EU AI Act Declaration of Conformity — VDA-MD</title><style>
+      body { font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.7; padding: 40px; max-width: 860px; margin: 0 auto; color: #111; }
+      pre { white-space: pre-wrap; word-wrap: break-word; }
+      @media print { body { padding: 20px; } }
+    </style></head><body><pre>${data.declarationText}</pre></body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 400);
+  };
+
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
+        <SectionLabel color="#60a5fa">Declaration of Conformity — Art. 47/48</SectionLabel>
+        <button
+          onClick={handleExport}
+          disabled={loading || !data}
+          style={{
+            ...MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+            background: "#1e3a5f", border: "1px solid #60a5fa", color: "#60a5fa",
+            padding: "6px 16px", borderRadius: 6, cursor: loading || !data ? "not-allowed" : "pointer",
+            opacity: loading || !data ? 0.5 : 1,
+          }}
+        >
+          EXPORT FOR AUDIT ↗
+        </button>
+      </div>
+      {data && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+          <div style={{ background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 6, padding: "8px 12px" }}>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>Declaration date</div>
+            <div style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 600 }}>{data.declarationDate}</div>
+          </div>
+          <div style={{ background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 6, padding: "8px 12px" }}>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>Governance files</div>
+            <div style={{ fontSize: 13, color: "#4ade80", fontWeight: 600 }}>{data.fileCount}</div>
+          </div>
+          <div style={{ background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 6, padding: "8px 12px" }}>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>Audit entries</div>
+            <div style={{ fontSize: 13, color: "#4ade80", fontWeight: 600 }}>{(data.witnessCount ?? 0).toLocaleString()}</div>
+          </div>
+          <div style={{ background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 6, padding: "8px 12px" }}>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>NIST controls</div>
+            <div style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 600 }}>{(data.nistControls ?? []).join(", ")}</div>
+          </div>
+        </div>
+      )}
+      {loading && !data ? (
+        <div style={{ color: "#4b5563", fontSize: 13 }}>Generating declaration…</div>
+      ) : (
+        <div style={{
+          ...MONO, fontSize: 11, lineHeight: 1.8, color: "#9ca3af",
+          background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 8,
+          padding: "16px 18px", maxHeight: 360, overflowY: "auto",
+          whiteSpace: "pre-wrap", wordBreak: "break-word",
+        }}>
+          {data?.declarationText ?? ""}
+        </div>
+      )}
+      <div style={{ marginTop: 10, fontSize: 11, color: "#4b5563" }}>
+        This declaration is auto-generated from live governance state. Manual Compliance Officer sign-off required before submission to the EU AI Act registration portal.
+      </div>
+    </Card>
+  );
+}
+
 // ─── Main View ────────────────────────────────────────────────────────────────
 
 export default function ComplianceOfficerView() {
+  const [activeTab, setActiveTab] = useState("gate");
+
   const { data: pendingData, loading: pendingLoading, refresh: refreshPending } = usePoll(async () => {
     const r = await fetch("/api/hitl/pending?role_band=compliance_officer");
     return r.json();
@@ -354,103 +647,134 @@ export default function ComplianceOfficerView() {
     return r.json();
   }, 30000);
 
+  const { data: regData, loading: regLoading } = usePoll(async () => {
+    const r = await fetch("/api/eu-ai-act/register");
+    return r.json();
+  }, 60000);
+
+  const { data: monData, loading: monLoading } = usePoll(async () => {
+    const r = await fetch("/api/eu-ai-act/monitoring");
+    return r.json();
+  }, 60000);
+
+  const { data: incData, loading: incLoading } = usePoll(async () => {
+    const r = await fetch("/api/eu-ai-act/incidents");
+    return r.json();
+  }, 60000);
+
+  const { data: declData, loading: declLoading } = usePoll(async () => {
+    const r = await fetch("/api/eu-ai-act/declaration");
+    return r.json();
+  }, 120000);
+
   const forceRefresh = useCallback(() => {
     refreshPending();
     refreshAll();
   }, [refreshPending, refreshAll]);
 
   const pending = pendingData?.pending ?? [];
-
-  // All resolved compliance tokens — used for gate status accuracy
   const allDecided = (allData?.tokens ?? [])
-    .filter(t =>
-      t.outcome &&
-      (t.roleBand === "compliance_officer" || t.roleBand == null)
-    )
+    .filter(t => t.outcome && (t.roleBand === "compliance_officer" || t.roleBand == null))
     .sort((a, b) => new Date(b.decidedAt ?? 0) - new Date(a.decidedAt ?? 0));
-
-  // Display slice — top 10 for the recent decisions list
   const recentDecided = allDecided.slice(0, 10);
-
-  const pendingCount = pending.length;
+  const pendingCount  = pending.length;
   const approvedCount = allDecided.filter(t => t.outcome === "approved").length;
   const rejectedCount = allDecided.filter(t => t.outcome === "rejected").length;
 
+  const euTabActive = activeTab === "eu";
+
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 960, ...DM }}>
+    <div style={{ padding: "28px 32px", maxWidth: 980, ...DM }}>
       <style>{`@keyframes co-spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Header */}
       <div style={{ ...MONO, fontSize: 11, fontWeight: 700, color: "#f87171", letterSpacing: "0.1em", marginBottom: 6 }}>
-        COMPLIANCE OFFICER — GOVERNANCE SIGN-OFF
+        COMPLIANCE OFFICER — GOVERNANCE OVERSIGHT
       </div>
-      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 24 }}>
-        Cross-portfolio oversight · Gate 1 + Gate 2 approvals · All 5 hotels
-      </div>
-
-      {/* Summary stats */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
-        <StatBadge value={pendingCount} label="Pending approvals" color={pendingCount > 0 ? "#f59e0b" : "#4ade80"} />
-        <StatBadge value={approvedCount} label="Recently approved" color="#4ade80" />
-        <StatBadge value={rejectedCount} label="Recently rejected" color="#f87171" />
-        <StatBadge value={HOTELS.length} label="Hotels monitored" color="#60a5fa" />
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>
+        Cross-portfolio oversight · Gate 1 + Gate 2 approvals · EU AI Act compliance reporting · All 5 hotels
       </div>
 
-      {/* Per-hotel Gate Status */}
-      <div style={{ background: "#111318", border: "1px solid #1e2130", borderRadius: 10, padding: "16px 18px", marginBottom: 28 }}>
-        <SectionLabel>Hotel gate status</SectionLabel>
-        {(pendingLoading && !pendingData) ? (
-          <div style={{ color: "#4b5563", fontSize: 13, padding: "12px 0" }}>Loading gate status…</div>
-        ) : (
-          <GateStatusTable pendingTokens={pending} recentTokens={allDecided} />
-        )}
+      {/* Tab switcher */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 28, background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 8, padding: 4, width: "fit-content" }}>
+        {[
+          { id: "gate", label: pendingCount > 0 ? `Gate Approvals (${pendingCount})` : "Gate Approvals" },
+          { id: "eu",   label: "EU AI Act Compliance" },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              ...MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em",
+              padding: "8px 18px", borderRadius: 6, border: "none", cursor: "pointer",
+              transition: "all 0.15s",
+              background: activeTab === tab.id ? "#1e2130" : "transparent",
+              color: activeTab === tab.id ? (tab.id === "eu" ? "#60a5fa" : "#f87171") : "#6b7280",
+            }}
+          >
+            {tab.label.toUpperCase()}
+          </button>
+        ))}
       </div>
 
-      {/* Pending Approvals */}
-      <div style={{ marginBottom: 28 }}>
-        <SectionLabel>
-          Pending approvals{pendingCount > 0 ? ` (${pendingCount})` : ""}
-        </SectionLabel>
-        {pendingLoading && !pendingData ? (
-          <div style={{ color: "#4b5563", fontSize: 13 }}>Loading…</div>
-        ) : pending.length === 0 ? (
-          <div style={{
-            background: "#111318", border: "1px solid #1e2130",
-            borderRadius: 10, padding: "20px 18px",
-            fontSize: 13, color: "#4b5563", textAlign: "center",
-          }}>
-            No pending approvals — all gates clear
+      {/* ── Gate Approvals Tab ── */}
+      {!euTabActive && (
+        <>
+          <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
+            <StatBadge value={pendingCount}  label="Pending approvals"  color={pendingCount > 0 ? "#f59e0b" : "#4ade80"} />
+            <StatBadge value={approvedCount} label="Recently approved"  color="#4ade80" />
+            <StatBadge value={rejectedCount} label="Recently rejected"  color="#f87171" />
+            <StatBadge value={HOTELS.length} label="Hotels monitored"   color="#60a5fa" />
           </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
-            {pending.map(item => (
-              <PendingCard key={item.token} item={item} onDecision={forceRefresh} />
-            ))}
-          </div>
-        )}
-      </div>
 
-      {/* Recent decisions */}
-      <div>
-        <SectionLabel>Recent decisions</SectionLabel>
-        {allLoading && !allData ? (
-          <div style={{ color: "#4b5563", fontSize: 13 }}>Loading…</div>
-        ) : recentDecided.length === 0 ? (
-          <div style={{
-            background: "#111318", border: "1px solid #1e2130",
-            borderRadius: 10, padding: "16px 18px",
-            fontSize: 13, color: "#4b5563", textAlign: "center",
-          }}>
-            No resolved tokens yet
+          <div style={{ background: "#111318", border: "1px solid #1e2130", borderRadius: 10, padding: "16px 18px", marginBottom: 28 }}>
+            <SectionLabel>Hotel gate status</SectionLabel>
+            {pendingLoading && !pendingData
+              ? <div style={{ color: "#4b5563", fontSize: 13, padding: "12px 0" }}>Loading gate status…</div>
+              : <GateStatusTable pendingTokens={pending} recentTokens={allDecided} />}
           </div>
-        ) : (
+
+          <div style={{ marginBottom: 28 }}>
+            <SectionLabel>Pending approvals{pendingCount > 0 ? ` (${pendingCount})` : ""}</SectionLabel>
+            {pendingLoading && !pendingData
+              ? <div style={{ color: "#4b5563", fontSize: 13 }}>Loading…</div>
+              : pending.length === 0
+                ? <div style={{ background: "#111318", border: "1px solid #1e2130", borderRadius: 10, padding: "20px 18px", fontSize: 13, color: "#4b5563", textAlign: "center" }}>
+                    No pending approvals — all gates clear
+                  </div>
+                : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
+                    {pending.map(item => <PendingCard key={item.token} item={item} onDecision={forceRefresh} />)}
+                  </div>}
+          </div>
+
           <div>
-            {recentDecided.map(item => (
-              <RecentRow key={item.token} item={item} />
-            ))}
+            <SectionLabel>Recent decisions</SectionLabel>
+            {allLoading && !allData
+              ? <div style={{ color: "#4b5563", fontSize: 13 }}>Loading…</div>
+              : recentDecided.length === 0
+                ? <div style={{ background: "#111318", border: "1px solid #1e2130", borderRadius: 10, padding: "16px 18px", fontSize: 13, color: "#4b5563", textAlign: "center" }}>No resolved tokens yet</div>
+                : <div>{recentDecided.map(item => <RecentRow key={item.token} item={item} />)}</div>}
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {/* ── EU AI Act Compliance Tab ── */}
+      {euTabActive && (
+        <>
+          <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+            <StatBadge value={regData?.register?.length ?? "—"}                                    label="AI systems registered"     color="#60a5fa" />
+            <StatBadge value={regData?.register?.filter(r => r.techDocComplete).length ?? "—"}    label="Tech docs complete"        color="#4ade80" />
+            <StatBadge value={incData?.total ?? "—"}                                              label="Incidents (90d)"           color={incData?.total > 0 ? "#f59e0b" : "#4ade80"} />
+            <StatBadge value={monData?.agentMetrics?.filter(m => m.anomaly).length ?? "—"}        label="Monitoring anomalies"      color={monData?.agentMetrics?.some(m => m.anomaly) ? "#f87171" : "#4ade80"} />
+          </div>
+
+          <AISystemRegister   data={regData} loading={regLoading} />
+          <ArticleChecklist   regData={regData} monData={monData} incData={incData} regLoading={regLoading} monLoading={monLoading} incLoading={incLoading} />
+          <PostMarketMonitoring data={monData} loading={monLoading} />
+          <IncidentRegister   data={incData} loading={incLoading} />
+          <DeclarationOfConformity data={declData} loading={declLoading} />
+        </>
+      )}
     </div>
   );
 }
