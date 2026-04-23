@@ -7,7 +7,7 @@
  * No policy text is hardcoded in route code — all content is read from static files at seed time.
  */
 import { Router, type IRouter } from "express";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 import { db, governanceFiles } from "@workspace/db";
@@ -19,11 +19,14 @@ const router: IRouter = Router();
 
 // ─── File reader helper ───────────────────────────────────────────────────────
 
-// In the esbuild bundle (dist/index.mjs), import.meta.url resolves to the dist directory.
-// Governance .md files are copied to dist/governance/ by build.mjs so this path works for both
-// dev (via ts-node/tsx) and production (built bundle).
+// Resolve governance directory for both runtimes:
+//   Built bundle (dist/index.mjs): __dirname is dist/ → governance files at dist/governance/
+//   Dev/tsx (src/routes/admin.ts): __dirname is src/routes/ → governance files at src/governance/
+// We probe the co-located path first (built); fall back to sibling (dev).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const GOVERNANCE_DIR = path.join(__dirname, "governance");
+const _govColocated = path.join(__dirname, "governance");
+const _govSibling   = path.join(__dirname, "../governance");
+const GOVERNANCE_DIR = existsSync(_govColocated) ? _govColocated : _govSibling;
 
 function readGovernanceFile(filename: string): string {
   return readFileSync(path.join(GOVERNANCE_DIR, filename), "utf-8");
