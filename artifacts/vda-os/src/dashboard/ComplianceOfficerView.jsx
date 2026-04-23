@@ -686,6 +686,276 @@ function DeclarationOfConformity({ data, loading }) {
   );
 }
 
+// ─── GDPR Panel Components ─────────────────────────────────────────────────────
+
+const GDPR_STYLE = {
+  green: { border: "#14532d", borderLeft: "#4ade80", icon: "✅" },
+  amber: { border: "#451a03", borderLeft: "#f59e0b", icon: "⚠️" },
+  red:   { border: "#450a0a", borderLeft: "#f87171", icon: "🔴" },
+};
+
+function GdprArticleChecklist({ data, loading }) {
+  const articles = data?.articles ?? [];
+  return (
+    <Card>
+      <SectionLabel color="#4ade80">GDPR Compliance — Article-by-Article</SectionLabel>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+        Live gap assessment against GDPR obligations for automated hotel AI operations.
+        Controller: citizenM Hotels · Processor: Rawson Consulting BV — VDA-MD Platform.
+      </div>
+      {loading && !data ? (
+        <div style={{ color: "#4b5563", fontSize: 13 }}>Computing GDPR compliance status…</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 10 }}>
+          {articles.map(art => {
+            const s = GDPR_STYLE[art.status] ?? GDPR_STYLE.amber;
+            return (
+              <div key={art.id} style={{
+                background: "#0d0f14",
+                border: `1px solid ${s.border}`,
+                borderLeft: `3px solid ${s.borderLeft}`,
+                borderRadius: 8, padding: "12px 14px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ ...MONO, fontSize: 10, fontWeight: 700, color: "#4ade80" }}>{art.id}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#e5e7eb" }}>{art.title}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 14 }}>{s.icon}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "#9ca3af", lineHeight: 1.5 }}>{art.evidence}</div>
+                {art.principles && (
+                  <div style={{ marginTop: 8, fontSize: 10, color: "#4b5563" }}>
+                    {art.principles.join(" · ")}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {data?.summary && (
+        <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap", borderTop: "1px solid #1e2130", paddingTop: 12 }}>
+          <div style={{ fontSize: 11, color: "#4b5563" }}>Audit entries: <span style={{ color: "#4ade80" }}>{(data.summary.totalWitnessEntries ?? 0).toLocaleString()}</span></div>
+          <div style={{ fontSize: 11, color: "#4b5563" }}>Governance files: <span style={{ color: "#4ade80" }}>{data.summary.totalGovernanceFiles ?? 0}</span></div>
+          <div style={{ fontSize: 11, color: "#4b5563" }}>HITL engagement (30d): <span style={{ color: "#60a5fa" }}>{data.summary.hitlEngagementRatePct !== null ? `${data.summary.hitlEngagementRatePct}%` : "—"}</span></div>
+          <div style={{ fontSize: 11, color: "#4b5563" }}>Compliance boundary events (30d): <span style={{ color: data.summary.complianceBoundary30d > 0 ? "#f59e0b" : "#4ade80" }}>{data.summary.complianceBoundary30d ?? 0}</span></div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function GdprRopaPanel({ data, loading }) {
+  const activities = data?.activities ?? [];
+  return (
+    <Card>
+      <SectionLabel color="#4ade80">Records of Processing Activities — Art. 30</SectionLabel>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+        {data?.totalActivities ?? "—"} processing activities · {data?.totalArt22Scope ?? "—"} in Art. 22 automated decision scope.
+        Art. 30 requires the controller (citizenM Hotels) to formally maintain this register.
+      </div>
+      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 12 }}>
+        Controller: {data?.controller ?? "citizenM Hotels"} · Processor: {data?.processor ?? "Rawson Consulting BV — VDA-MD Platform"}
+        {data?.dpo && <span> · DPO: {data.dpo}</span>}
+      </div>
+      {loading && !data ? (
+        <div style={{ color: "#4b5563", fontSize: 13 }}>Loading Records of Processing Activities…</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #1e2130" }}>
+                {["Agent", "Activity", "Data Categories", "Data Subjects", "Lawful Basis", "Art. 22", "Retention", "Documented"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activities.map(a => (
+                <tr key={a.agentId} style={{ borderBottom: "1px solid #0d0f14" }}>
+                  <td style={{ padding: "9px 10px", color: "#e5e7eb", fontWeight: 500, whiteSpace: "nowrap" }}>
+                    {a.agentId.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "#9ca3af", maxWidth: 180 }}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.activityName}>
+                      {a.activityName}
+                    </span>
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "#6b7280", maxWidth: 200 }}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.dataCategories?.join(", ")}>
+                      {a.dataCategories?.slice(0, 2).join(", ")}{a.dataCategories?.length > 2 ? ` +${a.dataCategories.length - 2}` : ""}
+                    </span>
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "#6b7280", whiteSpace: "nowrap" }}>{a.dataSubjects}</td>
+                  <td style={{ padding: "9px 10px" }}>
+                    <span style={{ ...MONO, fontSize: 10, color: "#60a5fa" }}>{a.lawfulBasisArticle}</span>
+                  </td>
+                  <td style={{ padding: "9px 10px", textAlign: "center" }}>
+                    {a.art22Scope
+                      ? <span style={{ ...MONO, fontSize: 10, color: "#f59e0b", background: "#451a03", padding: "2px 6px", borderRadius: 4 }}>IN SCOPE</span>
+                      : <span style={{ ...MONO, fontSize: 10, color: "#4b5563" }}>Out of scope</span>}
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "#6b7280", whiteSpace: "nowrap", fontSize: 11 }}>{a.retentionPeriod}</td>
+                  <td style={{ padding: "9px 10px", textAlign: "center" }}>
+                    <StatusDot ok={a.documented} />
+                    <span style={{ color: a.documented ? "#4ade80" : "#f59e0b", fontSize: 11 }}>{a.documented ? "Yes" : "Missing"}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ marginTop: 10, fontSize: 11, color: "#4b5563", borderTop: "1px solid #1e2130", paddingTop: 10 }}>
+        EEA transfers: No personal data transferred outside the EEA. Apaleo PMS is EU-hosted. All VDA-MD processing within EU jurisdiction.
+      </div>
+    </Card>
+  );
+}
+
+function GdprArt22Panel({ data, loading }) {
+  const agents = data?.art22Agents ?? [];
+  return (
+    <Card>
+      <SectionLabel color="#4ade80">Automated Decision-Making — Art. 22</SectionLabel>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+        {data?.totalArt22Agents ?? "—"} agents with Art. 22 scope · Last 30 days:
+        {data ? ` ${data.totalAutomated30d.toLocaleString()} automated · ${data.totalHumanReviewed30d.toLocaleString()} human-reviewed` : " Loading…"}
+      </div>
+      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 12 }}>
+        Safeguard: {data?.overallSafeguard ?? "HITL mandatory for all above-ceiling decisions"}
+      </div>
+      {loading && !data ? (
+        <div style={{ color: "#4b5563", fontSize: 13 }}>Loading automated decision-making data…</div>
+      ) : (
+        <>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #1e2130" }}>
+                  {["Agent", "Activity", "Lawful Basis", "Art. 22 Exception", "Automated (30d)", "HITL (30d)", "HITL Active", "Status"].map(h => (
+                    <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {agents.map(a => (
+                  <tr key={a.agentId} style={{ borderBottom: "1px solid #0d0f14" }}>
+                    <td style={{ padding: "9px 10px", color: "#e5e7eb", whiteSpace: "nowrap" }}>{a.agentName}</td>
+                    <td style={{ padding: "9px 10px", color: "#9ca3af", maxWidth: 160 }}>
+                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.activityName}>
+                        {a.activityName}
+                      </span>
+                    </td>
+                    <td style={{ padding: "9px 10px" }}>
+                      <span style={{ ...MONO, fontSize: 10, color: "#60a5fa" }}>{a.lawfulBasisArticle}</span>
+                    </td>
+                    <td style={{ padding: "9px 10px", color: "#6b7280", maxWidth: 180, fontSize: 11 }}>
+                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.art22Exception ?? ""}>
+                        {a.art22Exception ? a.art22Exception.split(" — ")[0] : "—"}
+                      </span>
+                    </td>
+                    <td style={{ padding: "9px 10px", color: "#9ca3af" }}>{a.automated30d}</td>
+                    <td style={{ padding: "9px 10px", color: a.humanReviewed30d > 0 ? "#4ade80" : "#6b7280" }}>{a.humanReviewed30d}</td>
+                    <td style={{ padding: "9px 10px", textAlign: "center" }}>
+                      <StatusDot ok={a.hitlSafeguardActive} />
+                    </td>
+                    <td style={{ padding: "9px 10px" }}>
+                      {a.complianceStatus === "safeguarded" && (
+                        <span style={{ ...MONO, fontSize: 10, color: "#4ade80", background: "#14532d", padding: "2px 7px", borderRadius: 4 }}>SAFEGUARDED</span>
+                      )}
+                      {a.complianceStatus === "monitoring" && (
+                        <span style={{ ...MONO, fontSize: 10, color: "#f59e0b", background: "#451a03", padding: "2px 7px", borderRadius: 4 }}>MONITORING</span>
+                      )}
+                      {a.complianceStatus === "no_data" && (
+                        <span style={{ ...MONO, fontSize: 10, color: "#4b5563", background: "#1e2130", padding: "2px 7px", borderRadius: 4 }}>NO DATA</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data?.guestRights && (
+            <div style={{ marginTop: 14, background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#4ade80", marginBottom: 8 }}>Guest Rights under Art. 22(3)</div>
+              <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 11, color: "#6b7280", lineHeight: 1.8 }}>
+                {data.guestRights.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function GdprBreachRegister({ data, loading }) {
+  const events = data?.events ?? [];
+  return (
+    <Card>
+      <SectionLabel color="#4ade80">Data Breach / Near-Miss Register — Art. 33</SectionLabel>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+        Last 90 days · Art. 33 requires notification to the supervisory authority within 72 hours of becoming aware of a personal data breach.
+        {data ? ` Reportable breaches: ${data.reportableBreachCount ?? 0} · Near-misses (governance-prevented): ${data.nearMissCount ?? 0} · Security events: ${data.securityEventCount ?? 0}` : " Loading…"}
+      </div>
+      {loading && !data ? (
+        <div style={{ color: "#4b5563", fontSize: 13 }}>Loading breach register…</div>
+      ) : events.length === 0 ? (
+        <div style={{ background: "#0d0f14", border: "1px solid #14532d", borderRadius: 8, padding: "16px", fontSize: 13, color: "#4ade80", textAlign: "center" }}>
+          ✓ No breach events in the last 90 days. Governance system prevented {data?.nearMissCount ?? 0} near-miss actions.
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #1e2130" }}>
+                {["Date", "Hotel", "Agent", "Classification", "Severity", "Action Blocked", "Art. 33 Assessment", "Status"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {events.map(ev => (
+                <tr key={ev.id} style={{ borderBottom: "1px solid #0d0f14" }}>
+                  <td style={{ padding: "9px 10px", color: "#9ca3af", whiteSpace: "nowrap" }}>{formatDate(ev.date)}</td>
+                  <td style={{ padding: "9px 10px" }}>
+                    <span style={{ ...MONO, fontSize: 10, color: "#60a5fa" }}>{ev.hotel}</span>
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "#e5e7eb", whiteSpace: "nowrap" }}>{ev.agent}</td>
+                  <td style={{ padding: "9px 10px" }}>
+                    {ev.classification === "SECURITY_EVENT"
+                      ? <span style={{ ...MONO, fontSize: 10, color: "#f87171", background: "#450a0a", padding: "2px 6px", borderRadius: 4 }}>SECURITY EVENT</span>
+                      : <span style={{ ...MONO, fontSize: 10, color: "#f59e0b", background: "#451a03", padding: "2px 6px", borderRadius: 4 }}>NEAR-MISS</span>}
+                  </td>
+                  <td style={{ padding: "9px 10px" }}><SeverityBadge severity={ev.severity} /></td>
+                  <td style={{ padding: "9px 10px", color: "#6b7280", maxWidth: 200 }}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ev.actionBlocked}>
+                      {ev.actionBlocked}
+                    </span>
+                  </td>
+                  <td style={{ padding: "9px 10px" }}>
+                    {ev.art33AssessmentRequired
+                      ? <span style={{ ...MONO, fontSize: 10, color: "#f87171" }}>DPO review required</span>
+                      : <span style={{ ...MONO, fontSize: 10, color: "#4b5563" }}>Not required</span>}
+                  </td>
+                  <td style={{ padding: "9px 10px" }}>
+                    <span style={{ ...MONO, fontSize: 10, color: "#4ade80" }}>Prevented</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data?.note && (
+        <div style={{ marginTop: 12, fontSize: 11, color: "#4b5563", borderTop: "1px solid #1e2130", paddingTop: 10 }}>
+          {data.note}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ─── Main View ────────────────────────────────────────────────────────────────
 
 export default function ComplianceOfficerView() {
@@ -721,6 +991,26 @@ export default function ComplianceOfficerView() {
     return r.json();
   }, 120000);
 
+  const { data: gdprChecklistData, loading: gdprChecklistLoading } = usePoll(async () => {
+    const r = await fetch("/api/gdpr/checklist");
+    return r.json();
+  }, 60000);
+
+  const { data: gdprRopaData, loading: gdprRopaLoading } = usePoll(async () => {
+    const r = await fetch("/api/gdpr/ropa");
+    return r.json();
+  }, 120000);
+
+  const { data: gdprArt22Data, loading: gdprArt22Loading } = usePoll(async () => {
+    const r = await fetch("/api/gdpr/article22");
+    return r.json();
+  }, 60000);
+
+  const { data: gdprBreachData, loading: gdprBreachLoading } = usePoll(async () => {
+    const r = await fetch("/api/gdpr/breaches");
+    return r.json();
+  }, 60000);
+
   const forceRefresh = useCallback(() => {
     refreshPending();
     refreshAll();
@@ -735,7 +1025,9 @@ export default function ComplianceOfficerView() {
   const approvedCount = allDecided.filter(t => t.outcome === "approved").length;
   const rejectedCount = allDecided.filter(t => t.outcome === "rejected").length;
 
-  const euTabActive = activeTab === "eu";
+  const euTabActive   = activeTab === "eu";
+  const gdprTabActive = activeTab === "gdpr";
+  const gateTabActive = activeTab === "gate";
 
   return (
     <div style={{ padding: "28px 32px", maxWidth: 980, ...DM }}>
@@ -750,10 +1042,11 @@ export default function ComplianceOfficerView() {
       </div>
 
       {/* Tab switcher */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 28, background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 8, padding: 4, width: "fit-content" }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 28, background: "#0d0f14", border: "1px solid #1e2130", borderRadius: 8, padding: 4, width: "fit-content", flexWrap: "wrap" }}>
         {[
-          { id: "gate", label: pendingCount > 0 ? `Gate Approvals (${pendingCount})` : "Gate Approvals" },
-          { id: "eu",   label: "EU AI Act Compliance" },
+          { id: "gate", label: pendingCount > 0 ? `Gate Approvals (${pendingCount})` : "Gate Approvals", color: "#f87171" },
+          { id: "eu",   label: "EU AI Act",   color: "#60a5fa" },
+          { id: "gdpr", label: "GDPR",        color: "#4ade80" },
         ].map(tab => (
           <button
             key={tab.id}
@@ -763,7 +1056,7 @@ export default function ComplianceOfficerView() {
               padding: "8px 18px", borderRadius: 6, border: "none", cursor: "pointer",
               transition: "all 0.15s",
               background: activeTab === tab.id ? "#1e2130" : "transparent",
-              color: activeTab === tab.id ? (tab.id === "eu" ? "#60a5fa" : "#f87171") : "#6b7280",
+              color: activeTab === tab.id ? tab.color : "#6b7280",
             }}
           >
             {tab.label.toUpperCase()}
@@ -772,7 +1065,7 @@ export default function ComplianceOfficerView() {
       </div>
 
       {/* ── Gate Approvals Tab ── */}
-      {!euTabActive && (
+      {gateTabActive && (
         <>
           <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
             <StatBadge value={pendingCount}  label="Pending approvals"  color={pendingCount > 0 ? "#f59e0b" : "#4ade80"} />
@@ -827,6 +1120,39 @@ export default function ComplianceOfficerView() {
           <PostMarketMonitoring data={monData} loading={monLoading} />
           <IncidentRegister   data={incData} loading={incLoading} />
           <DeclarationOfConformity data={declData} loading={declLoading} />
+        </>
+      )}
+
+      {/* ── GDPR Compliance Tab ── */}
+      {gdprTabActive && (
+        <>
+          <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+            <StatBadge
+              value={gdprChecklistData?.articles?.filter(a => a.status === "green").length ?? "—"}
+              label="Articles compliant"
+              color="#4ade80"
+            />
+            <StatBadge
+              value={gdprChecklistData?.articles?.filter(a => a.status === "amber").length ?? "—"}
+              label="Articles — gap identified"
+              color="#f59e0b"
+            />
+            <StatBadge
+              value={gdprRopaData?.totalArt22Scope ?? "—"}
+              label="Art. 22 agents"
+              color="#60a5fa"
+            />
+            <StatBadge
+              value={gdprBreachData?.reportableBreachCount ?? (gdprBreachData ? 0 : "—")}
+              label="Reportable breaches (90d)"
+              color={gdprBreachData?.reportableBreachCount > 0 ? "#f87171" : "#4ade80"}
+            />
+          </div>
+
+          <GdprArticleChecklist data={gdprChecklistData} loading={gdprChecklistLoading} />
+          <GdprRopaPanel        data={gdprRopaData}      loading={gdprRopaLoading}      />
+          <GdprArt22Panel       data={gdprArt22Data}     loading={gdprArt22Loading}     />
+          <GdprBreachRegister   data={gdprBreachData}    loading={gdprBreachLoading}    />
         </>
       )}
     </div>

@@ -13,6 +13,7 @@ import onboardingRollbackRouter from "../onboarding/onboardingRollback";
 import dashboardRouter from "./dashboard";
 import adminRouter from "./admin";
 import euAiActRouter from "./euAiAct";
+import gdprRouter from "./gdpr";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(onboardingRollbackRouter);
 router.use(dashboardRouter);
 router.use(adminRouter);
 router.use(euAiActRouter);
+router.use(gdprRouter);
 
 export default router;

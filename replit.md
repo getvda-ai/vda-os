@@ -254,3 +254,30 @@ Run `pnpm --filter @workspace/db run push` to sync schema changes to the databas
 OpenAPI spec + Orval codegen config.
 
 Run codegen: `pnpm --filter @workspace/api-spec run codegen`
+
+## Compliance Reporting API
+
+Compliance Officer role has a dedicated view (`ComplianceOfficerView.jsx`) with three tabs:
+
+### Gate Approvals tab
+HITL task queues (Gate 1 / Gate 2), pending/approved/rejected counts, per-task approve/reject UI.
+
+### EU AI Act tab (`src/routes/euAiAct.ts`)
+- `GET /api/eu-ai-act/register` — AI System Register (Art. 60/63), per-agent risk class, prohibited-use check, market status
+- `GET /api/eu-ai-act/monitoring` — Post-market monitoring (Art. 72), decision rates, anomalies, model version check
+- `GET /api/eu-ai-act/incidents` — Serious incident register (Art. 73), 90-day window, COMPLIANCE_BOUNDARY/FAIL + FRAMEWORK_INTEGRITY/FAIL events
+- `GET /api/eu-ai-act/declaration` — Declaration of Conformity (Art. 47), structured conformity fields
+Article-by-article checklist (Art. 9/10/12/13/14/17/26/47/49/72/73) with tri-state status (green/amber/red).
+
+### GDPR tab (`src/routes/gdpr.ts`)
+- `GET /api/gdpr/ropa` — Records of Processing Activities (Art. 30): 8 per-agent activities, lawful basis, data categories, Art. 22 scope flag, retention
+- `GET /api/gdpr/article22` — Automated decision-making register (Art. 22): 5 in-scope agents, HITL engagement rate, automated vs human-reviewed counts (last 30 days)
+- `GET /api/gdpr/checklist` — Article-by-article gap assessment (Art. 5/6/13-14/22/25/30/32/33/35) with tri-state status derived from live DB data
+- `GET /api/gdpr/breaches` — Data breach/near-miss register (Art. 33): 90-day window, COMPLIANCE_BOUNDARY/FAIL (regulatory near-miss) + FRAMEWORK_INTEGRITY/FAIL (security events)
+
+GDPR agent coverage:
+- Art. 22 scope (5 agents): rate-agent, reservation-bot, check-in-agent, folio-charge-agent, checkout-agent
+- Art. 22 out of scope (3 agents): availability-agent, folio-agent, revenue-reconciliation-agent
+- Lawful basis: Art. 6(1)(b) — performance of contract for guest-facing; Art. 6(1)(f) — legitimate interests for folio + revenue-reconciliation
+- Controller: citizenM Hotels · Processor: Rawson Consulting BV — VDA-MD Platform
+- Privacy by Design (Art. 25): Microsoft Presidio PII scrubbing layer before LLM inference
