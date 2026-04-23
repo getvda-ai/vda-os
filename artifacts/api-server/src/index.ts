@@ -4,6 +4,7 @@ import { startCredentialRotationScheduler } from "./lib/credentialRotation.js";
 import { startGovernanceIntegrityCheck } from "./lib/governanceIntegrityCheck.js";
 import { seedOnboardingAgentGovernanceFiles } from "./onboarding/seedOnboardingAgent.js";
 import { backfillRoleBand } from "./lib/backfillRoleBand.js";
+import { seedPlatformGovernanceFiles } from "./routes/admin.js";
 
 const rawPort = process.env["PORT"];
 
@@ -33,5 +34,8 @@ app.listen(port, (err) => {
   );
   backfillRoleBand().catch(err =>
     logger.warn({ err }, "Role band backfill deferred")
+  );
+  seedPlatformGovernanceFiles().catch(err =>
+    logger.warn({ err }, "Platform governance files seed deferred")
   );
 });

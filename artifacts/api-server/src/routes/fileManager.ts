@@ -4,6 +4,7 @@ import { db, governanceFiles, governanceFileVersions } from "@workspace/db";
 import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
 import { checkComplianceGuards } from "../lib/complianceGuards.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
+import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 
 const router = Router();
 
@@ -65,15 +66,6 @@ const INDUSTRY_COMPLIANCE_MAP: Record<string, { nistControls: string[]; framewor
   },
 };
 
-const MINIMUM_CLAUSE_THRESHOLDS: Record<string, { must: number; mustNot: number; may: number }> = {
-  AGENTS:     { must: 3, mustNot: 2, may: 2 },
-  SOP:        { must: 3, mustNot: 1, may: 1 },
-  COMPLIANCE: { must: 3, mustNot: 2, may: 2 },
-  SKILL:      { must: 2, mustNot: 1, may: 1 },
-  EXCEPTION:  { must: 1, mustNot: 1, may: 1 },
-  CUSTOM:     { must: 1, mustNot: 0, may: 0 },
-};
-
 const CORE_FILE_TYPES = ["AGENTS", "COMPLIANCE", "SOP"];
 
 // ─── VDA-MD Compliance Guards ─────────────────────────────────────────────────
@@ -127,7 +119,11 @@ router.post("/fm/compliance-check", async (req, res) => {
 
     const industryKey = (industry as string).toLowerCase().split(" ")[0];
     const compMap = INDUSTRY_COMPLIANCE_MAP[industryKey] || null;
-    const thresholds = MINIMUM_CLAUSE_THRESHOLDS[(fileType as string)?.toUpperCase()] || MINIMUM_CLAUSE_THRESHOLDS.CUSTOM;
+    const fmPolicy = await getOnboardingPolicy();
+    const rawT = fmPolicy.minimum_clause_counts[(fileType as string)?.toUpperCase()]
+      ?? fmPolicy.minimum_clause_counts.CUSTOM
+      ?? { must: 1, must_not: 0, may: 0 };
+    const thresholds = { must: rawT.must, mustNot: rawT.must_not, may: rawT.may };
 
     const currentClauses = countClauses(safeContent);
     const savedClauses = savedContent ? countClauses(savedContent as string) : null;
@@ -708,7 +704,11 @@ Respond with ONLY the JSON object, no markdown fences.`;
 
     const industryKey = ((industry || "") as string).toLowerCase().split(" ")[0];
     const compMap = INDUSTRY_COMPLIANCE_MAP[industryKey] || null;
-    const thresholds = MINIMUM_CLAUSE_THRESHOLDS[(fileType as string)?.toUpperCase()] || MINIMUM_CLAUSE_THRESHOLDS.CUSTOM;
+    const genPolicy = await getOnboardingPolicy();
+    const genRawT = genPolicy.minimum_clause_counts[(fileType as string)?.toUpperCase()]
+      ?? genPolicy.minimum_clause_counts.CUSTOM
+      ?? { must: 1, must_not: 0, may: 0 };
+    const thresholds = { must: genRawT.must, mustNot: genRawT.must_not, may: genRawT.may };
 
     const mandatoryNist = compMap ? compMap.nistControls.join(", ") : "AC-2, AU-2";
     const mandatoryFrameworks = compMap ? compMap.frameworks.map(f => f.label).join(", ") : "applicable regulatory frameworks";

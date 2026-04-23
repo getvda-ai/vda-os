@@ -6,6 +6,7 @@ import { db, onboardingRequests, hitlTokens, governanceFiles } from "@workspace/
 import { eq, and, ne } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
+import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 import { callAI } from "../routes/ai-proxy.js";
 import { analyseImpactDelta, type AgentCard } from "./impactDeltaAnalyser.js";
 import { generateCandidateFiles, validateCandidateFiles } from "./candidateFileGenerator.js";
@@ -431,19 +432,22 @@ async function runPhase5(id: string) {
     .set({ evalReportJobId: jobId, evalPassRate: String(passRate), updatedAt: new Date() })
     .where(eq(onboardingRequests.id, id));
 
+  const sandboxPolicy = await getOnboardingPolicy();
+  const passThreshold = sandboxPolicy.sandbox_pass_threshold;
+
   await witnessOnboarding("sandbox_eval_complete", {
     actionProposed: `Sandbox eval complete — pass rate ${(passRate * 100).toFixed(1)}%`,
-    reasoning: passRate >= 0.95 ? "Pass rate meets 0.95 threshold — proceeding to second HITL" : `Pass rate ${(passRate * 100).toFixed(1)}% below 0.95 threshold — onboarding failed`,
+    reasoning: passRate >= passThreshold ? `Pass rate meets ${(passThreshold * 100).toFixed(0)}% threshold — proceeding to second HITL` : `Pass rate ${(passRate * 100).toFixed(1)}% below ${(passThreshold * 100).toFixed(0)}% threshold — onboarding failed`,
     job_id: jobId,
     pass_rate: passRate,
-    overall_result: passRate >= 0.95 ? "PASS" : "FAIL",
+    overall_result: passRate >= passThreshold ? "PASS" : "FAIL",
   });
 
-  if (passRate < 0.95) {
+  if (passRate < passThreshold) {
     await updateStatus(id, "failed");
     await witnessOnboarding("sandbox_eval_failed", {
       actionProposed: "Onboarding failed — sandbox eval pass rate below threshold",
-      reasoning: `Required 0.95, achieved ${passRate.toFixed(2)}`,
+      reasoning: `Required ${(passThreshold * 100).toFixed(0)}%, achieved ${passRate.toFixed(2)}`,
       decision: "FAIL",
     });
     return;

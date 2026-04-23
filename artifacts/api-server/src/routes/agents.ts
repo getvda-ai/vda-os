@@ -21,8 +21,39 @@ import {
   listCredentialsFromFiles,
 } from "../lib/agentCredentialIssuer.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
+import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
 
 const router = Router();
+
+/**
+ * Null-safety guard: checks that EXCEPTION_AUTHORITY.md exists for the agent.
+ * If missing, writes a COMPLIANCE_BOUNDARY/FAIL event and returns an ESCALATE decision.
+ * Caller MUST handle a non-null return by not proceeding with the LLM call.
+ */
+async function guardAuthority(
+  agentSlug: string,
+  agentDisplayName: string,
+  companyId: number,
+): Promise<AgentDecision | null> {
+  const auth = await getRoleBandAuthority(agentSlug, companyId, "hotel_gm");
+  if (!auth) {
+    void writeGovernanceEvent({
+      companyId,
+      agent: agentDisplayName,
+      eventCategory: "COMPLIANCE_BOUNDARY",
+      decision: "FAIL",
+      clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md missing — agent cannot determine authority boundaries",
+      actionProposed: "ESCALATE — governance authority file not found for " + agentSlug,
+    });
+    return {
+      decision: "ESCALATE",
+      reasoning: `EXCEPTION_AUTHORITY.md missing for ${agentSlug} — agent cannot operate without governance authority file`,
+      actionProposed: "Escalate to compliance officer — missing governance authority definition",
+      exceptionApplied: false,
+    };
+  }
+  return null;
+}
 
 const APALEO_API_BASE = "https://api.apaleo.com";
 
@@ -1173,10 +1204,16 @@ router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent")
         `Folio ${resolvedFolioId}: status=${folioStatus}`,
         `Existing charges: ${existingCharges.length}, duplicate check: ${duplicateCheck ? "DUPLICATE DETECTED" : "no duplicate"}`,
         `Charge to post: €${chargeAmount} ${currency} — ${serviceType} — ${chargeName ?? "unnamed"}`,
-        `Amount threshold: ${chargeAmount <= 500 ? "≤€500 (agent authority)" : chargeAmount <= 2000 ? "€500–€2000 (escalate)" : ">€2000 (escalate to Finance Director)"}`
+        `Amount threshold: applying governance policy thresholds per folio-charge-policy.md`
       );
     } else {
       contextLines.push("No open folio found — cannot post charge");
+    }
+
+    // ── Null-safety authority guard ───────────────────────────────────────────
+    const folioChargeAuthorityEscalate = await guardAuthority("folio-charge-agent", "Folio Charge Agent", Number(companyId));
+    if (folioChargeAuthorityEscalate) {
+      return res.json({ decision: folioChargeAuthorityEscalate, contextLines });
     }
 
     // ── Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
@@ -1314,7 +1351,7 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
         `  Gate 1 — Status: ${resv?.status ?? "Unknown"} → ${isInHouse ? "PASS (InHouse)" : "FAIL (not InHouse)"}`,
         `  Gate 2 — Folio outstanding: ${totalOutstanding} ${currency} → ${isSettled ? "PASS (settled)" : "ESCALATE (unsettled balance)"}`,
         `  Gate 3 — Loyalty tier: ${loyaltyTier ?? "Standard"} → ${isLoyaltyEligible ? "eligible for late checkout waiver" : "standard rate applies"}`,
-        `  Late checkout until ${lateCheckout ?? "standard"}: ${isLoyaltyEligible && lateCheckout && lateCheckout <= "14:00" ? "MAY waive fee" : "fee applies"}`
+        `  Late checkout until ${lateCheckout ?? "standard"}: applying checkout-policy.md waiver thresholds`
       );
     } else {
       const today = new Date().toISOString().split("T")[0];
@@ -1324,6 +1361,12 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
       ).catch(() => ({ reservations: [], count: 0 }));
       apaleoData.departingToday = departures.reservations.slice(0, 2);
       contextLines.push(`Departing today (${departures.count}): ${JSON.stringify(departures.reservations.slice(0, 2), null, 2)}`);
+    }
+
+    // ── Null-safety authority guard ───────────────────────────────────────────
+    const checkoutAuthorityEscalate = await guardAuthority("checkout-agent", "Checkout Agent", Number(companyId));
+    if (checkoutAuthorityEscalate) {
+      return res.json({ decision: checkoutAuthorityEscalate, contextLines, apaleoData });
     }
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
@@ -1830,7 +1873,10 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       // 5% discount: €171 from BAR €180 — below the 10% escalation threshold, agent PASS
       // VIE-VDADEMO-SGL rate plan is now isBookable: true — ListRatePlans MCP call is safe
       const bar = 180; const requested = 171; const discountPct = 5;
-      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead } = await evaluateWithPolicyAndMcp(
+      const rateAuthorityEscalate = await guardAuthority("rate-agent", "Rate Agent", Number(companyId));
+      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead } = rateAuthorityEscalate
+        ? { decision: rateAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
+        : await evaluateWithPolicyAndMcp(
         "Rate Agent", "rate",
         `Rate override evaluation for property ${propertyId}.
 
@@ -1843,7 +1889,7 @@ Rate plan context (pre-flight verified against Apaleo API):
 
 You MAY call ListRatePlans to see Apaleo rate plan data. IMPORTANT: ListRatePlans returns ALL property rate plans — if the specific plan ID is not visible in the returned list (due to pagination or property filtering), treat the pre-flight confirmation above as authoritative. The rate plan ${ids.ratePlanId ?? "VIE-VDADEMO-SGL"} was verified directly via Apaleo API before this evaluation.
 
-Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 0–9% autonomous agent authority band. PASS — respond ONLY with the JSON decision.`,
+Apply rate-override-policy thresholds. A ${discountPct}% discount is within the autonomous agent authority band per rate-override-policy.md. PASS — respond ONLY with the JSON decision.`,
         [MCP_TOOLS.ListRatePlans],
         Number(companyId)
       );
@@ -2049,7 +2095,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
         contextLines.push(
           `Folio ${folioId}: status=${folioStatus}`,
           `Charge to post: €240 EUR — RoomRevenue — Demo Room Charge`,
-          `Amount threshold: ≤€500 → agent authority (PASS if folio Open)`
+          `Amount threshold: applying folio-charge-policy.md authority thresholds`
         );
       } else {
         contextLines.push("No folio ID resolved — charge cannot be posted");
@@ -2058,7 +2104,10 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       // Step 5 uses pre-flight verified context — GetFolio returns real accumulated charges from
       // previous runs which the agent misinterprets as a dispute trigger. The governance demo
       // evaluates the charge decision in isolation: a fresh €89 RoomRevenue charge on an Open folio.
-      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles, inputTokens: fcInputTokens, outputTokens: fcOutputTokens, cacheCreationTokens: fcCacheCreation, cacheReadTokens: fcCacheRead } = await evaluateWithPolicyAndMcp(
+      const fcAuthorityEscalate = await guardAuthority("folio-charge-agent", "Folio Charge Agent", Number(companyId));
+      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles, inputTokens: fcInputTokens, outputTokens: fcOutputTokens, cacheCreationTokens: fcCacheCreation, cacheReadTokens: fcCacheRead } = fcAuthorityEscalate
+        ? { decision: fcAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
+        : await evaluateWithPolicyAndMcp(
         "Folio Agent", "folio_charge",
         `Folio charge audit for property ${propertyId} — VDA-MD governance evaluation.
 
@@ -2071,7 +2120,7 @@ Apaleo Folio API result (pre-flight verified):
 - Open disputes: NONE
 
 O2C cross-domain authority check:
-- €89 charge with zero disputes → autonomous agent authority (below €200 ceiling, no dispute = no escalation required)
+- €89 charge with zero disputes → autonomous agent authority per folio-charge-policy.md (no disputes = no escalation required)
 - Cross-domain Finance O2C authority: confirmed in governance policy
 
 Apply folio-charge-policy thresholds. €89 with no disputes is within autonomous authority. PASS — respond ONLY with the JSON decision.`,
@@ -2133,7 +2182,10 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within autonomou
       // The demo scenario establishes that check-in (step 4) was completed and the guest is InHouse.
       {
         const coFolioId = ids.folioId;
-        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles, inputTokens: coInputTokens, outputTokens: coOutputTokens, cacheCreationTokens: coCacheCreation, cacheReadTokens: coCacheRead } = await evaluateWithPolicyAndMcp(
+        const coAuthorityEscalate = await guardAuthority("checkout-agent", "Checkout Agent", Number(companyId));
+        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles, inputTokens: coInputTokens, outputTokens: coOutputTokens, cacheCreationTokens: coCacheCreation, cacheReadTokens: coCacheRead } = coAuthorityEscalate
+          ? { decision: coAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
+          : await evaluateWithPolicyAndMcp(
           "Checkout Agent", "checkout",
           `Checkout audit for Demo Guest (Gold loyalty tier) at property ${propertyId}.
 

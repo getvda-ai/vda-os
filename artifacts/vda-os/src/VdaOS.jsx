@@ -5728,7 +5728,7 @@ function buildSeedLog(config, companyName) {
   // Apaleo hospitality-specific entries (7)
   const industryEntries = {
     hospitality: [
-      { id: 10, timestamp: ts(0, 3), agent: "Checkout Agent", decision: "PASS", fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md", clauseApplied: "MAY waive late checkout fee to 14:00 for verified loyalty tier guests", actionProposed: `Reservation RES-2026-88341 — ${customer} requested late checkout to 13:30, loyalty tier verified in Apaleo, fee waived`, escalationTarget: null, exceptionApplied: true, reasoning: `${customer} holds active Gold loyalty status confirmed in Apaleo guest profile. Late checkout exception overlay active. Unit availability checked via Apaleo Inventory API — no constraint. Folio charge suppressed automatically.` },
+      { id: 10, timestamp: ts(0, 3), agent: "Checkout Agent", decision: "PASS", fileReferenced: "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md", clauseApplied: "MAY waive late checkout fee per EXCEPTION.md for verified loyalty tier guests", actionProposed: `Reservation RES-2026-88341 — ${customer} requested late checkout to 13:30, loyalty tier verified in Apaleo, fee waived`, escalationTarget: null, exceptionApplied: true, reasoning: `${customer} holds active Gold loyalty status confirmed in Apaleo guest profile. Late checkout exception overlay active. Unit availability checked via Apaleo Inventory API — no constraint. Folio charge suppressed automatically.` },
       { id: 11, timestamp: ts(0, 15), agent: "Folio Settlement Agent", decision: "FAIL", fileReferenced: "Hospitality-Operations-Stay-folio-charge-agent.SOP.md", clauseApplied: "MUST NOT post folio charges without matching reservation ID in Apaleo", actionProposed: `Folio charge FOL-2026-0922 blocked — reservation ID not found in Apaleo Reservations API`, escalationTarget: "Operations Director", exceptionApplied: false, reasoning: "Charge submitted without a valid Apaleo reservation reference. Folio cannot be settled against an unlinked guest record. Operations Director notified. Charge held pending reservation verification." },
       { id: 12, timestamp: ts(1, 5), agent: "Rate Agent", decision: "ESCALATE", fileReferenced: "Hospitality-Revenue-Book-rate-agent.SOP.md", clauseApplied: "MUST escalate rate plan override requests above Revenue Manager authority to VP Revenue", actionProposed: "Corporate account requested 25% override on BAR rate plan — above Revenue Manager ceiling, escalated", escalationTarget: "VP Revenue", exceptionApplied: false, reasoning: "Requested rate plan override of 25% below BAR exceeds Revenue Manager authority ceiling of 18%. Account is Tier 2 in Apaleo — not Tier 1 key account. No active rate-plan-override exception overlay. Escalated to VP Revenue for approval." },
       { id: 13, timestamp: ts(1, 33), agent: "Rate Agent", decision: "PASS", fileReferenced: "Hospitality-Revenue-Book-rate-agent.SOP.md", clauseApplied: "MAY approve up to 18% discount on BAR at Revenue Manager authority for verified Tier 1 accounts", actionProposed: "Tier 1 Key Account rate plan approved in Apaleo — exception overlay applied, rate plan updated", escalationTarget: null, exceptionApplied: true, reasoning: "Account verified as Tier 1 in Apaleo guest profile and CRM. Requested discount of 16% below BAR within exception ceiling. Rate parity obligations checked. Rate plan updated via Apaleo Rate Plan API. Exception conditions all met." },
@@ -7525,7 +7525,7 @@ function NotPermittedRows({ skillMd }) {
   );
 }
 
-function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, setDocsTab }) {
+function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, setDocsTab, passThreshold = 0.95 }) {
   if (loading) return <div style={{ padding: 20, textAlign: "center", color: T.dim, fontSize: 12, opacity: 0.6 }}>Loading full dossier…</div>;
   if (!data) return null;
 
@@ -7656,10 +7656,10 @@ function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, 
           </div>
           {data.evalPassRate !== null && data.evalPassRate !== undefined && (
             <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ fontSize: 28, fontWeight: 900, color: Number(data.evalPassRate) >= 0.95 ? T.green : T.red }}>{(Number(data.evalPassRate) * 100).toFixed(1)}%</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: Number(data.evalPassRate) >= passThreshold ? T.green : T.red }}>{(Number(data.evalPassRate) * 100).toFixed(1)}%</div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700 }}>Sandbox Eval Pass Rate</div>
-                <div style={{ fontSize: 11, opacity: 0.6 }}>{Number(data.evalPassRate) >= 0.95 ? "Passed — agent meets sandbox quality gate" : "Below threshold — review recommended"}</div>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>{Number(data.evalPassRate) >= passThreshold ? "Passed — agent meets sandbox quality gate" : "Below threshold — review recommended"}</div>
               </div>
             </div>
           )}
@@ -7744,6 +7744,18 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   const [docsSubTab, setDocsSubTab] = useState({});
   const [wizardTesterOpen, setWizardTesterOpen] = useState(false);
   const [otherBandsOpen, setOtherBandsOpen] = useState(false);
+  const [onboardingPolicy, setOnboardingPolicy] = useState(null);
+
+  useEffect(() => {
+    fetch("/api/admin/onboarding-policy")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.policy) setOnboardingPolicy(d.policy); })
+      .catch(() => {});
+  }, []);
+
+  const sandboxPassThreshold = onboardingPolicy?.sandbox_pass_threshold ?? 0.95;
+  const crawlAgreementThreshold = onboardingPolicy?.crawl_agreement_threshold ?? 0.95;
+  const walkAgreementThreshold = onboardingPolicy?.walk_agreement_threshold ?? 0.95;
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
@@ -8297,7 +8309,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                         <div>ID: <span style={{ color: T.muted }}>{req.id.slice(0,12)}…</span></div>
                         <div>Session: <span style={{ color: T.muted }}>{req.sessionId?.slice(0,12)}…</span></div>
                         <div>Created: <span style={{ color: T.muted }}>{new Date(req.createdAt).toLocaleString("en-GB")}</span></div>
-                        {req.evalPassRate && <div>Eval pass rate: <span style={{ color: parseFloat(req.evalPassRate) >= 0.95 ? T.green : T.red, fontWeight: 700 }}>{(parseFloat(req.evalPassRate) * 100).toFixed(1)}%</span></div>}
+                        {req.evalPassRate && <div>Eval pass rate: <span style={{ color: parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red, fontWeight: 700 }}>{(parseFloat(req.evalPassRate) * 100).toFixed(1)}%</span></div>}
                         {req.prUrl && <div>PR: <a href={req.prUrl} target="_blank" rel="noreferrer" style={{ color: T.blue }}>View PR #{req.prNumber}</a></div>}
                       </div>
 
@@ -8350,9 +8362,9 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                           <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 8 }}>SANDBOX EVAL RESULTS</div>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                             <div style={{ flex: 1, background: T.bg, borderRadius: 4, height: 8, overflow: "hidden" }}>
-                              <div style={{ height: "100%", width: `${parseFloat(req.evalPassRate) * 100}%`, background: parseFloat(req.evalPassRate) >= 0.95 ? T.green : T.red, borderRadius: 4 }} />
+                              <div style={{ height: "100%", width: `${parseFloat(req.evalPassRate) * 100}%`, background: parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red, borderRadius: 4 }} />
                             </div>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: parseFloat(req.evalPassRate) >= 0.95 ? T.green : T.red }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red }}>
                               {(parseFloat(req.evalPassRate) * 100).toFixed(1)}%
                             </span>
                             <span style={{ fontSize: 12, color: T.dim }}>of 5 scenarios</span>
@@ -8532,7 +8544,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                       <div style={{ fontSize: 11, color: T.dim, opacity: 0.6 }}>{new Date(p.createdAt).toLocaleString("en-GB")}</div>
                       {payload.eval_pass_rate !== undefined && (
                         <div style={{ fontSize: 11, marginTop: 3 }}>
-                          Eval: <span style={{ fontWeight: 700, color: payload.eval_pass_rate >= 0.95 ? T.green : T.red }}>{(payload.eval_pass_rate * 100).toFixed(1)}%</span>
+                          Eval: <span style={{ fontWeight: 700, color: payload.eval_pass_rate >= sandboxPassThreshold ? T.green : T.red }}>{(payload.eval_pass_rate * 100).toFixed(1)}%</span>
                         </div>
                       )}
                     </div>
@@ -8588,6 +8600,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                       setActiveTab={t => setDossierTab(prev => ({ ...prev, [p.token]: t }))}
                       docsTab={docsSubTab[p.token] || "agents"}
                       setDocsTab={t => setDocsSubTab(prev => ({ ...prev, [p.token]: t }))}
+                      passThreshold={sandboxPassThreshold}
                     />
                   )}
                 </div>
@@ -8765,14 +8778,15 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                             const bandAgreement = bandData.agreementRate != null ? (parseFloat(bandData.agreementRate) * 100).toFixed(0) : null;
                             const isPromotingThisBand = promotingAgent === `${agent.agentId}:${band.id}`;
                             // Null agreementRate = no operational exception history yet = insufficient data, block promotion.
-                            const belowAgreementThreshold = bandData.agreementRate == null || parseFloat(bandData.agreementRate) < 0.95;
+                            const agreementThreshold = bandPhase === "crawl" ? crawlAgreementThreshold : walkAgreementThreshold;
+                            const belowAgreementThreshold = bandData.agreementRate == null || parseFloat(bandData.agreementRate) < agreementThreshold;
                             const isPromoteDisabled = hasBlocker || belowAgreementThreshold || isPromotingThisBand;
                             const promoteTitle = hasBlocker
                               ? `Resolve ${allBandCards.length} pending exception(s) for this band first`
                               : bandData.agreementRate == null
                               ? `No agreement-rate data yet — resolve at least one operational exception before promoting`
                               : belowAgreementThreshold
-                              ? `Agreement rate ${bandAgreement}% is below the 95% threshold required to promote`
+                              ? `Agreement rate ${bandAgreement}% is below the ${(agreementThreshold * 100).toFixed(0)}% threshold required to promote`
                               : `Promote ${band.label} → ${nextBandPhase}`;
                             return (
                               <tr key={band.id} style={{ borderTop: `1px solid ${T.border}` }}>

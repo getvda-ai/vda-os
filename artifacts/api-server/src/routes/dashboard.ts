@@ -12,6 +12,7 @@ import { db, agentPhases, witnessEntries, governanceFiles, hitlTokens } from "@w
 import { eq, and, gte, lte, sql, isNull, not, inArray, desc, lt } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { logger } from "../lib/logger.js";
+import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 
 const router = Router();
 
@@ -27,6 +28,10 @@ router.get("/dashboard/phases", async (req, res) => {
       res.status(400).json({ error: "companyId required" });
       return;
     }
+
+    const phasesPolicy = await getOnboardingPolicy();
+    const frontLineBands = phasesPolicy.front_line_bands;
+    const crossPropertyBands = phasesPolicy.cross_property_bands;
 
     const phases = await db
       .select()
@@ -63,19 +68,14 @@ router.get("/dashboard/phases", async (req, res) => {
       passByAgent[slug] = (passByAgent[slug] ?? 0) + Number(r.count);
     }
 
-    // Synthesise roleBandPhases default when column is NULL (all existing agents post-migration).
-    // Front-line bands inherit overall phase; cross-property bands are "not_applicable".
-    const FRONT_LINE_BANDS = ["ambassador", "senior_ambassador", "hotel_gm"];
-    const CROSS_PROPERTY_BANDS = ["regional_gm", "operations_chief", "compliance_officer"];
-
     function synthesiseRoleBandPhases(overallPhase: string, stored: unknown) {
       const defaultPhase = ["crawl", "walk", "run"].includes(overallPhase) ? overallPhase : "crawl";
       // Build the canonical 6-key default object
       const defaults: Record<string, { phase: string; agreementRate: null; overrideRate: null }> = {};
-      for (const band of FRONT_LINE_BANDS) {
+      for (const band of frontLineBands) {
         defaults[band] = { phase: defaultPhase, agreementRate: null, overrideRate: null };
       }
-      for (const band of CROSS_PROPERTY_BANDS) {
+      for (const band of crossPropertyBands) {
         defaults[band] = { phase: "not_applicable", agreementRate: null, overrideRate: null };
       }
       // Deep-merge stored bands over defaults — each band entry is merged field-by-field
@@ -458,8 +458,8 @@ router.post("/dashboard/phases/promote", async (req, res) => {
       return;
     }
 
-    const VALID_TRANSITIONS: Record<string, string> = { crawl: "walk", walk: "run" };
-    if (VALID_TRANSITIONS[current.phase] !== targetPhase) {
+    const promotePolicy = await getOnboardingPolicy();
+    if (promotePolicy.valid_transitions[current.phase] !== targetPhase) {
       res.status(409).json({
         error: `Invalid transition: ${current.phase} → ${targetPhase}. Only crawl→walk and walk→run are permitted.`,
         currentPhase: current.phase,
@@ -569,8 +569,9 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
     }
 
     // Build current roleBandPhases (or initialise from scratch)
-    const FRONT_LINE_BANDS = ["ambassador", "senior_ambassador", "hotel_gm"];
-    const CROSS_PROPERTY_BANDS = ["regional_gm", "operations_chief", "compliance_officer"];
+    const bandPolicy = await getOnboardingPolicy();
+    const frontLineBandsBp = bandPolicy.front_line_bands;
+    const crossPropertyBandsBp = bandPolicy.cross_property_bands;
     const overallPhase = ["crawl", "walk", "run"].includes(current.phase) ? current.phase : "crawl";
 
     let bandPhases: Record<string, { phase: string; agreementRate: number | null; overrideRate: number | null }>;
@@ -578,19 +579,18 @@ router.post("/dashboard/phases/promote-band", async (req, res) => {
       bandPhases = current.roleBandPhases as typeof bandPhases;
     } else {
       bandPhases = {};
-      for (const band of FRONT_LINE_BANDS) {
+      for (const band of frontLineBandsBp) {
         bandPhases[band] = { phase: overallPhase, agreementRate: null, overrideRate: null };
       }
-      for (const band of CROSS_PROPERTY_BANDS) {
+      for (const band of crossPropertyBandsBp) {
         bandPhases[band] = { phase: "not_applicable", agreementRate: null, overrideRate: null };
       }
     }
 
     const currentBandPhase = bandPhases[roleBand]?.phase ?? "crawl";
-    const VALID_TRANSITIONS: Record<string, string> = { crawl: "walk", walk: "run" };
     // If targetPhase not supplied, infer it from the current band state.
-    const resolvedTargetPhase: string = targetPhase ?? VALID_TRANSITIONS[currentBandPhase];
-    if (!resolvedTargetPhase || VALID_TRANSITIONS[currentBandPhase] !== resolvedTargetPhase) {
+    const resolvedTargetPhase: string = targetPhase ?? bandPolicy.valid_transitions[currentBandPhase];
+    if (!resolvedTargetPhase || bandPolicy.valid_transitions[currentBandPhase] !== resolvedTargetPhase) {
       res.status(409).json({
         error: `Invalid band transition: ${currentBandPhase} → ${resolvedTargetPhase ?? "?"} for band '${roleBand}'`,
         currentBandPhase,

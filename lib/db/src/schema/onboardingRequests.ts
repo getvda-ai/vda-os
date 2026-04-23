@@ -19,6 +19,7 @@ export const onboardingRequests = pgTable("onboarding_requests", {
   secondHitlDecidedAt: timestamp("second_hitl_decided_at", { withTimezone: true }),
   prNumber: text("pr_number"),
   prUrl: text("pr_url"),
+  source: text("source").notNull().default("a2a_external"),
   status: text("status").notNull().default("received"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

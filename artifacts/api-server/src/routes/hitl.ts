@@ -10,6 +10,7 @@ import { eq, isNull, and, sql } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { advanceOrchestratorPhase } from "../onboarding/onboardingOrchestrator.js";
 import { logger } from "../lib/logger.js";
+import { getExceptionAuthority, getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 
 const router: IRouter = Router();
 
@@ -17,24 +18,21 @@ const REPLIT_URL = process.env.REPLIT_DEV_DOMAIN
   ? `https://${process.env.REPLIT_DEV_DOMAIN}`
   : process.env.REPLIT_URL ?? "http://localhost:8080";
 
-// Canonical escalation_target → role_band mapping
-const ESCALATION_TO_ROLE_BAND: Record<string, string> = {
-  "Revenue Manager":      "hotel_gm",
-  "Operations Director":  "hotel_gm",
-  "Credit Control team":  "hotel_gm",
-  "VP Revenue":           "regional_gm",
-  "CFO":                  "regional_gm",
-  "CISO":                 "operations_chief",
-  "first_hitl_approval":  "compliance_officer",
-  "second_hitl_approval": "compliance_officer",
-};
-
-function deriveRoleBand(payload: Record<string, unknown>): string | null {
+async function deriveRoleBand(payload: Record<string, unknown>, agentId: string | null): Promise<string | null> {
+  if (!agentId) {
+    logger.warn({ payload }, "[HITL] agentId null — role_band left NULL");
+    return null;
+  }
+  const authority = await getExceptionAuthority(agentId);
+  if (!authority) {
+    logger.warn({ agentId }, "[HITL] No EXCEPTION_AUTHORITY.md for agent — role_band left NULL");
+    return null;
+  }
   const target = payload?.escalation_target as string | undefined;
   if (!target) return null;
-  const band = ESCALATION_TO_ROLE_BAND[target];
+  const band = authority.escalationTargets[target];
   if (!band) {
-    logger.warn({ escalation_target: target }, "[HITL] Unrecognised escalation_target — role_band left NULL");
+    logger.warn({ escalation_target: target, agentId }, "[HITL] Unrecognised escalation_target — role_band left NULL");
     return null;
   }
   return band;
@@ -56,7 +54,7 @@ router.post("/hitl/escalate", async (req, res) => {
       return;
     }
 
-    const roleBand = deriveRoleBand(payload);
+    const roleBand = await deriveRoleBand(payload, (payload.agent_id as string) ?? null);
 
     const rows = await db.insert(hitlTokens).values({
       onboardingRequestId: onboarding_request_id,
@@ -194,16 +192,17 @@ router.post("/hitl/respond/:token", async (req, res) => {
 
               // Always write full 6-band structure to keep storage normalized.
               const overallPhase = phaseRows[0]?.phase ?? "crawl";
-              const FRONT_LINE_BANDS = ["ambassador", "senior_ambassador", "hotel_gm"];
-              const CROSS_PROPERTY_BANDS = ["regional_gm", "operations_chief", "compliance_officer"];
+              const hitlBandPolicy = await getOnboardingPolicy();
+              const frontLineBands = hitlBandPolicy.front_line_bands;
+              const crossPropertyBands = hitlBandPolicy.cross_property_bands;
               const stored = (phaseRows[0]?.roleBandPhases ?? {}) as Record<string, { phase?: string; agreementRate?: number | null; overrideRate?: number | null }>;
 
               // Synthesize full structure: defaults for missing bands, preserve stored values for others.
               const fullBandPhases: Record<string, { phase: string; agreementRate: number | null; overrideRate: number | null }> = {};
-              for (const b of FRONT_LINE_BANDS) {
+              for (const b of frontLineBands) {
                 fullBandPhases[b] = { phase: overallPhase, agreementRate: null, overrideRate: null, ...(stored[b] ?? {}) };
               }
-              for (const b of CROSS_PROPERTY_BANDS) {
+              for (const b of crossPropertyBands) {
                 fullBandPhases[b] = { phase: "not_applicable", agreementRate: null, overrideRate: null, ...(stored[b] ?? {}) };
               }
               // Apply updated band rate

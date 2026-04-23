@@ -184,7 +184,7 @@ function Scene2_Rate({ result }) {
               <span style={{ fontSize: 9, color: C.muted }}>/ night · 5% off applied</span>
             </div>
             <div style={{ fontSize: 9, color: C.dim, marginTop: 4 }}>
-              Within agent authority band (0–9%)
+              Within autonomous agent authority band
             </div>
           </div>
         )}
