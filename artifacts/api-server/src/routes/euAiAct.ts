@@ -350,8 +350,7 @@ router.get("/eu-ai-act/incidents", async (_req, res) => {
           ),
         ),
       )
-      .orderBy(desc(witnessEntries.createdAt))
-      .limit(100);
+      .orderBy(desc(witnessEntries.createdAt));
 
     const incidents = rows.map((r) => ({
       id: r.id,
@@ -545,6 +544,25 @@ _______________________________________
       lastIntegrityCheck,
       agentCount: Object.keys(AGENT_META).length,
       nistControls: [...new Set(Object.values(AGENT_META).map((a) => a.nistControl))],
+      provider: {
+        name: "Rawson Consulting BV",
+        platform: "VDA-MD — Value-Driven AI Markdown Governance Platform",
+        version: "1.0 (Apaleo Hospitality Stack)",
+        contact: "compliance@vda-md.io",
+      },
+      deployer: {
+        name: "citizenM Hotels",
+        properties: ["citizenM Berlin (BER)", "citizenM London (LND)", "citizenM Munich (MUC)", "citizenM Paris (PAR)", "citizenM Vienna (VIE)"],
+        domain: "Hotel Operations & Revenue Management",
+      },
+      coveredAgents: Object.entries(AGENT_META).map(([id, meta]) => ({
+        agentId: id,
+        agentName: id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        domain: meta.domain,
+        intendedUse: meta.intendedUse,
+        riskClass: meta.riskClass,
+        riskClassification: "Limited Risk (Art. 50)",
+      })),
       generatedAt: new Date().toISOString(),
     });
   } catch (err) {

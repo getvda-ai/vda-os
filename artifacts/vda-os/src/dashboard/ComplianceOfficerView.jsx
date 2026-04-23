@@ -322,7 +322,7 @@ function AISystemRegister({ data, loading }) {
         <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid #1e2130" }}>
-              {["Agent", "Risk Class", "Domain", "Intended Use", "Tech Doc", "Deployment Status", "Art. 49"].map(h => (
+              {["Agent", "Risk Class", "Domain", "Intended Use", "Tech Doc", "Conformity", "Provider", "Deployer", "Deployment Status", "Art. 49"].map(h => (
                 <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
@@ -337,7 +337,7 @@ function AISystemRegister({ data, loading }) {
                   <RiskBadge riskClass={row.riskClass} />
                 </td>
                 <td style={{ padding: "10px 10px", color: "#9ca3af", whiteSpace: "nowrap" }}>{row.domain}</td>
-                <td style={{ padding: "10px 10px", color: "#6b7280", maxWidth: 220 }}>
+                <td style={{ padding: "10px 10px", color: "#6b7280", maxWidth: 200 }}>
                   <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.intendedUse}>
                     {row.intendedUse}
                   </span>
@@ -348,6 +348,14 @@ function AISystemRegister({ data, loading }) {
                     {row.techDocComplete ? "Complete" : "Partial"}
                   </span>
                 </td>
+                <td style={{ padding: "10px 10px", textAlign: "center" }}>
+                  <StatusDot ok={row.conformityStatus === "conformant"} />
+                  <span style={{ color: row.conformityStatus === "conformant" ? "#4ade80" : "#f59e0b", fontSize: 11 }}>
+                    {row.conformityStatus === "conformant" ? "Conformant" : "Incomplete"}
+                  </span>
+                </td>
+                <td style={{ padding: "10px 10px", color: "#6b7280", fontSize: 11, whiteSpace: "nowrap" }}>Rawson Consulting BV</td>
+                <td style={{ padding: "10px 10px", color: "#6b7280", fontSize: 11, whiteSpace: "nowrap" }}>citizenM Hotels</td>
                 <td style={{ padding: "10px 10px" }}>
                   <DeployStatusBadge status={row.deploymentStatus} />
                   {row.activeDeployments > 0 && (
@@ -357,7 +365,7 @@ function AISystemRegister({ data, loading }) {
                   )}
                 </td>
                 <td style={{ padding: "10px 10px" }}>
-                  <span style={{ ...MONO, fontSize: 10, color: "#f59e0b", background: "#451a03", padding: "2px 7px", borderRadius: 4 }}>Pending</span>
+                  <span style={{ ...MONO, fontSize: 10, color: "#f59e0b", background: "#451a03", padding: "2px 7px", borderRadius: 4 }} title="Manual submission to EU AI Act database required">Pending — manual submission required</span>
                 </td>
               </tr>
             ))}
