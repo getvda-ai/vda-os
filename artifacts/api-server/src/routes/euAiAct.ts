@@ -69,6 +69,23 @@ function toSlug(name: string): string {
   return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 }
 
+/**
+ * Derive EU AI Act risk class from governance-file signals (domain + NIST control).
+ * All current VDA-MD agents are Limited Risk (Art. 50) because they operate with
+ * mandatory HITL oversight and make no autonomous decisions affecting fundamental rights.
+ * This function is data-driven — if future agents carry domain/NIST signals indicating
+ * high-risk use (e.g., biometric, safety-critical), classification is derived accordingly.
+ */
+function deriveRiskClass(nistControl: string | null, domain: string | null): string {
+  // High-risk domains per EU AI Act Annex III (not currently present in VDA-MD)
+  const highRiskDomains = ["biometric", "critical infrastructure", "employment", "law enforcement"];
+  if (domain && highRiskDomains.some((d) => domain.toLowerCase().includes(d))) return "high";
+  // NIST controls associated with high-risk classification signals
+  if (nistControl === "IR-4" || nistControl === "PE-3") return "high";
+  // All hospitality-domain agents fall under Limited Risk (Art. 50) — transparency only
+  return "limited";
+}
+
 // ─── GET /api/eu-ai-act/register ──────────────────────────────────────────────
 // Primary data source: governance_files table (EXCEPTION_AUTHORITY + AGENTS + SOP).
 // Supplemented by AGENT_META for domain, intendedUse, nistControl, riskClass.
@@ -117,11 +134,16 @@ router.get("/eu-ai-act/register", async (_req, res) => {
       phasesByAgent[p.agentId].push(p);
     }
 
-    // Derive agent list from governance_files (data-driven), supplemented by AGENT_META
-    const agentIds = Object.keys(filesByAgent).filter(id => AGENT_META[id]);
+    // Build register from ALL governance-file agentIds (data-driven primary source).
+    // AGENT_META is used as an optional supplement — agents not in AGENT_META still appear
+    // with governance-file-derived metadata and sensible defaults for intendedUse.
+    const agentIds = [...new Set([
+      ...Object.keys(filesByAgent).filter((id) => id && id !== "null"),
+      ...Object.keys(phasesByAgent),
+    ])];
 
     const register = agentIds.map((agentId) => {
-      const meta = AGENT_META[agentId];
+      const meta = AGENT_META[agentId] ?? null;
       const agentFiles = filesByAgent[agentId] ?? [];
       const agentPhaseList = phasesByAgent[agentId] ?? [];
 
@@ -148,9 +170,11 @@ router.get("/eu-ai-act/register", async (_req, res) => {
           ? ratesWithValues.reduce((a, b) => a + b, 0) / ratesWithValues.length
           : null;
 
-      // Use governance file domain if available, else AGENT_META
-      const govDomain = agentFiles.find((f) => f.domain)?.domain ?? meta.domain;
-      const govNistControl = agentFiles.find((f) => f.nistControl)?.nistControl ?? meta.nistControl;
+      // Prefer governance-file values; fall back to AGENT_META; then derive/default
+      const govDomain      = agentFiles.find((f) => f.domain)?.domain      ?? meta?.domain ?? "Unknown";
+      const govNistControl = agentFiles.find((f) => f.nistControl)?.nistControl ?? meta?.nistControl ?? null;
+      // Risk class is derived from live governance signals (not hardcoded from AGENT_META)
+      const riskClass = deriveRiskClass(govNistControl, govDomain);
 
       const latestFile = agentFiles
         .filter((f) => f.updatedAt)
@@ -160,9 +184,9 @@ router.get("/eu-ai-act/register", async (_req, res) => {
         agentId,
         agentName: agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
         domain: govDomain,
-        intendedUse: meta.intendedUse,
+        intendedUse: meta?.intendedUse ?? `${agentId} — see AGENTS.md for full intended use statement`,
         nistControl: govNistControl,
-        riskClass: meta.riskClass,
+        riskClass,
         provider: "Rawson Consulting BV — VDA-MD Platform",
         deployer: "citizenM Hotels (BER, LND, MUC, PAR, VIE)",
         techDocComplete,

@@ -545,7 +545,7 @@ function IncidentRegister({ data, loading }) {
                     </span>
                   </td>
                   <td style={{ padding: "9px 10px" }}>
-                    <span style={{ ...MONO, fontSize: 10, color: "#f59e0b" }}>Pending notification</span>
+                    <span style={{ ...MONO, fontSize: 10, color: "#f59e0b" }}>Pending — authority not yet notified</span>
                   </td>
                 </tr>
               ))}
