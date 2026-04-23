@@ -1,0 +1,47 @@
+Task #48 Amendments
+Amendment to Step 10 — hitl.ts ESCALATION_TO_ROLE_BAND removal:
+Add the following clarification to Step 10:
+
+The agentId must be available when getEscalationTarget() is called inside deriveRoleBand(). Verify that: (a) the POST /api/hitl/escalate request body already carries agentId — it does, but confirm it is persisted onto the hitlTokens record, not just passed through; (b) when deriveRoleBand() is called, it receives agentId from the token payload, not from a route parameter. The function signature becomes deriveRoleBand(payload, agentId) and the internal call becomes await getEscalationTarget(agentId, target). If agentId is null on the token (legacy tokens), fall back to returning null with a warn log — do not crash.
+
+Amendment to Step 11 — agents.ts null-safety:
+Add to Step 11:
+
+If getRoleBandAuthority() returns null (agent has no EXCEPTION_AUTHORITY.md seeded yet), the agent endpoint must not fall back to any hardcoded value. Instead: return a governance decision of ESCALATE, set reasoning to "§1 violation — EXCEPTION_AUTHORITY.md missing for this agent. Cannot determine exception authority.", and write a COMPLIANCE_BOUNDARY / FAIL Witness Agent entry with event_type: "missing_exception_authority". This ensures the absence of a governance file is visible in the audit trail rather than silently using stale hardcoded logic.
+
+Amendment to Step 1 — schema file reference:
+Add to Step 1:
+
+Also update lib/db/src/schema/onboardingRequests.ts to add source: text("source").notNull().default("a2a_external") to the Drizzle table definition, and export it from lib/db/src/schema/index.ts. The DB migration alone is insufficient — the Drizzle schema must match or db:push will revert it.
+
+Amendment to Step 4 — YAML parsing:
+Add to Step 4:
+
+EXCEPTION_AUTHORITY.md is stored as plain text in governance_files.content. The reader must parse it as YAML. Use js-yaml (import yaml from 'js-yaml'). If js-yaml is not already in the package.json of artifacts/api-server, add it. The file uses --- separators between role_band sections — parse as a single YAML document (the --- inside the file are YAML block scalars, not multi-document separators, since the front-matter --- wrapper is handled separately). Strip the front-matter block before parsing the body.
+
+
+Task #49 Amendments
+Amendment to Step 1 — CO co-sign must be a separate card type, not a band:
+Replace the final sentence of Step 1 ("and on final CO co-sign creates an agent_phases record with phase=crawl") with:
+
+After all required bands complete their exception acceptance, activationOrchestrator creates a single co_sign_activation HITL card — this is NOT an exception_acceptance card and is NOT processed by advanceActivationBand. It has cardType: "co_sign_activation" and roleBand: "compliance_officer". Its payload includes the complete accepted baseline summary across all bands (list of accepted and rejected exception classes per band). When the CO approves this card, a separate branch in POST /api/hitl/respond/:token calls activationOrchestrator.completeActivation(activationRequestId, decidedBy) which: (a) sets activation_requests.status = "activated" and activation_requests.co_signed_by, (b) upserts agent_phases with { agentId, companyId, phase: "crawl" }. The CO card approval does NOT call advanceActivationBand. Add "co_sign_activation" to the valid cardType values in hitlTokens.
+
+Amendment to Step 2 — rejected exception class runtime behaviour:
+Add to Step 2:
+
+When an exception class exists in exception_baselines with rejected=true for a given agentId + companyId, the agent runtime (in agents.ts) must treat it as if no exception authority exists for that class — i.e., always ESCALATE, never evaluate the ceiling. The getRoleBandAuthority() function should include a rejectedClasses array in its return type so callers can check before evaluating. Add this to exceptionAuthorityReader.ts: async function getRejectedClasses(agentId: string, companyId: number): Promise<string[]> — returns the exceptionClass values where rejected=true from exception_baselines.
+
+Amendment to Step 4 — agentCard content for seed script:
+Replace "agentCard JSON derived from the agent's EXCEPTION_AUTHORITY.md" with:
+
+Build each agentCard using the AGENT_DEFS array in VdaOS.jsx as the canonical source for agent name, description, and endpoint url (e.g. https://${process.env.REPLIT_DEV_DOMAIN}/api/agents/checkout). Build the skills array from the exception_class entries in the agent's EXCEPTION_AUTHORITY.md — one skill entry per exception class, with id = exception_class slug, name = exception_class human label, description = the exception class description field. Set version: "1.0.0" and source: "vda_native" on all records.
+
+Amendment to Step 6 — Accept All and hitl_required distinction:
+Add to Step 6:
+
+Exception classes with authority: "autonomous" and authority: "hitl_required" must render with distinct labels. Autonomous classes show: "Agent acts independently within this ceiling — no approval needed per instance." HITL-required classes show: "Agent will surface each instance to you for approval before acting." The "Accept All" button only auto-accepts autonomous classes. HITL-required classes require individual explicit acceptance to ensure the role understands they will receive approval cards for these decisions. A role may still reject a hitl_required class entirely — this means "always escalate to the next band, do not even create a card at my level."
+
+Amendment to Step 7 — Verification: include Berlin activation loop:
+Add to Step 7:
+
+As part of verification, complete the full Berlin activation loop for checkout-agent: (1) call POST /api/admin/seed-vda-native-agents; (2) click "Activate at Berlin →" for checkout-agent in the Onboarding Queue; (3) switch to Compliance Officer role and complete the Ambassador, Senior Ambassador, and Hotel GM exception acceptance cards (accept all for demo purposes); (4) approve the CO co-sign card; (5) verify GET /api/dashboard/phases?companyId=1 returns a record for checkout-agent with phase: "crawl". This end-to-end loop must complete successfully before the task is marked done.

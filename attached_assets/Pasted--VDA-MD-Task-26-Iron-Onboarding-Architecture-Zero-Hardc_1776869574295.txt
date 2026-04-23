@@ -1,0 +1,786 @@
+# VDA-MD Task #26 — Iron Onboarding Architecture
+## Zero Hardcoded Logic · EXCEPTION_AUTHORITY.md · VDA Native Backlog · Sequential Hotel Activation
+
+**Author:** Rawson Consulting BV  
+**Date:** April 2026  
+**Priority:** Critical — foundational to Apaleo Core+ commercial proposition  
+**Scope:** `artifacts/api-server/src/` · `artifacts/vda-os/src/` · `lib/db/src/schema/`
+
+---
+
+## 1. The Foundational Principle
+
+**The platform must contain zero business logic.**
+
+Every exception ceiling, every role authority limit, every escalation target, every promotion threshold, every sandbox pass rate — all of it must live in governance files that the platform reads and enforces at runtime. If the file doesn't say it, the platform doesn't know it.
+
+This is not an optimisation. It is the commercial premise of VDA-MD. An Apaleo customer reading the whitepaper must be able to open a governance file and understand exactly what their agents are authorised to do, without reading source code.
+
+### The Full Audit — Hardcoded Logic to Remove
+
+The following is every instance of business logic currently hardcoded in platform source that must be externalised in this task:
+
+| Location | Hardcoded Value | Must Move To |
+|---|---|---|
+| `hitl.ts:21` | `ESCALATION_TO_ROLE_BAND` mapping (Revenue Manager→hotel_gm etc.) | `EXCEPTION_AUTHORITY.md` per agent |
+| `hitl.ts:197` | `FRONT_LINE_BANDS` array | `EXCEPTION_AUTHORITY.md` schema |
+| `hitl.ts:198` | `CROSS_PROPERTY_BANDS` array | `EXCEPTION_AUTHORITY.md` schema |
+| `dashboard.ts:68` | `FRONT_LINE_BANDS` array (duplicate) | `EXCEPTION_AUTHORITY.md` schema |
+| `dashboard.ts:573` | `FRONT_LINE_BANDS` array (triplicate) | `EXCEPTION_AUTHORITY.md` schema |
+| `dashboard.ts:461` | `VALID_TRANSITIONS: { crawl: "walk", walk: "run" }` | Agent-level governance config |
+| `agents.ts:1176` | `chargeAmount <= 500 → agent authority / > 500 → escalate / > 2000 → Finance Director` | `EXCEPTION_AUTHORITY.md` for Folio Charge Agent |
+| `agents.ts:1317` | `lateCheckout <= "14:00" → MAY waive fee` | `EXCEPTION_AUTHORITY.md` for Checkout Agent |
+| `agents.ts:1830` | `discountPct 0–9% → autonomous / above → escalate` | `EXCEPTION_AUTHORITY.md` for Rate Agent |
+| `agents.ts:1846` | `"within the 0–9% autonomous agent authority band"` (literal string) | `EXCEPTION_AUTHORITY.md` |
+| `agents.ts:2052` | `≤€500 → agent authority` | `EXCEPTION_AUTHORITY.md` |
+| `agents.ts:2074` | `below €200 ceiling` | `EXCEPTION_AUTHORITY.md` |
+| `agents.ts:2144` | `13:00 (1 hour past standard 12:00 checkout)` | `EXCEPTION_AUTHORITY.md` |
+| `onboardingOrchestrator.ts:442` | `passRate < 0.95` (sandbox threshold hardcoded) | `onboarding-policy.md` governance file |
+| `VdaOS.jsx:8768` | `parseFloat(bandData.agreementRate) < 0.95` (promotion threshold) | `onboarding-policy.md` governance file |
+| `fileManager.ts:68` | `MINIMUM_CLAUSE_THRESHOLDS` per file type | `onboarding-policy.md` governance file |
+| `VdaOS.jsx:9339` | `DASHBOARD_ROLES` array with authority descriptions | Read from `EXCEPTION_AUTHORITY.md` |
+| `VdaOS.jsx:5994` | `AGENT_DEFS` array (8 native agents not in onboarding) | `agent-registry.md` or onboarding records |
+
+**Implementation rule for all replacements:** The platform reads the relevant governance file from the database at decision time. The value in the file is the authoritative value. The platform enforces it. There is no fallback to a hardcoded default.
+
+---
+
+## 2. New File Type: EXCEPTION_AUTHORITY.md
+
+This is a new governance file type alongside the existing AGENTS.md / SOP.md / SKILL.md / EXCEPTION.md set.
+
+**Purpose:** Define the standing exception authority for each role band for a specific agent. This is the single source of truth for: what each role can autonomously approve, what the ceiling is for each exception class, what the escalation target is if the ceiling is exceeded, and whether HITL is required.
+
+**File type identifier:** `EXCEPTION_AUTHORITY`
+
+**One file per agent.** Each agent has exactly one EXCEPTION_AUTHORITY.md. It covers all six role bands. Bands with no applicable exceptions use `authority: not_applicable`.
+
+### 2.1 EXCEPTION_AUTHORITY.md Schema
+
+```yaml
+---
+file_type: EXCEPTION_AUTHORITY
+agent_id: checkout-agent
+owner: Hotel GM
+version: 1.0
+approved_by: Compliance Officer
+approved_at: 2026-04-22
+domain: Operations
+apaleo_api: Reservations API, Folio API
+nist_control: AC-2
+# Onboarding policy thresholds — platform reads these at decision time
+crawl_agreement_threshold: 0.95   # minimum agreement rate to exit crawl
+walk_agreement_threshold: 0.95    # minimum agreement rate to exit walk
+sandbox_pass_threshold: 0.95      # minimum sandbox eval pass rate for admission
+---
+
+## Standing Exception Authority — Checkout Agent
+
+This file defines the complete exception authority for each role band.
+The platform enforces these ceilings at runtime by reading this file.
+No exception limits are hardcoded in platform code (§1 compliance requirement).
+
+---
+
+### role_band: ambassador
+
+exception_class: late_checkout_fee_waiver
+description: Waive the late checkout fee for a departing guest
+ceiling: "12:00"
+ceiling_type: time
+conditions:
+  - Guest must depart by ceiling time
+  - No open folio disputes
+  - Folio balance settled or valid payment method on file
+authority: autonomous
+escalate_to: senior_ambassador
+must_log: true
+
+---
+
+exception_class: minor_folio_adjustment
+description: Adjust a folio charge within the minor correction window
+ceiling: 15
+ceiling_type: eur
+conditions:
+  - Charge must be on the current stay folio only
+  - Reason must be documented in Witness Agent entry
+authority: autonomous
+escalate_to: senior_ambassador
+must_log: true
+
+---
+
+### role_band: senior_ambassador
+
+exception_class: late_checkout_loyalty_extension
+description: Extend late checkout for verified loyalty tier guests
+ceiling: "14:00"
+ceiling_type: time
+conditions:
+  - Active loyalty tier verified in Apaleo guest profile
+  - Unit availability confirmed via Apaleo Inventory API
+  - No same-day group check-in blocking the unit
+authority: autonomous
+escalate_to: hotel_gm
+must_log: true
+
+---
+
+exception_class: rate_discount_standard
+description: Apply a rate discount for service recovery or guest retention
+ceiling: 15
+ceiling_type: percent_below_bar
+conditions:
+  - Service recovery documented in Witness Agent entry
+  - Original rate must be BAR or above
+  - Applies to current reservation only
+authority: autonomous
+escalate_to: hotel_gm
+must_log: true
+
+---
+
+### role_band: hotel_gm
+
+exception_class: late_checkout_vip
+description: Extend late checkout for VIP or comp guests at GM discretion
+ceiling: "17:00"
+ceiling_type: time
+conditions:
+  - VIP flag active in Apaleo guest profile, OR guest comp approved by Hotel GM this stay
+  - Housekeeping notified minimum 2 hours before departure
+authority: hitl_required
+escalate_to: regional_gm
+must_log: true
+
+---
+
+exception_class: guest_comp
+description: Comp a folio charge as a goodwill gesture
+ceiling: 250
+ceiling_type: eur
+conditions:
+  - Documented service failure or exceptional circumstance
+  - Not applicable to no-show charges
+  - Revenue Manager notified when comp exceeds 100 EUR
+authority: hitl_required
+escalate_to: regional_gm
+must_log: true
+
+---
+
+### role_band: regional_gm
+
+exception_class: cross_property_rate_exception
+description: Apply a rate exception across multiple citizenM properties
+ceiling: 20
+ceiling_type: percent_below_bar
+conditions:
+  - Corporate or key account verified in CRM
+  - Minimum 3-night stay across portfolio
+  - Rate parity obligations checked
+authority: hitl_required
+escalate_to: operations_chief
+must_log: true
+
+---
+
+### role_band: operations_chief
+
+authority: not_applicable
+
+---
+
+### role_band: compliance_officer
+
+exception_class: policy_override
+description: Override a MUST NOT clause for a documented exceptional circumstance
+ceiling: null
+ceiling_type: none
+conditions:
+  - Written justification logged in governance file
+  - Time-limited: maximum 30 days without formal policy amendment
+  - Board notification if override exceeds 7 days
+authority: hitl_required
+escalate_to: null
+must_log: true
+
+---
+
+## MUST NOT Override Classes
+
+These exception classes CANNOT be approved through the HITL queue.
+They require formal governance file amendment signed by the Compliance Officer.
+
+must_not_override:
+  - "Processing checkout without folio settlement confirmed in Apaleo"
+  - "Bypassing Apaleo Reservations API for check-in or checkout"
+  - "Applying a rate below the floor rate in active Apaleo rate plans"
+
+---
+
+## Escalation Map
+
+The platform derives role_band from this section at HITL token creation time.
+There is no ESCALATION_TO_ROLE_BAND in platform code.
+
+escalation_targets:
+  "Revenue Manager": hotel_gm
+  "Operations Director": hotel_gm
+  "Credit Control team": hotel_gm
+  "Housekeeping Manager": hotel_gm
+  "VP Revenue": regional_gm
+  "CFO": regional_gm
+  "CISO": operations_chief
+  "first_hitl_approval": compliance_officer
+  "second_hitl_approval": compliance_officer
+```
+
+### 2.2 EXCEPTION_AUTHORITY.md for All 8 VDA Native Agents
+
+The following EXCEPTION_AUTHORITY.md files must be created for each native agent:
+
+| Agent | Key exception classes to define |
+|---|---|
+| `availability-agent` | unit_group_hold, restricted_inventory_access |
+| `rate-agent` | rate_discount (0–9% Ambassador, 10–15% Senior Amb, 16–20% Hotel GM), rate_plan_override |
+| `reservation-bot` | reservation_create, reservation_modify, group_booking_threshold |
+| `check-in-agent` | folio_preauth_limit, early_checkin, unit_upgrade |
+| `folio-charge-agent` | charge_ceiling (≤€500 autonomous, €500–€2000 Senior Amb, >€2000 Hotel GM), fee_waiver |
+| `folio-agent` | folio_read, dispute_flag |
+| `checkout-agent` | late_checkout_fee_waiver, loyalty_extension, guest_comp, vip_late_checkout |
+| `revenue-reconciliation-agent` | variance_threshold, reconciliation_override |
+
+---
+
+## 3. New Governance File: onboarding-policy.md
+
+This file lives at `companyId=0` (platform sentinel). It defines the thresholds the onboarding orchestrator and dashboard use at runtime.
+
+```yaml
+---
+file_type: COMPLIANCE
+agent_id: onboarding-agent
+owner: Compliance Officer
+companyId: 0
+nist_control: AC-2
+---
+
+## VDA-MD Onboarding Policy
+
+### Admission Thresholds
+
+sandbox_pass_threshold: 0.95
+# Minimum pass rate required across all sandbox scenarios for Phase 5 to proceed.
+# Agents scoring below this threshold fail onboarding and must resubmit.
+
+crawl_agreement_threshold: 0.95
+# Minimum per-band agreement rate required to promote from crawl → walk.
+# Every required band must independently reach this threshold.
+
+walk_agreement_threshold: 0.95
+# Minimum per-band agreement rate required to promote from walk → run.
+
+### File Integrity Thresholds
+
+minimum_clause_counts:
+  AGENTS:           { must: 3, must_not: 2, may: 2 }
+  SOP:              { must: 3, must_not: 1, may: 1 }
+  COMPLIANCE:       { must: 3, must_not: 2, may: 2 }
+  SKILL:            { must: 2, must_not: 1, may: 1 }
+  EXCEPTION:        { must: 1, must_not: 1, may: 1 }
+  EXCEPTION_AUTHORITY: { must: 2, must_not: 1, may: 1 }
+
+### Role Band Classification
+
+front_line_bands:
+  - ambassador
+  - senior_ambassador
+  - hotel_gm
+
+cross_property_bands:
+  - regional_gm
+  - operations_chief
+  - compliance_officer
+
+### Phase Transitions
+
+valid_transitions:
+  crawl: walk
+  walk: run
+```
+
+**Platform changes required:**
+- `onboardingOrchestrator.ts`: Read `sandbox_pass_threshold` from this file instead of hardcoding `0.95`
+- `dashboard.ts`: Read `FRONT_LINE_BANDS` / `CROSS_PROPERTY_BANDS` / `valid_transitions` from this file
+- `fileManager.ts`: Read `minimum_clause_counts` from this file instead of `MINIMUM_CLAUSE_THRESHOLDS`
+- `VdaOS.jsx`: Read promotion threshold from this file instead of `0.95` literal
+
+---
+
+## 4. New Database Schema
+
+### 4.1 exception_baselines table
+
+```typescript
+export const exceptionBaselines = pgTable("exception_baselines", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`),
+  agentId: text("agent_id").notNull(),
+  companyId: integer("company_id").notNull(),
+  roleBand: text("role_band").notNull(),
+  exceptionClass: text("exception_class").notNull(),
+  exceptionDescription: text("exception_description"),
+  ceiling: text("ceiling"),                  // stored as string, typed by ceiling_type
+  ceilingType: text("ceiling_type"),         // "eur" | "percent_below_bar" | "time" | "none"
+  authority: text("authority").notNull(),    // "autonomous" | "hitl_required" | "not_applicable"
+  escalateTo: text("escalate_to"),
+  accepted: boolean("accepted").notNull().default(false),
+  rejected: boolean("rejected").notNull().default(false),
+  rejectedReason: text("rejected_reason"),
+  acceptedBy: text("accepted_by"),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  sourceFile: text("source_file"),           // "EXCEPTION_AUTHORITY.md"
+  sourceClause: text("source_clause"),       // verbatim clause text from file
+  activationRequestId: text("activation_request_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+```
+
+### 4.2 activation_requests table
+
+```typescript
+export const activationRequests = pgTable("activation_requests", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`),
+  agentId: text("agent_id").notNull(),
+  companyId: integer("company_id").notNull(),
+  initiatedBy: text("initiated_by").notNull(),
+  status: text("status").notNull().default("pending_ambassador"),
+  // Statuses: pending_ambassador → pending_senior_ambassador → pending_hotel_gm
+  //           → pending_regional_gm → pending_operations_chief → pending_co_cosign
+  //           → activated | rejected
+  currentBandStep: text("current_band_step"),
+  bandsCompleted: jsonb("bands_completed").default([]),  // array of completed band ids
+  bandsRejected: jsonb("bands_rejected").default([]),
+  coSignedBy: text("co_signed_by"),
+  coSignedAt: timestamp("co_signed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+```
+
+### 4.3 onboarding_requests table additions
+
+```typescript
+// Add to existing onboarding_requests table:
+source: text("source").notNull().default("a2a_external"),
+// "a2a_external" | "vda_native"
+// vda_native = pre-admitted, created by seed script for the 8 built-in agents
+```
+
+---
+
+## 5. New Backend Files
+
+### 5.1 `lib/db/src/schema/exceptionBaselines.ts`
+Drizzle schema for `exception_baselines` table (as above).
+
+### 5.2 `lib/db/src/schema/activationRequests.ts`
+Drizzle schema for `activation_requests` table (as above).
+
+### 5.3 `artifacts/api-server/src/lib/exceptionAuthorityReader.ts`
+
+New shared library. Reads an agent's EXCEPTION_AUTHORITY.md from the `governance_files` table and returns typed parsed data.
+
+```typescript
+// Exports:
+async function getExceptionAuthority(agentId: string, companyId: number): Promise<ExceptionAuthority>
+async function getRoleBandAuthority(agentId: string, companyId: number, roleBand: string): Promise<BandAuthority>
+async function getExceptionClass(agentId: string, companyId: number, roleBand: string, exceptionClass: string): Promise<ExceptionRule | null>
+async function getEscalationTarget(agentId: string, escalationLabel: string): Promise<string | null>
+async function getOnboardingPolicy(): Promise<OnboardingPolicy>  // reads companyId=0 onboarding-policy.md
+```
+
+All values returned from these functions come from the database. No hardcoded fallbacks.
+
+### 5.4 `artifacts/api-server/src/onboarding/activationOrchestrator.ts`
+
+New orchestrator. Manages the sequential hotel activation flow.
+
+```typescript
+// Phase sequence (reads front_line_bands and cross_property_bands from onboarding-policy.md)
+async function startActivation(agentId: string, companyId: number, initiatedBy: string): Promise<ActivationRequest>
+// 1. Reads agent's EXCEPTION_AUTHORITY.md
+// 2. Parses exception classes per band
+// 3. Creates activation_request record
+// 4. Creates exception_acceptance HITL cards for first required band (usually ambassador)
+// 5. Returns activationRequest
+
+async function advanceActivationBand(activationRequestId: string, outcome: "accepted" | "rejected", decidedBy: string): Promise<void>
+// Called from hitl/respond when cardType === "exception_acceptance"
+// Writes accepted exception classes to exception_baselines
+// If band complete: create HITL cards for next band
+// If all bands complete: create CO co-sign card
+// If CO co-signs: set agent_phases.phase = "crawl" for this companyId
+
+async function getActivationStatus(activationRequestId: string): Promise<ActivationStatus>
+```
+
+### 5.5 `artifacts/api-server/src/routes/hitl.ts` — modifications
+
+**Remove:** `ESCALATION_TO_ROLE_BAND` constant (lines 21–31)
+
+**Replace with:** Call to `getEscalationTarget(agentId, escalationLabel)` from `exceptionAuthorityReader.ts`
+
+**Add card type:** `"exception_acceptance"` alongside existing `"approval"`, `"operational_exception"`, `"raci_notification"`
+
+**Add:** When `cardType === "exception_acceptance"` in `/api/hitl/respond/:token`, call `advanceActivationBand()` instead of `advanceOrchestratorPhase()`
+
+### 5.6 `artifacts/api-server/src/routes/dashboard.ts` — modifications
+
+**Remove:** All `FRONT_LINE_BANDS` / `CROSS_PROPERTY_BANDS` / `VALID_TRANSITIONS` hardcoded constants
+
+**Replace with:** Single call to `getOnboardingPolicy()` at route handler start. Use `policy.front_line_bands`, `policy.cross_property_bands`, `policy.valid_transitions` throughout.
+
+**Add endpoint:**
+```
+POST /api/dashboard/activation/start
+  body: { agentId, companyId, initiatedBy }
+  → calls startActivation()
+  → returns activationRequest
+
+GET /api/dashboard/activation/:activationRequestId
+  → returns full activation status including band completion
+
+POST /api/dashboard/activation/:activationRequestId/cosign
+  → CO co-sign endpoint, sets phase = crawl
+```
+
+**Modify `/api/dashboard/phases/promote-band`:**
+Remove hardcoded `0.95` threshold. Read `crawl_agreement_threshold` / `walk_agreement_threshold` from `getOnboardingPolicy()`.
+
+### 5.7 `artifacts/api-server/src/routes/agents.ts` — modifications
+
+**Remove all hardcoded business logic strings from prompt construction:**
+
+Every agent endpoint that currently inlines thresholds like `"0–9% autonomous agent authority band"` or `"≤€500 (agent authority)"` must instead:
+
+1. Call `getRoleBandAuthority(agentId, companyId, "ambassador")` (or the relevant band)
+2. Get the relevant `exception_class` entry
+3. Build the prompt using `rule.ceiling`, `rule.ceiling_type`, `rule.authority` from the file
+
+The agent prompt must include: `"Authority source: EXCEPTION_AUTHORITY.md. Ceiling: ${rule.ceiling} ${rule.ceiling_type}. Authority: ${rule.authority}."`
+
+This means the Checkout Agent's prompt ceiling changes from `"late checkout fee waived before 14:00"` (hardcoded) to whatever the EXCEPTION_AUTHORITY.md says — which may vary per property.
+
+### 5.8 `artifacts/api-server/src/routes/fileManager.ts` — modifications
+
+**Remove:** `MINIMUM_CLAUSE_THRESHOLDS` constant (lines 68–75)
+
+**Replace with:** Read from `getOnboardingPolicy().minimum_clause_counts` at the start of the compliance-check handler. Cache for the request lifetime only.
+
+### 5.9 `artifacts/api-server/src/onboarding/onboardingOrchestrator.ts` — modifications
+
+**Remove:** `if (passRate < 0.95)` hardcoded threshold (line 442)
+
+**Replace with:** `const policy = await getOnboardingPolicy(); if (passRate < policy.sandbox_pass_threshold)`
+
+### 5.10 `scripts/seed-vda-native-agents.ts` — new seed script
+
+Creates pre-admission `onboarding_requests` records for the 8 native VDA agents.
+
+```typescript
+const VDA_NATIVE_AGENTS = [
+  { id: "availability-agent",           name: "Availability Agent",         icon: "🔍" },
+  { id: "rate-agent",                   name: "Rate Agent",                 icon: "💰" },
+  { id: "reservation-bot",              name: "Reservation Bot",            icon: "📋" },
+  { id: "check-in-agent",              name: "Check-In Agent",             icon: "✅" },
+  { id: "folio-agent",                 name: "Folio Agent",                icon: "🧾" },
+  { id: "folio-charge-agent",          name: "Folio Charge Agent",         icon: "💳" },
+  { id: "checkout-agent",              name: "Checkout Agent",             icon: "🚪" },
+  { id: "revenue-reconciliation-agent",name: "Revenue Reconciliation Agent",icon: "📊" },
+];
+
+// For each agent: insert onboarding_requests with:
+//   source: "vda_native"
+//   status: "pre_admitted"
+//   agentCard: { name, description, skills } derived from EXCEPTION_AUTHORITY.md
+//   companyId: null (not yet hotel-specific)
+```
+
+This script runs once via `POST /api/admin/seed-vda-native-agents` and is idempotent (skips agents already seeded).
+
+---
+
+## 6. Frontend Changes — VdaOS.jsx
+
+### 6.1 Agent Onboarding Tab — New Structure
+
+The `AgentOnboardingTab` Onboarding Queue sub-tab must show **two distinct sections**:
+
+**Section A — VDA Native Agents**
+Source: `onboarding_requests` where `source = "vda_native"`. Shown as a grid, not a pipeline list. For each agent, show which hotels it is activated at (from `agent_phases`) and which hotels it is not. Hotel activation is triggered here.
+
+```
+VDA NATIVE AGENTS
+──────────────────────────────────────────────────────────────────
+🔍 Availability Agent      BER ✓  LND –  MUC –  PAR –  VIE –
+                           [Activate at London →]
+
+💰 Rate Agent              BER –  LND –  MUC –  PAR –  VIE –
+                           [Activate at Berlin →]
+...
+```
+
+"Activate at Hotel →" button calls `POST /api/dashboard/activation/start` for that agent + companyId. This creates the activation_request and the first band's exception_acceptance cards.
+
+**Section B — External A2A Agents**
+Source: `onboarding_requests` where `source = "a2a_external"`. Shows the existing pipeline progress view unchanged.
+
+### 6.2 Approvals Sub-Tab — Exception Acceptance Cards
+
+`exception_acceptance` cards must render differently from `approval` cards:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  EXCEPTION ACCEPTANCE — Ambassador Band                      │
+│  Checkout Agent · citizenM Berlin                           │
+│                                                              │
+│  You are reviewing the exception classes this agent may      │
+│  exercise autonomously within your authority band.           │
+│  Accept each class to pre-authorise autonomous operation.    │
+│  Reject any class to require HITL for those decisions.       │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ late_checkout_fee_waiver                     ACCEPT │    │
+│  │ Waive the late checkout fee                  REJECT │    │
+│  │ Ceiling: 12:00 · Autonomous                        │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ minor_folio_adjustment                       ACCEPT │    │
+│  │ Adjust a folio charge                        REJECT │    │
+│  │ Ceiling: €15 · Autonomous                          │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  [Accept All]  [Submit decisions]                           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Each exception class is accepted or rejected individually. The card is resolved when all classes have been decided. The platform writes accepted classes to `exception_baselines` and creates the next band's cards.
+
+### 6.3 Phase Management — Remove Hardcoded 0.95 Threshold
+
+The `belowAgreementThreshold` check currently:
+```javascript
+const belowAgreementThreshold = bandData.agreementRate == null || parseFloat(bandData.agreementRate) < 0.95;
+```
+
+Must become:
+```javascript
+const policy = await fetch('/api/admin/onboarding-policy').then(r => r.json());
+const threshold = policy.crawl_agreement_threshold ?? 0.95;
+const belowAgreementThreshold = bandData.agreementRate == null || parseFloat(bandData.agreementRate) < threshold;
+```
+
+### 6.4 Wizard — Two-Phase Display
+
+The 8-Step Wizard must visually distinguish Phase 0 (CO technical admission) from Phase 1 (hotel activation):
+
+```
+PHASE 0 — TECHNICAL ADMISSION  (Compliance Officer only)
+Steps 1–7: existing pipeline (A2A submission through governance file commit)
+Status: admitted | rejected | failed
+
+─── Only visible to Compliance Officer ───────────────────────
+
+PHASE 1 — HOTEL ACTIVATION  (Sequential, role by role)
+For each hotel where activation has been initiated:
+  Step 1: Ambassador exception review
+  Step 2: Senior Ambassador exception review
+  Step 3: Hotel GM exception review
+  Step 4: Regional GM review (if applicable)
+  Step 5: CO co-sign
+  → CRAWL begins
+```
+
+For VDA native agents, Phase 0 shows as `pre_admitted` with a green badge — they skip the admission pipeline entirely.
+
+---
+
+## 7. New API Endpoint: GET /api/admin/onboarding-policy
+
+Returns the parsed `onboarding-policy.md` as JSON. Cached for 60 seconds. Used by both frontend (phase management) and backend (orchestrators, fileManager).
+
+```json
+{
+  "sandbox_pass_threshold": 0.95,
+  "crawl_agreement_threshold": 0.95,
+  "walk_agreement_threshold": 0.95,
+  "minimum_clause_counts": {
+    "AGENTS": { "must": 3, "must_not": 2, "may": 2 },
+    ...
+  },
+  "front_line_bands": ["ambassador", "senior_ambassador", "hotel_gm"],
+  "cross_property_bands": ["regional_gm", "operations_chief", "compliance_officer"],
+  "valid_transitions": { "crawl": "walk", "walk": "run" }
+}
+```
+
+---
+
+## 8. Onboarding Sequence — The Iron Flow
+
+### Track A: VDA Native Agents
+
+```
+SEED SCRIPT (one-time)
+  → Creates onboarding_requests with source="vda_native", status="pre_admitted"
+  → Creates EXCEPTION_AUTHORITY.md for each agent in File Manager (companyId=0)
+  → No A2A pipeline. No HITL. Compliance Officer does not need to admit them.
+
+HOTEL GM (or Regional GM) TRIGGERS ACTIVATION
+  POST /api/dashboard/activation/start
+  { agentId: "checkout-agent", companyId: 1, initiatedBy: "Hotel GM" }
+  → Creates activation_request
+  → Reads EXCEPTION_AUTHORITY.md for checkout-agent
+  → Extracts ambassador band exception classes
+  → Creates exception_acceptance HITL card for ambassador band
+  → Sets activationRequest.currentBandStep = "ambassador"
+
+AMBASSADOR REVIEWS EXCEPTION CLASSES
+  Card type: exception_acceptance, role_band: ambassador
+  Reviews: late_checkout_fee_waiver (ceiling: 12:00), minor_folio_adjustment (ceiling: €15)
+  Accepts both → exception_baselines records written
+  Card resolved → activationOrchestrator advances to senior_ambassador
+
+SENIOR AMBASSADOR REVIEWS
+  Cards: late_checkout_loyalty_extension (ceiling: 14:00), rate_discount_standard (ceiling: 15%)
+  Accepts → next band unlocked
+
+HOTEL GM REVIEWS
+  Cards: late_checkout_vip (ceiling: 17:00, hitl_required), guest_comp (ceiling: €250, hitl_required)
+  Note: hitl_required means the agent will always surface these for approval before acting —
+  accepting them pre-authorises the Hotel GM to be the approver
+
+REGIONAL GM (if cross_property exceptions exist in EXCEPTION_AUTHORITY.md)
+  → auto-skipped if no cross_property exception classes defined for this agent
+
+OPERATIONS CHIEF (if portfolio exceptions exist)
+  → auto-skipped
+
+COMPLIANCE OFFICER CO-SIGNS
+  Sees complete accepted baseline across all bands
+  Co-signs → activation_request.status = "activated"
+  → agent_phases record created: { agentId, companyId, phase: "crawl" }
+  → Crawl begins: agent runs in shadow mode, decisions logged to Witness Agent
+```
+
+### Track B: External A2A Agents
+
+```
+EXTERNAL AGENT SUBMITS VIA A2A
+  POST /api/a2a/onboarding
+  → Existing 7-phase pipeline (Phases 2–4 automated, Phase 4 = first CO HITL)
+  → Phase 5: sandbox eval — threshold read from onboarding-policy.md
+  → Phase 6: second CO HITL
+  → Phase 7: governance files committed, VC issued
+  → onboarding_requests.status = "admitted" (NOT "onboarded")
+  → source = "a2a_external"
+
+THEN HOTEL ACTIVATION (same as Track A above)
+  Hotel GM triggers activation for any admitted external agent
+  Same sequential exception acceptance flow
+  Same phase lifecycle
+```
+
+### Crawl → Walk → Run
+
+```
+CRAWL (shadow mode, no Apaleo writes)
+  Agent makes decisions, logs to Witness Agent
+  Each decision surfaced to relevant role band for agree/disagree
+  Platform reads crawl_agreement_threshold from onboarding-policy.md
+  When ALL required bands independently reach threshold:
+  → Hotel GM + CO co-sign crawl completion
+  → agent_phases.phase = "walk"
+
+WALK (live, HITL for edge decisions)
+  Agent writes to Apaleo
+  Decisions within accepted exception_baselines → autonomous
+  Decisions at/above ceiling → HITL (card created, routed by EXCEPTION_AUTHORITY.md escalate_to)
+  Decisions in MUST NOT override class → CO notification, never auto-approved
+  When ALL required bands reach walk_agreement_threshold:
+  → Hotel GM + CO co-sign walk completion
+  → agent_phases.phase = "run"
+
+RUN (full autonomy within accepted baseline)
+  Full autonomy within exception_baselines
+  Decisions outside baseline always escalate
+  Baseline cannot change without new exception_acceptance cycle
+```
+
+---
+
+## 9. §4 Compliance Guard — EXCEPTION_AUTHORITY.md Protection
+
+The existing `§4 compliance guard` in `fileManager.ts` protects AGENTS.md, SOP.md etc. The same guard must apply to EXCEPTION_AUTHORITY.md with these additional rules:
+
+- Reducing any `ceiling` value is a dilution (requires CO override)
+- Changing `authority` from `hitl_required` to `autonomous` is a dilution (requires CO override)
+- Removing an `escalate_to` target is a dilution
+- Removing any entry from `must_not_override` is a critical dilution (requires CO + Hotel GM co-sign)
+- The `minimum_clause_counts` for `EXCEPTION_AUTHORITY` must be enforced (see onboarding-policy.md)
+
+---
+
+## 10. Implementation Order
+
+Run in this exact sequence — each step is a valid checkpoint:
+
+1. **DB migrations** — Add `exception_baselines`, `activation_requests` tables; add `source` column to `onboarding_requests`
+2. **`onboarding-policy.md`** — Create the file at companyId=0, seed it with all current hardcoded values
+3. **`exceptionAuthorityReader.ts`** — New shared library
+4. **`/api/admin/onboarding-policy`** — New endpoint, returns parsed onboarding-policy.md
+5. **Remove `MINIMUM_CLAUSE_THRESHOLDS`** from `fileManager.ts` — replace with endpoint call
+6. **Remove sandbox `0.95` threshold** from `onboardingOrchestrator.ts` — replace with policy read
+7. **Remove `FRONT_LINE_BANDS` / `CROSS_PROPERTY_BANDS`** from `dashboard.ts` — replace with policy read
+8. **Remove `VALID_TRANSITIONS`** from `dashboard.ts` — replace with policy read
+9. **Remove `belowAgreementThreshold < 0.95`** from `VdaOS.jsx` — replace with policy read
+10. **Create EXCEPTION_AUTHORITY.md** for all 8 native agents — file content in File Manager at companyId=0
+11. **Remove `ESCALATION_TO_ROLE_BAND`** from `hitl.ts` — replace with `exceptionAuthorityReader.getEscalationTarget()`
+12. **Remove hardcoded thresholds** from `agents.ts` prompt strings — replace with `getRoleBandAuthority()` values
+13. **`activationOrchestrator.ts`** — New orchestrator
+14. **Add `exception_acceptance` card type** to `hitl.ts` respond handler
+15. **Add activation endpoints** to `dashboard.ts`
+16. **`seed-vda-native-agents.ts`** — Seed script + admin endpoint
+17. **VdaOS.jsx — Onboarding Queue split** (VDA native / External A2A)
+18. **VdaOS.jsx — exception_acceptance card UI**
+19. **VdaOS.jsx — Wizard Phase 0 / Phase 1 split**
+20. **Run seed script** — populate VDA native agent records
+21. **Verify**: all 8 native agents appear in onboarding backlog with `pre_admitted` status
+22. **Verify**: `GET /api/admin/onboarding-policy` returns correct values
+23. **Verify**: no `0.95` or `ESCALATION_TO_ROLE_BAND` or `FRONT_LINE_BANDS` literals remain in platform code
+
+---
+
+## 11. Verification Checklist
+
+After implementation, run this audit to confirm zero hardcoded logic:
+
+```bash
+# These should return zero results after Task #26
+grep -rn "ESCALATION_TO_ROLE_BAND" artifacts/api-server/src/
+grep -rn "FRONT_LINE_BANDS\|CROSS_PROPERTY_BANDS" artifacts/api-server/src/
+grep -rn "passRate < 0.95\|passRate >= 0.95" artifacts/api-server/src/
+grep -rn "< 0.95\|>= 0.95" artifacts/vda-os/src/VdaOS.jsx
+grep -rn "MINIMUM_CLAUSE_THRESHOLDS" artifacts/api-server/src/
+grep -rn "≤€500\|€500–€2000\|€2000\|0–9%\|10%.*escalat\|14:00.*waive\|12:00.*checkout" artifacts/api-server/src/routes/agents.ts
+grep -rn "VALID_TRANSITIONS.*crawl.*walk" artifacts/api-server/src/routes/dashboard.ts
+```
+
+All zero. If any return results, those lines are §1 violations and must be addressed before the task is closed.
+
+---
+
+*VDA-MD Task #26 · Rawson Consulting BV · April 2026 · CONFIDENTIAL*
