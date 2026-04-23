@@ -47,6 +47,23 @@ export interface RaciException {
   resolution: "both_notified";
 }
 
+export interface EuAiActClassification {
+  risk_class: "high" | "limited" | "minimal";
+  rationale: string;
+  triggering_skills: string[];
+  art_14_human_oversight_required: boolean;
+}
+
+export interface GdprAssessment {
+  art22_scope: boolean;
+  lawful_basis: string;
+  lawful_basis_article: string;
+  data_categories: string[];
+  hitl_required: boolean;
+  rationale: string;
+  triggering_skills: string[];
+}
+
 export interface ImpactDeltaReport {
   friction_removed: FrictionRemoved[];
   value_added: ValueAdded[];
@@ -57,6 +74,8 @@ export interface ImpactDeltaReport {
   files_to_create: number;
   files_to_modify: number;
   rollback_scope: string;
+  eu_ai_act_classification: EuAiActClassification;
+  gdpr_assessment: GdprAssessment;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -365,7 +384,110 @@ export async function analyseImpactDelta(
     });
   }
 
-  // ─── e. Affected files list ───────────────────────────────────────────────
+  // ─── e. EU AI Act classification ─────────────────────────────────────────
+  //
+  // Derives risk class from the incoming skill set:
+  // • HIGH  — skills that produce automated individual decisions with significant
+  //           legal/financial impact (reservations, charges, check-in/out, upgrades)
+  // • LIMITED — agent processes personal data but does not make high-stakes automated
+  //             decisions affecting individual guest rights (folio audit, availability)
+  // • MINIMAL — purely internal / aggregated analytics with no direct guest impact
+  //
+  // Art. 14 human oversight is required for all high-risk agents.
+
+  const HIGH_RISK_SKILL_PATTERNS = [
+    /reserv/i, /check.?in/i, /check.?out/i, /charge/i, /payment/i,
+    /folio.*post/i, /rate.*apply/i, /upgrade/i, /book/i, /cancel/i,
+  ];
+  const PERSONAL_DATA_SKILL_PATTERNS = [
+    /guest/i, /folio/i, /reserv/i, /identity/i, /email/i,
+    /checkin/i, /checkout/i, /availability/i, /rate/i,
+  ];
+
+  const highRiskTriggers = incomingSkills.filter(s =>
+    HIGH_RISK_SKILL_PATTERNS.some(p => p.test(s))
+  );
+  const personalDataTriggers = incomingSkills.filter(s =>
+    PERSONAL_DATA_SKILL_PATTERNS.some(p => p.test(s))
+  );
+
+  let euAiActRiskClass: "high" | "limited" | "minimal";
+  let euAiActRationale: string;
+  let art14Oversight: boolean;
+
+  if (highRiskTriggers.length > 0) {
+    euAiActRiskClass = "high";
+    art14Oversight = true;
+    euAiActRationale = `Agent skills (${highRiskTriggers.join(", ")}) produce automated decisions that materially affect individual guests (reservation creation, charges, check-in/out). Classified as high-risk under EU AI Act Annex III and EXCEPTION_AUTHORITY.md ceiling constraints. Art. 14 human oversight (HITL) is mandatory for all above-ceiling decisions.`;
+  } else if (personalDataTriggers.length > 0) {
+    euAiActRiskClass = "limited";
+    art14Oversight = false;
+    euAiActRationale = `Agent processes guest personal data (${personalDataTriggers.join(", ")}) but does not make high-stakes automated decisions affecting individual rights. Classified as limited-risk. Art. 14 human oversight is recommended but not mandatory for within-ceiling decisions.`;
+  } else {
+    euAiActRiskClass = "minimal";
+    art14Oversight = false;
+    euAiActRationale = `Agent operates on aggregated/internal data only. No automated decisions affecting individual guest rights identified in skill set. Classified as minimal-risk under EU AI Act.`;
+  }
+
+  const euAiActClassification: EuAiActClassification = {
+    risk_class: euAiActRiskClass,
+    rationale: euAiActRationale,
+    triggering_skills: highRiskTriggers.length > 0 ? highRiskTriggers : personalDataTriggers,
+    art_14_human_oversight_required: art14Oversight,
+  };
+
+  // ─── f. GDPR assessment ───────────────────────────────────────────────────
+  //
+  // Art. 22 scope: does this agent make automated decisions that produce legal
+  // or similarly significant effects on individuals?
+  // • Guest-facing agents with charge/booking/checkin/checkout authority → Art. 22
+  // • Internal analytics agents with no individual impact → outside scope
+  // Lawful basis: Art. 6(1)(b) for contract-performance agents; 6(1)(f) for internal
+  //
+  // Data categories derived from skill names.
+
+  const ART22_SKILL_PATTERNS = [
+    /reserv/i, /check.?in/i, /check.?out/i, /charge/i, /rate.*apply/i,
+    /folio.*post/i, /book/i, /upgrade/i,
+  ];
+  const art22Triggers = incomingSkills.filter(s =>
+    ART22_SKILL_PATTERNS.some(p => p.test(s))
+  );
+
+  const isGuestFacing = art22Triggers.length > 0 ||
+    /guest|reservation|checkin|checkout|booking/i.test(agentCard.description);
+  const isInternalOnly = /reconcili|revenue.*internal|aggregat/i.test(agentCard.description) &&
+    art22Triggers.length === 0;
+
+  const art22Scope = art22Triggers.length > 0;
+  const lawfulBasisArticle = isInternalOnly ? "Art. 6(1)(f)" : "Art. 6(1)(b)";
+  const lawfulBasis = isInternalOnly
+    ? "Legitimate interests — internal analytics and financial oversight"
+    : "Performance of a contract — guest accommodation services";
+
+  // Derive data categories from skill names
+  const dataCategories: string[] = [];
+  if (incomingSkills.some(s => /reserv|book/i.test(s))) dataCategories.push("Reservation ID, arrival/departure dates, rate plan");
+  if (incomingSkills.some(s => /check.?in|guest.*id|identity/i.test(s))) dataCategories.push("Guest name, email, nationality, identity document reference");
+  if (incomingSkills.some(s => /folio|charge|payment/i.test(s))) dataCategories.push("Folio ID, charge descriptions, amounts, payment method");
+  if (incomingSkills.some(s => /rate/i.test(s))) dataCategories.push("Corporate rate code, loyalty tier, booking channel");
+  if (incomingSkills.some(s => /check.?out/i.test(s))) dataCategories.push("Loyalty tier, stay duration, folio balance");
+  if (incomingSkills.some(s => /availability/i.test(s))) dataCategories.push("Arrival/departure dates, unit type preference");
+  if (dataCategories.length === 0) dataCategories.push("Aggregated operational data (no individual guest PII in scope)");
+
+  const gdprAssessment: GdprAssessment = {
+    art22_scope: art22Scope,
+    lawful_basis: lawfulBasis,
+    lawful_basis_article: lawfulBasisArticle,
+    data_categories: dataCategories,
+    hitl_required: art22Scope,
+    rationale: art22Scope
+      ? `Agent skills (${art22Triggers.join(", ")}) produce automated decisions that materially affect individual guests — within Art. 22 scope. HITL safeguard is mandatory for all above-ceiling decisions (Art. 22(2)(a) exception: contract necessity). Generated SOP.md and EXCEPTION_AUTHORITY.md will encode authority ceilings.`
+      : `Agent does not make automated decisions with significant legal or financial impact on individual guests — outside Art. 22 scope. Processes ${isInternalOnly ? "aggregated internal data only" : "personal data within contract performance scope but without automated individual decision authority"}.`,
+    triggering_skills: art22Triggers,
+  };
+
+  // ─── g. Affected files list ───────────────────────────────────────────────
 
   const affectedFiles: string[] = [];
 
@@ -399,6 +521,8 @@ export async function analyseImpactDelta(
     files_to_create: filesToCreate,
     files_to_modify: filesToModify,
     rollback_scope: `Remove ${agentSlug} governance files, revoke VC, remove Agent Card registration`,
+    eu_ai_act_classification: euAiActClassification,
+    gdpr_assessment: gdprAssessment,
   };
 
   logger.info(
@@ -409,6 +533,8 @@ export async function analyseImpactDelta(
       conflicts: conflicts.length,
       autoRemoved: autoRemovedSkills.length,
       raci: raciExceptions.length,
+      euAiActRiskClass: euAiActClassification.risk_class,
+      gdprArt22Scope: gdprAssessment.art22_scope,
     },
     "Impact delta analysis complete"
   );

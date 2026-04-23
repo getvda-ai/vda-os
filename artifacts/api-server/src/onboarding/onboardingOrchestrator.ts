@@ -374,8 +374,8 @@ async function runPhase4(
     summary: `External agent "${agentCard.name}" is requesting admission to the VDA-MD framework. It has declared ${agentCard.skills.length} skills and targets: ${agentCard.description}`,
     impact_delta_report: impactDelta,
     candidate_files_summary: [
-      "AGENTS.md — agent identity and rules",
-      "SOP.md — Standard Operating Procedures",
+      "AGENTS.md — agent identity and rules (includes EU AI Act risk class + GDPR lawful basis)",
+      "SOP.md — Standard Operating Procedures (includes GDPR Article 22 clauses if in scope)",
       "SKILL.md — permitted skills",
       ...(candidateFiles.exception_md ? ["EXCEPTION.md — governance deviations"] : []),
     ],
@@ -384,6 +384,23 @@ async function runPhase4(
     raci_exceptions: impactDelta.raci_exceptions,
     risk_level: riskLevel,
     recommended_action: recommendedAction,
+    // EU AI Act classification — surfaced top-level for Compliance Officer review
+    eu_ai_act_risk_class: impactDelta.eu_ai_act_classification.risk_class,
+    eu_ai_act_art14_oversight: impactDelta.eu_ai_act_classification.art_14_human_oversight_required,
+    eu_ai_act_rationale: impactDelta.eu_ai_act_classification.rationale,
+    eu_ai_act_triggering_skills: impactDelta.eu_ai_act_classification.triggering_skills,
+    // GDPR assessment — surfaced top-level for Compliance Officer review
+    gdpr_art22_scope: impactDelta.gdpr_assessment.art22_scope,
+    gdpr_lawful_basis: `${impactDelta.gdpr_assessment.lawful_basis} (${impactDelta.gdpr_assessment.lawful_basis_article})`,
+    gdpr_data_categories: impactDelta.gdpr_assessment.data_categories,
+    gdpr_hitl_required: impactDelta.gdpr_assessment.hitl_required,
+    gdpr_rationale: impactDelta.gdpr_assessment.rationale,
+    // Regulatory summary for the approval card header
+    regulatory_summary: [
+      `EU AI Act: ${impactDelta.eu_ai_act_classification.risk_class.toUpperCase()} risk class — ${impactDelta.eu_ai_act_classification.art_14_human_oversight_required ? "Art. 14 HITL oversight mandatory" : "HITL recommended but not mandatory"}`,
+      `GDPR Art. 22: ${impactDelta.gdpr_assessment.art22_scope ? "IN SCOPE — automated decision-making affecting guests" : "OUT OF SCOPE"} · Lawful basis: ${impactDelta.gdpr_assessment.lawful_basis_article}`,
+      `Compliance guards: GDPR + EU AI Act clauses verified in generated AGENTS.md and SOP.md (VDA-MD §3)`,
+    ],
     phase: 1,
   };
 

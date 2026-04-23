@@ -16,6 +16,90 @@ const router = Router();
 const COMPANIES = [1, 2, 3, 4, 5];
 const COMPANY_MAP: Record<number, string> = { 1: "BER", 2: "LND", 3: "MUC", 4: "PAR", 5: "VIE" };
 
+// ─── YAML front-matter parser (lightweight — no external dependency) ──────────
+
+function parseYamlFrontMatter(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return result;
+  for (const line of match[1].split(/\r?\n/)) {
+    const kv = line.match(/^([a-z_]+):\s*(.+)$/i);
+    if (kv) result[kv[1].trim().toLowerCase()] = kv[2].trim().replace(/^["']|["']$/g, "");
+  }
+  return result;
+}
+
+/**
+ * Discovers agents onboarded via A2A that are not in the hardcoded AGENT_ROPA list.
+ * Parses AGENTS.md governance files for `gdpr_art22_scope` and `eu_ai_act_risk_class`
+ * YAML front-matter fields written by the candidateFileGenerator during onboarding.
+ */
+interface OnboardedAgent {
+  agentId: string;
+  gdprArt22Scope: boolean;
+  euAiActRiskClass: string;
+  lawfulBasisArticle: string;
+  lawfulBasis: string;
+  domain: string;
+  owner: string;
+  source: "onboarding";
+}
+
+async function getOnboardedAgents(knownAgentIds: string[]): Promise<OnboardedAgent[]> {
+  try {
+    const rows = await db
+      .select({
+        agentId: governanceFiles.agentId,
+        content: governanceFiles.content,
+        domain: governanceFiles.domain,
+        owner: governanceFiles.owner,
+      })
+      .from(governanceFiles)
+      .where(
+        and(
+          eq(governanceFiles.fileType, "AGENTS"),
+          not(eq(governanceFiles.isArchived, true)),
+          not(inArray(governanceFiles.companyId, [0])), // exclude platform sentinel
+        ),
+      );
+
+    const seenIds = new Set<string>();
+    const result: OnboardedAgent[] = [];
+
+    for (const row of rows) {
+      if (!row.agentId) continue;
+      if (knownAgentIds.includes(row.agentId)) continue; // skip hardcoded agents
+      if (seenIds.has(row.agentId)) continue;
+      seenIds.add(row.agentId);
+
+      const yaml = parseYamlFrontMatter(row.content ?? "");
+      const art22Scope = yaml["gdpr_art22_scope"] === "true";
+      const riskClass  = yaml["eu_ai_act_risk_class"] ?? "limited";
+      const isInternal = /reconcili|aggregat|internal/i.test(row.domain ?? "");
+      const lawfulBasisArticle = isInternal ? "Art. 6(1)(f)" : "Art. 6(1)(b)";
+      const lawfulBasis = isInternal
+        ? "Legitimate interests — internal analytics and financial oversight"
+        : "Performance of a contract — guest accommodation services";
+
+      result.push({
+        agentId: row.agentId,
+        gdprArt22Scope: art22Scope,
+        euAiActRiskClass: riskClass,
+        lawfulBasisArticle,
+        lawfulBasis,
+        domain: row.domain ?? "Operations",
+        owner: row.owner ?? "Compliance Officer",
+        source: "onboarding",
+      });
+    }
+
+    return result;
+  } catch (err) {
+    logger.warn({ err }, "getOnboardedAgents: failed to query governance files, returning empty");
+    return [];
+  }
+}
+
 /**
  * Per-agent GDPR processing activity definitions.
  * Data categories sourced from the Apaleo PMS context each agent receives.
@@ -154,8 +238,9 @@ const AGENT_ROPA: Array<{
 
 router.get("/gdpr/ropa", async (_req, res) => {
   try {
-    const [fileCounts, phaseCounts] = await Promise.all([
-      // Count governance files per agent to determine if RoPA record is documented
+    const hardcodedIds = AGENT_ROPA.map((a) => a.agentId);
+
+    const [fileCounts, onboardedAgents] = await Promise.all([
       db
         .select({ agentId: governanceFiles.agentId, cnt: sql<string>`count(*)` })
         .from(governanceFiles)
@@ -166,11 +251,7 @@ router.get("/gdpr/ropa", async (_req, res) => {
           ),
         )
         .groupBy(governanceFiles.agentId),
-      // Phase counts per agent to derive deployment status
-      db
-        .select({ agentId: agentPhases.agentId, phase: agentPhases.phase })
-        .from(agentPhases)
-        .where(inArray(agentPhases.companyId, COMPANIES)),
+      getOnboardedAgents(hardcodedIds),
     ]);
 
     const fileCountByAgent: Record<string, number> = {};
@@ -178,17 +259,7 @@ router.get("/gdpr/ropa", async (_req, res) => {
       if (r.agentId) fileCountByAgent[r.agentId] = Number(r.cnt);
     }
 
-    const activeHotelsByAgent: Record<string, string[]> = {};
-    for (const r of phaseCounts) {
-      if (!activeHotelsByAgent[r.agentId]) activeHotelsByAgent[r.agentId] = [];
-      const hotel = Object.values(COMPANY_MAP).find((_, i) => Object.keys(COMPANY_MAP)[i]);
-      // just track that agent is active somewhere
-      if (!activeHotelsByAgent[r.agentId].includes(r.phase)) {
-        activeHotelsByAgent[r.agentId].push(r.phase);
-      }
-    }
-
-    const activities = AGENT_ROPA.map((a) => ({
+    const hardcodedActivities = AGENT_ROPA.map((a) => ({
       ...a,
       governanceFileCount: fileCountByAgent[a.agentId] ?? 0,
       documented: (fileCountByAgent[a.agentId] ?? 0) > 0,
@@ -196,8 +267,36 @@ router.get("/gdpr/ropa", async (_req, res) => {
       processor: "Rawson Consulting BV — VDA-MD Platform",
       transfersOutsideEEA: false,
       transferSafeguards: "Data processed within EU. Apaleo PMS — EU-hosted SaaS.",
+      source: "hardcoded" as const,
     }));
 
+    // Dynamically discovered agents from onboarding (A2A) — derive basic RoPA entry
+    const dynamicActivities = onboardedAgents.map((a) => ({
+      agentId: a.agentId,
+      activityName: `${a.agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} — onboarded via A2A`,
+      purposeOfProcessing: `Automated decision support — derived from agent card and governance files. See AGENTS.md for full intended use statement.`,
+      dataCategories: ["Operational data — see AGENTS.md for full data category declaration"],
+      dataSubjects: "Hotel guests and staff (confirm from AGENTS.md)",
+      lawfulBasis: a.lawfulBasis,
+      lawfulBasisArticle: a.lawfulBasisArticle,
+      art22Scope: a.gdprArt22Scope,
+      art22Exception: a.gdprArt22Scope
+        ? "Art. 22(2)(a) — necessary for the performance of the guest contract; HITL safeguard applies"
+        : null,
+      retentionPeriod: "As declared in AGENTS.md — review required",
+      safeguards: ["HITL oversight", "PII scrubbing layer (Microsoft Presidio)", "Governance file constraints"],
+      recipients: ["citizenM staff", "Apaleo PMS"],
+      governanceFileCount: fileCountByAgent[a.agentId] ?? 0,
+      documented: (fileCountByAgent[a.agentId] ?? 0) > 0,
+      controller: "citizenM Hotels",
+      processor: "Rawson Consulting BV — VDA-MD Platform",
+      transfersOutsideEEA: false,
+      transferSafeguards: "Data processed within EU. Apaleo PMS — EU-hosted SaaS.",
+      source: "onboarding" as const,
+      note: "This agent was onboarded via A2A. The RoPA entry is derived from governance files and requires review by the Data Controller.",
+    }));
+
+    const activities = [...hardcodedActivities, ...dynamicActivities];
     const totalArt22 = activities.filter((a) => a.art22Scope).length;
     const allDocumented = activities.every((a) => a.documented);
 
@@ -205,6 +304,7 @@ router.get("/gdpr/ropa", async (_req, res) => {
       activities,
       totalActivities: activities.length,
       totalArt22Scope: totalArt22,
+      dynamicallyDiscovered: dynamicActivities.length,
       allDocumented,
       controller: "citizenM Hotels",
       processor: "Rawson Consulting BV — VDA-MD Platform",
@@ -223,21 +323,26 @@ router.get("/gdpr/article22", async (_req, res) => {
   try {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
+    const hardcodedIds = AGENT_ROPA.map((a) => a.agentId);
+
     // Count PASS (automated, no HITL) vs ESCALATE (human review triggered) per agent
-    const decisionRows = await db
-      .select({
-        agent: witnessEntries.agent,
-        decision: witnessEntries.decision,
-        cnt: sql<string>`count(*)`,
-      })
-      .from(witnessEntries)
-      .where(
-        and(
-          gte(witnessEntries.createdAt, thirtyDaysAgo),
-          inArray(witnessEntries.companyId, COMPANIES),
-        ),
-      )
-      .groupBy(witnessEntries.agent, witnessEntries.decision);
+    const [decisionRows, onboardedAgents] = await Promise.all([
+      db
+        .select({
+          agent: witnessEntries.agent,
+          decision: witnessEntries.decision,
+          cnt: sql<string>`count(*)`,
+        })
+        .from(witnessEntries)
+        .where(
+          and(
+            gte(witnessEntries.createdAt, thirtyDaysAgo),
+            inArray(witnessEntries.companyId, COMPANIES),
+          ),
+        )
+        .groupBy(witnessEntries.agent, witnessEntries.decision),
+      getOnboardedAgents(hardcodedIds),
+    ]);
 
     const byAgent: Record<string, { pass: number; fail: number; escalate: number }> = {};
     for (const r of decisionRows) {
@@ -248,31 +353,54 @@ router.get("/gdpr/article22", async (_req, res) => {
       if (r.decision === "ESCALATE") byAgent[slug].escalate += Number(r.cnt);
     }
 
-    const art22Agents = AGENT_ROPA.filter((a) => a.art22Scope).map((a) => {
-      const counts = byAgent[a.agentId] ?? { pass: 0, fail: 0, escalate: 0 };
+    const buildArt22Entry = (
+      agentId: string,
+      activityName: string,
+      dataCategories: string[],
+      lawfulBasis: string,
+      lawfulBasisArticle: string,
+      art22Exception: string | null,
+      source: string = "hardcoded",
+    ) => {
+      const counts = byAgent[agentId] ?? { pass: 0, fail: 0, escalate: 0 };
       const total = counts.pass + counts.fail + counts.escalate;
-      const humanReviewRate = total > 0 ? Math.round(((counts.escalate + counts.fail) / total) * 1000) / 10 : null;
-      const automatedPassRate = total > 0 ? Math.round((counts.pass / total) * 1000) / 10 : null;
-
       return {
-        agentId: a.agentId,
-        agentName: a.agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-        activityName: a.activityName,
-        dataCategories: a.dataCategories,
-        lawfulBasis: a.lawfulBasis,
-        lawfulBasisArticle: a.lawfulBasisArticle,
-        art22Exception: a.art22Exception,
-        // Within-ceiling PASS decisions are automated (no HITL required per governance rules)
+        agentId,
+        agentName: agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        activityName,
+        dataCategories,
+        lawfulBasis,
+        lawfulBasisArticle,
+        art22Exception,
         automated30d: counts.pass,
         humanReviewed30d: counts.escalate + counts.fail,
         total30d: total,
-        humanReviewRatePct: humanReviewRate,
-        automatedPassRatePct: automatedPassRate,
-        // Compliance status: green if human review rate >= 5% (HITL engaged), amber if fully automated
+        humanReviewRatePct: total > 0 ? Math.round(((counts.escalate + counts.fail) / total) * 1000) / 10 : null,
+        automatedPassRatePct: total > 0 ? Math.round((counts.pass / total) * 1000) / 10 : null,
         hitlSafeguardActive: counts.escalate > 0,
         complianceStatus: counts.escalate > 0 ? "safeguarded" : total > 0 ? "monitoring" : "no_data",
+        source,
       };
-    });
+    };
+
+    const art22Agents = [
+      // Hardcoded 8 agents (Art. 22 scope only)
+      ...AGENT_ROPA.filter((a) => a.art22Scope).map((a) =>
+        buildArt22Entry(a.agentId, a.activityName, a.dataCategories, a.lawfulBasis, a.lawfulBasisArticle, a.art22Exception)
+      ),
+      // Dynamically discovered onboarded agents in Art. 22 scope
+      ...onboardedAgents.filter((a) => a.gdprArt22Scope).map((a) =>
+        buildArt22Entry(
+          a.agentId,
+          `${a.agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} — onboarded via A2A`,
+          ["Operational data — see AGENTS.md"],
+          a.lawfulBasis,
+          a.lawfulBasisArticle,
+          "Art. 22(2)(a) — necessary for the performance of the guest contract; HITL safeguard applies",
+          "onboarding",
+        )
+      ),
+    ];
 
     const totalAutomated30d = art22Agents.reduce((s, a) => s + a.automated30d, 0);
     const totalHumanReviewed30d = art22Agents.reduce((s, a) => s + a.humanReviewed30d, 0);
