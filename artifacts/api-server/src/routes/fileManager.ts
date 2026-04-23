@@ -9,7 +9,12 @@ import yaml from "js-yaml";
 
 /**
  * VDA-MD §10 EXCEPTION_AUTHORITY dilution guard.
- * Parses as a YAML multi-document stream (per-band blocks separated by ---).
+ * Parses the single-document YAML format used by all EXCEPTION_AUTHORITY.md files:
+ *   - YAML front-matter block (--- ... ---) is stripped before parsing
+ *   - Body is a single yaml.load() doc with top-level keys:
+ *       role_bands: { [band]: { exceptions: ExceptionEntry[] } }
+ *       must_not_override: string[]
+ *       escalation_targets: Record<string, string>
  * Blocks updates that weaken agent authority definitions per band:
  *   ceiling_reduction     — a band's ceiling value lowered
  *   authority_downgrade   — a band's authority changed to a less-capable class
@@ -26,53 +31,53 @@ function checkExceptionAuthorityDilution(existingContent: string, newContent: st
     hitl_required: 4, advisory: 3, monitor: 2, autonomous: 1, not_applicable: 0,
   };
 
-  type BandDoc = {
+  type ExceptionEntry = {
     exception_class?: string;
     ceiling?: number | null;
     authority?: string;
-    escalate_to?: string;
+    escalate_to?: string | null;
     [k: string]: unknown;
   };
 
   type ParsedAuth = {
-    bands: Map<string, BandDoc[]>;  // Array to preserve all exception classes per band
+    bands: Map<string, ExceptionEntry[]>;
     mustNotOverride: string[];
   };
 
+  /**
+   * Strips YAML front-matter (--- ... ---) and parses the body as a single YAML document.
+   * Returns the structured ParsedAuth with per-band exception lists.
+   */
   function parseAuthContent(src: string): ParsedAuth {
     const result: ParsedAuth = { bands: new Map(), mustNotOverride: [] };
 
-    let currentBand: string | null = null;
-    const chunks = src.split(/\n---\n/);
+    // Strip YAML front-matter: the block between the first --- and second ---
+    const body = src.replace(/^---[\s\S]*?---\s*\n/, "").trim();
+    if (!body) return result;
 
-    for (const chunk of chunks) {
-      const bm = chunk.match(/###\s+role_band:\s*(\S+)/);
-      if (bm) currentBand = bm[1];
+    let doc: unknown;
+    try { doc = yaml.load(body); } catch { return result; }
+    if (!doc || typeof doc !== "object") return result;
 
-      const yamlLines = chunk
-        .split("\n")
-        .filter(l => !/^#{1,6}\s/.test(l) && !/^>\s/.test(l))
-        .join("\n")
-        .trim();
+    const root = doc as Record<string, unknown>;
 
-      if (!yamlLines) continue;
-
-      const yamlWithBand = currentBand ? `role_band: ${currentBand}\n${yamlLines}` : yamlLines;
-      let parsed: unknown;
-      try { parsed = yaml.load(yamlWithBand); } catch { continue; }
-      if (!parsed || typeof parsed !== "object") continue;
-      const obj = parsed as Record<string, unknown>;
-
-      if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
-        result.mustNotOverride = obj.must_not_override as string[];
-      } else if (obj.exception_class !== undefined || obj.authority !== undefined) {
-        const band = (obj.role_band as string | undefined) ?? currentBand;
-        if (band) {
-          if (!result.bands.has(band)) result.bands.set(band, []);
-          result.bands.get(band)!.push(obj as BandDoc);
-        }
+    // role_bands: { [bandName]: { exceptions: ExceptionEntry[] } }
+    const roleBands = root["role_bands"];
+    if (roleBands && typeof roleBands === "object") {
+      for (const [band, bandDef] of Object.entries(roleBands as Record<string, unknown>)) {
+        if (!bandDef || typeof bandDef !== "object") continue;
+        const exceptions = (bandDef as Record<string, unknown>)["exceptions"];
+        if (!Array.isArray(exceptions)) continue;
+        result.bands.set(band, exceptions as ExceptionEntry[]);
       }
     }
+
+    // must_not_override: string[]
+    const mno = root["must_not_override"];
+    if (Array.isArray(mno)) {
+      result.mustNotOverride = mno.map(String);
+    }
+
     return result;
   }
 
