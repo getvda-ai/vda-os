@@ -99,8 +99,9 @@ function parseExceptionAuthorityBody(body: string): ExceptionAuthority {
     let parsed: unknown;
     try {
       parsed = yaml.load(yamlLines);
-    } catch {
-      continue; // skip unparseable chunks
+    } catch (parseErr) {
+      logger.warn({ parseErr, chunk }, "[exceptionAuthorityReader] YAML chunk unparseable — skipping block");
+      continue;
     }
 
     if (!parsed || typeof parsed !== "object") continue;
@@ -136,10 +137,20 @@ function parseOnboardingPolicyBody(body: string): OnboardingPolicy {
 
   // Normalise minimum_clause_counts — the spec uses { must, must_not, may } objects
   // but the fileManager.ts uses { must, mustNot, may } — we keep as must_not here.
+  const sb = parsed?.sandbox_pass_threshold;
+  const ca = parsed?.crawl_agreement_threshold;
+  const wa = parsed?.walk_agreement_threshold;
+  if (sb == null || ca == null || wa == null) {
+    throw new Error(
+      "onboarding-policy.md is missing required threshold field(s): " +
+      [sb == null ? "sandbox_pass_threshold" : null, ca == null ? "crawl_agreement_threshold" : null, wa == null ? "walk_agreement_threshold" : null]
+        .filter(Boolean).join(", ")
+    );
+  }
   const policy: OnboardingPolicy = {
-    sandbox_pass_threshold: Number(parsed?.sandbox_pass_threshold ?? 0.95),
-    crawl_agreement_threshold: Number(parsed?.crawl_agreement_threshold ?? 0.95),
-    walk_agreement_threshold: Number(parsed?.walk_agreement_threshold ?? 0.95),
+    sandbox_pass_threshold: Number(sb),
+    crawl_agreement_threshold: Number(ca),
+    walk_agreement_threshold: Number(wa),
     minimum_clause_counts: (parsed?.minimum_clause_counts as Record<string, ClauseThreshold>) ?? {},
     front_line_bands: (parsed?.front_line_bands as string[]) ?? [],
     cross_property_bands: (parsed?.cross_property_bands as string[]) ?? [],

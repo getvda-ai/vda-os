@@ -10,7 +10,7 @@ import { eq, isNull, and, sql } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { advanceOrchestratorPhase } from "../onboarding/onboardingOrchestrator.js";
 import { logger } from "../lib/logger.js";
-import { getExceptionAuthority, getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
+import { getEscalationTarget, getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 
 const router: IRouter = Router();
 
@@ -23,19 +23,9 @@ async function deriveRoleBand(payload: Record<string, unknown>, agentId: string 
     logger.warn({ payload }, "[HITL] agentId null — role_band left NULL");
     return null;
   }
-  const authority = await getExceptionAuthority(agentId);
-  if (!authority) {
-    logger.warn({ agentId }, "[HITL] No EXCEPTION_AUTHORITY.md for agent — role_band left NULL");
-    return null;
-  }
   const target = payload?.escalation_target as string | undefined;
   if (!target) return null;
-  const band = authority.escalationTargets[target];
-  if (!band) {
-    logger.warn({ escalation_target: target, agentId }, "[HITL] Unrecognised escalation_target — role_band left NULL");
-    return null;
-  }
-  return band;
+  return await getEscalationTarget(agentId, target);
 }
 
 // ─── POST /api/hitl/escalate ──────────────────────────────────────────────────
@@ -54,7 +44,9 @@ router.post("/hitl/escalate", async (req, res) => {
       return;
     }
 
-    const roleBand = await deriveRoleBand(payload, (payload.agent_id as string) ?? null);
+    const agentId = (payload.agent_id as string) ?? null;
+    const companyId = typeof payload.company_id === "number" ? payload.company_id : null;
+    const roleBand = await deriveRoleBand(payload, agentId);
 
     const rows = await db.insert(hitlTokens).values({
       onboardingRequestId: onboarding_request_id,
@@ -62,6 +54,8 @@ router.post("/hitl/escalate", async (req, res) => {
       cardType: card_type,
       payload,
       roleBand,
+      agentId,
+      companyId,
     }).returning({ token: hitlTokens.token });
 
     const token = rows[0].token;

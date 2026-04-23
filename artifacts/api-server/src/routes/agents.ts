@@ -44,6 +44,7 @@ async function guardAuthority(
       decision: "FAIL",
       clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md missing — agent cannot determine authority boundaries",
       actionProposed: "ESCALATE — governance authority file not found for " + agentSlug,
+      apaleoData: { event_type: "missing_exception_authority", agent_slug: agentSlug },
     });
     return {
       decision: "ESCALATE",

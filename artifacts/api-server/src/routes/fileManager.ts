@@ -5,6 +5,88 @@ import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
 import { checkComplianceGuards } from "../lib/complianceGuards.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
+import yaml from "js-yaml";
+
+/**
+ * VDA-MD §10 EXCEPTION_AUTHORITY dilution guard.
+ * Blocks updates that weaken agent authority definitions:
+ *   ceiling_reduction     — autonomous_ceiling lowered
+ *   authority_downgrade   — authority field moved to less-capable class
+ *   escalate_to removal   — an escalation_targets entry removed
+ *   must_not_override removal — a must_not_override item removed
+ * Returns a list of violation strings (empty = allowed).
+ */
+function checkExceptionAuthorityDilution(existingContent: string, newContent: string): string[] {
+  const violations: string[] = [];
+
+  function parseAuthDoc(src: string): Record<string, unknown> {
+    try {
+      // Strip markdown fences and headings before YAML parsing
+      const stripped = src
+        .split("\n")
+        .filter(l => !/^#{1,6}\s/.test(l) && !/^---\s*$/.test(l))
+        .join("\n");
+      const parsed = yaml.load(stripped);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch { /* non-YAML content */ }
+    return {};
+  }
+
+  const before = parseAuthDoc(existingContent);
+  const after  = parseAuthDoc(newContent);
+
+  // ceiling_reduction
+  const ceilBefore = typeof before.autonomous_ceiling === "number" ? before.autonomous_ceiling : null;
+  const ceilAfter  = typeof after.autonomous_ceiling  === "number" ? after.autonomous_ceiling  : null;
+  if (ceilBefore !== null && ceilAfter !== null && ceilAfter < ceilBefore) {
+    violations.push(
+      `DILUTION [§10]: autonomous_ceiling reduced from ${ceilBefore} to ${ceilAfter}. ` +
+      "Authority ceiling can only be increased or unchanged. Require governance sign-off to lower.",
+    );
+  }
+
+  // authority_downgrade — any change away from "autonomous" is a downgrade
+  const AUTH_RANK: Record<string, number> = { autonomous: 3, advisory: 2, monitor: 1, not_applicable: 0 };
+  const authBefore = String(before.authority ?? "");
+  const authAfter  = String(after.authority  ?? "");
+  if (authBefore && authAfter && authBefore !== authAfter &&
+      (AUTH_RANK[authBefore] ?? 0) > (AUTH_RANK[authAfter] ?? 0)) {
+    violations.push(
+      `DILUTION [§10]: authority downgraded from "${authBefore}" to "${authAfter}". ` +
+      "Authority class can only be upgraded or unchanged under VDA-MD §10.",
+    );
+  }
+
+  // escalate_to removal
+  const etBefore = before.escalation_targets && typeof before.escalation_targets === "object"
+    ? Object.keys(before.escalation_targets as object)
+    : [];
+  const etAfter = after.escalation_targets && typeof after.escalation_targets === "object"
+    ? new Set(Object.keys(after.escalation_targets as object))
+    : new Set<string>();
+  for (const k of etBefore) {
+    if (!etAfter.has(k)) {
+      violations.push(
+        `DILUTION [§10]: escalation_targets entry "${k}" removed. ` +
+        "Removing escalation routes reduces oversight coverage.",
+      );
+    }
+  }
+
+  // must_not_override removal
+  const mnoBefore = Array.isArray(before.must_not_override) ? (before.must_not_override as string[]) : [];
+  const mnoAfter  = new Set(Array.isArray(after.must_not_override) ? (after.must_not_override as string[]) : []);
+  for (const item of mnoBefore) {
+    if (!mnoAfter.has(item)) {
+      violations.push(
+        `DILUTION [§10]: must_not_override item "${item}" removed. ` +
+        "Removing override restrictions weakens agent governance boundaries.",
+      );
+    }
+  }
+
+  return violations;
+}
 
 const router = Router();
 
@@ -325,7 +407,7 @@ router.put("/fm/file/:id", async (req, res) => {
 
     // Load existing file for both ownership check and compliance guard baseline comparison
     const [existingFile] = await db
-      .select({ id: governanceFiles.id, companyId: governanceFiles.companyId, content: governanceFiles.content })
+      .select({ id: governanceFiles.id, companyId: governanceFiles.companyId, content: governanceFiles.content, filename: governanceFiles.filename })
       .from(governanceFiles)
       .where(eq(governanceFiles.id, id));
     if (!existingFile) return res.status(404).json({ error: "Not found" });
@@ -350,6 +432,29 @@ router.put("/fm/file/:id", async (req, res) => {
           error: "VDA-MD compliance guard rejected this update",
           violations: guard.violations,
           hint: guard.hint,
+        });
+      }
+    }
+
+    // VDA-MD §10 EXCEPTION_AUTHORITY dilution guard
+    if (content && existingFile.content && existingFile.filename === "EXCEPTION_AUTHORITY.md") {
+      const dilutionViolations = checkExceptionAuthorityDilution(existingFile.content, content);
+      if (dilutionViolations.length > 0) {
+        writeGovernanceEvent({
+          companyId: existingFile.companyId ?? companyId ?? 0,
+          agent: "compliance-guard",
+          eventCategory: "COMPLIANCE_BOUNDARY",
+          decision: "FAIL",
+          fileReferenced: `governance-file:${existingFile.id}`,
+          clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md dilution guard triggered",
+          actionProposed: `Reject update to EXCEPTION_AUTHORITY.md ${existingFile.id} — authority dilution detected`,
+          reasoning: dilutionViolations.join("; "),
+          apaleoData: { event_type: "exception_authority_dilution", fileId: existingFile.id, violations: dilutionViolations },
+        }).catch(err => console.warn("[Witness] exception_authority_dilution event failed:", err));
+        return res.status(409).json({
+          error: "VDA-MD §10: EXCEPTION_AUTHORITY.md dilution guard rejected this update",
+          violations: dilutionViolations,
+          hint: "Agent authority definitions can only be strengthened or left unchanged. Ceiling reductions, authority downgrades, and removal of escalation targets or override restrictions require governance re-approval.",
         });
       }
     }

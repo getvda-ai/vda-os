@@ -7525,7 +7525,7 @@ function NotPermittedRows({ skillMd }) {
   );
 }
 
-function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, setDocsTab, passThreshold = 0.95 }) {
+function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, setDocsTab, passThreshold = null }) {
   if (loading) return <div style={{ padding: 20, textAlign: "center", color: T.dim, fontSize: 12, opacity: 0.6 }}>Loading full dossier…</div>;
   if (!data) return null;
 
@@ -7656,10 +7656,10 @@ function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, 
           </div>
           {data.evalPassRate !== null && data.evalPassRate !== undefined && (
             <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ fontSize: 28, fontWeight: 900, color: Number(data.evalPassRate) >= passThreshold ? T.green : T.red }}>{(Number(data.evalPassRate) * 100).toFixed(1)}%</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: passThreshold != null ? (Number(data.evalPassRate) >= passThreshold ? T.green : T.red) : T.dim }}>{(Number(data.evalPassRate) * 100).toFixed(1)}%</div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700 }}>Sandbox Eval Pass Rate</div>
-                <div style={{ fontSize: 11, opacity: 0.6 }}>{Number(data.evalPassRate) >= passThreshold ? "Passed — agent meets sandbox quality gate" : "Below threshold — review recommended"}</div>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>{passThreshold == null ? "Loading policy…" : Number(data.evalPassRate) >= passThreshold ? "Passed — agent meets sandbox quality gate" : "Below threshold — review recommended"}</div>
               </div>
             </div>
           )}
@@ -7749,13 +7749,13 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   useEffect(() => {
     fetch("/api/admin/onboarding-policy")
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.policy) setOnboardingPolicy(d.policy); })
+      .then(d => { if (d?.sandbox_pass_threshold != null) setOnboardingPolicy(d); })
       .catch(() => {});
   }, []);
 
-  const sandboxPassThreshold = onboardingPolicy?.sandbox_pass_threshold ?? 0.95;
-  const crawlAgreementThreshold = onboardingPolicy?.crawl_agreement_threshold ?? 0.95;
-  const walkAgreementThreshold = onboardingPolicy?.walk_agreement_threshold ?? 0.95;
+  const sandboxPassThreshold = onboardingPolicy?.sandbox_pass_threshold ?? null;
+  const crawlAgreementThreshold = onboardingPolicy?.crawl_agreement_threshold ?? null;
+  const walkAgreementThreshold = onboardingPolicy?.walk_agreement_threshold ?? null;
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
@@ -8309,7 +8309,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                         <div>ID: <span style={{ color: T.muted }}>{req.id.slice(0,12)}…</span></div>
                         <div>Session: <span style={{ color: T.muted }}>{req.sessionId?.slice(0,12)}…</span></div>
                         <div>Created: <span style={{ color: T.muted }}>{new Date(req.createdAt).toLocaleString("en-GB")}</span></div>
-                        {req.evalPassRate && <div>Eval pass rate: <span style={{ color: parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red, fontWeight: 700 }}>{(parseFloat(req.evalPassRate) * 100).toFixed(1)}%</span></div>}
+                        {req.evalPassRate && <div>Eval pass rate: <span style={{ color: sandboxPassThreshold != null ? (parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red) : T.dim, fontWeight: 700 }}>{(parseFloat(req.evalPassRate) * 100).toFixed(1)}%</span></div>}
                         {req.prUrl && <div>PR: <a href={req.prUrl} target="_blank" rel="noreferrer" style={{ color: T.blue }}>View PR #{req.prNumber}</a></div>}
                       </div>
 
@@ -8362,9 +8362,9 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                           <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 8 }}>SANDBOX EVAL RESULTS</div>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                             <div style={{ flex: 1, background: T.bg, borderRadius: 4, height: 8, overflow: "hidden" }}>
-                              <div style={{ height: "100%", width: `${parseFloat(req.evalPassRate) * 100}%`, background: parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red, borderRadius: 4 }} />
+                              <div style={{ height: "100%", width: `${parseFloat(req.evalPassRate) * 100}%`, background: sandboxPassThreshold != null ? (parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red) : T.dim, borderRadius: 4 }} />
                             </div>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: sandboxPassThreshold != null ? (parseFloat(req.evalPassRate) >= sandboxPassThreshold ? T.green : T.red) : T.dim }}>
                               {(parseFloat(req.evalPassRate) * 100).toFixed(1)}%
                             </span>
                             <span style={{ fontSize: 12, color: T.dim }}>of 5 scenarios</span>
@@ -8544,7 +8544,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                       <div style={{ fontSize: 11, color: T.dim, opacity: 0.6 }}>{new Date(p.createdAt).toLocaleString("en-GB")}</div>
                       {payload.eval_pass_rate !== undefined && (
                         <div style={{ fontSize: 11, marginTop: 3 }}>
-                          Eval: <span style={{ fontWeight: 700, color: payload.eval_pass_rate >= sandboxPassThreshold ? T.green : T.red }}>{(payload.eval_pass_rate * 100).toFixed(1)}%</span>
+                          Eval: <span style={{ fontWeight: 700, color: sandboxPassThreshold != null ? (payload.eval_pass_rate >= sandboxPassThreshold ? T.green : T.red) : T.dim }}>{(payload.eval_pass_rate * 100).toFixed(1)}%</span>
                         </div>
                       )}
                     </div>
@@ -8779,7 +8779,8 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                             const isPromotingThisBand = promotingAgent === `${agent.agentId}:${band.id}`;
                             // Null agreementRate = no operational exception history yet = insufficient data, block promotion.
                             const agreementThreshold = bandPhase === "crawl" ? crawlAgreementThreshold : walkAgreementThreshold;
-                            const belowAgreementThreshold = bandData.agreementRate == null || parseFloat(bandData.agreementRate) < agreementThreshold;
+                            // When policy not yet loaded (agreementThreshold == null) block promotion conservatively.
+                            const belowAgreementThreshold = bandData.agreementRate == null || agreementThreshold == null || parseFloat(bandData.agreementRate) < agreementThreshold;
                             const isPromoteDisabled = hasBlocker || belowAgreementThreshold || isPromotingThisBand;
                             const promoteTitle = hasBlocker
                               ? `Resolve ${allBandCards.length} pending exception(s) for this band first`
