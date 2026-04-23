@@ -9,74 +9,113 @@ import yaml from "js-yaml";
 
 /**
  * VDA-MD §10 EXCEPTION_AUTHORITY dilution guard.
- * Blocks updates that weaken agent authority definitions:
- *   ceiling_reduction     — autonomous_ceiling lowered
- *   authority_downgrade   — authority field moved to less-capable class
- *   escalate_to removal   — an escalation_targets entry removed
- *   must_not_override removal — a must_not_override item removed
+ * Parses as a YAML multi-document stream (per-band blocks separated by ---).
+ * Blocks updates that weaken agent authority definitions per band:
+ *   ceiling_reduction     — a band's ceiling value lowered
+ *   authority_downgrade   — a band's authority changed to a less-capable class
+ *   escalate_to removal   — a band's escalate_to field removed
+ *   must_not_override removal — a global must_not_override item removed
  * Returns a list of violation strings (empty = allowed).
  */
 function checkExceptionAuthorityDilution(existingContent: string, newContent: string): string[] {
   const violations: string[] = [];
 
-  function parseAuthDoc(src: string): Record<string, unknown> {
+  const AUTH_RANK: Record<string, number> = {
+    autonomous: 4, advisory: 3, hitl_required: 2, monitor: 1, not_applicable: 0,
+  };
+
+  type BandDoc = {
+    exception_class?: string;
+    ceiling?: number | null;
+    authority?: string;
+    escalate_to?: string;
+    [k: string]: unknown;
+  };
+
+  type ParsedAuth = {
+    bands: Map<string, BandDoc>;
+    mustNotOverride: string[];
+    escalationTargets: Map<string, string>;
+  };
+
+  function parseAuthContent(src: string): ParsedAuth {
+    const result: ParsedAuth = { bands: new Map(), mustNotOverride: [], escalationTargets: new Map() };
+
+    // Build band-index from headings to align with YAML documents
+    const rawLines = src.split("\n");
+    let bandForNext: string | null = null;
+    const bandAtSep: (string | null)[] = [];
+    for (const line of rawLines) {
+      const bm = line.match(/###\s+role_band:\s*(\S+)/);
+      if (bm) { bandForNext = bm[1]; }
+      if (/^---\s*$/.test(line.trim())) { bandAtSep.push(bandForNext); }
+    }
+
+    const stripped = rawLines
+      .filter(l => !/^#{1,6}\s/.test(l) && !/^>\s/.test(l))
+      .join("\n");
+
+    let docIdx = 0;
     try {
-      // Strip markdown fences and headings before YAML parsing
-      const stripped = src
-        .split("\n")
-        .filter(l => !/^#{1,6}\s/.test(l) && !/^---\s*$/.test(l))
-        .join("\n");
-      const parsed = yaml.load(stripped);
-      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
-    } catch { /* non-YAML content */ }
-    return {};
+      yaml.loadAll(stripped, (doc) => {
+        if (!doc || typeof doc !== "object") { docIdx++; return; }
+        const obj = doc as Record<string, unknown>;
+        const inferredBand = bandAtSep[docIdx] ?? null;
+        docIdx++;
+
+        if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
+          result.mustNotOverride = obj.must_not_override as string[];
+        } else if (obj.escalation_targets && typeof obj.escalation_targets === "object") {
+          for (const [k, v] of Object.entries(obj.escalation_targets as object)) {
+            result.escalationTargets.set(k, String(v));
+          }
+        } else if (obj.exception_class !== undefined || obj.authority !== undefined) {
+          const band = (obj.role_band as string | undefined) ?? inferredBand;
+          if (band) result.bands.set(band, obj as BandDoc);
+        }
+      });
+    } catch { /* malformed content — empty result */ }
+    return result;
   }
 
-  const before = parseAuthDoc(existingContent);
-  const after  = parseAuthDoc(newContent);
+  const before = parseAuthContent(existingContent);
+  const after  = parseAuthContent(newContent);
 
-  // ceiling_reduction
-  const ceilBefore = typeof before.autonomous_ceiling === "number" ? before.autonomous_ceiling : null;
-  const ceilAfter  = typeof after.autonomous_ceiling  === "number" ? after.autonomous_ceiling  : null;
-  if (ceilBefore !== null && ceilAfter !== null && ceilAfter < ceilBefore) {
-    violations.push(
-      `DILUTION [§10]: autonomous_ceiling reduced from ${ceilBefore} to ${ceilAfter}. ` +
-      "Authority ceiling can only be increased or unchanged. Require governance sign-off to lower.",
-    );
-  }
+  // Per-band ceiling_reduction, authority_downgrade, escalate_to removal
+  for (const [band, bDoc] of before.bands) {
+    const aDoc = after.bands.get(band);
+    if (!aDoc) continue; // band removed entirely — not a dilution concern here
 
-  // authority_downgrade — any change away from "autonomous" is a downgrade
-  const AUTH_RANK: Record<string, number> = { autonomous: 3, advisory: 2, monitor: 1, not_applicable: 0 };
-  const authBefore = String(before.authority ?? "");
-  const authAfter  = String(after.authority  ?? "");
-  if (authBefore && authAfter && authBefore !== authAfter &&
-      (AUTH_RANK[authBefore] ?? 0) > (AUTH_RANK[authAfter] ?? 0)) {
-    violations.push(
-      `DILUTION [§10]: authority downgraded from "${authBefore}" to "${authAfter}". ` +
-      "Authority class can only be upgraded or unchanged under VDA-MD §10.",
-    );
-  }
-
-  // escalate_to removal
-  const etBefore = before.escalation_targets && typeof before.escalation_targets === "object"
-    ? Object.keys(before.escalation_targets as object)
-    : [];
-  const etAfter = after.escalation_targets && typeof after.escalation_targets === "object"
-    ? new Set(Object.keys(after.escalation_targets as object))
-    : new Set<string>();
-  for (const k of etBefore) {
-    if (!etAfter.has(k)) {
+    // ceiling_reduction
+    if (typeof bDoc.ceiling === "number" && typeof aDoc.ceiling === "number" && aDoc.ceiling < bDoc.ceiling) {
       violations.push(
-        `DILUTION [§10]: escalation_targets entry "${k}" removed. ` +
+        `DILUTION [§10]: band "${band}" ceiling reduced from ${bDoc.ceiling} to ${aDoc.ceiling}. ` +
+        "Ceiling can only be increased or unchanged under VDA-MD §10.",
+      );
+    }
+
+    // authority_downgrade
+    const rankBefore = AUTH_RANK[String(bDoc.authority ?? "")] ?? -1;
+    const rankAfter  = AUTH_RANK[String(aDoc.authority  ?? "")] ?? -1;
+    if (rankBefore >= 0 && rankAfter >= 0 && rankAfter < rankBefore) {
+      violations.push(
+        `DILUTION [§10]: band "${band}" authority downgraded from "${bDoc.authority}" to "${aDoc.authority}". ` +
+        "Authority class can only be upgraded or left unchanged.",
+      );
+    }
+
+    // escalate_to removal
+    if (bDoc.escalate_to && !aDoc.escalate_to) {
+      violations.push(
+        `DILUTION [§10]: band "${band}" escalate_to removed (was "${bDoc.escalate_to}"). ` +
         "Removing escalation routes reduces oversight coverage.",
       );
     }
   }
 
-  // must_not_override removal
-  const mnoBefore = Array.isArray(before.must_not_override) ? (before.must_not_override as string[]) : [];
-  const mnoAfter  = new Set(Array.isArray(after.must_not_override) ? (after.must_not_override as string[]) : []);
-  for (const item of mnoBefore) {
+  // Global must_not_override removal
+  const mnoAfter = new Set(after.mustNotOverride);
+  for (const item of before.mustNotOverride) {
     if (!mnoAfter.has(item)) {
       violations.push(
         `DILUTION [§10]: must_not_override item "${item}" removed. ` +
@@ -407,7 +446,7 @@ router.put("/fm/file/:id", async (req, res) => {
 
     // Load existing file for both ownership check and compliance guard baseline comparison
     const [existingFile] = await db
-      .select({ id: governanceFiles.id, companyId: governanceFiles.companyId, content: governanceFiles.content, filename: governanceFiles.filename })
+      .select({ id: governanceFiles.id, companyId: governanceFiles.companyId, content: governanceFiles.content, filename: governanceFiles.filename, fileType: governanceFiles.fileType })
       .from(governanceFiles)
       .where(eq(governanceFiles.id, id));
     if (!existingFile) return res.status(404).json({ error: "Not found" });
@@ -437,7 +476,7 @@ router.put("/fm/file/:id", async (req, res) => {
     }
 
     // VDA-MD §10 EXCEPTION_AUTHORITY dilution guard
-    if (content && existingFile.content && existingFile.filename === "EXCEPTION_AUTHORITY.md") {
+    if (content && existingFile.content && existingFile.fileType === "EXCEPTION_AUTHORITY") {
       const dilutionViolations = checkExceptionAuthorityDilution(existingFile.content, content);
       if (dilutionViolations.length > 0) {
         writeGovernanceEvent({

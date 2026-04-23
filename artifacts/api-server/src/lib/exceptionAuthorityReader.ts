@@ -67,56 +67,50 @@ function parseExceptionAuthorityBody(body: string): ExceptionAuthority {
     escalationTargets: {},
   };
 
-  // Split by lines that are exactly "---"
-  const chunks = body.split(/\n---\n/);
-  let currentBand: string | null = null;
+  // Strip markdown heading lines and prose before parsing as YAML multi-document.
+  // The body uses '---' as YAML document separators between role-band blocks.
+  const yamlSrc = body
+    .split("\n")
+    .filter((line) => {
+      if (/^#{1,6}\s/.test(line)) return false; // markdown headings
+      if (/^>\s/.test(line)) return false;       // blockquotes
+      return true;
+    })
+    .join("\n");
 
-  for (const chunk of chunks) {
-    // Detect role_band heading (### role_band: foo)
-    const bandMatch = chunk.match(/###\s+role_band:\s*(\S+)/);
-    if (bandMatch) {
-      currentBand = bandMatch[1];
-      if (!result.roleBands[currentBand]) {
-        result.roleBands[currentBand] = { exceptions: [] };
+  // Track current band heading from the raw body for documents that lack a
+  // role_band field (only the heading identifies which band they belong to).
+  const rawLines = body.split("\n");
+  let bandForNextDoc: string | null = null;
+  const bandSequence: (string | null)[] = [];
+  for (const line of rawLines) {
+    const bm = line.match(/###\s+role_band:\s*(\S+)/);
+    if (bm) { bandForNextDoc = bm[1]; }
+    if (/^---\s*$/.test(line.trim())) { bandSequence.push(bandForNextDoc); }
+  }
+
+  let docIndex = 0;
+  try {
+    yaml.loadAll(yamlSrc, (doc) => {
+      if (!doc || typeof doc !== "object") { docIndex++; return; }
+      const obj = doc as Record<string, unknown>;
+      const inferredBand = bandSequence[docIndex] ?? null;
+      docIndex++;
+
+      if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
+        result.mustNotOverride = obj.must_not_override as string[];
+      } else if (obj.escalation_targets && typeof obj.escalation_targets === "object") {
+        result.escalationTargets = obj.escalation_targets as Record<string, string>;
+      } else if (obj.exception_class !== undefined || obj.authority !== undefined) {
+        const band = (obj.role_band as string | undefined) ?? inferredBand;
+        if (band) {
+          if (!result.roleBands[band]) result.roleBands[band] = { exceptions: [] };
+          result.roleBands[band].exceptions.push(obj as ExceptionRule);
+        }
       }
-    }
-
-    // Build a YAML-parseable version of the chunk:
-    // - strip markdown heading lines
-    // - strip pure-prose lines (no colon, not a list item)
-    const yamlLines = chunk
-      .split("\n")
-      .filter((line) => {
-        if (/^#{1,6}\s/.test(line)) return false; // markdown headings
-        if (/^>\s/.test(line)) return false; // blockquotes
-        return true;
-      })
-      .join("\n")
-      .trim();
-
-    if (!yamlLines) continue;
-
-    let parsed: unknown;
-    try {
-      parsed = yaml.load(yamlLines);
-    } catch (parseErr) {
-      logger.warn({ parseErr, chunk }, "[exceptionAuthorityReader] YAML chunk unparseable — skipping block");
-      continue;
-    }
-
-    if (!parsed || typeof parsed !== "object") continue;
-    const obj = parsed as Record<string, unknown>;
-
-    if (obj.must_not_override && Array.isArray(obj.must_not_override)) {
-      result.mustNotOverride = obj.must_not_override as string[];
-    } else if (obj.escalation_targets && typeof obj.escalation_targets === "object") {
-      result.escalationTargets = obj.escalation_targets as Record<string, string>;
-    } else if (
-      (obj.exception_class !== undefined || obj.authority === "not_applicable") &&
-      currentBand
-    ) {
-      result.roleBands[currentBand].exceptions.push(obj as ExceptionRule);
-    }
+    });
+  } catch (parseErr) {
+    logger.warn({ parseErr }, "[exceptionAuthorityReader] EXCEPTION_AUTHORITY.md yaml.loadAll failed");
   }
 
   return result;
@@ -164,37 +158,43 @@ function parseOnboardingPolicyBody(body: string): OnboardingPolicy {
 
 /**
  * Fetch and parse the EXCEPTION_AUTHORITY.md for an agent.
- * Returns null if no file is seeded (caller must handle null — no fallbacks).
+ * Checks the requested companyId first, then falls back to companyId=0
+ * (platform-level files seeded by the governance seed script).
+ * Returns null if no file is found at either level.
  */
 export async function getExceptionAuthority(
   agentId: string,
   companyId: number
 ): Promise<ExceptionAuthority | null> {
-  const rows = await db
-    .select({ content: governanceFiles.content })
-    .from(governanceFiles)
-    .where(
-      and(
-        eq(governanceFiles.agentId, agentId),
-        eq(governanceFiles.companyId, companyId),
-        eq(governanceFiles.fileType, "EXCEPTION_AUTHORITY"),
-        eq(governanceFiles.isArchived, false)
+  const lookupIds = companyId === 0 ? [0] : [companyId, 0];
+
+  for (const cid of lookupIds) {
+    const rows = await db
+      .select({ content: governanceFiles.content })
+      .from(governanceFiles)
+      .where(
+        and(
+          eq(governanceFiles.agentId, agentId),
+          eq(governanceFiles.companyId, cid),
+          eq(governanceFiles.fileType, "EXCEPTION_AUTHORITY"),
+          eq(governanceFiles.isArchived, false)
+        )
       )
-    )
-    .limit(1);
+      .limit(1);
 
-  if (!rows[0]) {
-    logger.warn({ agentId, companyId }, "[exceptionAuthorityReader] No EXCEPTION_AUTHORITY.md found");
-    return null;
+    if (rows[0]) {
+      try {
+        const body = stripFrontMatter(rows[0].content);
+        return parseExceptionAuthorityBody(body);
+      } catch (err) {
+        logger.error({ err, agentId, companyId: cid }, "[exceptionAuthorityReader] Parse error");
+        return null;
+      }
+    }
   }
 
-  try {
-    const body = stripFrontMatter(rows[0].content);
-    return parseExceptionAuthorityBody(body);
-  } catch (err) {
-    logger.error({ err, agentId, companyId }, "[exceptionAuthorityReader] Parse error");
-    return null;
-  }
+  logger.warn({ agentId, companyId }, "[exceptionAuthorityReader] No EXCEPTION_AUTHORITY.md found at any level");
+  return null;
 }
 
 /**

@@ -79,7 +79,7 @@ mayCount: 2
 
 ### Phase 5 — Sandbox Evaluation
 - MUST trigger 5-scenario governance evaluation against candidate governance files
-- MUST require pass rate >= 0.95 before second HITL
+- MUST require pass rate >= sandbox_pass_threshold (read at runtime from platform/onboarding-policy.md) before second HITL
 - MUST attach eval report to second HITL card
 
 ### Phase 6 — Second HITL Gate and Production

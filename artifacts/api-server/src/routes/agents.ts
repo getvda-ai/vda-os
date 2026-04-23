@@ -48,8 +48,8 @@ async function guardAuthority(
     });
     return {
       decision: "ESCALATE",
-      reasoning: `EXCEPTION_AUTHORITY.md missing for ${agentSlug} — agent cannot operate without governance authority file`,
-      actionProposed: "Escalate to compliance officer — missing governance authority definition",
+      reasoning: `§1 violation — EXCEPTION_AUTHORITY.md missing for this agent. Cannot determine exception authority.`,
+      actionProposed: "Escalate to compliance officer — missing governance authority definition for " + agentSlug,
       exceptionApplied: false,
     };
   }
