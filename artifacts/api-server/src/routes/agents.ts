@@ -80,6 +80,37 @@ async function buildAuthorityFragment(
   return `Authority source: EXCEPTION_AUTHORITY.md — ceiling: ${ceilingStr}, authority: ${rule.authority ?? "unspecified"}`;
 }
 
+/**
+ * VDA-MD §10 rejected class guard.
+ * If exception_baselines.rejected=true for the given exception class,
+ * the agent MUST always ESCALATE — ceiling evaluation is skipped entirely.
+ * Returns AgentDecision if class is rejected, null if allowed.
+ */
+async function guardRejectedClass(
+  agentSlug: string,
+  agentDisplayName: string,
+  companyId: number,
+  exceptionClass: string,
+): Promise<AgentDecision | null> {
+  const rejected = await getRejectedClasses(agentSlug, companyId);
+  if (!rejected.includes(exceptionClass)) return null;
+  void writeGovernanceEvent({
+    companyId,
+    agent: agentDisplayName,
+    eventCategory: "COMPLIANCE_BOUNDARY",
+    decision: "ESCALATE",
+    clauseApplied: `VDA-MD §10: exception class "${exceptionClass}" is marked as rejected — always escalate`,
+    actionProposed: `ESCALATE — exception class "${exceptionClass}" has been rejected for ${agentSlug}`,
+    apaleoData: { event_type: "rejected_exception_class", agent_slug: agentSlug, exception_class: exceptionClass },
+  });
+  return {
+    decision: "ESCALATE",
+    reasoning: `§10 compliance — exception class "${exceptionClass}" is marked as rejected for agent "${agentSlug}". Ceiling evaluation is prohibited; this class must always escalate.`,
+    actionProposed: `Escalate to governance officer — exception class "${exceptionClass}" has been explicitly rejected for ${agentSlug}`,
+    exceptionApplied: false,
+  };
+}
+
 const APALEO_API_BASE = "https://api.apaleo.com";
 
 // ─── Cross-Domain Governance Event Helper ─────────────────────────────────────
@@ -683,6 +714,8 @@ router.post("/agents/availability", requireAgentCredential("availability-agent")
     if (availAuthorityEscalate) {
       return res.json(availAuthorityEscalate);
     }
+    const availRejectedEscalate = await guardRejectedClass("availability-agent", "Availability Agent", Number(companyId), "unit_group_hold");
+    if (availRejectedEscalate) return res.json(availRejectedEscalate);
     const availAuthFrag = await buildAuthorityFragment("availability-agent", Number(companyId), "ambassador", "unit_group_hold");
     const { decision, toolCallsMade, usedMcp, filesLoaded: availFilesLoaded, inputTokens, outputTokens } = await evaluateWithPolicyAndMcp(
       "Availability Agent",
@@ -748,6 +781,8 @@ router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, re
     if (rateAgentAuthorityEscalate) {
       return res.json(rateAgentAuthorityEscalate);
     }
+    const rateRejectedEscalate = await guardRejectedClass("rate-agent", "Rate Agent", Number(companyId), "rate_discount_autonomous");
+    if (rateRejectedEscalate) return res.json(rateRejectedEscalate);
     const rateAgentAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", "rate_discount_autonomous");
     const { decision, toolCallsMade, usedMcp, filesLoaded, inputTokens, outputTokens } = await evaluateWithPolicyAndMcp(
       "Rate Agent",
@@ -900,6 +935,10 @@ router.post("/agents/reservation", requireAgentCredential("reservation-bot"), as
     const resvAuthorityEscalate = await guardAuthority("reservation-bot", "Reservation Bot", Number(companyId));
     if (resvAuthorityEscalate) {
       return res.json(resvAuthorityEscalate);
+    }
+    const resvRejectedEscalate = await guardRejectedClass("reservation-bot", "Reservation Bot", Number(companyId), "reservation_create");
+    if (resvRejectedEscalate) {
+      return res.json(resvRejectedEscalate);
     }
     const resvAuthFrag = await buildAuthorityFragment("reservation-bot", Number(companyId), "ambassador", "reservation_create");
     const taskCtx = [
@@ -1071,6 +1110,8 @@ router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (
     if (checkinAuthorityEscalate) {
       return res.json({ decision: checkinAuthorityEscalate, contextLines });
     }
+    const checkinRejectedEscalate = await guardRejectedClass("check-in-agent", "Check-In Agent", Number(companyId), "folio_preauth_limit");
+    if (checkinRejectedEscalate) return res.json({ decision: checkinRejectedEscalate, contextLines });
     const checkinAuthFrag = await buildAuthorityFragment("check-in-agent", Number(companyId), "ambassador", "folio_preauth_limit");
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: checkinFilesLoaded, inputTokens: checkinInputTokens, outputTokens: checkinOutputTokens } = await evaluateWithPolicyAndMcp(
       "Check-In Agent", "checkin",
@@ -1152,6 +1193,8 @@ router.post("/agents/folio", requireAgentCredential("folio-agent"), async (req, 
     if (folioAuthorityEscalate) {
       return res.json(folioAuthorityEscalate);
     }
+    const folioRejectedEscalate = await guardRejectedClass("folio-agent", "Folio Agent", Number(companyId), "folio_read");
+    if (folioRejectedEscalate) return res.json(folioRejectedEscalate);
     const folioAuthFrag = await buildAuthorityFragment("folio-agent", Number(companyId), "ambassador", "folio_read");
     const taskDesc = [
       `Analyse folio charges for property ${propertyId}.`,
@@ -1265,6 +1308,8 @@ router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent")
     if (folioChargeAuthorityEscalate) {
       return res.json({ decision: folioChargeAuthorityEscalate, contextLines });
     }
+    const folioChargeRejectedEscalate = await guardRejectedClass("folio-charge-agent", "Folio Charge Agent", Number(companyId), "charge_ceiling_autonomous");
+    if (folioChargeRejectedEscalate) return res.json({ decision: folioChargeRejectedEscalate, contextLines });
     const liveChargeFrag = await buildAuthorityFragment("folio-charge-agent", Number(companyId), "ambassador", "charge_ceiling_autonomous");
 
     // ── Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
@@ -1419,6 +1464,8 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
     if (checkoutAuthorityEscalate) {
       return res.json({ decision: checkoutAuthorityEscalate, contextLines, apaleoData });
     }
+    const checkoutRejectedEscalate = await guardRejectedClass("checkout-agent", "Checkout Agent", Number(companyId), "late_checkout_fee_waiver");
+    if (checkoutRejectedEscalate) return res.json({ decision: checkoutRejectedEscalate, contextLines, apaleoData });
     const liveCheckoutAuthFrag = await buildAuthorityFragment("checkout-agent", Number(companyId), "ambassador", "late_checkout_fee_waiver");
 
     // ── STEP 2: Policy evaluation FIRST (agentic: Claude fetches live data via MCP) ──
@@ -1565,6 +1612,8 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
     if (revAuthorityEscalate) {
       return res.json(revAuthorityEscalate);
     }
+    const revRejectedEscalate = await guardRejectedClass("revenue-reconciliation-agent", "Revenue Reconciliation Agent", Number(companyId), "variance_threshold");
+    if (revRejectedEscalate) return res.json(revRejectedEscalate);
     const revAuthFrag = await buildAuthorityFragment("revenue-reconciliation-agent", Number(companyId), "hotel_gm", "variance_threshold");
     const { decision, usedMcp: evalUsedMcp, toolCallsMade: evalToolCalls, filesLoaded: revFilesLoaded, inputTokens: revInputTokens, outputTokens: revOutputTokens } = await evaluateWithPolicyAndMcp(
       "Revenue Reconciliation Agent", "revenue",
@@ -1931,9 +1980,11 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       // VIE-VDADEMO-SGL rate plan is now isBookable: true — ListRatePlans MCP call is safe
       const bar = 180; const requested = 171; const discountPct = 5;
       const rateAuthorityEscalate = await guardAuthority("rate-agent", "Rate Agent", Number(companyId));
+      const rateRejectedEscalate = await guardRejectedClass("rate-agent", "Rate Agent", Number(companyId), "rate_discount_autonomous");
       const rateAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", "rate_discount_autonomous");
-      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead } = rateAuthorityEscalate
-        ? { decision: rateAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
+      const rateScenarioEscalate = rateAuthorityEscalate ?? rateRejectedEscalate;
+      const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead } = rateScenarioEscalate
+        ? { decision: rateScenarioEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
         : await evaluateWithPolicyAndMcp(
         "Rate Agent", "rate",
         `Rate override evaluation for property ${propertyId}.
@@ -2163,9 +2214,11 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
       // previous runs which the agent misinterprets as a dispute trigger. The governance demo
       // evaluates the charge decision in isolation: a fresh €89 RoomRevenue charge on an Open folio.
       const fcAuthorityEscalate = await guardAuthority("folio-charge-agent", "Folio Charge Agent", Number(companyId));
+      const fcRejectedEscalate = await guardRejectedClass("folio-charge-agent", "Folio Charge Agent", Number(companyId), "charge_ceiling_autonomous");
       const fcAuthFrag = await buildAuthorityFragment("folio-charge-agent", Number(companyId), "ambassador", "charge_ceiling_autonomous");
-      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles, inputTokens: fcInputTokens, outputTokens: fcOutputTokens, cacheCreationTokens: fcCacheCreation, cacheReadTokens: fcCacheRead } = fcAuthorityEscalate
-        ? { decision: fcAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
+      const fcScenarioEscalate = fcAuthorityEscalate ?? fcRejectedEscalate;
+      const { decision: fcDecision, usedMcp: fcUsedMcp, toolCallsMade: fcToolCalls, filesLoaded: fcScenarioFiles, inputTokens: fcInputTokens, outputTokens: fcOutputTokens, cacheCreationTokens: fcCacheCreation, cacheReadTokens: fcCacheRead } = fcScenarioEscalate
+        ? { decision: fcScenarioEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
         : await evaluateWithPolicyAndMcp(
         "Folio Agent", "folio_charge",
         `Folio charge audit for property ${propertyId} — VDA-MD governance evaluation.
@@ -2242,9 +2295,11 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within the appro
       {
         const coFolioId = ids.folioId;
         const coAuthorityEscalate = await guardAuthority("checkout-agent", "Checkout Agent", Number(companyId));
+        const coRejectedEscalate = await guardRejectedClass("checkout-agent", "Checkout Agent", Number(companyId), "late_checkout_loyalty_extension");
         const coAuthFrag = await buildAuthorityFragment("checkout-agent", Number(companyId), "senior_ambassador", "late_checkout_loyalty_extension");
-        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles, inputTokens: coInputTokens, outputTokens: coOutputTokens, cacheCreationTokens: coCacheCreation, cacheReadTokens: coCacheRead } = coAuthorityEscalate
-          ? { decision: coAuthorityEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
+        const coScenarioEscalate = coAuthorityEscalate ?? coRejectedEscalate;
+        const { decision: coDecision, usedMcp: coUsedMcp, toolCallsMade: coToolCalls, filesLoaded: coScenarioFiles, inputTokens: coInputTokens, outputTokens: coOutputTokens, cacheCreationTokens: coCacheCreation, cacheReadTokens: coCacheRead } = coScenarioEscalate
+          ? { decision: coScenarioEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
           : await evaluateWithPolicyAndMcp(
           "Checkout Agent", "checkout",
           `Checkout audit for Demo Guest (Gold loyalty tier) at property ${propertyId}.

@@ -93,11 +93,34 @@ function checkExceptionAuthorityDilution(existingContent: string, newContent: st
       const aDoc = aDocs.find(d => d.exception_class === bDoc.exception_class) ?? aDocs[0];
       if (!aDoc) continue;
 
-      // ceiling_reduction
+      // ceiling_reduction — numeric ceilings
       if (typeof bDoc.ceiling === "number" && typeof aDoc.ceiling === "number" && aDoc.ceiling < bDoc.ceiling) {
         violations.push(
           `DILUTION [§10]: band "${band}" class "${bDoc.exception_class ?? "?"}" ceiling reduced from ${bDoc.ceiling} to ${aDoc.ceiling}. ` +
           "Ceiling can only be increased or unchanged under VDA-MD §10.",
+        );
+      }
+      // ceiling_reduction — time string ceilings (HH:MM format; lexicographic order = chronological order)
+      const TIME_PATTERN = /^\d{1,2}:\d{2}$/;
+      if (
+        typeof bDoc.ceiling === "string" && typeof aDoc.ceiling === "string" &&
+        TIME_PATTERN.test(bDoc.ceiling) && TIME_PATTERN.test(aDoc.ceiling) &&
+        aDoc.ceiling < bDoc.ceiling
+      ) {
+        violations.push(
+          `DILUTION [§10]: band "${band}" class "${bDoc.exception_class ?? "?"}" time ceiling reduced from "${bDoc.ceiling}" to "${aDoc.ceiling}". ` +
+          "Time-based ceilings can only be extended or left unchanged under VDA-MD §10.",
+        );
+      }
+      // ceiling_reduction — other string ceilings (non-time, non-null)
+      if (
+        typeof bDoc.ceiling === "string" && typeof aDoc.ceiling === "string" &&
+        !TIME_PATTERN.test(bDoc.ceiling) && !TIME_PATTERN.test(aDoc.ceiling) &&
+        aDoc.ceiling !== bDoc.ceiling
+      ) {
+        violations.push(
+          `DILUTION [§10]: band "${band}" class "${bDoc.exception_class ?? "?"}" ceiling changed from "${bDoc.ceiling}" to "${aDoc.ceiling}" (string ceiling modification requires CO review). ` +
+          "Non-numeric ceiling changes require Compliance Officer approval under VDA-MD §10.",
         );
       }
 
