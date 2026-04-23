@@ -21,7 +21,7 @@ import {
   listCredentialsFromFiles,
 } from "../lib/agentCredentialIssuer.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
-import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
+import { getRoleBandAuthority, getRejectedClasses } from "../lib/exceptionAuthorityReader.js";
 
 const router = Router();
 
@@ -51,6 +51,8 @@ async function guardAuthority(
       reasoning: `§1 violation — EXCEPTION_AUTHORITY.md missing for this agent. Cannot determine exception authority.`,
       actionProposed: "Escalate to compliance officer — missing governance authority definition for " + agentSlug,
       exceptionApplied: false,
+      clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md missing — agent cannot determine authority boundaries",
+      escalationTarget: "compliance_officer",
     };
   }
   return null;
@@ -108,6 +110,8 @@ async function guardRejectedClass(
     reasoning: `§10 compliance — exception class "${exceptionClass}" is marked as rejected for agent "${agentSlug}". Ceiling evaluation is prohibited; this class must always escalate.`,
     actionProposed: `Escalate to governance officer — exception class "${exceptionClass}" has been explicitly rejected for ${agentSlug}`,
     exceptionApplied: false,
+    clauseApplied: `VDA-MD §10: exception class "${exceptionClass}" is marked as rejected — always escalate`,
+    escalationTarget: "compliance_officer",
   };
 }
 
