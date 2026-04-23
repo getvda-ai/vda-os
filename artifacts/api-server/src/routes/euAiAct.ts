@@ -321,7 +321,6 @@ router.get("/eu-ai-act/monitoring", async (_req, res) => {
 
       return {
         agentId,
-        agentName: AGENT_META[agentId]!.intendedUse.split(" ")[0], // first word for brevity
         agentDisplayName: agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
         current30d: {
           pass: cur.pass,
