@@ -294,20 +294,35 @@ function Card({ children, style = {} }) {
   );
 }
 
+function DeployStatusBadge({ status }) {
+  if (status === "production") return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, background: "#14532d", color: "#4ade80", padding: "2px 7px", borderRadius: 4 }}>Production</span>
+  );
+  if (status === "supervised") return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, background: "#451a03", color: "#f59e0b", padding: "2px 7px", borderRadius: 4 }}>Supervised</span>
+  );
+  return (
+    <span style={{ ...MONO, fontSize: 10, fontWeight: 700, background: "#1e2130", color: "#4b5563", padding: "2px 7px", borderRadius: 4 }}>Not deployed</span>
+  );
+}
+
 function AISystemRegister({ data, loading }) {
   if (loading && !data) return <div style={{ color: "#4b5563", fontSize: 13 }}>Loading register…</div>;
   const register = data?.register ?? [];
   return (
     <Card>
       <SectionLabel color="#60a5fa">AI System Register — Art. 16(h) + Art. 49</SectionLabel>
-      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
-        Registration readiness data for the EU AI Act database. Manual submission required.
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+        Registration readiness data sourced from live governance files. Manual submission to the EU AI Act database required (Art. 49).
+      </div>
+      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 12 }}>
+        Provider: Rawson Consulting BV — VDA-MD Platform &nbsp;·&nbsp; Deployer: citizenM Hotels (BER, LND, MUC, PAR, VIE)
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid #1e2130" }}>
-              {["Agent", "Risk Class", "Domain", "Tech Doc", "Conformity", "Deployed At", "Art. 49"].map(h => (
+              {["Agent", "Risk Class", "Domain", "Intended Use", "Tech Doc", "Deployment Status", "Art. 49"].map(h => (
                 <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
@@ -321,23 +336,25 @@ function AISystemRegister({ data, loading }) {
                 <td style={{ padding: "10px 10px" }}>
                   <RiskBadge riskClass={row.riskClass} />
                 </td>
-                <td style={{ padding: "10px 10px", color: "#9ca3af" }}>{row.domain}</td>
+                <td style={{ padding: "10px 10px", color: "#9ca3af", whiteSpace: "nowrap" }}>{row.domain}</td>
+                <td style={{ padding: "10px 10px", color: "#6b7280", maxWidth: 220 }}>
+                  <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.intendedUse}>
+                    {row.intendedUse}
+                  </span>
+                </td>
                 <td style={{ padding: "10px 10px", textAlign: "center" }}>
                   <StatusDot ok={row.techDocComplete} />
                   <span style={{ color: row.techDocComplete ? "#4ade80" : "#f59e0b", fontSize: 11 }}>
                     {row.techDocComplete ? "Complete" : "Partial"}
                   </span>
                 </td>
-                <td style={{ padding: "10px 10px", textAlign: "center" }}>
-                  <StatusDot ok={row.conformityStatus === "conformant"} />
-                  <span style={{ color: row.conformityStatus === "conformant" ? "#4ade80" : "#f59e0b", fontSize: 11 }}>
-                    {row.conformityStatus === "conformant" ? "Conformant" : "Incomplete"}
-                  </span>
-                </td>
-                <td style={{ padding: "10px 10px", color: "#9ca3af", fontSize: 11 }}>
-                  {row.activeDeployments > 0
-                    ? <span style={{ color: "#4ade80" }}>{row.activeDeployments} hotel{row.activeDeployments !== 1 ? "s" : ""}</span>
-                    : <span style={{ color: "#4b5563" }}>Not deployed</span>}
+                <td style={{ padding: "10px 10px" }}>
+                  <DeployStatusBadge status={row.deploymentStatus} />
+                  {row.activeDeployments > 0 && (
+                    <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 6 }}>
+                      {row.activeDeployments} hotel{row.activeDeployments !== 1 ? "s" : ""}
+                    </span>
+                  )}
                 </td>
                 <td style={{ padding: "10px 10px" }}>
                   <span style={{ ...MONO, fontSize: 10, color: "#f59e0b", background: "#451a03", padding: "2px 7px", borderRadius: 4 }}>Pending</span>
@@ -355,74 +372,99 @@ function AISystemRegister({ data, loading }) {
   );
 }
 
+// Returns { status: "green"|"amber"|"red", evidence }
+// green = fully compliant · amber = needs attention, not yet critical · red = critical noncompliance
 const ARTICLES = [
   {
     id: "Art. 11", title: "Technical Documentation",
-    getStatus: (reg, mon, inc) => {
-      const allComplete = reg?.register?.every(r => r.techDocComplete);
-      return { ok: allComplete, evidence: allComplete
-        ? `All ${reg?.register?.length ?? 0} agents have complete AGENTS.md, EXCEPTION_AUTHORITY.md, and SOP.md on file`
-        : "Some agents have incomplete governance file sets — see AI System Register above" };
+    getStatus: (reg) => {
+      const list = reg?.register ?? [];
+      const incomplete = list.filter(r => !r.techDocComplete);
+      if (incomplete.length === 0 && list.length > 0)
+        return { status: "green", evidence: `All ${list.length} agents have complete AGENTS.md, EXCEPTION_AUTHORITY.md, and SOP.md on file` };
+      if (incomplete.length > 0)
+        return { status: "amber", evidence: `${incomplete.length} agent(s) have incomplete governance file sets — complete before commercial deployment` };
+      return { status: "amber", evidence: "Governance file data not yet loaded" };
     },
   },
   {
     id: "Art. 12", title: "Record-keeping / Logging",
     getStatus: (_reg, mon) => {
       const count = mon?.totalWitnessEntries ?? 0;
-      return { ok: count > 0 || true, evidence: `Witness Agent has recorded ${count.toLocaleString()} tamper-evident audit entries with governance file hash and W3C VC status` };
+      if (count === 0)
+        return { status: "red", evidence: "No Witness Agent audit entries found — logging system is not operational or has not recorded any decisions" };
+      return { status: "green", evidence: `Witness Agent has recorded ${count.toLocaleString()} tamper-evident audit entries with governance file hash and W3C VC status` };
     },
   },
   {
     id: "Art. 13", title: "Transparency to Deployers",
     getStatus: () => ({
-      ok: true,
+      status: "green",
       evidence: "All agent decisions surface the verbatim governing clause, EXCEPTION_AUTHORITY.md ceiling, and HITL escalation path to hotel staff",
     }),
   },
   {
     id: "Art. 14", title: "Human Oversight",
     getStatus: () => ({
-      ok: true,
+      status: "green",
       evidence: "HITL queue enforces mandatory human approval for all decisions above agent authority ceiling; CO Gate 1 + Gate 2 sign-off required for material decisions",
     }),
   },
   {
     id: "Art. 16", title: "Provider Obligations",
     getStatus: (reg) => {
-      const allConformant = reg?.register?.every(r => r.conformityStatus === "conformant");
-      return { ok: allConformant, evidence: allConformant
-        ? "All AI systems have technical documentation, governance file sets, and Declaration of Conformity generated"
-        : "Some agents missing governance files — complete technical documentation before commercial deployment" };
+      const list = reg?.register ?? [];
+      const nonConformant = list.filter(r => r.conformityStatus !== "conformant");
+      if (nonConformant.length === 0 && list.length > 0)
+        return { status: "green", evidence: "All AI systems have technical documentation, governance file sets, and Declaration of Conformity generated" };
+      if (nonConformant.length > 0)
+        return { status: "amber", evidence: `${nonConformant.length} agent(s) missing governance files — complete technical documentation before commercial deployment` };
+      return { status: "amber", evidence: "Register data not yet loaded" };
     },
   },
   {
     id: "Art. 47", title: "Declaration of Conformity",
-    getStatus: () => ({
-      ok: true,
-      evidence: "Declaration of Conformity auto-generated from live governance state — see panel below. Manual CO sign-off required before Art. 49 submission",
-    }),
+    getStatus: (_reg, _mon, _inc, decl) => {
+      if (!decl?.declarationText)
+        return { status: "amber", evidence: "Declaration not yet generated" };
+      return { status: "amber", evidence: "Declaration auto-generated from live governance state — manual Compliance Officer sign-off required before Art. 49 submission" };
+    },
   },
   {
     id: "Art. 72", title: "Post-Market Monitoring",
     getStatus: (_reg, mon) => {
-      const anomalies = (mon?.agentMetrics ?? []).filter(m => m.anomaly).length;
-      return { ok: anomalies === 0, evidence: anomalies === 0
-        ? "30-day monitoring active: all agent FAIL+ESCALATE rates within the 10% anomaly threshold"
-        : `${anomalies} agent(s) exceed the 10% FAIL+ESCALATE anomaly threshold — review post-market monitoring panel below` };
+      const metrics = mon?.agentMetrics ?? [];
+      const anomalies = metrics.filter(m => m.anomaly).length;
+      if (metrics.length === 0)
+        return { status: "amber", evidence: "Monitoring data not yet loaded" };
+      if (anomalies === 0)
+        return { status: "green", evidence: "30-day monitoring active: all agent FAIL+ESCALATE rates within the 10% anomaly threshold" };
+      if (anomalies <= 2)
+        return { status: "amber", evidence: `${anomalies} agent(s) exceed the 10% FAIL+ESCALATE anomaly threshold — review post-market monitoring panel` };
+      return { status: "red", evidence: `${anomalies} agents exceed the 10% anomaly threshold — immediate review required per Art. 72` };
     },
   },
   {
     id: "Art. 73", title: "Serious Incident Reporting",
     getStatus: (_reg, _mon, inc) => {
-      const count = inc?.total ?? 0;
-      return { ok: count === 0, evidence: count === 0
-        ? "No serious incidents in the last 90 days"
-        : `${count} incident(s) classified in the last 90 days — authority notification pending (15 working day deadline per Art. 73)` };
+      const highCount   = inc?.highCount   ?? 0;
+      const mediumCount = inc?.mediumCount ?? 0;
+      if (highCount > 0)
+        return { status: "red", evidence: `${highCount} HIGH severity incident(s) require authority notification within 15 working days (Art. 73)` };
+      if (mediumCount > 0)
+        return { status: "amber", evidence: `${mediumCount} MEDIUM severity incident(s) in last 90 days — review escalation handling and authority notification obligations` };
+      return { status: "green", evidence: "No serious incidents in the last 90 days" };
     },
   },
 ];
 
-function ArticleChecklist({ regData, monData, incData, regLoading, monLoading, incLoading }) {
+const ARTICLE_STYLE = {
+  green: { border: "#14532d", borderLeft: "#4ade80", icon: "✅" },
+  amber: { border: "#451a03", borderLeft: "#f59e0b", icon: "⚠️" },
+  red:   { border: "#450a0a", borderLeft: "#f87171", icon: "🔴" },
+};
+
+function ArticleChecklist({ regData, monData, incData, declData, regLoading, monLoading, incLoading }) {
   const loading = regLoading || monLoading || incLoading;
   return (
     <Card>
@@ -432,17 +474,18 @@ function ArticleChecklist({ regData, monData, incData, regLoading, monLoading, i
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 10 }}>
           {ARTICLES.map(art => {
-            const { ok, evidence } = art.getStatus(regData, monData, incData);
+            const { status, evidence } = art.getStatus(regData, monData, incData, declData);
+            const s = ARTICLE_STYLE[status];
             return (
               <div key={art.id} style={{
-                background: "#0d0f14", border: `1px solid ${ok ? "#14532d" : "#451a03"}`,
-                borderLeft: `3px solid ${ok ? "#4ade80" : "#f59e0b"}`,
+                background: "#0d0f14", border: `1px solid ${s.border}`,
+                borderLeft: `3px solid ${s.borderLeft}`,
                 borderRadius: 8, padding: "12px 14px",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <span style={{ ...MONO, fontSize: 10, fontWeight: 700, color: "#60a5fa" }}>{art.id}</span>
                   <span style={{ fontSize: 12, fontWeight: 600, color: "#e5e7eb" }}>{art.title}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 16 }}>{ok ? "✅" : "⚠️"}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 14 }}>{s.icon}</span>
                 </div>
                 <div style={{ fontSize: 11, color: "#9ca3af", lineHeight: 1.5 }}>{evidence}</div>
               </div>
@@ -512,7 +555,7 @@ function PostMarketMonitoring({ data, loading }) {
     <Card>
       <SectionLabel color="#60a5fa">Post-Market Monitoring — Art. 72</SectionLabel>
       <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
-        30-day rolling performance. Anomaly threshold: FAIL+ESCALATE rate &gt; 10%. ↑ = worsening · ↓ = improving · → = stable.
+        30-day rolling performance. Anomaly threshold: FAIL+ESCALATE rate &gt; 10%. Agreement rate = PASS / total decisions (averaged across active hotels). ↑ = worsening · ↓ = improving · → = stable.
       </div>
       {loading && !data ? (
         <div style={{ color: "#4b5563", fontSize: 13 }}>Loading monitoring data…</div>
@@ -521,7 +564,7 @@ function PostMarketMonitoring({ data, loading }) {
           <table style={{ width: "100%", borderCollapse: "collapse", ...DM, fontSize: 12 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid #1e2130" }}>
-                {["Agent", "PASS", "FAIL", "ESCALATE", "Guard Violations", "Fail+Esc %", "Trend", "Status"].map(h => (
+                {["Agent", "PASS", "FAIL", "ESCALATE", "Guard Violations", "Fail+Esc %", "Agreement Rate", "Trend", "Status"].map(h => (
                   <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -532,7 +575,7 @@ function PostMarketMonitoring({ data, loading }) {
                   borderBottom: "1px solid #0d0f14",
                   background: m.anomaly ? "rgba(248,113,113,0.04)" : "transparent",
                 }}>
-                  <td style={{ padding: "9px 10px", color: "#e5e7eb", whiteSpace: "nowrap" }}>{m.agentName}</td>
+                  <td style={{ padding: "9px 10px", color: "#e5e7eb", whiteSpace: "nowrap" }}>{m.agentDisplayName}</td>
                   <td style={{ padding: "9px 10px", color: "#4ade80" }}>{m.current30d.pass}</td>
                   <td style={{ padding: "9px 10px", color: m.current30d.fail > 0 ? "#f87171" : "#6b7280" }}>{m.current30d.fail}</td>
                   <td style={{ padding: "9px 10px", color: m.current30d.escalate > 0 ? "#f59e0b" : "#6b7280" }}>{m.current30d.escalate}</td>
@@ -541,6 +584,9 @@ function PostMarketMonitoring({ data, loading }) {
                   </td>
                   <td style={{ padding: "9px 10px", color: m.anomaly ? "#f87171" : "#9ca3af", fontWeight: m.anomaly ? 700 : 400 }}>
                     {m.failEscalateRatePct}%
+                  </td>
+                  <td style={{ padding: "9px 10px", color: m.avgAgreementRatePct !== null ? (m.avgAgreementRatePct >= 80 ? "#4ade80" : m.avgAgreementRatePct >= 60 ? "#f59e0b" : "#f87171") : "#4b5563" }}>
+                    {m.avgAgreementRatePct !== null ? `${m.avgAgreementRatePct}%` : "—"}
                   </td>
                   <td style={{ padding: "9px 10px" }}><TrendArrow trend={m.trend} /></td>
                   <td style={{ padding: "9px 10px" }}>
@@ -769,7 +815,7 @@ export default function ComplianceOfficerView() {
           </div>
 
           <AISystemRegister   data={regData} loading={regLoading} />
-          <ArticleChecklist   regData={regData} monData={monData} incData={incData} regLoading={regLoading} monLoading={monLoading} incLoading={incLoading} />
+          <ArticleChecklist   regData={regData} monData={monData} incData={incData} declData={declData} regLoading={regLoading} monLoading={monLoading} incLoading={incLoading} />
           <PostMarketMonitoring data={monData} loading={monLoading} />
           <IncidentRegister   data={incData} loading={incLoading} />
           <DeclarationOfConformity data={declData} loading={declLoading} />

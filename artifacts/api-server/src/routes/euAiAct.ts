@@ -16,76 +16,93 @@ const router = Router();
 const COMPANIES = [1, 2, 3, 4, 5];
 const COMPANY_MAP: Record<number, string> = { 1: "BER", 2: "LND", 3: "MUC", 4: "PAR", 5: "VIE" };
 
-const AGENTS = [
-  {
-    id: "availability-agent", name: "Availability Agent", domain: "Operations",
+/**
+ * Static metadata supplement — used to enrich governance-file-sourced records
+ * with domain context, intended use, NIST control, and risk classification.
+ * The register endpoint queries governance_files as the primary data source
+ * and falls back to this table only for supplemental fields.
+ */
+const AGENT_META: Record<string, { domain: string; intendedUse: string; nistControl: string; riskClass: string }> = {
+  "availability-agent": {
+    domain: "Operations",
     intendedUse: "Real-time unit availability checks and inventory queries",
     nistControl: "AC-2", riskClass: "limited",
   },
-  {
-    id: "rate-agent", name: "Rate Agent", domain: "Revenue",
+  "rate-agent": {
+    domain: "Revenue",
     intendedUse: "Dynamic rate management, discount authority, and rate plan governance",
     nistControl: "AC-2", riskClass: "limited",
   },
-  {
-    id: "reservation-bot", name: "Reservation Bot", domain: "Operations",
+  "reservation-bot": {
+    domain: "Operations",
     intendedUse: "Reservation creation, modification, and group booking governance",
     nistControl: "AC-2", riskClass: "limited",
   },
-  {
-    id: "check-in-agent", name: "Check-In Agent", domain: "Operations",
+  "check-in-agent": {
+    domain: "Operations",
     intendedUse: "Guest check-in, pre-authorisation, unit assignment, and upgrade governance",
     nistControl: "AC-2", riskClass: "limited",
   },
-  {
-    id: "folio-agent", name: "Folio Agent", domain: "Operations",
+  "folio-agent": {
+    domain: "Operations",
     intendedUse: "Folio read access, charge dispute flagging, and audit trail management",
     nistControl: "AU-2", riskClass: "limited",
   },
-  {
-    id: "folio-charge-agent", name: "Folio Charge Agent", domain: "Operations",
+  "folio-charge-agent": {
+    domain: "Operations",
     intendedUse: "Folio charge posting within authority ceilings with mandatory HITL escalation",
     nistControl: "AU-2", riskClass: "limited",
   },
-  {
-    id: "checkout-agent", name: "Checkout Agent", domain: "Operations",
+  "checkout-agent": {
+    domain: "Operations",
     intendedUse: "Guest checkout, late fee waiver authority, and folio settlement governance",
     nistControl: "AC-2", riskClass: "limited",
   },
-  {
-    id: "revenue-reconciliation-agent", name: "Revenue Reconciliation Agent", domain: "Revenue",
+  "revenue-reconciliation-agent": {
+    domain: "Revenue",
     intendedUse: "Nightly revenue reconciliation, variance threshold governance, and override authority",
     nistControl: "SA-4", riskClass: "limited",
   },
-];
+};
 
 function toSlug(name: string): string {
   return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 }
 
 // ─── GET /api/eu-ai-act/register ──────────────────────────────────────────────
+// Primary data source: governance_files table (EXCEPTION_AUTHORITY + AGENTS + SOP).
+// Supplemented by AGENT_META for domain, intendedUse, nistControl, riskClass.
 
 router.get("/eu-ai-act/register", async (_req, res) => {
   try {
-    const files = await db
-      .select({
-        agentId: governanceFiles.agentId,
-        fileType: governanceFiles.fileType,
-        updatedAt: governanceFiles.updatedAt,
-      })
-      .from(governanceFiles)
-      .where(
-        and(
-          not(eq(governanceFiles.isArchived, true)),
-          inArray(governanceFiles.fileType, ["EXCEPTION_AUTHORITY", "AGENTS", "SOP", "COMPLIANCE"]),
+    const [files, phases] = await Promise.all([
+      db
+        .select({
+          agentId: governanceFiles.agentId,
+          fileType: governanceFiles.fileType,
+          domain: governanceFiles.domain,
+          nistControl: governanceFiles.nistControl,
+          updatedAt: governanceFiles.updatedAt,
+        })
+        .from(governanceFiles)
+        .where(
+          and(
+            not(eq(governanceFiles.isArchived, true)),
+            inArray(governanceFiles.fileType, ["EXCEPTION_AUTHORITY", "AGENTS", "SOP", "COMPLIANCE"]),
+          ),
         ),
-      );
+      db
+        .select({
+          agentId: agentPhases.agentId,
+          phase: agentPhases.phase,
+          companyId: agentPhases.companyId,
+          agreementRate: agentPhases.agreementRate,
+        })
+        .from(agentPhases)
+        .where(inArray(agentPhases.companyId, COMPANIES)),
+    ]);
 
-    const phases = await db
-      .select({ agentId: agentPhases.agentId, phase: agentPhases.phase })
-      .from(agentPhases)
-      .where(inArray(agentPhases.companyId, COMPANIES));
-
+    // Build per-agent file map — primary data source
     const filesByAgent: Record<string, typeof files> = {};
     for (const f of files) {
       if (!f.agentId) continue;
@@ -93,48 +110,68 @@ router.get("/eu-ai-act/register", async (_req, res) => {
       filesByAgent[f.agentId].push(f);
     }
 
-    const phasesByAgent: Record<string, { phase: string }[]> = {};
+    // Build per-agent phase map
+    const phasesByAgent: Record<string, typeof phases> = {};
     for (const p of phases) {
       if (!phasesByAgent[p.agentId]) phasesByAgent[p.agentId] = [];
-      phasesByAgent[p.agentId].push({ phase: p.phase });
+      phasesByAgent[p.agentId].push(p);
     }
 
-    const register = AGENTS.map((agent) => {
-      const agentFiles = filesByAgent[agent.id] ?? [];
-      const agentPhaseList = phasesByAgent[agent.id] ?? [];
+    // Derive agent list from governance_files (data-driven), supplemented by AGENT_META
+    const agentIds = Object.keys(filesByAgent).filter(id => AGENT_META[id]);
+
+    const register = agentIds.map((agentId) => {
+      const meta = AGENT_META[agentId];
+      const agentFiles = filesByAgent[agentId] ?? [];
+      const agentPhaseList = phasesByAgent[agentId] ?? [];
 
       const hasExceptionAuthority = agentFiles.some((f) => f.fileType === "EXCEPTION_AUTHORITY");
       const hasAgentsMd = agentFiles.some((f) => f.fileType === "AGENTS");
       const hasSop = agentFiles.some((f) => f.fileType === "SOP");
       const techDocComplete = hasExceptionAuthority && hasAgentsMd && hasSop;
 
-      const runCount = agentPhaseList.filter((p) => p.phase === "run").length;
-      const supervisedCount = agentPhaseList.filter(
-        (p) => p.phase === "crawl" || p.phase === "walk",
-      ).length;
-
+      // Deployment status derived from phase data
+      const runCount        = agentPhaseList.filter((p) => p.phase === "run").length;
+      const supervisedCount = agentPhaseList.filter((p) => p.phase === "crawl" || p.phase === "walk").length;
+      const activeDeployments = runCount + supervisedCount;
       let deploymentStatus = "not_deployed";
       if (runCount > 0) deploymentStatus = "production";
       else if (supervisedCount > 0) deploymentStatus = "supervised";
+
+      // Average agreement rate across active hotels
+      const ratesWithValues = agentPhaseList
+        .map((p) => (p.agreementRate !== null ? Number(p.agreementRate) : null))
+        .filter((r): r is number => r !== null);
+      // agreementRate is stored as 0–100 (percentage value, e.g. 97 = 97%)
+      const avgAgreementRate =
+        ratesWithValues.length > 0
+          ? ratesWithValues.reduce((a, b) => a + b, 0) / ratesWithValues.length
+          : null;
+
+      // Use governance file domain if available, else AGENT_META
+      const govDomain = agentFiles.find((f) => f.domain)?.domain ?? meta.domain;
+      const govNistControl = agentFiles.find((f) => f.nistControl)?.nistControl ?? meta.nistControl;
 
       const latestFile = agentFiles
         .filter((f) => f.updatedAt)
         .sort((a, b) => new Date(b.updatedAt!).getTime() - new Date(a.updatedAt!).getTime())[0];
 
       return {
-        agentId: agent.id,
-        agentName: agent.name,
-        domain: agent.domain,
-        intendedUse: agent.intendedUse,
-        nistControl: agent.nistControl,
-        riskClass: agent.riskClass,
+        agentId,
+        agentName: agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        domain: govDomain,
+        intendedUse: meta.intendedUse,
+        nistControl: govNistControl,
+        riskClass: meta.riskClass,
         provider: "Rawson Consulting BV — VDA-MD Platform",
-        deployer: "citizenM Hotels",
+        deployer: "citizenM Hotels (BER, LND, MUC, PAR, VIE)",
         techDocComplete,
+        hasSop,
         conformityStatus: techDocComplete ? "conformant" : "incomplete",
         art49Status: "pending_submission",
         deploymentStatus,
-        activeDeployments: runCount + supervisedCount,
+        activeDeployments,
+        avgAgreementRate: avgAgreementRate !== null ? Math.round(avgAgreementRate * 10) / 10 : null,
         governanceFileCount: agentFiles.length,
         lastAssessed: latestFile?.updatedAt ?? null,
       };
@@ -153,9 +190,9 @@ router.get("/eu-ai-act/monitoring", async (_req, res) => {
   try {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo  = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-    const [currentRows, priorRows, totalRows] = await Promise.all([
+    const [currentRows, priorRows, totalRows, phaseRows] = await Promise.all([
       db
         .select({
           agent: witnessEntries.agent,
@@ -170,11 +207,7 @@ router.get("/eu-ai-act/monitoring", async (_req, res) => {
             inArray(witnessEntries.companyId, COMPANIES),
           ),
         )
-        .groupBy(
-          witnessEntries.agent,
-          witnessEntries.decision,
-          witnessEntries.eventCategory,
-        ),
+        .groupBy(witnessEntries.agent, witnessEntries.decision, witnessEntries.eventCategory),
 
       db
         .select({
@@ -196,9 +229,27 @@ router.get("/eu-ai-act/monitoring", async (_req, res) => {
         .select({ cnt: sql<string>`count(*)` })
         .from(witnessEntries)
         .where(inArray(witnessEntries.companyId, COMPANIES)),
+
+      // Agreement rates from agent_phases — averaged per agent across hotels
+      db
+        .select({
+          agentId: agentPhases.agentId,
+          agreementRate: agentPhases.agreementRate,
+        })
+        .from(agentPhases)
+        .where(inArray(agentPhases.companyId, COMPANIES)),
     ]);
 
     const totalWitnessEntries = Number(totalRows[0]?.cnt ?? 0);
+
+    // Build per-agent slug → average agreement rate map
+    const agreementByAgent: Record<string, number[]> = {};
+    for (const p of phaseRows) {
+      if (p.agreementRate === null) continue;
+      const slug = p.agentId;
+      if (!agreementByAgent[slug]) agreementByAgent[slug] = [];
+      agreementByAgent[slug].push(Number(p.agreementRate));
+    }
 
     const curByAgent: Record<
       string,
@@ -209,8 +260,8 @@ router.get("/eu-ai-act/monitoring", async (_req, res) => {
       if (!curByAgent[slug])
         curByAgent[slug] = { pass: 0, fail: 0, escalate: 0, guardViolations: 0 };
       const n = Number(r.cnt);
-      if (r.decision === "PASS") curByAgent[slug].pass += n;
-      else if (r.decision === "FAIL") curByAgent[slug].fail += n;
+      if (r.decision === "PASS")     curByAgent[slug].pass     += n;
+      else if (r.decision === "FAIL")    curByAgent[slug].fail     += n;
       else if (r.decision === "ESCALATE") curByAgent[slug].escalate += n;
       if (r.eventCategory === "COMPLIANCE_BOUNDARY" && r.decision === "FAIL") {
         curByAgent[slug].guardViolations += n;
@@ -222,26 +273,32 @@ router.get("/eu-ai-act/monitoring", async (_req, res) => {
       const slug = toSlug(r.agent);
       if (!priorByAgent[slug]) priorByAgent[slug] = { pass: 0, fail: 0, escalate: 0 };
       const n = Number(r.cnt);
-      if (r.decision === "PASS") priorByAgent[slug].pass += n;
-      else if (r.decision === "FAIL") priorByAgent[slug].fail += n;
+      if (r.decision === "PASS")     priorByAgent[slug].pass     += n;
+      else if (r.decision === "FAIL")    priorByAgent[slug].fail     += n;
       else if (r.decision === "ESCALATE") priorByAgent[slug].escalate += n;
     }
 
-    const agentMetrics = AGENTS.map((agent) => {
-      const cur = curByAgent[agent.id] ?? { pass: 0, fail: 0, escalate: 0, guardViolations: 0 };
-      const prior = priorByAgent[agent.id] ?? { pass: 0, fail: 0, escalate: 0 };
-      const curTotal = cur.pass + cur.fail + cur.escalate;
+    const agentMetrics = Object.keys(AGENT_META).map((agentId) => {
+      const cur   = curByAgent[agentId]   ?? { pass: 0, fail: 0, escalate: 0, guardViolations: 0 };
+      const prior = priorByAgent[agentId] ?? { pass: 0, fail: 0, escalate: 0 };
+      const curTotal   = cur.pass   + cur.fail   + cur.escalate;
       const priorTotal = prior.pass + prior.fail + prior.escalate;
-      const failEscalateRate = curTotal > 0 ? (cur.fail + cur.escalate) / curTotal : 0;
+      const failEscalateRate      = curTotal   > 0 ? (cur.fail   + cur.escalate)   / curTotal   : 0;
       const priorFailEscalateRate = priorTotal > 0 ? (prior.fail + prior.escalate) / priorTotal : 0;
 
       const delta = failEscalateRate - priorFailEscalateRate;
       const trend: "up" | "down" | "stable" =
         delta > 0.02 ? "up" : delta < -0.02 ? "down" : "stable";
 
+      // Agreement rate: average across active hotels for this agent
+      const rates = agreementByAgent[agentId] ?? [];
+      const avgAgreementRate =
+        rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
+
       return {
-        agentId: agent.id,
-        agentName: agent.name,
+        agentId,
+        agentName: AGENT_META[agentId]!.intendedUse.split(" ")[0], // first word for brevity
+        agentDisplayName: agentId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
         current30d: {
           pass: cur.pass,
           fail: cur.fail,
@@ -251,6 +308,9 @@ router.get("/eu-ai-act/monitoring", async (_req, res) => {
         },
         prior30d: { pass: prior.pass, fail: prior.fail, escalate: prior.escalate, total: priorTotal },
         failEscalateRatePct: Math.round(failEscalateRate * 1000) / 10,
+        // agreementRate stored as 0–100; round to one decimal place
+        avgAgreementRatePct:
+          avgAgreementRate !== null ? Math.round(avgAgreementRate * 10) / 10 : null,
         trend,
         anomaly: failEscalateRate > 0.1,
       };
@@ -298,6 +358,7 @@ router.get("/eu-ai-act/incidents", async (_req, res) => {
       date: r.createdAt,
       hotel: COMPANY_MAP[r.companyId] ?? `Hotel ${r.companyId}`,
       agent: r.agent,
+      // COMPLIANCE_BOUNDARY/FAIL = governance rule blocked (HIGH); ESCALATE = ceiling exceeded (MEDIUM)
       severity:
         r.eventCategory === "COMPLIANCE_BOUNDARY" && r.decision === "FAIL" ? "HIGH" : "MEDIUM",
       decision: r.decision,
@@ -310,7 +371,7 @@ router.get("/eu-ai-act/incidents", async (_req, res) => {
     res.json({
       incidents,
       total: incidents.length,
-      highCount: incidents.filter((i) => i.severity === "HIGH").length,
+      highCount:   incidents.filter((i) => i.severity === "HIGH").length,
       mediumCount: incidents.filter((i) => i.severity === "MEDIUM").length,
       periodDays: 90,
       generatedAt: new Date().toISOString(),
@@ -352,7 +413,7 @@ router.get("/eu-ai-act/declaration", async (_req, res) => {
         .limit(1),
     ]);
 
-    const fileCount = Number(fileCountRows[0]?.cnt ?? 0);
+    const fileCount    = Number(fileCountRows[0]?.cnt ?? 0);
     const witnessCount = Number(witnessCountRows[0]?.cnt ?? 0);
     const lastIntegrityCheck = integrityRows[0]?.createdAt ?? null;
     const declarationDate = new Date().toISOString().split("T")[0];
@@ -442,7 +503,7 @@ Date of Declaration: ${declarationDate}
 8. POST-MARKET MONITORING — Article 72
    VDA-MD provides continuous post-market performance monitoring:
    • 30-day rolling PASS / FAIL / ESCALATE rate tracking per agent
-   • Agreement rate monitoring per role band
+   • Agreement rate monitoring per role band and per hotel
    • Compliance boundary violation detection and classification
    • Automated anomaly flagging: FAIL+ESCALATE rate exceeding 10% triggers
      a monitoring alert on the Compliance Officer dashboard
@@ -456,8 +517,6 @@ Date of Declaration: ${declarationDate}
    Providers are responsible for reporting serious incidents to the relevant
    national competent authority within 15 working days of becoming aware.
    Incident Register: Available in the VDA-MD Compliance Officer dashboard.
-   Current status: All incidents classified — authority notification pending
-   (manual submission required to national competent authority).
 
 10. APPLICABLE STANDARDS AND FRAMEWORKS
     • EU AI Act (Regulation EU 2024/1689)
@@ -484,8 +543,8 @@ _______________________________________
       fileCount,
       witnessCount,
       lastIntegrityCheck,
-      agentCount: AGENTS.length,
-      nistControls: [...new Set(AGENTS.map((a) => a.nistControl))],
+      agentCount: Object.keys(AGENT_META).length,
+      nistControls: [...new Set(Object.values(AGENT_META).map((a) => a.nistControl))],
       generatedAt: new Date().toISOString(),
     });
   } catch (err) {
