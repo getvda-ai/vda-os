@@ -8407,7 +8407,7 @@ function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleChange, onSwitchTab, initialSubTab, initialPhaseAgent }) {
+function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleChange, onSwitchTab, initialSubTab, initialPhaseAgent, initialWizardAgent }) {
   const [subTab, setSubTab] = useState(initialSubTab || "wizard");
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -8424,6 +8424,8 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   const [rollbackId, setRollbackId] = useState(null);
   const [rollbackKey, setRollbackKey] = useState("");
   const [rollbackLoading, setRollbackLoading] = useState(false);
+  const [autoSubmitting, setAutoSubmitting] = useState(false);
+  const wizardAgentSlug = useRef(initialWizardAgent || null);
 
   // Phase Management state
   const [phases, setPhases] = useState([]);
@@ -8863,6 +8865,58 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                 </span>
               )}
             </div>
+
+            {/* ── Pre-submission card when arriving from File Manager review ── */}
+            {!latestReq && wizardAgentSlug.current && (() => {
+              const slug = wizardAgentSlug.current;
+              const agentDef = AGENT_DEFS.find(a => a.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") === slug);
+              if (!agentDef) return null;
+              const handleAutoSubmit = async () => {
+                setAutoSubmitting(true);
+                try {
+                  const card = JSON.stringify({
+                    id: `did:vda:hospitality:${slug}`,
+                    name: agentDef.name,
+                    description: `Apaleo-native ${agentDef.name.toLowerCase()} for the citizenM hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls.`,
+                    skills: [{ id: `${slug}-core`, name: `${agentDef.name} Core`, description: `Core governance skills for ${agentDef.name} within the VDA-MD framework.` }],
+                    url: agentDef.endpoint,
+                  });
+                  await fetch("/api/a2a/onboarding", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: "Bearer demo-compliance-officer-vc" },
+                    body: JSON.stringify({
+                      jsonrpc: "2.0", id: 1, method: "tasks/send",
+                      params: {
+                        id: crypto.randomUUID(), sessionId: crypto.randomUUID(),
+                        message: { role: "user", parts: [{ type: "text", text: card }] },
+                      },
+                    }),
+                  });
+                  await fetchRequests();
+                } catch { /* silent */ }
+                setAutoSubmitting(false);
+              };
+              return (
+                <div style={{ marginBottom: 18, background: `${T.green}0a`, border: `1px solid ${T.green}30`, borderRadius: 10, padding: "16px 18px", display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ fontSize: 26 }}>{agentDef.icon}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>{agentDef.name}</div>
+                    <div style={{ fontSize: 12, color: T.dim }}>Governance files reviewed and approved — ready for formal VDA-MD admission.</div>
+                  </div>
+                  <button
+                    onClick={handleAutoSubmit}
+                    disabled={autoSubmitting}
+                    style={{
+                      background: autoSubmitting ? T.dim : T.green, color: "#fff", border: "none",
+                      borderRadius: 8, padding: "9px 20px", fontSize: 13, fontWeight: 800,
+                      cursor: autoSubmitting ? "not-allowed" : "pointer", whiteSpace: "nowrap",
+                    }}
+                  >
+                    {autoSubmitting ? "Submitting…" : "Submit for Formal Admission →"}
+                  </button>
+                </div>
+              );
+            })()}
 
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {STEPS.map((step, idx) => {
@@ -10497,8 +10551,8 @@ export default function VdaOS() {
           {tab === "soc2"        && <Soc2Tab companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} />}
           {tab === "credentials"  && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "a2a"          && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
-          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onRoleChange={setGlobalRole} onSwitchTab={setTab} initialSubTab={hubNavContext?.phaseSubTab} initialPhaseAgent={hubNavContext?.phaseAgent} />}
-          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} agentFilter={hubNavContext?.agentFilter} reviewMode={hubNavContext?.reviewMode} onReviewComplete={(slug) => { setHubNavContext({ phaseSubTab: "wizard", phaseAgent: slug }); setTab("onboarding"); }} />}
+          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onRoleChange={setGlobalRole} onSwitchTab={setTab} initialSubTab={hubNavContext?.phaseSubTab} initialPhaseAgent={hubNavContext?.phaseAgent} initialWizardAgent={hubNavContext?.wizardAgent} />}
+          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} agentFilter={hubNavContext?.agentFilter} reviewMode={hubNavContext?.reviewMode} onReviewComplete={(slug) => { setGlobalRole("compliance_officer"); setHubNavContext({ phaseSubTab: "wizard", wizardAgent: slug }); setTab("onboarding"); }} />}
         </>
       )}
 
