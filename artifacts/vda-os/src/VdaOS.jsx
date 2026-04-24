@@ -5894,7 +5894,7 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
   const agentOverallStatus = (governanceSlug) => {
     // Badge reflects actual onboarding/activation status — per-hotel dots show operational phase
     const reqStatus = nativeStatuses[governanceSlug];
-    if (!reqStatus) return "pre_admitted";
+    if (!reqStatus) return "pending";
     // Collapse in-flight activation sub-statuses into a single "activating" badge
     if (["activating","submitted","identity_verified","awaiting_first_hitl",
          "sandbox_evaluation","awaiting_second_hitl","governance_files_created"].includes(reqStatus)) {
@@ -5915,11 +5915,12 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
   // Status badge — native agents
   const NativeBadge = ({ status }) => {
     const cfgs = {
-      run:          { label: "Run",          bg: T.green,             color: "#fff",    outline: false },
-      walk:         { label: "Walk",         bg: T.blue,              color: "#fff",    outline: false },
-      crawl:        { label: "Crawl",        bg: "#d97706",           color: "#fff",    outline: false },
-      activating:   { label: "Activating",   bg: "transparent",       color: "#d97706", outline: true  },
-      pre_admitted: { label: "Pre-Admitted", bg: "transparent",       color: T.orange,  outline: true  },
+      run:          { label: "Run",              bg: T.green,       color: "#fff",    outline: false },
+      walk:         { label: "Walk",             bg: T.blue,        color: "#fff",    outline: false },
+      crawl:        { label: "Crawl",            bg: "#d97706",     color: "#fff",    outline: false },
+      activating:   { label: "Activating",       bg: "transparent", color: "#d97706", outline: true  },
+      pending:      { label: "Pending Onboarding", bg: "transparent", color: T.dim,   outline: true  },
+      pre_admitted: { label: "Pre-Admitted",     bg: "transparent", color: T.orange,  outline: true  },
     };
     const cfg = cfgs[status] || { label: status, bg: "transparent", color: T.dim, outline: true };
     return (
@@ -6136,23 +6137,37 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
                       </div>
                     </div>
                     <NativeBadge status={status} />
-                    <button
-                      disabled={activateBtnDisabled}
-                      title={activateBtnDisabled ? "Pending setup — activation engine not yet deployed" : undefined}
-                      onClick={e => {
-                        e.stopPropagation();
-                        if (activateBtnDisabled) return;
-                        setActivateError(null);
-                        setActivateModal({ agentId: slug, agentName: agent.name });
-                      }}
-                      style={{
-                        ...smallBtn(anyNotActivated && !activateBtnDisabled ? T.orange : T.dim, anyNotActivated && !activateBtnDisabled),
-                        opacity: activateBtnDisabled ? 0.45 : 1,
-                        cursor: activateBtnDisabled ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {activateBtnDisabled ? "Pending setup" : anyNotActivated ? "Activate →" : "Manage →"}
-                    </button>
+                    {status === "pending" ? (
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          const target = companies[0];
+                          if (target) onLoad(target, "onboarding", { phaseSubTab: "wizard" });
+                        }}
+                        style={{ ...smallBtn(T.orange, true) }}
+                        title="Start onboarding this agent through the 7-phase admission workflow"
+                      >
+                        Onboard →
+                      </button>
+                    ) : (
+                      <button
+                        disabled={activateBtnDisabled}
+                        title={activateBtnDisabled ? "Pending setup — activation engine not yet deployed" : undefined}
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (activateBtnDisabled) return;
+                          setActivateError(null);
+                          setActivateModal({ agentId: slug, agentName: agent.name });
+                        }}
+                        style={{
+                          ...smallBtn(anyNotActivated && !activateBtnDisabled ? T.orange : T.dim, anyNotActivated && !activateBtnDisabled),
+                          opacity: activateBtnDisabled ? 0.45 : 1,
+                          cursor: activateBtnDisabled ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {activateBtnDisabled ? "Pending setup" : anyNotActivated ? "Activate →" : "Manage →"}
+                      </button>
+                    )}
                   </div>
                 );
               })}

@@ -189,7 +189,7 @@ HOW TO NAVIGATE THIS PLATFORM — explain this accurately every time:
 The app opens on the VDA-MD COMMAND CENTRE — a two-panel screen. There are no tabs on this screen; tabs only appear inside a hotel hub.
 
 Two-panel layout of the Command Centre:
-- LEFT PANEL — "Agent Registry": lists all 8 VDA-native agents with their admission status badge and per-hotel phase dots (🟡 Crawl · 🔵 Walk · 🟢 Run). Clicking an agent row opens the File Manager for that agent in the most relevant hotel. Below native agents is an External A2A Agents section.
+- LEFT PANEL — "Agent Registry": lists all 8 VDA-native agents with their admission status badge and per-hotel phase dots (🟡 Crawl · 🔵 Walk · 🟢 Run). Clicking an agent row opens the File Manager for that agent in the most relevant hotel. Below native agents is an External A2A Agents section. Agent status badges: "Pending Onboarding" (grey, not yet submitted — click "Onboard →" to start the 7-phase wizard), "Activating" (amber, progressing through the admission workflow), "Crawl / Walk / Run" (solid colour, operationally active). No agent is pre-admitted; every agent — VDA-native or external A2A — must complete the full onboarding process before becoming operational.
 - RIGHT PANEL — "Hotel Operations": lists the five citizenM hotels as rows, each with an "Open hub →" button and a live summary of active agent phases. An "Expand to matrix view" toggle at the bottom reveals a per-hotel × per-agent phase grid.
 
 Step-by-step for first-time users:
