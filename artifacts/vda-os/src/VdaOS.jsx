@@ -3629,7 +3629,7 @@ function Soc2Tab({ companyName, companyId, onSaveToWitness }) {
 // ─────────────────────────────────────────────
 // FILE MANAGER TAB
 // ─────────────────────────────────────────────
-function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNavigateToFile, agentFilter }) {
+function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNavigateToFile, agentFilter, reviewMode }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -3664,6 +3664,12 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const [integrityCheck, setIntegrityCheck] = useState(null);
   const [integrityLoading, setIntegrityLoading] = useState(false);
   const [archiveBlock, setArchiveBlock] = useState(null);
+  // ── Guided review mode state ──
+  const [reviewQueue, setReviewQueue] = useState(null);
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewApproved, setReviewApproved] = useState(new Set());
+  const [reviewComplete, setReviewComplete] = useState(false);
+  const [reviewApproving, setReviewApproving] = useState(false);
   const editorRef = useRef(null);
   const searchTimeout = useRef(null);
   const complianceTimeout = useRef(null);
@@ -3688,9 +3694,10 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     }
   }, [navigateToFileId, files]);
 
-  // Capture agentFilter at mount time — immune to parent 1s hubNavContext clearance
+  // Capture agentFilter and reviewMode at mount time — immune to parent 1s hubNavContext clearance
   const initialAgentFilter = useRef(agentFilter || null);
   const agentFilterApplied = useRef(false);
+  const isReviewMode = useRef(reviewMode || false);
   useEffect(() => {
     if (initialAgentFilter.current && files.length > 0 && !agentFilterApplied.current) {
       agentFilterApplied.current = true;
@@ -3834,6 +3841,57 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
       const data = await resp.json();
       setSearchResults(Array.isArray(data) ? data : []);
     }, 350);
+  };
+
+  // ── Guided review: build ordered queue from search results ──
+  useEffect(() => {
+    if (!isReviewMode.current || !searchResults) return;
+    const order = ["AGENTS", "SOP", "SKILL", "EXCEPTION", "COMPLIANCE", "CUSTOM"];
+    const nonArchived = searchResults.filter(f => f.status !== "archived");
+    const sorted = [...nonArchived].sort((a, b) => {
+      const ai = order.indexOf(a.fileType); const bi = order.indexOf(b.fileType);
+      if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      return a.filename.localeCompare(b.filename);
+    });
+    setReviewQueue(sorted);
+    setReviewIndex(0);
+    setReviewApproved(new Set());
+    setReviewComplete(false);
+  }, [searchResults]);
+
+  // ── Guided review: auto-select current file when index changes ──
+  useEffect(() => {
+    if (!isReviewMode.current || !reviewQueue || reviewQueue.length === 0) return;
+    if (reviewIndex < reviewQueue.length) {
+      handleSelectFile(reviewQueue[reviewIndex]);
+    }
+  }, [reviewQueue, reviewIndex]);
+
+  const handleReviewApprove = async () => {
+    if (!selectedFile || reviewApproving) return;
+    setReviewApproving(true);
+    await fetch(`/api/fm/sign/${selectedFile.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signedBy: "Compliance Officer", signedRole: "compliance_officer", companyId }),
+    });
+    await loadFiles();
+    setReviewApproved(prev => new Set([...prev, selectedFile.id]));
+    setReviewApproving(false);
+    if (onSaveToWitness) {
+      onSaveToWitness({ id: Date.now(), timestamp: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }), agent: "Guided Review", decision: "PASS", fileReferenced: selectedFile.filename, clauseApplied: "Governance file reviewed and signed off by Compliance Officer", actionProposed: `${selectedFile.filename} → status: LIVE`, exceptionApplied: false, escalationTarget: null, reasoning: "Compliance Officer signed off during guided onboarding review." });
+    }
+    const next = reviewIndex + 1;
+    if (next >= reviewQueue.length) { setReviewComplete(true); } else { setReviewIndex(next); }
+  };
+
+  const handleReviewSkip = () => {
+    const next = reviewIndex + 1;
+    if (next >= reviewQueue.length) { setReviewComplete(true); } else { setReviewIndex(next); }
+  };
+
+  const handleReviewPrev = () => {
+    if (reviewIndex > 0) setReviewIndex(reviewIndex - 1);
   };
 
   const runComplianceCheck = async (content, savedContent, fileOverride) => {
@@ -4001,8 +4059,83 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const nistCovered = [...new Set(files.filter(f => f.nistControl).map(f => f.nistControl))];
   const nistTotal = config?.nistControls || [];
 
+  const showReviewBanner = isReviewMode.current && reviewQueue && reviewQueue.length > 0;
+
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 110px)", overflow: "hidden" }}>
+    <>
+    {/* ── Guided Review Banner ── */}
+    {showReviewBanner && !reviewComplete && (() => {
+      const cur = reviewQueue[reviewIndex];
+      const pct = Math.round((reviewIndex / reviewQueue.length) * 100);
+      const isApproved = cur && reviewApproved.has(cur.id);
+      return (
+        <div style={{ background: T.card, borderBottom: `2px solid ${T.orange}40`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          {/* Left: progress info */}
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 11, color: T.orange, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.06em", marginBottom: 3 }}>
+              GUIDED REVIEW · FILE {reviewIndex + 1} OF {reviewQueue.length}
+              {isApproved && <span style={{ marginLeft: 8, color: T.green }}>✓ Approved</span>}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1, height: 4, background: `${T.border}`, borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: T.orange, borderRadius: 4, transition: "width 0.3s" }} />
+              </div>
+              <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{pct}%</span>
+            </div>
+          </div>
+          {/* Centre: current filename */}
+          {cur && (
+            <div style={{ fontSize: 12, fontFamily: T.mono, color: T.text, fontWeight: 600, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {cur.filename}
+              <span style={{ marginLeft: 6, fontSize: 10, color: cur.status === "live" ? T.green : T.amber }}>{cur.status?.toUpperCase()}</span>
+            </div>
+          )}
+          {/* Right: action buttons */}
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <button disabled={reviewIndex === 0} onClick={handleReviewPrev}
+              style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: reviewIndex === 0 ? T.dim : T.text, fontSize: 11, cursor: reviewIndex === 0 ? "default" : "pointer", fontFamily: T.mono, opacity: reviewIndex === 0 ? 0.4 : 1 }}>
+              ← Prev
+            </button>
+            {isDirty && (
+              <button onClick={() => handleSaveWithGuard("Reviewed and saved")}
+                style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.orange}50`, background: `${T.orange}18`, color: T.orange, fontSize: 11, cursor: "pointer", fontFamily: T.mono, fontWeight: 700 }}>
+                Save Changes
+              </button>
+            )}
+            <button onClick={handleReviewApprove} disabled={reviewApproving || isApproved}
+              style={{ padding: "5px 14px", borderRadius: 6, border: `1px solid ${T.green}50`, background: reviewApproving ? "none" : `${T.green}18`, color: T.green, fontSize: 11, cursor: reviewApproving || isApproved ? "default" : "pointer", fontFamily: T.mono, fontWeight: 700, opacity: isApproved ? 0.5 : 1 }}>
+              {reviewApproving ? "Signing…" : isApproved ? "✓ Approved" : "✓ Approve & Next →"}
+            </button>
+            <button onClick={handleReviewSkip}
+              style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, cursor: "pointer", fontFamily: T.mono }}>
+              Skip →
+            </button>
+          </div>
+        </div>
+      );
+    })()}
+
+    {/* ── Review Complete ── */}
+    {showReviewBanner && reviewComplete && (
+      <div style={{ background: `${T.green}10`, border: `1px solid ${T.green}30`, borderRadius: 10, margin: "16px 20px", padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: T.green, marginBottom: 4 }}>
+            ✓ File review complete — {reviewApproved.size} of {reviewQueue.length} files approved
+          </div>
+          <div style={{ fontSize: 12, color: T.muted }}>
+            You've worked through all existing governance files. The next step is to submit the formal admission request through the Onboarding Wizard.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { setReviewComplete(false); setReviewIndex(0); }}
+            style={{ padding: "7px 14px", borderRadius: 7, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 12, cursor: "pointer", fontFamily: T.mono }}>
+            Review Again
+          </button>
+        </div>
+      </div>
+    )}
+
+    <div style={{ display: "flex", height: `calc(100vh - ${110 + (showReviewBanner && !reviewComplete ? 72 : 0)}px)`, overflow: "hidden" }}>
       {/* ── LEFT SIDEBAR ── */}
       <div style={{ width: 280, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", background: T.surface, flexShrink: 0 }}>
         {/* Health strip */}
@@ -4695,6 +4828,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
         <ArchiveBlockModal block={archiveBlock} onClose={() => setArchiveBlock(null)} />
       )}
     </div>
+    </>
   );
 }
 
@@ -6331,7 +6465,7 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
                 const ph = getAgentPhase(onboardGuideModal.slug, co.id);
                 return ph === "crawl" || ph === "walk" || ph === "run";
               }) || companies[0];
-              if (target) onLoad(target, "filemanager", { agentFilter: onboardGuideModal.slug });
+              if (target) onLoad(target, "filemanager", { agentFilter: onboardGuideModal.slug, reviewMode: true });
             },
           },
           {
@@ -10280,7 +10414,7 @@ export default function VdaOS() {
           {tab === "credentials"  && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "a2a"          && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onRoleChange={setGlobalRole} onSwitchTab={setTab} initialSubTab={hubNavContext?.phaseSubTab} initialPhaseAgent={hubNavContext?.phaseAgent} />}
-          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} agentFilter={hubNavContext?.agentFilter} />}
+          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} agentFilter={hubNavContext?.agentFilter} reviewMode={hubNavContext?.reviewMode} />}
         </>
       )}
 
