@@ -1,0 +1,40 @@
+Task #53 Review
+Overall verdict: One blocking issue, three smaller fixes needed.
+
+Issue 1 — BLOCKING: Wrong activation endpoint
+Step 5 says to call POST /api/dashboard/phases/promote with targetPhase: "crawl" to activate an agent at a hotel. This is wrong and will break on live.
+Just confirmed: the promote endpoint explicitly rejects targetPhase: "crawl" with the error "targetPhase must be 'walk' or 'run'". The promote endpoint is for moving between existing phases, not for initial activation. Activating a brand-new agent into crawl requires the activation flow — the exception_acceptance HITL cards and the activationOrchestrator.
+The correct endpoint is POST /api/dashboard/activation/start (built in Task #49), which returns 404 right now because Task #49 hasn't run yet.
+Amendment to Step 5:
+
+Replace POST /api/dashboard/phases/promote with POST /api/dashboard/activation/start. Body: { agentId: governanceSlug, companyId, initiatedBy: currentRole }. This endpoint is built in Task #49 — Task #53 has a hard dependency on Task #49 completing first. Add Task #49 to the Dependencies section. On 404 (Task #49 not yet run): show a disabled "Pending setup" state on the Activate button with a tooltip "Activation engine not yet deployed". Do not attempt to call the promote endpoint as a fallback.
+
+
+Issue 2 — Source filter not yet on the /api/onboarding endpoint
+The task fetches /api/onboarding?source=vda_native and /api/onboarding?source=a2a_external separately. Currently /api/onboarding does not support query filtering by source — it returns all records. Step 3 says to filter client-side by source field which is the right fallback, but the task is inconsistent — Step 4 says "Filter onboarding_requests where source === 'a2a_external'" as if this happens client-side, but Step 2 says to fetch with ?source=vda_native as if it's a server filter.
+Amendment to Steps 2 and 3:
+
+Fetch /api/onboarding once (no query params). Split the result client-side: const nativeAgents = data.requests.filter(r => r.source === 'vda_native') and const externalAgents = data.requests.filter(r => r.source === 'a2a_external'). Do not rely on server-side source filtering — it is not implemented in the current endpoint.
+
+
+Issue 3 — VDA native agents won't appear until Task #49 seed runs
+The left panel derives native agent rows from AGENT_DEFS enriched with onboarding_requests data. But until Task #49's seed script runs, onboarding_requests has zero vda_native records. So the left panel will show 8 rows from AGENT_DEFS with no status enrichment — all showing pre_admitted as default.
+This is actually correct behaviour — the panel should still render the 8 agents from AGENT_DEFS even with no database records. But the task doesn't make this explicit and a developer might assume the panel shows nothing if the DB is empty.
+Amendment to Step 3:
+
+The VDA native agent rows are always sourced from AGENT_DEFS (all 8 agents always render). onboarding_requests data is optional enrichment — if no matching record exists for an agent, render status: "pre_admitted" as the default badge. Never hide a native agent row because its onboarding record doesn't exist yet. The match between AGENT_DEFS and onboarding_requests is by governance slug (the mapping defined in Step 3).
+
+
+Issue 4 — Matrix "–" cell click opens activate modal, but activation needs Task #49
+Step 6 says clicking a – cell opens the activate modal, which then calls the activation endpoint. Same dependency issue as Issue 1. The matrix is fine to render immediately but the click behaviour needs the same conditional guard.
+Amendment to Step 6:
+
+Clicking a – cell calls setActivateModal({ agentId: governanceSlug, agentName }). The modal's hotel button click calls POST /api/dashboard/activation/start — same endpoint and same conditional guard as Step 5. If the endpoint returns 404, show inline error: "Activation engine not yet deployed — complete Task #49 first."
+
+
+One positive note
+The decision to use AGENT_DEFS as the authoritative list for native agents rather than trying to derive it purely from the database is correct — it means the left panel always renders all 8 agents regardless of DB state. This is robust.
+
+Summary Table
+IssueBlocking?1Wrong activation endpoint (promote vs activation/start)✅ Yes2Source filter assumed server-side, must be client-side⚠️ Functional bug3Native agent rows must render from AGENT_DEFS not DB⚠️ Empty panel risk4Matrix – cell same endpoint dependency as Issue 1⚠️ Linked to Issue 1
+Add to Dependencies section: Task #49 — Iron Onboarding — Hotel Activation Orchestrator & UI (currently missing entirely from the task).

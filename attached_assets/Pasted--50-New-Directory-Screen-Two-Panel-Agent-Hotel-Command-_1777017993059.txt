@@ -1,0 +1,283 @@
+#50 — New Directory Screen: Two-Panel Agent × Hotel Command Centre
+
+What & Why
+The current Directory screen shows five hotel cards as the primary navigation. 
+This was correct when hotels were the only unit of navigation. After Tasks #48 
+and #49, the meaningful unit is an agent-at-a-hotel pair — some agents are in 
+crawl at one hotel but not activated at others. The hotel-card view hides this 
+entirely. The new Directory replaces the card grid with a two-panel layout that 
+makes the full operational picture visible at a glance, without any new backend 
+endpoints.
+
+Left panel (Agent Registry) — technical admission status by agent, CO-owned.
+Right panel (Hotel Operations) — operational phase status by hotel, GM-owned.
+Both panels are click-through to the relevant deep UI.
+
+No backend changes. This task is entirely in VdaOS.jsx and uses only existing 
+endpoints.
+
+──────────────────────────────────────────────────────────────────────────────
+Done looks like
+──────────────────────────────────────────────────────────────────────────────
+The Directory route renders a two-panel layout (not the hotel card grid).
+
+Left panel fetches:
+  GET /api/onboarding?source=vda_native   → VDA native agent rows
+  GET /api/onboarding?source=a2a_external → External A2A agent rows
+
+Right panel fetches:
+  GET /api/dashboard/phases/portfolio     → hotel-level summary
+  GET /api/agent_phases (all companyIds)  → per-agent per-hotel phase cells
+
+Clicking a VDA native agent row opens its EXCEPTION_AUTHORITY.md detail view 
+(File Manager filtered to that agentId).
+
+Clicking an External A2A agent row opens the 8-step wizard at that agent's 
+current step.
+
+Clicking a hotel name in the right panel navigates to that hotel hub (existing 
+behaviour — same as clicking the old card).
+
+Clicking a phase cell (e.g. "🟡 crawl") opens Phase Management for that 
+agent at that hotel.
+
+Clicking "Activate →" on a native agent row opens a hotel picker modal and 
+calls POST /api/dashboard/activation/start for the selected hotel.
+
+The old hotel card grid (Property Directory) is removed from the Directory 
+route. Hotel cards still exist inside each hotel hub — only the root directory 
+changes.
+
+──────────────────────────────────────────────────────────────────────────────
+Layout Spec
+──────────────────────────────────────────────────────────────────────────────
+Full-width header (unchanged):
+  Title: "VDA-MD Command Centre"
+  Subtitle: "Agent admission status · Hotel operational phases · Click any cell 
+  to go deeper"
+  Compliance badges: NIST SP 800-53 · GDPR · EU AI Act · C2MD Pipeline
+
+Two-column body (50/50 split, same dark card style as existing UI):
+
+LEFT — "Agent Registry"
+─────────────────────────────────────────────────
+Section label: "VDA NATIVE AGENTS"
+One row per native agent, sourced from 
+  GET /api/onboarding?source=vda_native
+
+Row anatomy:
+  [icon] [Agent name]   [status badge]   [hotel dots]   [action button]
+
+Status badge values and colours:
+  pre_admitted    → orange outline badge
+  activating      → yellow  (activation flow in progress)
+  crawl           → yellow solid (at ≥1 hotel)
+  walk            → blue solid
+  run             → green solid
+
+Hotel dots (BER · LND · MUC · PAR · VIE):
+  Each dot is coloured by the agent's phase at that hotel:
+    not activated → grey dash  –
+    crawl         → 🟡
+    walk          → 🔵
+    run           → 🟢
+  Source: cross-reference agent_id from onboarding_requests against 
+  agent_phases for each companyId (1=BER, 2=LND, 3=MUC, 4=PAR, 5=VIE).
+
+Action button:
+  If agent has ≥1 hotel not yet activated → "Activate →" (orange)
+  If all hotels activated → "Manage →" (grey)
+  Clicking "Activate →" opens a small inline modal:
+    Title: "Activate [Agent Name] at which hotel?"
+    Shows 5 hotel buttons (BER LND MUC PAR VIE)
+    Greys out hotels where agent is already activated
+    On hotel click: POST /api/dashboard/activation/start
+      body: { agentId, companyId, initiatedBy: currentRole }
+    On success: close modal, refresh left panel data
+
+──────────────────────────────────────────────────────────────────────────────
+Section divider line
+
+Section label: "EXTERNAL A2A AGENTS"
+One row per external agent, sourced from 
+  GET /api/onboarding?source=a2a_external
+
+Row anatomy:
+  [icon 💱] [Agent name]   [pipeline status badge]   [Review →]
+
+Pipeline status badge values (from onboarding_requests.status):
+  submitted                → grey    "Submitted"
+  identity_verified        → grey    "Verifying"
+  awaiting_first_hitl      → orange  "CO Review 1"
+  sandbox_evaluation       → yellow  "Sandbox"
+  awaiting_second_hitl     → orange  "CO Review 2"
+  governance_files_created → blue    "Files Ready"
+  admitted                 → green   "Admitted"
+  rejected                 → red     "Rejected"
+
+"Review →" button navigates to Agent Onboarding tab → Wizard sub-tab, 
+scrolled to the agent's current step.
+
+If no external agents exist yet: show a muted placeholder row:
+  "No external agents submitted yet · Submit via POST /api/a2a/onboarding"
+
+──────────────────────────────────────────────────────────────────────────────
+
+RIGHT — "Hotel Operations"
+─────────────────────────────────────────────────
+Compact list view (default):
+
+One row per hotel. Source: GET /api/dashboard/phases/portfolio
+
+Row anatomy:
+  [CI badge] [Hotel name]  [code]  [agent count summary]  [Open hub →]
+
+Agent count summary:
+  "3 agents · 🟡 1 crawl  🔵 1 walk  🟢 1 run"
+  If no agents activated: "No agents active"
+  Source: portfolio.summary[companyId].walkRunCount + totalAgents
+
+"Open hub →" button navigates to that hotel hub 
+  (same as clicking old hotel card, e.g. setSetup(company) + setActiveTab("dashboard"))
+
+──────────────────────────────────────────────────────────────────────────────
+"Expand to matrix view" toggle button (bottom of right panel):
+
+When toggled ON, the compact list expands to a full agent × hotel matrix:
+
+Rows: hotels (BER, LND, MUC, PAR, VIE)
+Columns: 8 native agents (abbreviated: Avail · Rate · Res · Check-in · 
+         Folio · F-Charge · Checkout · Revenue)
+
+Each cell:
+  –          → not activated (grey, clickable → "Activate at this hotel")  
+  🟡 Crawl  → yellow, clickable → Phase Management for agent+hotel
+  🔵 Walk   → blue, clickable → Phase Management
+  🟢 Run    → green, clickable → Phase Management
+
+Column headers are abbreviated agent names. Hovering shows full name tooltip.
+
+Data source: fetch /api/dashboard/phases?companyId=X for each of the 5 
+companyIds (5 parallel fetches). Build the matrix client-side.
+
+──────────────────────────────────────────────────────────────────────────────
+Out of scope
+──────────────────────────────────────────────────────────────────────────────
+No backend changes. No new API endpoints. No changes to hotel hub internals.
+The hotel hub pages (Dashboard, Agent Onboarding, etc.) are unchanged.
+The existing COMPANIES array and hotel setup logic is unchanged.
+The role-context banner is unchanged.
+
+──────────────────────────────────────────────────────────────────────────────
+Steps
+──────────────────────────────────────────────────────────────────────────────
+1. Remove the Property Directory section from VdaOS.jsx
+   Delete the JSX that renders the "Property Directory" title, the subtitle, 
+   the "5 CONFIGURED PROPERTIES" label, and the hotel card grid (the 
+   COMPANIES.map block that renders hotel cards at the root directory view). 
+   The COMPANIES array and individual hotel hub logic are NOT deleted — only 
+   the root directory card grid render.
+
+2. Build the two-panel Directory component
+   Replace the deleted section with a new <DirectoryScreen> component defined 
+   within VdaOS.jsx (no new file needed). 
+
+   Data fetching (all on mount, parallel):
+     const [nativeAgents, setNativeAgents] = useState([])
+     const [externalAgents, setExternalAgents] = useState([])
+     const [portfolio, setPortfolio] = useState(null)
+     const [allPhases, setAllPhases] = useState({})  
+       // { 1: [...phases], 2: [...phases], ... } keyed by companyId
+     const [matrixOpen, setMatrixOpen] = useState(false)
+     const [activateModal, setActivateModal] = useState(null)  
+       // null | { agentId, agentName }
+
+   Fetch all five companyId phase lists in parallel:
+     Promise.all([1,2,3,4,5].map(cid => 
+       fetch(`/api/dashboard/phases?companyId=${cid}`)
+         .then(r => r.json())
+         .then(d => [cid, d.phases])
+     )).then(entries => setAllPhases(Object.fromEntries(entries)))
+
+   Helper: getAgentPhase(agentId, companyId)
+     Returns the phase string for that agent+hotel from allPhases, 
+     or "not_activated" if no record exists.
+
+3. Left panel — VDA Native Agent rows
+   Map over nativeAgents array. For each agent:
+   - Derive the agent icon from agentCard.name using the same icon map 
+     as AGENT_DEFS in VdaOS.jsx (reuse existing icon logic).
+   - Derive the overall status badge from onboarding_requests.status.
+   - Render 5 hotel dots using getAgentPhase(agentId, companyId) for 
+     companyIds 1–5.
+   - Render "Activate →" or "Manage →" based on whether any hotel has 
+     phase "not_activated".
+   - On "Activate →" click: setActivateModal({ agentId, agentName }).
+
+4. Left panel — External A2A Agent rows
+   Map over externalAgents. Render status badge from status field.
+   "Review →" onClick: setActiveTab("onboarding") (navigate to Agent 
+   Onboarding tab, Wizard sub-tab).
+
+5. Right panel — Compact hotel list
+   Map over COMPANIES array. For each hotel:
+   - Pull portfolio.summary[company.id] for counts.
+   - Build summary string from walkRunCount + totalAgents.
+   - "Open hub →" onClick: setSetup(company) (same navigation as old card).
+
+6. Right panel — Matrix view toggle
+   When matrixOpen === true, render the matrix grid below the compact list.
+   Use CSS grid: 6 columns (hotel label + 5 agent columns... wait, 
+   actually rows=hotels, cols=agents). 
+   Use a horizontally scrollable container since 8 columns may overflow.
+   Column headers: abbreviated agent names from AGENT_DEFS.
+   Cells: call getAgentPhase(agentId, companyId) for each combination.
+   Cell onClick for activated phases: navigate to Agent Onboarding → 
+     Phase Management sub-tab filtered to that agent+hotel.
+   Cell onClick for "not_activated": open activateModal for that agent, 
+     pre-selecting that hotel.
+
+7. Activate modal
+   Renders as an overlay when activateModal is not null.
+   Title: "Activate [agentName] at which hotel?"
+   Five hotel buttons using COMPANIES array.
+   Grey out hotels where getAgentPhase(activateModal.agentId, companyId) 
+     !== "not_activated".
+   On hotel click:
+     POST /api/dashboard/activation/start
+     body: { agentId: activateModal.agentId, companyId, initiatedBy: role }
+     On success: close modal, refetch nativeAgents + allPhases.
+     On error: show inline error message in modal.
+
+8. Styling
+   Use the existing dark theme CSS vars from VdaOS.jsx throughout.
+   Left and right panels: same card/border style as existing hub cards.
+   Status badges: use existing badge pattern (coloured dot + text).
+   Hotel dots in left panel: 14px coloured circles, spaced 6px apart, 
+     with a 1-letter label (B L M P V) as tooltip on hover.
+   The matrix cells: 80×40px minimum, centred content, hover highlight.
+   Panel headers ("Agent Registry" / "Hotel Operations"): same section 
+     label style as existing sub-tab section headers.
+
+9. Verify
+   - Directory renders without errors for all 6 role types 
+     (Ambassador through Compliance Officer).
+   - Native agents from seed show with correct status badges.
+   - External Apaleo Smart Pricing Agent shows with "CO Review 2" badge.
+   - Portfolio summary shows correct hotel count (5).
+   - Matrix toggle expands/collapses correctly.
+   - "Open hub →" on Berlin navigates into Berlin hub correctly.
+   - "Activate →" for checkout-agent opens modal with 5 hotel options; 
+     BER shows active/greyed if already activated.
+   - Role banner still shows at top of Directory (do not remove it).
+
+──────────────────────────────────────────────────────────────────────────────
+Relevant files
+──────────────────────────────────────────────────────────────────────────────
+artifacts/vda-os/src/VdaOS.jsx  (only file changed)
+
+──────────────────────────────────────────────────────────────────────────────
+Dependencies
+──────────────────────────────────────────────────────────────────────────────
+Task #48 (onboarding-policy, source column on onboarding_requests)
+Task #49 (seed script run, activation endpoints exist)
