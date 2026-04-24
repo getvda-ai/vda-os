@@ -5988,14 +5988,15 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
     setActivating(false);
   };
 
-  // Hotel phase summary — single source of truth: allPhases (full phase detail per agent)
-  // Portfolio is only used for portfolio-wide stats (hotelsAtWalkRun); not mixed in here
+  // Hotel phase summary — spec: use portfolio.summary[companyId] as primary source for totalAgents
+  // allPhases provides the per-phase breakdown (crawl/walk/run) since portfolio only has walkRunCount
   const hotelPhaseSummary = (companyId) => {
+    const portEntry = portfolio?.summary?.[companyId];
     const phases = allPhases[companyId];
-    if (phases === undefined) return "Loading…";
-    const phasesArr = phases.filter(p => p.phase !== "not_activated");
-    if (!phasesArr.length) return "No agents active";
-    const total = phasesArr.length;
+    if (portEntry === undefined && phases === undefined) return "Loading…";
+    const phasesArr = (phases || []).filter(p => p.phase !== "not_activated");
+    const total = portEntry?.totalAgents ?? phasesArr.length;
+    if (!total) return "No agents active";
     const crawl = phasesArr.filter(p => p.phase === "crawl").length;
     const walk  = phasesArr.filter(p => p.phase === "walk").length;
     const run   = phasesArr.filter(p => p.phase === "run").length;
@@ -6113,7 +6114,7 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
                       // Prefer the first hotel where this agent is active; fall back to first company
                       const activeHotel = companies.find(co => {
                         const ph = getAgentPhase(slug, co.id);
-                        return ph === "walk" || ph === "run";
+                        return ph === "crawl" || ph === "walk" || ph === "run";
                       }) || companies[0];
                       if (activeHotel) onLoad(activeHotel, "filemanager", { agentFilter: slug });
                     }}
