@@ -3671,6 +3671,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const [reviewComplete, setReviewComplete] = useState(false);
   const [reviewApproving, setReviewApproving] = useState(false);
   const editorRef = useRef(null);
+  const backdropRef = useRef(null);
   const searchTimeout = useRef(null);
   const complianceTimeout = useRef(null);
   const integrityTimeout = useRef(null);
@@ -4362,14 +4363,15 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
                 />
               ) : (
                 <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                  {/* Syntax highlight backdrop */}
+                  {/* Syntax highlight backdrop — scrollTop is kept in sync with textarea */}
                   <pre
+                    ref={backdropRef}
                     aria-hidden="true"
                     style={{
                       position: "absolute", inset: 0, margin: 0,
                       padding: "16px 20px", fontFamily: T.mono, fontSize: 13,
                       lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                      overflowY: "hidden", pointerEvents: "none",
+                      overflowY: "scroll", pointerEvents: "none",
                       background: "#050608", zIndex: 0,
                     }}
                     dangerouslySetInnerHTML={{ __html: highlightMd(editorContent) }}
@@ -4378,6 +4380,11 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
                     ref={editorRef}
                     value={editorContent}
                     onChange={handleEditorChange}
+                    onScroll={() => {
+                      if (backdropRef.current && editorRef.current) {
+                        backdropRef.current.scrollTop = editorRef.current.scrollTop;
+                      }
+                    }}
                     spellCheck={false}
                     style={{
                       position: "absolute", inset: 0,
@@ -4386,6 +4393,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
                       lineHeight: 1.7, border: "none", outline: "none",
                       padding: "16px 20px", resize: "none",
                       whiteSpace: "pre-wrap", caretColor: "#e2e8f0",
+                      overflowY: "scroll",
                       zIndex: 1,
                     }}
                   />
