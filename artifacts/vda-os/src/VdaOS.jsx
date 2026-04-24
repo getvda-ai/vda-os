@@ -8874,22 +8874,15 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
               const handleAutoSubmit = async () => {
                 setAutoSubmitting(true);
                 try {
-                  const card = JSON.stringify({
-                    id: `did:vda:hospitality:${slug}`,
-                    name: agentDef.name,
-                    description: `Apaleo-native ${agentDef.name.toLowerCase()} for the citizenM hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls.`,
-                    skills: [{ id: `${slug}-core`, name: `${agentDef.name} Core`, description: `Core governance skills for ${agentDef.name} within the VDA-MD framework.` }],
-                    url: agentDef.endpoint,
-                  });
-                  await fetch("/api/a2a/onboarding", {
+                  await fetch("/api/admin/onboarding/quick-submit", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: "Bearer demo-compliance-officer-vc" },
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                      jsonrpc: "2.0", id: 1, method: "tasks/send",
-                      params: {
-                        id: crypto.randomUUID(), sessionId: crypto.randomUUID(),
-                        message: { role: "user", parts: [{ type: "text", text: card }] },
-                      },
+                      agentSlug: slug,
+                      agentName: agentDef.name,
+                      agentIcon: agentDef.icon,
+                      agentEndpoint: agentDef.endpoint,
+                      companyId: companyId ?? undefined,
                     }),
                   });
                   await fetchRequests();

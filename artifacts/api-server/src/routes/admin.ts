@@ -13,6 +13,7 @@ import path from "path";
 import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
+import { startOnboarding } from "../onboarding/onboardingOrchestrator.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
@@ -201,6 +202,61 @@ router.post("/admin/master-reset", async (_req, res) => {
   } catch (err) {
     logger.error({ err }, "master-reset error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Reset failed" });
+  }
+});
+
+// ─── Quick-submit — demo happy-path shortcut (no external VC required) ────────
+// Called from the wizard pre-submission card when arriving from File Manager review.
+// Constructs a minimal agent card and triggers the full onboarding pipeline
+// without requiring a cryptographically-signed W3C Verifiable Credential.
+
+router.post("/admin/onboarding/quick-submit", async (req, res) => {
+  const { agentSlug, agentName, agentIcon, agentEndpoint, companyId } = req.body as {
+    agentSlug: string;
+    agentName: string;
+    agentIcon?: string;
+    agentEndpoint?: string;
+    companyId?: number;
+  };
+
+  if (!agentSlug || !agentName) {
+    res.status(400).json({ error: "agentSlug and agentName are required" });
+    return;
+  }
+
+  const agentCard = {
+    id: `did:vda:hospitality:${agentSlug}`,
+    name: agentName,
+    description: `Apaleo-native ${agentName.toLowerCase()} for the citizenM hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls.`,
+    skills: [
+      {
+        id: `${agentSlug}-core`,
+        name: `${agentName} Core`,
+        description: `Core governance skills for ${agentName} within the VDA-MD framework.`,
+      },
+    ],
+    url: agentEndpoint ?? `/api/agents/${agentSlug}`,
+  };
+
+  try {
+    const result = await startOnboarding({
+      sessionId: crypto.randomUUID(),
+      agentCard: agentCard as Parameters<typeof startOnboarding>[0]["agentCard"],
+      externalAgentDid: agentCard.id,
+      rpcId: null,
+      companyId: companyId ?? null,
+    });
+
+    if ("error" in result) {
+      res.status(400).json(result.error);
+      return;
+    }
+
+    logger.info({ agentSlug, agentName, companyId }, "[quick-submit] Onboarding pipeline started");
+    res.json({ ok: true, onboardingId: result.onboardingId });
+  } catch (err) {
+    logger.error({ err, agentSlug }, "[quick-submit] Failed to start onboarding");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start onboarding" });
   }
 });
 
