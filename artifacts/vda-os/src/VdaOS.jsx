@@ -5772,6 +5772,7 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState(null);
   const [activationUnavailable, setActivationUnavailable] = useState(false);
+  const [onboardGuideModal, setOnboardGuideModal] = useState(null); // { slug, agentName, agentIcon }
 
   // AGENT_DEFS id → governance slug used in agent_phases table
   const GOVERNANCE_SLUG = {
@@ -6141,11 +6142,10 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
                       <button
                         onClick={e => {
                           e.stopPropagation();
-                          const target = companies[0];
-                          if (target) onLoad(target, "onboarding", { phaseSubTab: "wizard" });
+                          setOnboardGuideModal({ slug, agentName: agent.name, agentIcon: agent.icon });
                         }}
                         style={{ ...smallBtn(T.orange, true) }}
-                        title="Start onboarding this agent through the 7-phase admission workflow"
+                        title="Start the guided onboarding process for this agent"
                       >
                         Onboard →
                       </button>
@@ -6312,6 +6312,94 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
           <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Saved locally in this browser · No external storage</div>
         </div>
       </div>
+
+      {/* ── Guided Onboarding Modal ── */}
+      {onboardGuideModal && (() => {
+        const steps = [
+          {
+            num: 1, phase: "Crawl", color: "#d97706",
+            title: "Review existing governance files",
+            body: "The framework has already generated governance files for this agent — AGENTS.md, SOP.md, SKILL.md, EXCEPTION.md and more. Your first task is to open each file, read it, and sign off on it. No editing required at this stage.",
+            action: "Open File Manager →",
+            onAction: () => {
+              setOnboardGuideModal(null);
+              const target = companies.find(co => {
+                const ph = getAgentPhase(onboardGuideModal.slug, co.id);
+                return ph === "crawl" || ph === "walk" || ph === "run";
+              }) || companies[0];
+              if (target) onLoad(target, "filemanager", { agentFilter: onboardGuideModal.slug });
+            },
+          },
+          {
+            num: 2, phase: "Walk", color: T.blue,
+            title: "Submit the admission request",
+            body: "Once you have reviewed the files, submit a formal admission request through the Wizard. This starts the 7-phase governance workflow — identity verification, sandbox evaluation, and two rounds of compliance officer sign-off.",
+            action: "Open Onboarding Wizard →",
+            onAction: () => {
+              setOnboardGuideModal(null);
+              const target = companies[0];
+              if (target) onLoad(target, "onboarding", { phaseSubTab: "wizard" });
+            },
+          },
+          {
+            num: 3, phase: "Run", color: T.green,
+            title: "Await approval and phase activation",
+            body: "After submission, the Approvals tab shows live HITL decision cards. Once both reviews pass, the Phase Management tab lets you promote the agent from Crawl → Walk → Run. Generating new governance files comes only at this stage.",
+            action: null,
+          },
+        ];
+        return (
+          <div
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+            onClick={() => setOnboardGuideModal(null)}
+          >
+            <div
+              style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%" }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+                <span style={{ fontSize: 24 }}>{onboardGuideModal.agentIcon}</span>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 17, color: T.text }}>{onboardGuideModal.agentName}</div>
+                  <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, letterSpacing: "0.05em" }}>ONBOARDING GUIDE · CRAWL → WALK → RUN</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 13, color: T.muted, marginBottom: 24, lineHeight: 1.5 }}>
+                Follow these three steps in order. Don't rush — the framework has done most of the heavy lifting already.
+              </div>
+
+              {/* Steps */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {steps.map(step => (
+                  <div key={step.num} style={{ background: `${step.color}0c`, border: `1px solid ${step.color}25`, borderRadius: 10, padding: "14px 16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontFamily: T.mono, fontWeight: 800, fontSize: 10, color: step.color, background: `${step.color}20`, border: `1px solid ${step.color}40`, borderRadius: 4, padding: "2px 6px", letterSpacing: "0.08em" }}>
+                        STEP {step.num} · {step.phase}
+                      </span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: T.text }}>{step.title}</span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 12, color: T.muted, lineHeight: 1.6, marginBottom: step.action ? 12 : 0 }}>{step.body}</p>
+                    {step.action && (
+                      <button
+                        onClick={step.onAction}
+                        style={{ background: `${step.color}22`, border: `1px solid ${step.color}50`, color: step.color, borderRadius: 7, padding: "6px 14px", fontFamily: T.mono, fontWeight: 700, fontSize: 11, cursor: "pointer", letterSpacing: "0.04em" }}
+                      >
+                        {step.action}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Footer */}
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+                <button onClick={() => setOnboardGuideModal(null)} style={smallBtn(T.dim, true)}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Activate Modal ── */}
       {activateModal && (
