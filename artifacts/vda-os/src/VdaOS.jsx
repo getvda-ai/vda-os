@@ -5993,7 +5993,8 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
   const hotelPhaseSummary = (companyId) => {
     const portEntry = portfolio?.summary?.[companyId];
     const phases = allPhases[companyId];
-    if (portEntry === undefined && phases === undefined) return "Loading…";
+    // Gate on portfolio (primary source) — show skeleton until it arrives
+    if (portEntry === undefined) return "Loading…";
     const phasesArr = (phases || []).filter(p => p.phase !== "not_activated");
     const total = portEntry?.totalAgents ?? phasesArr.length;
     if (!total) return "No agents active";
