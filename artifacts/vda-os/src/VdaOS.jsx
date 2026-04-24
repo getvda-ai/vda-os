@@ -5759,7 +5759,7 @@ function buildSeedLog(config, companyName) {
 // ─────────────────────────────────────────────
 // DIRECTORY — persistent company list
 // ─────────────────────────────────────────────
-function Directory({ onNew, onLoad, role = "compliance_officer" }) {
+function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup }) {
   const [companies, setCompanies] = useState(null);
   const [seeding, setSeeding] = useState(false);
   // Two-panel state
@@ -6175,7 +6175,10 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
                     </div>
                     <A2ABadge status={ext.status} />
                     <button
-                      onClick={() => companies[0] && onLoad(companies[0], "onboarding", { phaseSubTab: "wizard" })}
+                      onClick={() => {
+                        const target = currentSetup || companies[0];
+                        if (target) onLoad(target, "onboarding", { phaseSubTab: "wizard" });
+                      }}
                       style={smallBtn(T.blue, true)}
                     >Review →</button>
                   </div>
@@ -9988,6 +9991,7 @@ export default function VdaOS() {
           onNew={() => setScreen("wizard")}
           onLoad={handleLoad}
           role={globalRole}
+          currentSetup={setup}
         />
       )}
 
