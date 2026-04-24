@@ -5835,7 +5835,10 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
   };
 
   // GOVERNANCE_SLUG values set — used to match native onboarding rows by agentCard slug
-  const NATIVE_SLUG_LOOKUP = Object.values(GOVERNANCE_SLUG);
+  // Deterministic: display name (lowercase) → governance slug, built from AGENT_DEFS source of truth
+  const AGENT_NAME_TO_SLUG = Object.fromEntries(
+    AGENT_DEFS.map(a => [a.name.toLowerCase(), GOVERNANCE_SLUG[a.id]]).filter(([, s]) => s)
+  );
 
   const loadOnboarding = () => {
     fetch("/api/onboarding").then(r => r.json()).then(d => {
@@ -5844,16 +5847,14 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
       const nativeReqs = reqs.filter(r => r.source === "vda_native");
       const externalReqs = reqs.filter(r => r.source === "a2a_external");
 
-      // Build status map: governance slug → latest status
-      // Match native rows via agentCard.name normalized against GOVERNANCE_SLUG values
+      // Build status map: governance slug → latest request status
+      // Priority: (1) agentCard.id direct match in GOVERNANCE_SLUG, (2) AGENT_DEFS display name
       const statusMap = {};
       for (const req of nativeReqs) {
-        const rawName = req.agentCard?.name || req.agent_card?.name || "";
-        const normalized = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        // Only map if this normalized name is a known governance slug
-        if (NATIVE_SLUG_LOOKUP.includes(normalized)) {
-          statusMap[normalized] = req.status;
-        }
+        const agentId = req.agentCard?.id || req.agent_card?.id;
+        const rawName = (req.agentCard?.name || req.agent_card?.name || "").toLowerCase();
+        const slug = (agentId && GOVERNANCE_SLUG[agentId]) || AGENT_NAME_TO_SLUG[rawName];
+        if (slug) statusMap[slug] = req.status;
       }
       setNativeStatuses(statusMap);
       setExternalAgents(externalReqs);
@@ -5987,12 +5988,14 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
     setActivating(false);
   };
 
-  // Hotel phase summary — use portfolio.summary as primary source, fall back to allPhases
+  // Hotel phase summary — single source of truth: allPhases (full phase detail per agent)
+  // Portfolio is only used for portfolio-wide stats (hotelsAtWalkRun); not mixed in here
   const hotelPhaseSummary = (companyId) => {
-    const portEntry = portfolio?.summary?.[companyId];
-    const phasesArr = (allPhases[companyId] || []).filter(p => p.phase !== "not_activated");
-    const total = portEntry?.totalAgents ?? phasesArr.length;
-    if (!total) return portfolio !== null ? "No agents active" : "Loading…";
+    const phases = allPhases[companyId];
+    if (phases === undefined) return "Loading…";
+    const phasesArr = phases.filter(p => p.phase !== "not_activated");
+    if (!phasesArr.length) return "No agents active";
+    const total = phasesArr.length;
     const crawl = phasesArr.filter(p => p.phase === "crawl").length;
     const walk  = phasesArr.filter(p => p.phase === "walk").length;
     const run   = phasesArr.filter(p => p.phase === "run").length;
