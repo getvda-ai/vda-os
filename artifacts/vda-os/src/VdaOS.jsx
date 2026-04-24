@@ -5890,16 +5890,12 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
 
   // Derive overall native agent status from phases across all hotels
   const agentOverallStatus = (governanceSlug) => {
+    // Badge reflects onboarding/activation status only — per-hotel dots show operational phase
     const reqStatus = nativeStatuses[governanceSlug];
     if (reqStatus && ["activating","submitted","identity_verified","awaiting_first_hitl",
                       "sandbox_evaluation","awaiting_second_hitl","governance_files_created"].includes(reqStatus)) {
       return "activating";
     }
-    const coIds = (companies || []).map(c => c.id);
-    const phases = coIds.map(cid => getAgentPhase(governanceSlug, cid));
-    if (phases.includes("run"))  return "run";
-    if (phases.includes("walk")) return "walk";
-    if (phases.includes("crawl")) return "crawl";
     return "pre_admitted";
   };
 
@@ -9873,6 +9869,13 @@ export default function VdaOS() {
   };
 
   const [hubNavContext, setHubNavContext] = useState(null);
+
+  // Clear nav context 1 s after it is set, so manual tab switches don't re-trigger deep-link
+  useEffect(() => {
+    if (!hubNavContext) return;
+    const t = setTimeout(() => setHubNavContext(null), 1000);
+    return () => clearTimeout(t);
+  }, [hubNavContext]);
 
   const handleLoad = (savedData, initialTab = "dashboard", navContext = null) => {
     setSetup(savedData);
