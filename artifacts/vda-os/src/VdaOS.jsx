@@ -3629,7 +3629,7 @@ function Soc2Tab({ companyName, companyId, onSaveToWitness }) {
 // ─────────────────────────────────────────────
 // FILE MANAGER TAB
 // ─────────────────────────────────────────────
-function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNavigateToFile, agentFilter, reviewMode }) {
+function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNavigateToFile, agentFilter, reviewMode, onReviewComplete }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -4127,10 +4127,16 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
             You've worked through all existing governance files. The next step is to submit the formal admission request through the Onboarding Wizard.
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => { setReviewComplete(false); setReviewIndex(0); }}
-            style={{ padding: "7px 14px", borderRadius: 7, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 12, cursor: "pointer", fontFamily: T.mono }}>
-            Review Again
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={() => onReviewComplete ? onReviewComplete(initialAgentFilter.current) : undefined}
+            style={{
+              padding: "8px 18px", borderRadius: 7, border: "none",
+              background: T.blue, color: "#fff", fontSize: 12, fontWeight: 800,
+              cursor: "pointer", fontFamily: T.mono, letterSpacing: "0.04em",
+            }}
+          >
+            Step 2: Submit Wizard →
           </button>
         </div>
       </div>
@@ -10492,7 +10498,7 @@ export default function VdaOS() {
           {tab === "credentials"  && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "a2a"          && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onRoleChange={setGlobalRole} onSwitchTab={setTab} initialSubTab={hubNavContext?.phaseSubTab} initialPhaseAgent={hubNavContext?.phaseAgent} />}
-          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} agentFilter={hubNavContext?.agentFilter} reviewMode={hubNavContext?.reviewMode} />}
+          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} agentFilter={hubNavContext?.agentFilter} reviewMode={hubNavContext?.reviewMode} onReviewComplete={(slug) => { setHubNavContext({ phaseSubTab: "wizard", phaseAgent: slug }); setTab("onboarding"); }} />}
         </>
       )}
 
