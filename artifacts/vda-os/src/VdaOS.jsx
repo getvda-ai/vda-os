@@ -5749,7 +5749,7 @@ function buildSeedLog(config, companyName) {
 // ─────────────────────────────────────────────
 // DIRECTORY — persistent company list
 // ─────────────────────────────────────────────
-function Directory({ onNew, onLoad }) {
+function Directory({ onNew, onLoad, role = "compliance_officer" }) {
   const [companies, setCompanies] = useState(null);
   const [seeding, setSeeding] = useState(false);
   // Two-panel state
@@ -5811,18 +5811,6 @@ function Directory({ onNew, onLoad }) {
     finally { setSeeding(false); }
   };
 
-  // Set of all known governance slugs for native-vs-external classification
-  const NATIVE_SLUG_SET = new Set(Object.values({
-    availability:  "availability-agent",
-    rate:          "rate-agent",
-    reservation:   "reservation-bot",
-    checkin:       "check-in-agent",
-    "folio-charge":"folio-charge-agent",
-    folio:         "folio-agent",
-    checkout:      "checkout-agent",
-    revenue:       "revenue-reconciliation-agent",
-  }));
-
   const loadPhases = (ids) => {
     Promise.all(ids.map(cid =>
       fetch(`/api/dashboard/phases?companyId=${cid}`)
@@ -5830,23 +5818,29 @@ function Directory({ onNew, onLoad }) {
     )).then(entries => setAllPhases(Object.fromEntries(entries)));
   };
 
+  // GOVERNANCE_SLUG values set — used to match native onboarding rows by agentCard slug
+  const NATIVE_SLUG_LOOKUP = Object.values(GOVERNANCE_SLUG);
+
   const loadOnboarding = () => {
     fetch("/api/onboarding").then(r => r.json()).then(d => {
       const reqs = d.requests || [];
+      // Split strictly by source field (set on insert by onboarding orchestrator)
+      const nativeReqs = reqs.filter(r => r.source === "vda_native");
+      const externalReqs = reqs.filter(r => r.source === "a2a_external");
+
+      // Build status map: governance slug → latest status
+      // Match native rows via agentCard.name normalized against GOVERNANCE_SLUG values
       const statusMap = {};
-      const exts = [];
-      for (const req of reqs) {
-        // Use agentCard.name normalized against NATIVE_SLUG_SET for deterministic classification
-        const rawName = (req.agent_card?.name || req.agentCard?.name || "");
-        const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        if (slug && NATIVE_SLUG_SET.has(slug)) {
-          statusMap[slug] = req.status;
-        } else {
-          exts.push(req);
+      for (const req of nativeReqs) {
+        const rawName = req.agentCard?.name || req.agent_card?.name || "";
+        const normalized = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        // Only map if this normalized name is a known governance slug
+        if (NATIVE_SLUG_LOOKUP.includes(normalized)) {
+          statusMap[normalized] = req.status;
         }
       }
       setNativeStatuses(statusMap);
-      setExternalAgents(exts);
+      setExternalAgents(externalReqs);
     }).catch(() => {});
 
     fetch("/api/dashboard/phases/portfolio").then(r => r.json()).then(setPortfolio).catch(() => {});
@@ -5947,7 +5941,7 @@ function Directory({ onNew, onLoad }) {
       const res = await fetch("/api/dashboard/activation/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId, companyId, initiatedBy: "compliance_officer" }),
+        body: JSON.stringify({ agentId, companyId, initiatedBy: role }),
       });
       if (res.status === 404) {
         // Persist unavailable state — disable all activation entry points
@@ -6184,7 +6178,11 @@ function Directory({ onNew, onLoad }) {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{hotelPhaseSummary(co.id)}</div>
+                    {portfolio === null && allPhases[co.id] === undefined ? (
+                      <div style={{ height: 10, width: 120, background: `${T.dim}30`, borderRadius: 4, animation: "pulse-ring 1.2s ease infinite" }} />
+                    ) : (
+                      <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{hotelPhaseSummary(co.id)}</div>
+                    )}
                   </div>
                   <button onClick={() => onLoad(co)} style={smallBtn(T.blue, true)}>Open hub →</button>
                 </div>
@@ -9950,6 +9948,7 @@ export default function VdaOS() {
         <Directory
           onNew={() => setScreen("wizard")}
           onLoad={handleLoad}
+          role={globalRole}
         />
       )}
 
