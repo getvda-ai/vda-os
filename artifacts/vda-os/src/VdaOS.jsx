@@ -3688,14 +3688,15 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     }
   }, [navigateToFileId, files]);
 
-  // On first file load, trigger search for agentFilter if provided
+  // Capture agentFilter at mount time — immune to parent 1s hubNavContext clearance
+  const initialAgentFilter = useRef(agentFilter || null);
   const agentFilterApplied = useRef(false);
   useEffect(() => {
-    if (agentFilter && agentFilter.trim() && files.length > 0 && !agentFilterApplied.current) {
+    if (initialAgentFilter.current && files.length > 0 && !agentFilterApplied.current) {
       agentFilterApplied.current = true;
-      handleSearch(agentFilter);
+      handleSearch(initialAgentFilter.current);
     }
-  }, [files, agentFilter]);
+  }, [files]);
 
   if (onNavigateToFile) {
     onNavigateToFile.current = (id) => { setNavigateToFileId(id); };
@@ -5890,13 +5891,16 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
 
   // Derive overall native agent status from phases across all hotels
   const agentOverallStatus = (governanceSlug) => {
-    // Badge reflects onboarding/activation status only — per-hotel dots show operational phase
+    // Badge reflects actual onboarding/activation status — per-hotel dots show operational phase
     const reqStatus = nativeStatuses[governanceSlug];
-    if (reqStatus && ["activating","submitted","identity_verified","awaiting_first_hitl",
-                      "sandbox_evaluation","awaiting_second_hitl","governance_files_created"].includes(reqStatus)) {
+    if (!reqStatus) return "pre_admitted";
+    // Collapse in-flight activation sub-statuses into a single "activating" badge
+    if (["activating","submitted","identity_verified","awaiting_first_hitl",
+         "sandbox_evaluation","awaiting_second_hitl","governance_files_created"].includes(reqStatus)) {
       return "activating";
     }
-    return "pre_admitted";
+    // Return actual DB status (admitted, rejected, active, pre_admitted, etc.) verbatim
+    return reqStatus;
   };
 
   // Phase dot renderer
