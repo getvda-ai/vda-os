@@ -8537,6 +8537,17 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
     if (subTab === "wizard") { fetchPending(); fetchPhases(); fetchRequests(); fetchPortfolio(); }
   }, [subTab, fetchPending, fetchPhases, fetchRequests, fetchPortfolio]);
 
+  // Live polling — refresh wizard every 5 s while pipeline is active
+  useEffect(() => {
+    if (subTab !== "wizard") return;
+    const id = setInterval(() => {
+      fetchRequests();
+      fetchPending();
+      fetchPhases();
+    }, 5000);
+    return () => clearInterval(id);
+  }, [subTab, fetchRequests, fetchPending, fetchPhases]);
+
   // Poll pending every 15s when on approvals tab
   useEffect(() => {
     if (subTab !== "approvals") return;
@@ -8760,7 +8771,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
           if (idx === 0) return ["analysing","generating_files","awaiting_first_hitl","sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : STEP_STATUS.IN_PROGRESS;
           if (idx === 1) return ["generating_files","awaiting_first_hitl","sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : s === "analysing" ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           if (idx === 2) return ["awaiting_first_hitl","sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["analysing","generating_files"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
-          if (idx === 3) return ["sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["analysing","generating_files","awaiting_first_hitl"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
+          if (idx === 3) return ["awaiting_first_hitl","sandbox","awaiting_second_hitl","committing","onboarded"].includes(s) ? STEP_STATUS.COMPLETE : ["analysing","generating_files"].includes(s) ? STEP_STATUS.IN_PROGRESS : STEP_STATUS.NOT_STARTED;
           // Step 5 — Sandbox Eval: IN_PROGRESS at crawl (= sandbox cleared, governance committed,
           // but agent not yet promoted). COMPLETE when agent reaches walk/run (= sandbox proven by operations).
           if (idx === 4) {
@@ -8856,7 +8867,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>8-Step Hotel Onboarding Wizard</div>
                 <div style={{ fontSize: 12, color: T.dim }}>
-                  {latestReq ? `Latest request: ${latestReq.status} · Agent: ${latestReq.agentName ?? latestReq.agent_name ?? "Unknown"}` : "No onboarding requests yet"}
+                  {latestReq ? `Latest request: ${latestReq.status} · Agent: ${latestReq.agentCard?.name ?? latestReq.agentName ?? latestReq.agent_name ?? "Unknown"}` : "No onboarding requests yet"}
                 </div>
               </div>
               {latestReq && (
