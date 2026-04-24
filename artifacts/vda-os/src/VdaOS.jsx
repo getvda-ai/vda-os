@@ -3688,6 +3688,15 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
     }
   }, [navigateToFileId, files]);
 
+  // On first file load, trigger search for agentFilter if provided
+  const agentFilterApplied = useRef(false);
+  useEffect(() => {
+    if (agentFilter && agentFilter.trim() && files.length > 0 && !agentFilterApplied.current) {
+      agentFilterApplied.current = true;
+      handleSearch(agentFilter);
+    }
+  }, [files, agentFilter]);
+
   if (onNavigateToFile) {
     onNavigateToFile.current = (id) => { setNavigateToFileId(id); };
   }
@@ -5795,6 +5804,12 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
     } catch {
       setCompanies([]);
     }
+  };
+
+  const deleteCompany = async (id, e) => {
+    if (e) e.stopPropagation();
+    try { await fetch(`/api/companies/${id}`, { method: "DELETE" }); } catch {}
+    setCompanies(p => (p || []).filter(c => c.id !== id));
   };
 
   const loadDemoHotels = async () => {
