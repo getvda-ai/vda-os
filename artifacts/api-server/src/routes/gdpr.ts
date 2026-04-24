@@ -565,7 +565,7 @@ router.get("/gdpr/checklist", async (_req, res) => {
           id: "Art. 32", title: "Security of Processing",
           status: lastIntegrity ? "green" : "amber",
           evidence: lastIntegrity
-            ? `Framework integrity checks active (W3C Verifiable Credentials, governance file hash verification, tamper-evident Witness Agent log). Last integrity check: ${new Date(lastIntegrity).toISOString()}. ${complianceBoundaryCount} compliance boundary events in last 30 days (monitored).`
+            ? `Framework integrity checks active (W3C Verifiable Credentials — Ed25519Signature2020, asymmetric keys, no shared secret — governance file hash verification, tamper-evident Witness Agent log). Last integrity check: ${new Date(lastIntegrity).toISOString()}. ${complianceBoundaryCount} compliance boundary events in last 30 days (monitored).`
             : "No framework integrity check data found — verify integrity check scheduler is running",
         },
         {

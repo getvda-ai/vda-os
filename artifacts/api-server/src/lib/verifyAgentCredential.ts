@@ -1,5 +1,10 @@
 // verifyAgentCredential.ts — hard-blocking W3C VC middleware for agent routes
-// Token: Authorization: Bearer <base64url(JSON.stringify(signedVc))>
+//
+// Transport: Authorization: Bearer <base64url(JSON.stringify(signedVc))>
+//   The bearer token is a base64url-encoded W3C VC JSON payload — NOT a JWT.
+//   Signing: Ed25519Signature2020 (asymmetric; no shared secret).
+//   For internal platform-managed agent use only.
+//
 // On failure → 401 { error, agent_id, reason, timestamp }
 // On success → sets req.vcVerified, req.vcPayload, calls next()
 

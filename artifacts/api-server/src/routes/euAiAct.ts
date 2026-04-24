@@ -545,7 +545,8 @@ Date of Declaration: ${declarationDate}
     • GDPR — Article 22 (automated decision rights preserved for all guests)
     • ISO 42001 (AI management system)
     • NIST SP 800-53 (controls: AC-2, AU-2, SA-4, IR-4)
-    • W3C Verifiable Credentials (agent identity and governance integrity)
+    • W3C Verifiable Credentials — Ed25519Signature2020, W3C VC Data Model v1.1
+      (agent identity and governance integrity; internal bearer transport)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

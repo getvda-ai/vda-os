@@ -2494,7 +2494,8 @@ router.get("/agents/token-stats", async (req, res) => {
 
 /**
  * POST /api/agents/credentials/issue
- * Issues a W3C VC for a specific agent+company pair.
+ * Issues a W3C VC (Ed25519Signature2020, W3C VC Data Model v1.1) for a specific agent+company pair.
+ * Returns the signed VC object and its base64url-encoded form for internal bearer transport.
  * Body: { agentId: string, companyId: number, permittedSkills?: string[], domainOwner?: string }
  */
 router.post("/agents/credentials/issue", async (req, res) => {
@@ -2551,7 +2552,8 @@ router.get("/agents/credentials", async (req, res) => {
 
 /**
  * POST /api/agents/credentials/verify
- * Verifies a VC JSON payload (or base64-encoded string).
+ * Verifies a W3C VC JSON payload (or base64url-encoded VC JSON string).
+ * Accepts either the raw VC object or the base64url-encoded transport form.
  * Body: { vc: object | string }
  */
 router.post("/agents/credentials/verify", async (req, res) => {

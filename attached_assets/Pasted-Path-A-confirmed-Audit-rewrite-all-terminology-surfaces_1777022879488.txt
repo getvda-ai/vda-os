@@ -1,0 +1,74 @@
+Path A confirmed. Audit + rewrite all terminology surfaces for the
+VC implementation. Do NOT change any crypto or transport
+implementation — this is a language and documentation task only.
+
+## Scope
+
+Audit these surfaces:
+- UI copy in the artifacts/vda-os frontend (all VC-related panels,
+  tabs, tooltips, modal text)
+- Code comments in agentCredentialIssuer.ts and any VC-related
+  files
+- API route documentation (JSDoc, OpenAPI annotations, README
+  snippets)
+- The Live Demo panel if it shows credential-related language
+- Any admin-facing messages in the credentials dashboard
+- CHANGELOG entries if they mention VCs
+- Any README or docs/ files mentioning credentials
+
+Search for and fix:
+- "JWT" or "JWT-style" — remove, these are incorrect
+- "HMAC" — remove, the crypto is not HMAC
+- "base64url-encoded token" with no further qualification —
+  clarify what's being encoded
+- "W3C VC" standing alone with no implementation detail where
+  a reader might interpret it as claiming full presentation
+  protocol compliance
+
+Replace with language that includes both of these positive
+statements where appropriate to the surface:
+
+STATEMENT 1 (implementation — use in technical contexts, code
+comments, README, API docs):
+"Ed25519Signature2020 via @digitalbazaar/ed25519-signature-2020,
+conformant with the W3C VC Data Model v1.1. Credentials are
+signed with asymmetric keys; no shared secret is involved."
+
+STATEMENT 2 (transport boundary — use in CISO-facing and
+architectural docs, NOT in casual UI tooltips):
+"The credential is transmitted as a base64url-encoded VC JSON
+payload in a Bearer header. This is a non-standard transport
+chosen for internal bearer use between platform-managed agents.
+Cross-party VC exchange scenarios would use a Verifiable
+Presentation envelope and are out of scope for the current
+deployment."
+
+Short-form version for UI tooltips (where both statements above
+would be too long):
+"Ed25519-signed W3C VC, base64url-transported for internal use."
+
+## What NOT to do
+
+- Do not change agentCredentialIssuer.ts crypto or transport
+  logic.
+- Do not add a VerifiablePresentation wrapper.
+- Do not change the governance hash binding logic.
+- Do not rename database columns or API routes.
+- Do not change the VC rotation or verification behaviour.
+- This is language only.
+
+## Deliverables
+
+1. A list of every file changed, with before/after for each
+   terminology replacement.
+2. A summary of the two positive statements inserted and where
+   they landed.
+3. Verify the source scan: grep the repo for any remaining
+   "JWT", "HMAC", "shared secret" strings in VC-related files
+   after your changes. Report if anything remains.
+4. Full test suite after: confirm no test references the old
+   language in a way that would break. Report pass/fail counts.
+
+Commit as: "docs(vc): clarify Ed25519 W3C VC implementation and
+transport boundary; remove 'JWT-style' misnomer from UI and code
+comments".

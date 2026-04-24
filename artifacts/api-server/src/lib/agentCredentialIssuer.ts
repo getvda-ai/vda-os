@@ -2,6 +2,16 @@
  * agentCredentialIssuer.ts
  * W3C Verifiable Credential issuance and verification for VDA-MD agent identity.
  *
+ * Crypto: Ed25519Signature2020 via @digitalbazaar/ed25519-signature-2020,
+ * conformant with the W3C VC Data Model v1.1. Credentials are signed
+ * with asymmetric keys; no shared secret is involved.
+ *
+ * Transport: The signed VC is serialised to JSON and base64url-encoded
+ * for internal bearer transport (Authorization: Bearer header).
+ * This is a non-standard transport for platform-managed agents only.
+ * Cross-party VC exchange would use a Verifiable Presentation envelope
+ * and is out of scope for the current deployment.
+ *
  * Requirement A: Ed25519Signature2020 suite (RFC 8037)
  * Requirement B: Static document loader (vcDocumentLoader)
  * Requirement C: All custom fields inside credentialSubject
@@ -261,7 +271,9 @@ export async function issueAgentCredential(
     logger.warn({ err, agentId, companyId }, "[VC] Could not write credential file (non-fatal)");
   }
 
-  // Encode as base64url for transport in Authorization: Bearer header
+  // Encode the signed W3C VC JSON as base64url for internal bearer transport.
+  // This is NOT a JWT — no header.payload.signature structure; the full
+  // W3C VC JSON object is base64url-encoded as a single opaque token.
   const vcBase64url = Buffer.from(JSON.stringify(signedVc)).toString("base64url");
 
   return {

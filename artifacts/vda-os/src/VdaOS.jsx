@@ -7027,7 +7027,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
         const credRes = await fetch(`/api/agents/credentials/active?agentId=${credAgentId}&companyId=${companyId}`);
         if (credRes.ok) {
           const credData = await credRes.json();
-          // The stored signedVc can be encoded as base64url for transport
+          // Encode signed W3C VC JSON as base64url for internal bearer transport (not a JWT)
           if (credData.signedVc) {
             vcBase64url = btoa(JSON.stringify(credData.signedVc))
               .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
@@ -7512,7 +7512,7 @@ function AgentCredentialsTab({ companyId, companyName }) {
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Agent Credential Registry</div>
             <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6 }}>
-              W3C Verifiable Credentials · Ed25519Signature2020 · did:key DIDs · 24h rotation
+              W3C Verifiable Credentials · Ed25519Signature2020 · did:key DIDs · 23h rotation
             </div>
           </div>
           <button
@@ -7528,7 +7528,7 @@ function AgentCredentialsTab({ companyId, companyName }) {
             { label: "RFC 8037 / Ed25519Signature2020", color: T.green },
             { label: "W3C VC Data Model 1.1", color: T.blue },
             { label: "did:key DID Method", color: T.purple },
-            { label: "24h TTL + Auto-Rotation", color: T.orange },
+            { label: "24h TTL · 23h Rotation", color: T.orange },
           ].map(b => (
             <span key={b.label} style={{ fontSize: 10, fontWeight: 700, background: b.color + "20", color: b.color, border: `1px solid ${b.color}40`, borderRadius: 4, padding: "3px 8px", fontFamily: T.mono, letterSpacing: "0.05em" }}>
               {b.label}
@@ -7723,6 +7723,7 @@ function AgentCredentialsTab({ companyId, companyName }) {
         <div>• <strong style={{ color: T.green }}>Requirement C</strong> — All custom fields inside credentialSubject (agentId, companyId, governanceFileHash, permittedSkills)</div>
         <div>• <strong style={{ color: T.orange }}>Rotation</strong> — Platform issuer key rotated daily (midnight UTC); all agent VCs re-issued with new issuer DID</div>
         <div>• <strong style={{ color: T.amber }}>Audit</strong> — Every agent endpoint records credentialVerified + governanceFileHash in Witness Agent ledger</div>
+        <div>• <strong style={{ color: T.blue }}>Transport</strong> — Signed VC JSON encoded as base64url in Authorization: Bearer header. Internal use only; not a JWT. Cross-party exchange would require a Verifiable Presentation envelope (out of scope for this deployment).</div>
       </div>
     </div>
   );
@@ -9657,7 +9658,7 @@ function A2AProtocolTab({ companyId, companyName }) {
               </div>
 
               <div>
-                <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 5 }}>BEARER VC TOKEN (base64url)</label>
+                <label style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, display: "block", marginBottom: 5 }}>BEARER VC TOKEN — Ed25519-signed W3C VC, base64url-encoded (not a JWT)</label>
                 <textarea
                   value={testerVc}
                   onChange={e => setTesterVc(e.target.value)}
