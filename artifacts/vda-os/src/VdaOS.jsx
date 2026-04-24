@@ -5750,79 +5750,236 @@ function buildSeedLog(config, companyName) {
 // DIRECTORY — persistent company list
 // ─────────────────────────────────────────────
 function Directory({ onNew, onLoad }) {
-  const [companies, setCompanies] = useState(null); // null = loading
-  const [deleting, setDeleting] = useState(null);
-  const [hovered, setHovered] = useState(null);
+  const [companies, setCompanies] = useState(null);
   const [seeding, setSeeding] = useState(false);
+  // Two-panel state
+  const [nativeStatuses, setNativeStatuses] = useState({});  // { governanceSlug: reqStatus }
+  const [externalAgents, setExternalAgents] = useState([]);
+  const [portfolio, setPortfolio] = useState(null);
+  const [allPhases, setAllPhases] = useState({});            // { [companyId]: phases[] }
+  const [matrixOpen, setMatrixOpen] = useState(false);
+  const [activateModal, setActivateModal] = useState(null);  // { agentId, agentName } | null
+  const [activating, setActivating] = useState(false);
+  const [activateError, setActivateError] = useState(null);
+
+  // AGENT_DEFS id → governance slug used in agent_phases table
+  const GOVERNANCE_SLUG = {
+    availability:  "availability-agent",
+    rate:          "rate-agent",
+    reservation:   "reservation-bot",
+    checkin:       "check-in-agent",
+    "folio-charge":"folio-charge-agent",
+    folio:         "folio-agent",
+    checkout:      "checkout-agent",
+    revenue:       "revenue-reconciliation-agent",
+  };
+
+  // Abbreviated column labels for matrix view
+  const MATRIX_ABBREV = {
+    availability:  "Avail",
+    rate:          "Rate",
+    reservation:   "Res",
+    checkin:       "Check-in",
+    "folio-charge":"F-Chg",
+    folio:         "Folio",
+    checkout:      "Checkout",
+    revenue:       "Revenue",
+  };
 
   const loadCompanies = async () => {
     try {
       const res = await fetch("/api/companies");
       if (!res.ok) throw new Error("Failed to load");
-      const entries = await res.json();
-      setCompanies(entries);
+      setCompanies(await res.json());
     } catch {
       setCompanies([]);
     }
   };
 
-  useEffect(() => { loadCompanies(); }, []);
-
-  const deleteCompany = async (id, e) => {
-    e.stopPropagation();
-    setDeleting(id);
-    try { await fetch(`/api/companies/${id}`, { method: "DELETE" }); } catch {}
-    setCompanies(p => p.filter(c => c.id !== id));
-    setDeleting(null);
-  };
-
   const loadDemoHotels = async () => {
     setSeeding(true);
     try {
-      // Delete any stub entries (those with no apaleoPropertyId)
       const stubs = (companies || []).filter(c => !c.apaleoPropertyId);
-      const deleteResults = await Promise.allSettled(
-        stubs.map(c => fetch(`/api/companies/${c.id}`, { method: "DELETE" }))
-      );
-      const deleteFailures = deleteResults.filter(r => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok));
-      if (deleteFailures.length > 0) {
-        console.warn("Some stub companies could not be deleted:", deleteFailures.length);
-      }
-      // Seed the 5 citizenM properties
+      await Promise.allSettled(stubs.map(c => fetch(`/api/companies/${c.id}`, { method: "DELETE" })));
       const seedRes = await fetch("/api/admin/seed-companies", { method: "POST" });
-      if (!seedRes.ok) {
-        console.error("Seed request failed with status:", seedRes.status);
-        alert("Failed to load demo hotels — server error. Please try again.");
-        return;
-      }
+      if (!seedRes.ok) { alert("Failed to load demo hotels — server error. Please try again."); return; }
       const seedData = await seedRes.json();
-      if (!seedData.success) {
-        console.error("Seed reported failure:", seedData);
-        alert("Demo hotel load completed with errors. Some properties may be missing.");
-      }
-      // Refresh the list
+      if (!seedData.success) alert("Demo hotel load completed with errors. Some properties may be missing.");
       await loadCompanies();
-    } catch (e) {
-      console.error("Seed failed", e);
-      alert("Failed to load demo hotels — network error. Please try again.");
-    } finally {
-      setSeeding(false);
-    }
+    } catch { alert("Failed to load demo hotels — network error. Please try again."); }
+    finally { setSeeding(false); }
   };
 
-  // Show "Load Demo Hotels" button when directory is empty or has only stub entries (no apaleoPropertyId)
+  const loadPanelData = () => {
+    // 5 parallel phase fetches
+    Promise.all([1,2,3,4,5].map(cid =>
+      fetch(`/api/dashboard/phases?companyId=${cid}`)
+        .then(r => r.json()).then(d => [cid, d.phases || []]).catch(() => [cid, []])
+    )).then(entries => setAllPhases(Object.fromEntries(entries)));
+
+    // Single onboarding fetch — split client-side
+    fetch("/api/onboarding").then(r => r.json()).then(d => {
+      const reqs = d.requests || [];
+      const statusMap = {};
+      for (const req of reqs.filter(r => r.source === "vda_native")) {
+        const slug = (req.agentCard?.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        if (slug) statusMap[slug] = req.status;
+      }
+      setNativeStatuses(statusMap);
+      setExternalAgents(reqs.filter(r => r.source === "a2a_external"));
+    }).catch(() => {});
+
+    fetch("/api/dashboard/phases/portfolio").then(r => r.json()).then(setPortfolio).catch(() => {});
+  };
+
+  useEffect(() => { loadCompanies(); loadPanelData(); }, []);
+
   const hasRealProperties = (companies || []).some(c => c.apaleoPropertyId);
   const showDemoButton = companies !== null && !hasRealProperties;
 
-  const industryConfig = (id) => INDUSTRY_CONFIGS[id] || {};
+  // Phase lookup helper
+  const getAgentPhase = (agentId, companyId) => {
+    const rec = (allPhases[companyId] || []).find(p => p.agentId === agentId);
+    return rec?.phase || "not_activated";
+  };
+
+  // Derive overall native agent status from phases across all hotels
+  const agentOverallStatus = (governanceSlug) => {
+    const reqStatus = nativeStatuses[governanceSlug];
+    if (reqStatus && ["activating","submitted","identity_verified","awaiting_first_hitl",
+                      "sandbox_evaluation","awaiting_second_hitl","governance_files_created"].includes(reqStatus)) {
+      return "activating";
+    }
+    const phases = [1,2,3,4,5].map(cid => getAgentPhase(governanceSlug, cid));
+    if (phases.includes("run"))  return "run";
+    if (phases.includes("walk")) return "walk";
+    if (phases.includes("crawl")) return "crawl";
+    return "pre_admitted";
+  };
+
+  // Phase dot renderer
+  const phaseDot = (phase) => {
+    if (phase === "crawl") return <span title="Crawl">🟡</span>;
+    if (phase === "walk")  return <span title="Walk">🔵</span>;
+    if (phase === "run")   return <span title="Run">🟢</span>;
+    return <span title="Not activated" style={{ color: T.dim, fontFamily: T.mono, fontSize: 11 }}>–</span>;
+  };
+
+  // Status badge — native agents
+  const NativeBadge = ({ status }) => {
+    const cfgs = {
+      run:          { label: "Run",          bg: T.green,             color: "#fff",    outline: false },
+      walk:         { label: "Walk",         bg: T.blue,              color: "#fff",    outline: false },
+      crawl:        { label: "Crawl",        bg: "#d97706",           color: "#fff",    outline: false },
+      activating:   { label: "Activating",   bg: "transparent",       color: "#d97706", outline: true  },
+      pre_admitted: { label: "Pre-Admitted", bg: "transparent",       color: T.orange,  outline: true  },
+    };
+    const cfg = cfgs[status] || { label: status, bg: "transparent", color: T.dim, outline: true };
+    return (
+      <span style={{
+        fontSize: 10, fontFamily: T.mono, fontWeight: 700, padding: "2px 8px", borderRadius: 4,
+        background: cfg.bg, color: cfg.color,
+        border: cfg.outline ? `1px solid ${cfg.color}60` : "none",
+        letterSpacing: "0.05em", whiteSpace: "nowrap",
+      }}>{cfg.label}</span>
+    );
+  };
+
+  // Status badge — external A2A agents
+  const A2ABadge = ({ status }) => {
+    const map = {
+      submitted:                { label: "Submitted",    color: T.dim    },
+      identity_verified:        { label: "Verifying",   color: T.dim    },
+      awaiting_first_hitl:      { label: "CO Review 1", color: T.orange },
+      sandbox_evaluation:       { label: "Sandbox",     color: "#d97706"},
+      awaiting_second_hitl:     { label: "CO Review 2", color: T.orange },
+      governance_files_created: { label: "Files Ready", color: T.blue   },
+      admitted:                 { label: "Admitted",    color: T.green  },
+      rejected:                 { label: "Rejected",    color: T.red    },
+    };
+    const cfg = map[status] || { label: status || "Unknown", color: T.dim };
+    return (
+      <span style={{
+        fontSize: 10, fontFamily: T.mono, fontWeight: 700, padding: "2px 8px", borderRadius: 4,
+        background: `${cfg.color}18`, color: cfg.color, border: `1px solid ${cfg.color}40`,
+        letterSpacing: "0.05em", whiteSpace: "nowrap",
+      }}>{cfg.label}</span>
+    );
+  };
+
+  // Activation handler — calls /api/dashboard/activation/start
+  const handleActivate = async (agentId, companyId) => {
+    setActivating(true);
+    setActivateError(null);
+    try {
+      const res = await fetch("/api/dashboard/activation/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId, companyId, initiatedBy: "compliance_officer" }),
+      });
+      if (res.status === 404) {
+        setActivateError("Activation engine not yet deployed");
+        setActivating(false);
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setActivateError(err.error || "Activation failed");
+        setActivating(false);
+        return;
+      }
+      // Refresh phases for the activated hotel
+      const d = await fetch(`/api/dashboard/phases?companyId=${companyId}`).then(r => r.json()).catch(() => ({ phases: [] }));
+      setAllPhases(prev => ({ ...prev, [companyId]: d.phases || [] }));
+      setActivateModal(null);
+    } catch {
+      setActivateError("Network error — please try again");
+    }
+    setActivating(false);
+  };
+
+  // Hotel phase summary for right panel
+  const hotelPhaseSummary = (companyId) => {
+    const phases = (allPhases[companyId] || []).filter(p => p.phase !== "not_activated");
+    if (!phases.length) return portfolio ? "No agents active" : "Loading…";
+    const crawl = phases.filter(p => p.phase === "crawl").length;
+    const walk  = phases.filter(p => p.phase === "walk").length;
+    const run   = phases.filter(p => p.phase === "run").length;
+    const parts = [];
+    if (crawl) parts.push(`🟡 ${crawl} crawl`);
+    if (walk)  parts.push(`🔵 ${walk} walk`);
+    if (run)   parts.push(`🟢 ${run} run`);
+    return `${phases.length} agent${phases.length !== 1 ? "s" : ""}${parts.length ? "  ·  " + parts.join("  ") : ""}`;
+  };
+
+  // Shared style helpers
+  const panelStyle = {
+    background: T.card, border: `1px solid ${T.border}`, borderRadius: 14,
+    overflow: "hidden",
+  };
+  const sectionLabel = {
+    fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim,
+    letterSpacing: "0.1em", padding: "10px 20px 4px",
+  };
+  const rowBase = {
+    display: "flex", alignItems: "center", gap: 10,
+    padding: "10px 20px", borderBottom: `1px solid ${T.border}18`,
+  };
+  const smallBtn = (color, outline = false) => ({
+    fontSize: 11, fontFamily: T.mono, fontWeight: 700, padding: "4px 10px",
+    borderRadius: 5, cursor: "pointer", whiteSpace: "nowrap",
+    background: outline ? "transparent" : color,
+    color: outline ? color : "#fff",
+    border: `1px solid ${color}`,
+  });
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: T.sans, color: T.text }}>
       <style>{GLOBAL_CSS}</style>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;900&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;600&display=swap" />
 
-      {/* Header */}
-      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, padding: "0 32px", height: 58, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
+      {/* Sticky header */}
+      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, padding: "0 32px", height: 58, display: "flex", alignItems: "center", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ background: T.orange, borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.mono, fontWeight: 900, fontSize: 13, color: "#fff" }}>VD</div>
           <div>
@@ -5832,16 +5989,17 @@ function Directory({ onNew, onLoad }) {
         </div>
       </div>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 32px" }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 28px" }}>
+
         {/* Hero */}
-        <div style={{ marginBottom: 40 }}>
-          <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 32, color: T.text, letterSpacing: "-0.04em", marginBottom: 10 }}>
-            Property Directory
+        <div style={{ marginBottom: 24 }}>
+          <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 28, color: T.text, letterSpacing: "-0.04em", marginBottom: 6, margin: "0 0 6px" }}>
+            VDA-MD Command Centre
           </h1>
-          <p style={{ fontSize: 16, color: T.muted, lineHeight: 1.7, maxWidth: 600 }}>
-            Your Apaleo properties with active VDA-MD governance. Each entry is a fully configured framework — brand context ingested, Apaleo guest lifecycle mapped, exception engine ready.
+          <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 12px" }}>
+            Agent admission status · Hotel operational phases · Click any cell to go deeper
           </p>
-          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Tag color={T.blue}>NIST SP 800-53</Tag>
             <Tag color={T.green}>GDPR</Tag>
             <Tag color={T.purple}>EU AI Act</Tag>
@@ -5856,134 +6014,263 @@ function Directory({ onNew, onLoad }) {
           </div>
         )}
 
-        {/* Empty / stub-only state — show Load Demo Hotels */}
+        {/* Empty / stub-only — show Load Demo Hotels */}
         {showDemoButton && (
-          <div style={{ textAlign: "center", padding: "80px 40px", background: T.card, border: `2px dashed ${T.border}`, borderRadius: 16 }}>
-            <div style={{ fontSize: 56, marginBottom: 16 }}>🏨</div>
-            <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, marginBottom: 10 }}>
+          <div style={{ textAlign: "center", padding: "60px 40px", background: T.card, border: `2px dashed ${T.border}`, borderRadius: 16, marginBottom: 24 }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🏨</div>
+            <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 20, color: T.text, marginBottom: 8 }}>
               {companies?.length === 0 ? "No properties configured yet" : "Demo properties not loaded yet"}
             </h2>
-            <p style={{ fontSize: 15, color: T.muted, marginBottom: 28, maxWidth: 480, margin: "0 auto 28px" }}>
-              Load the five citizenM sandbox hotels — Berlin, London, Munich, Paris, and Vienna — each pre-wired to Apaleo and ready for live agent demos. Or add a custom property via the wizard.
+            <p style={{ fontSize: 14, color: T.muted, marginBottom: 24, maxWidth: 480, margin: "0 auto 24px" }}>
+              Load the five citizenM sandbox hotels to activate the Command Centre.
             </p>
-            <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-              <button
-                onClick={loadDemoHotels}
-                disabled={seeding}
-                style={{
-                  background: seeding ? T.dim : T.orange, border: "none", borderRadius: 10,
-                  padding: "12px 28px", fontSize: 15, color: "#fff",
-                  fontFamily: T.sans, fontWeight: 800, cursor: seeding ? "default" : "pointer",
-                  boxShadow: seeding ? "none" : `0 0 28px ${T.orange}50`,
-                  transition: "all 0.18s",
-                }}
-              >
-                {seeding ? "Loading demo hotels…" : "Load Demo Hotels →"}
-              </button>
-            </div>
+            <button onClick={loadDemoHotels} disabled={seeding} style={{
+              background: seeding ? T.dim : T.orange, border: "none", borderRadius: 10,
+              padding: "10px 24px", fontSize: 14, color: "#fff", fontFamily: T.sans, fontWeight: 800,
+              cursor: seeding ? "default" : "pointer", boxShadow: seeding ? "none" : `0 0 24px ${T.orange}50`,
+            }}>{seeding ? "Loading…" : "Load Demo Hotels →"}</button>
           </div>
         )}
 
-        {/* Company grid */}
+        {/* ═══ Two-panel layout ═══ */}
         {companies?.length > 0 && (
-          <>
-            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 16, letterSpacing: "0.08em" }}>
-              {companies.length} CONFIGURED {companies.length === 1 ? "PROPERTY" : "PROPERTIES"}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16, marginBottom: 32 }}>
-              {companies.map(co => {
-                const cfg = industryConfig(co.industry);
-                const isHov = hovered === co.id;
-                const savedDate = co.savedAt ? new Date(Number(co.savedAt)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Unknown";
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+
+            {/* ── LEFT: Agent Registry (56%) ── */}
+            <div style={{ ...panelStyle, flex: "0 0 56%" }}>
+              <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>Agent Registry</div>
+                <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>
+                  {AGENT_DEFS.length} native · {externalAgents.length} external
+                </div>
+              </div>
+
+              {/* VDA Native Agents — always sourced from AGENT_DEFS */}
+              <div style={sectionLabel}>VDA NATIVE AGENTS</div>
+              {AGENT_DEFS.map(agent => {
+                const slug = GOVERNANCE_SLUG[agent.id];
+                const status = agentOverallStatus(slug);
+                const anyNotActivated = [1,2,3,4,5].some(cid => getAgentPhase(slug, cid) === "not_activated");
                 return (
-                  <div key={co.id}
-                    onClick={() => onLoad(co)}
-                    onMouseEnter={() => setHovered(co.id)}
-                    onMouseLeave={() => setHovered(null)}
-                    style={{
-                      background: isHov ? `${T.orange}0c` : T.card,
-                      border: `2px solid ${isHov ? T.orange + "60" : T.border}`,
-                      borderRadius: 14, padding: 22, cursor: "pointer",
-                      transition: "all 0.18s",
-                      transform: isHov ? "translateY(-2px)" : "none",
-                      boxShadow: isHov ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px ${T.orange}20` : "none",
-                      position: "relative",
-                    }}
+                  <div key={agent.id}
+                    style={{ ...rowBase, cursor: "pointer" }}
+                    onClick={() => companies[0] && onLoad(companies[0], "filemanager")}
+                    onMouseEnter={e => e.currentTarget.style.background = `${T.orange}08`}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                   >
-                    {/* Delete button */}
-                    <button
-                      onClick={e => deleteCompany(co.id, e)}
-                      style={{
-                        position: "absolute", top: 12, right: 12,
-                        background: `${T.red}15`, border: `1px solid ${T.red}30`,
-                        borderRadius: 6, width: 26, height: 26, cursor: "pointer",
-                        color: T.red, fontSize: 12, display: "flex", alignItems: "center",
-                        justifyContent: "center", opacity: isHov ? 1 : 0, transition: "opacity 0.15s",
-                      }}
-                    >{deleting === co.id ? "…" : "✕"}</button>
-
-                    {/* Company avatar + name */}
-                    <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14 }}>
-                      <div style={{
-                        width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-                        background: `${T.orange}20`, border: `1px solid ${T.orange}40`,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontFamily: T.mono, fontWeight: 900, fontSize: 16, color: T.orange,
-                      }}>
-                        {co.companyName?.slice(0, 2).toUpperCase() || "??"}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                          <div style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 17, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
-                            {co.companyName}
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>{agent.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 4 }}>{agent.name}</div>
+                      {/* Per-hotel phase dots */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        {companies.slice(0, 5).map(co => (
+                          <div key={co.id} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                            <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>{co.apaleoPropertyId || co.companyName?.slice(0,3)}</span>
+                            <span style={{ fontSize: 11 }}>{phaseDot(getAgentPhase(slug, co.id))}</span>
                           </div>
-                          {co.apaleoPropertyId && (
-                            <span style={{
-                              fontFamily: T.mono, fontSize: 10, fontWeight: 700, color: T.orange,
-                              background: `${T.orange}18`, border: `1px solid ${T.orange}40`,
-                              borderRadius: 4, padding: "2px 6px", flexShrink: 0, letterSpacing: "0.06em",
-                            }}>{co.apaleoPropertyId}</span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{co.websiteUrl}</div>
+                        ))}
                       </div>
                     </div>
-
-                    {/* Industry + NIST */}
-                    <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 16 }}>{cfg.icon}</span>
-                      <Tag color={T.orange}>{cfg.label || co.industry}</Tag>
-                      {(cfg.nistControls || []).slice(0, 3).map(c => <Tag key={c} color={T.blue}>{c}</Tag>)}
-                      {(cfg.nistControls || []).length > 3 && <Tag color={T.dim}>+{cfg.nistControls.length - 3}</Tag>}
-                    </div>
-
-                    {/* Brand context indicator */}
-                    <div style={{ background: "#04050a", border: `1px solid ${T.border}`, borderRadius: 7, padding: "7px 12px", marginBottom: 12, fontSize: 11, color: T.dim, fontFamily: T.mono, display: "flex", justifyContent: "space-between" }}>
-                      <span>Brand context: <span style={{ color: T.green }}>{co.brandContext ? Math.round(co.brandContext.length / 100) * 100 + " chars" : "none"}</span></span>
-                      {co.filesCount > 0 && <span style={{ color: T.purple }}>{co.filesCount} files ingested</span>}
-                    </div>
-
-                    {/* Footer */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>Saved {savedDate}</div>
-                      <div style={{ fontSize: 12, color: isHov ? T.orange : T.dim, fontFamily: T.mono, fontWeight: 700, transition: "color 0.15s" }}>
-                        {isHov ? "Open Hub →" : "Click to open"}
-                      </div>
-                    </div>
+                    <NativeBadge status={status} />
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        setActivateError(null);
+                        setActivateModal({ agentId: slug, agentName: agent.name });
+                      }}
+                      style={smallBtn(anyNotActivated ? T.orange : T.dim, anyNotActivated)}
+                    >
+                      {anyNotActivated ? "Activate →" : "Manage →"}
+                    </button>
                   </div>
                 );
               })}
 
+              {/* Section divider */}
+              <div style={{ height: 1, background: T.border, margin: "6px 0" }} />
+
+              {/* External A2A Agents */}
+              <div style={sectionLabel}>EXTERNAL A2A AGENTS</div>
+              {externalAgents.length === 0 ? (
+                <div style={{ padding: "12px 20px 18px", fontSize: 12, color: T.dim, fontFamily: T.mono }}>
+                  No external agents submitted yet · Submit via <code style={{ color: T.blue }}>POST /api/a2a/onboarding</code>
+                </div>
+              ) : externalAgents.map(ext => {
+                const name = ext.agentCard?.name || ext.externalAgentDid || "Unknown Agent";
+                return (
+                  <div key={ext.id} style={rowBase}>
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>💱</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                    </div>
+                    <A2ABadge status={ext.status} />
+                    <button
+                      onClick={() => companies[0] && onLoad(companies[0], "onboarding")}
+                      style={smallBtn(T.blue, true)}
+                    >Review →</button>
+                  </div>
+                );
+              })}
             </div>
-          </>
+
+            {/* ── RIGHT: Hotel Operations (44%) ── */}
+            <div style={{ ...panelStyle, flex: "1 1 0" }}>
+              <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>Hotel Operations</div>
+                <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{companies.length} properties</div>
+              </div>
+
+              {/* Compact hotel list */}
+              {companies.map(co => (
+                <div key={co.id} style={rowBase}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                    background: `${T.orange}20`, border: `1px solid ${T.orange}30`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontFamily: T.mono, fontWeight: 900, fontSize: 11, color: T.orange,
+                  }}>
+                    {co.companyName?.slice(0, 2).toUpperCase() || "??"}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{co.companyName}</span>
+                      {co.apaleoPropertyId && (
+                        <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: T.orange, background: `${T.orange}18`, border: `1px solid ${T.orange}30`, borderRadius: 3, padding: "1px 5px", flexShrink: 0 }}>
+                          {co.apaleoPropertyId}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{hotelPhaseSummary(co.id)}</div>
+                  </div>
+                  <button onClick={() => onLoad(co)} style={smallBtn(T.blue, true)}>Open hub →</button>
+                </div>
+              ))}
+
+              {/* Matrix toggle button */}
+              <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}` }}>
+                <button
+                  onClick={() => setMatrixOpen(p => !p)}
+                  style={{
+                    width: "100%", padding: "7px 14px", borderRadius: 7,
+                    background: matrixOpen ? `${T.orange}15` : "transparent",
+                    border: `1px solid ${matrixOpen ? T.orange : T.border}`,
+                    color: matrixOpen ? T.orange : T.dim,
+                    fontFamily: T.mono, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                  }}
+                >
+                  {matrixOpen ? "▲ Collapse matrix view" : "▼ Expand to matrix view"}
+                </button>
+              </div>
+
+              {/* Matrix view */}
+              {matrixOpen && (
+                <div style={{ overflowX: "auto", padding: "0 4px 16px" }}>
+                  <table style={{ borderCollapse: "collapse", fontSize: 11, width: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: "6px 12px", textAlign: "left", color: T.dim, fontFamily: T.mono, fontWeight: 700, borderBottom: `1px solid ${T.border}`, width: 60 }} />
+                        {AGENT_DEFS.map(a => (
+                          <th key={a.id} title={a.name} style={{ padding: "5px 6px", textAlign: "center", color: T.dim, fontFamily: T.mono, fontWeight: 700, fontSize: 9, borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap", letterSpacing: "0.04em" }}>
+                            {MATRIX_ABBREV[a.id]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {companies.map(co => (
+                        <tr key={co.id}>
+                          <td style={{ padding: "7px 12px", fontFamily: T.mono, fontSize: 10, fontWeight: 700, color: T.orange, borderBottom: `1px solid ${T.border}10`, whiteSpace: "nowrap" }}>
+                            {co.apaleoPropertyId || co.companyName?.slice(0, 3).toUpperCase()}
+                          </td>
+                          {AGENT_DEFS.map(a => {
+                            const slug = GOVERNANCE_SLUG[a.id];
+                            const phase = getAgentPhase(slug, co.id);
+                            const activated = phase !== "not_activated";
+                            return (
+                              <td key={a.id}
+                                onClick={() => {
+                                  if (activated) onLoad(co, "onboarding");
+                                  else { setActivateError(null); setActivateModal({ agentId: slug, agentName: a.name }); }
+                                }}
+                                title={activated ? `${a.name} @ ${co.apaleoPropertyId}: ${phase} — click to manage` : `Activate ${a.name} @ ${co.apaleoPropertyId}`}
+                                style={{ padding: "7px 6px", textAlign: "center", borderBottom: `1px solid ${T.border}10`, cursor: "pointer", fontSize: 13 }}
+                                onMouseEnter={e => e.currentTarget.style.background = `${T.orange}10`}
+                                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                              >
+                                {phase === "crawl" ? "🟡" : phase === "walk" ? "🔵" : phase === "run" ? "🟢" : (
+                                  <span style={{ color: T.dim, fontFamily: T.mono }}>–</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Framework footer */}
-        <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 20, marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>VDA-MD Framework · C2MD (Compliance to Markdown) · Powered by Apaleo · April 2026</div>
           <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Saved locally in this browser · No external storage</div>
         </div>
       </div>
+
+      {/* ── Activate Modal ── */}
+      {activateModal && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => { setActivateModal(null); setActivateError(null); }}
+        >
+          <div
+            style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: 28, maxWidth: 420, width: "90%" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Activate {activateModal.agentName}</div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 18 }}>Select a hotel to start the activation flow</div>
+
+            {activateError && (
+              <div style={{ background: `${T.red}15`, border: `1px solid ${T.red}30`, borderRadius: 7, padding: "8px 12px", marginBottom: 14, fontSize: 12, color: T.red, fontFamily: T.mono }}>
+                {activateError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+              {companies.map(co => {
+                const phase = getAgentPhase(activateModal.agentId, co.id);
+                const isActive = phase !== "not_activated";
+                return (
+                  <button
+                    key={co.id}
+                    disabled={isActive || activating}
+                    title={isActive ? `Already at ${phase}` : undefined}
+                    onClick={() => handleActivate(activateModal.agentId, co.id)}
+                    style={{
+                      padding: "8px 14px", borderRadius: 8, fontFamily: T.mono, fontWeight: 700, fontSize: 12,
+                      cursor: isActive || activating ? "default" : "pointer",
+                      background: isActive ? `${T.dim}15` : `${T.orange}20`,
+                      color: isActive ? T.dim : T.orange,
+                      border: `1px solid ${isActive ? T.dim + "30" : T.orange + "50"}`,
+                      opacity: activating ? 0.6 : 1,
+                    }}
+                  >
+                    {co.apaleoPropertyId || co.companyName?.slice(0, 3).toUpperCase()}
+                    {isActive && <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.7 }}>({phase})</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => { setActivateModal(null); setActivateError(null); }} style={smallBtn(T.dim, true)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -9506,9 +9793,9 @@ export default function VdaOS() {
     }
   };
 
-  const handleLoad = (savedData) => {
+  const handleLoad = (savedData, initialTab = "dashboard") => {
     setSetup(savedData);
-    setTab("dashboard");
+    setTab(initialTab);
     const cfg = { ...INDUSTRY_CONFIGS[savedData.industry], id: savedData.industry };
     setLog(buildSeedLog(cfg, savedData.companyName));
     setLogIsSeeded(true);
