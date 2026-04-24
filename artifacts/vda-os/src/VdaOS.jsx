@@ -5864,12 +5864,18 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
   useEffect(() => {
     loadCompanies();
     loadOnboarding();
+    // Spec: parallel fetch for X = 1..5 on mount so Command Centre hydrates immediately
+    loadPhases([1, 2, 3, 4, 5]);
   }, []);
 
-  // Fetch phases once we know the real company IDs
+  // Re-fetch phases with real company IDs once companies load (handles non-default IDs)
   useEffect(() => {
     if (companies && companies.length > 0) {
-      loadPhases(companies.map(c => c.id));
+      const ids = companies.map(c => c.id);
+      // Only re-fetch if any real ID differs from the 1..5 we pre-fetched
+      if (ids.some(id => ![1, 2, 3, 4, 5].includes(id))) {
+        loadPhases(ids);
+      }
     }
   }, [companies]);
 
@@ -6100,7 +6106,14 @@ function Directory({ onNew, onLoad, role = "compliance_officer" }) {
                 return (
                   <div key={agent.id}
                     style={{ ...rowBase, cursor: "pointer" }}
-                    onClick={() => companies[0] && onLoad(companies[0], "filemanager", { agentFilter: slug })}
+                    onClick={() => {
+                      // Prefer the first hotel where this agent is active; fall back to first company
+                      const activeHotel = companies.find(co => {
+                        const ph = getAgentPhase(slug, co.id);
+                        return ph === "walk" || ph === "run";
+                      }) || companies[0];
+                      if (activeHotel) onLoad(activeHotel, "filemanager", { agentFilter: slug });
+                    }}
                     onMouseEnter={e => e.currentTarget.style.background = `${T.orange}08`}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                   >
