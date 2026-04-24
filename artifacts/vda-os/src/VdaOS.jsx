@@ -3629,7 +3629,7 @@ function Soc2Tab({ companyName, companyId, onSaveToWitness }) {
 // ─────────────────────────────────────────────
 // FILE MANAGER TAB
 // ─────────────────────────────────────────────
-function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNavigateToFile }) {
+function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNavigateToFile, agentFilter }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -3641,7 +3641,7 @@ function FileManagerTab({ config, companyName, companyId, onSaveToWitness, onNav
   const [history, setHistory] = useState([]);
   const [diffData, setDiffData] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(agentFilter || "");
   const [searchResults, setSearchResults] = useState(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [axisFilter, setAxisFilter] = useState("all");
@@ -5761,6 +5761,7 @@ function Directory({ onNew, onLoad }) {
   const [activateModal, setActivateModal] = useState(null);  // { agentId, agentName } | null
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState(null);
+  const [activationUnavailable, setActivationUnavailable] = useState(false);
 
   // AGENT_DEFS id → governance slug used in agent_phases table
   const GOVERNANCE_SLUG = {
@@ -5810,29 +5811,58 @@ function Directory({ onNew, onLoad }) {
     finally { setSeeding(false); }
   };
 
-  const loadPanelData = () => {
-    // 5 parallel phase fetches
-    Promise.all([1,2,3,4,5].map(cid =>
+  // Set of all known governance slugs for native-vs-external classification
+  const NATIVE_SLUG_SET = new Set(Object.values({
+    availability:  "availability-agent",
+    rate:          "rate-agent",
+    reservation:   "reservation-bot",
+    checkin:       "check-in-agent",
+    "folio-charge":"folio-charge-agent",
+    folio:         "folio-agent",
+    checkout:      "checkout-agent",
+    revenue:       "revenue-reconciliation-agent",
+  }));
+
+  const loadPhases = (ids) => {
+    Promise.all(ids.map(cid =>
       fetch(`/api/dashboard/phases?companyId=${cid}`)
         .then(r => r.json()).then(d => [cid, d.phases || []]).catch(() => [cid, []])
     )).then(entries => setAllPhases(Object.fromEntries(entries)));
+  };
 
-    // Single onboarding fetch — split client-side
+  const loadOnboarding = () => {
     fetch("/api/onboarding").then(r => r.json()).then(d => {
       const reqs = d.requests || [];
       const statusMap = {};
-      for (const req of reqs.filter(r => r.source === "vda_native")) {
-        const slug = (req.agentCard?.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        if (slug) statusMap[slug] = req.status;
+      const exts = [];
+      for (const req of reqs) {
+        // Use agentCard.name normalized against NATIVE_SLUG_SET for deterministic classification
+        const rawName = (req.agent_card?.name || req.agentCard?.name || "");
+        const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        if (slug && NATIVE_SLUG_SET.has(slug)) {
+          statusMap[slug] = req.status;
+        } else {
+          exts.push(req);
+        }
       }
       setNativeStatuses(statusMap);
-      setExternalAgents(reqs.filter(r => r.source === "a2a_external"));
+      setExternalAgents(exts);
     }).catch(() => {});
 
     fetch("/api/dashboard/phases/portfolio").then(r => r.json()).then(setPortfolio).catch(() => {});
   };
 
-  useEffect(() => { loadCompanies(); loadPanelData(); }, []);
+  useEffect(() => {
+    loadCompanies();
+    loadOnboarding();
+  }, []);
+
+  // Fetch phases once we know the real company IDs
+  useEffect(() => {
+    if (companies && companies.length > 0) {
+      loadPhases(companies.map(c => c.id));
+    }
+  }, [companies]);
 
   const hasRealProperties = (companies || []).some(c => c.apaleoPropertyId);
   const showDemoButton = companies !== null && !hasRealProperties;
@@ -5850,7 +5880,8 @@ function Directory({ onNew, onLoad }) {
                       "sandbox_evaluation","awaiting_second_hitl","governance_files_created"].includes(reqStatus)) {
       return "activating";
     }
-    const phases = [1,2,3,4,5].map(cid => getAgentPhase(governanceSlug, cid));
+    const coIds = (companies || []).map(c => c.id);
+    const phases = coIds.map(cid => getAgentPhase(governanceSlug, cid));
     if (phases.includes("run"))  return "run";
     if (phases.includes("walk")) return "walk";
     if (phases.includes("crawl")) return "crawl";
@@ -5909,6 +5940,7 @@ function Directory({ onNew, onLoad }) {
 
   // Activation handler — calls /api/dashboard/activation/start
   const handleActivate = async (agentId, companyId) => {
+    if (activationUnavailable) return;
     setActivating(true);
     setActivateError(null);
     try {
@@ -5918,6 +5950,8 @@ function Directory({ onNew, onLoad }) {
         body: JSON.stringify({ agentId, companyId, initiatedBy: "compliance_officer" }),
       });
       if (res.status === 404) {
+        // Persist unavailable state — disable all activation entry points
+        setActivationUnavailable(true);
         setActivateError("Activation engine not yet deployed");
         setActivating(false);
         return;
@@ -5938,18 +5972,20 @@ function Directory({ onNew, onLoad }) {
     setActivating(false);
   };
 
-  // Hotel phase summary for right panel
+  // Hotel phase summary — use portfolio.summary as primary source, fall back to allPhases
   const hotelPhaseSummary = (companyId) => {
-    const phases = (allPhases[companyId] || []).filter(p => p.phase !== "not_activated");
-    if (!phases.length) return portfolio ? "No agents active" : "Loading…";
-    const crawl = phases.filter(p => p.phase === "crawl").length;
-    const walk  = phases.filter(p => p.phase === "walk").length;
-    const run   = phases.filter(p => p.phase === "run").length;
+    const portEntry = portfolio?.summary?.[companyId];
+    const phasesArr = (allPhases[companyId] || []).filter(p => p.phase !== "not_activated");
+    const total = portEntry?.totalAgents ?? phasesArr.length;
+    if (!total) return portfolio !== null ? "No agents active" : "Loading…";
+    const crawl = phasesArr.filter(p => p.phase === "crawl").length;
+    const walk  = phasesArr.filter(p => p.phase === "walk").length;
+    const run   = phasesArr.filter(p => p.phase === "run").length;
     const parts = [];
     if (crawl) parts.push(`🟡 ${crawl} crawl`);
     if (walk)  parts.push(`🔵 ${walk} walk`);
     if (run)   parts.push(`🟢 ${run} run`);
-    return `${phases.length} agent${phases.length !== 1 ? "s" : ""}${parts.length ? "  ·  " + parts.join("  ") : ""}`;
+    return `${total} agent${total !== 1 ? "s" : ""}${parts.length ? "  ·  " + parts.join("  ") : ""}`;
   };
 
   // Shared style helpers
@@ -6050,11 +6086,12 @@ function Directory({ onNew, onLoad }) {
               {AGENT_DEFS.map(agent => {
                 const slug = GOVERNANCE_SLUG[agent.id];
                 const status = agentOverallStatus(slug);
-                const anyNotActivated = [1,2,3,4,5].some(cid => getAgentPhase(slug, cid) === "not_activated");
+                const anyNotActivated = companies.some(co => getAgentPhase(slug, co.id) === "not_activated");
+                const activateBtnDisabled = activationUnavailable;
                 return (
                   <div key={agent.id}
                     style={{ ...rowBase, cursor: "pointer" }}
-                    onClick={() => companies[0] && onLoad(companies[0], "filemanager")}
+                    onClick={() => companies[0] && onLoad(companies[0], "filemanager", { agentFilter: slug })}
                     onMouseEnter={e => e.currentTarget.style.background = `${T.orange}08`}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                   >
@@ -6073,14 +6110,21 @@ function Directory({ onNew, onLoad }) {
                     </div>
                     <NativeBadge status={status} />
                     <button
+                      disabled={activateBtnDisabled}
+                      title={activateBtnDisabled ? "Pending setup — activation engine not yet deployed" : undefined}
                       onClick={e => {
                         e.stopPropagation();
+                        if (activateBtnDisabled) return;
                         setActivateError(null);
                         setActivateModal({ agentId: slug, agentName: agent.name });
                       }}
-                      style={smallBtn(anyNotActivated ? T.orange : T.dim, anyNotActivated)}
+                      style={{
+                        ...smallBtn(anyNotActivated && !activateBtnDisabled ? T.orange : T.dim, anyNotActivated && !activateBtnDisabled),
+                        opacity: activateBtnDisabled ? 0.45 : 1,
+                        cursor: activateBtnDisabled ? "not-allowed" : "pointer",
+                      }}
                     >
-                      {anyNotActivated ? "Activate →" : "Manage →"}
+                      {activateBtnDisabled ? "Pending setup" : anyNotActivated ? "Activate →" : "Manage →"}
                     </button>
                   </div>
                 );
@@ -6105,7 +6149,7 @@ function Directory({ onNew, onLoad }) {
                     </div>
                     <A2ABadge status={ext.status} />
                     <button
-                      onClick={() => companies[0] && onLoad(companies[0], "onboarding")}
+                      onClick={() => companies[0] && onLoad(companies[0], "onboarding", { phaseSubTab: "wizard" })}
                       style={smallBtn(T.blue, true)}
                     >Review →</button>
                   </div>
@@ -6189,8 +6233,8 @@ function Directory({ onNew, onLoad }) {
                             return (
                               <td key={a.id}
                                 onClick={() => {
-                                  if (activated) onLoad(co, "onboarding");
-                                  else { setActivateError(null); setActivateModal({ agentId: slug, agentName: a.name }); }
+                                  if (activated) onLoad(co, "onboarding", { phaseSubTab: "phases", phaseAgent: slug });
+                                  else if (!activationUnavailable) { setActivateError(null); setActivateModal({ agentId: slug, agentName: a.name }); }
                                 }}
                                 title={activated ? `${a.name} @ ${co.apaleoPropertyId}: ${phase} — click to manage` : `Activate ${a.name} @ ${co.apaleoPropertyId}`}
                                 style={{ padding: "7px 6px", textAlign: "center", borderBottom: `1px solid ${T.border}10`, cursor: "pointer", fontSize: 13 }}
@@ -6231,7 +6275,9 @@ function Directory({ onNew, onLoad }) {
             onClick={e => e.stopPropagation()}
           >
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Activate {activateModal.agentName}</div>
-            <div style={{ fontSize: 13, color: T.muted, marginBottom: 18 }}>Select a hotel to start the activation flow</div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 18 }}>
+              {activationUnavailable ? "Activation engine not yet deployed — buttons disabled until setup is complete." : "Select a hotel to start the activation flow"}
+            </div>
 
             {activateError && (
               <div style={{ background: `${T.red}15`, border: `1px solid ${T.red}30`, borderRadius: 7, padding: "8px 12px", marginBottom: 14, fontSize: 12, color: T.red, fontFamily: T.mono }}>
@@ -6243,19 +6289,20 @@ function Directory({ onNew, onLoad }) {
               {companies.map(co => {
                 const phase = getAgentPhase(activateModal.agentId, co.id);
                 const isActive = phase !== "not_activated";
+                const btnDisabled = isActive || activating || activationUnavailable;
                 return (
                   <button
                     key={co.id}
-                    disabled={isActive || activating}
-                    title={isActive ? `Already at ${phase}` : undefined}
-                    onClick={() => handleActivate(activateModal.agentId, co.id)}
+                    disabled={btnDisabled}
+                    title={activationUnavailable ? "Pending setup — activation engine not yet deployed" : isActive ? `Already at ${phase}` : undefined}
+                    onClick={() => !btnDisabled && handleActivate(activateModal.agentId, co.id)}
                     style={{
                       padding: "8px 14px", borderRadius: 8, fontFamily: T.mono, fontWeight: 700, fontSize: 12,
-                      cursor: isActive || activating ? "default" : "pointer",
-                      background: isActive ? `${T.dim}15` : `${T.orange}20`,
-                      color: isActive ? T.dim : T.orange,
-                      border: `1px solid ${isActive ? T.dim + "30" : T.orange + "50"}`,
-                      opacity: activating ? 0.6 : 1,
+                      cursor: btnDisabled ? "not-allowed" : "pointer",
+                      background: isActive || activationUnavailable ? `${T.dim}15` : `${T.orange}20`,
+                      color: isActive || activationUnavailable ? T.dim : T.orange,
+                      border: `1px solid ${(isActive || activationUnavailable) ? T.dim + "30" : T.orange + "50"}`,
+                      opacity: activationUnavailable ? 0.45 : activating ? 0.6 : 1,
                     }}
                   >
                     {co.apaleoPropertyId || co.companyName?.slice(0, 3).toUpperCase()}
@@ -8000,8 +8047,8 @@ function DossierPanel({ token, data, loading, activeTab, setActiveTab, docsTab, 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleChange, onSwitchTab }) {
-  const [subTab, setSubTab] = useState("wizard");
+function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleChange, onSwitchTab, initialSubTab, initialPhaseAgent }) {
+  const [subTab, setSubTab] = useState(initialSubTab || "wizard");
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
@@ -8118,6 +8165,12 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   useEffect(() => {
     if (subTab === "phases") { fetchPhases(); fetchPending(); fetchAllPending(); }
   }, [subTab, fetchPhases, fetchPending, fetchAllPending]);
+  useEffect(() => {
+    if (initialPhaseAgent && phases.length > 0) {
+      const el = document.getElementById(`phase-agent-${initialPhaseAgent}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [initialPhaseAgent, phases]);
   useEffect(() => {
     if (subTab === "wizard") { fetchPending(); fetchPhases(); fetchRequests(); fetchPortfolio(); }
   }, [subTab, fetchPending, fetchPhases, fetchRequests, fetchPortfolio]);
@@ -8992,7 +9045,7 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                   { id: "compliance_officer",  label: "Compliance Officer", color: "#f87171" },
                 ];
                 return (
-                  <div key={agent.agentId} style={{ background: T.surface, border: `1px solid ${overallPhColor}30`, borderRadius: 12, padding: 20 }}>
+                  <div key={agent.agentId} id={`phase-agent-${agent.agentId}`} style={{ background: T.surface, border: `1px solid ${overallPhColor}30`, borderRadius: 12, padding: 20, scrollMarginTop: 80 }}>
                     {/* Agent header */}
                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${T.border}` }}>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{agent.agentId}</div>
@@ -9793,9 +9846,12 @@ export default function VdaOS() {
     }
   };
 
-  const handleLoad = (savedData, initialTab = "dashboard") => {
+  const [hubNavContext, setHubNavContext] = useState(null);
+
+  const handleLoad = (savedData, initialTab = "dashboard", navContext = null) => {
     setSetup(savedData);
     setTab(initialTab);
+    setHubNavContext(navContext);
     const cfg = { ...INDUSTRY_CONFIGS[savedData.industry], id: savedData.industry };
     setLog(buildSeedLog(cfg, savedData.companyName));
     setLogIsSeeded(true);
@@ -10072,8 +10128,8 @@ export default function VdaOS() {
           {tab === "soc2"        && <Soc2Tab companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} />}
           {tab === "credentials"  && <AgentCredentialsTab companyId={setup.id} companyName={setup.companyName} />}
           {tab === "a2a"          && <A2AProtocolTab companyId={setup.id} companyName={setup.companyName} />}
-          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onRoleChange={setGlobalRole} onSwitchTab={setTab} />}
-          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} />}
+          {tab === "onboarding"   && <AgentOnboardingTab companyId={setup.id} companyName={setup.companyName} role={globalRole} onRoleChange={setGlobalRole} onSwitchTab={setTab} initialSubTab={hubNavContext?.phaseSubTab} initialPhaseAgent={hubNavContext?.phaseAgent} />}
+          {tab === "filemanager"  && <FileManagerTab config={config} companyName={setup.companyName} companyId={setup.id} onSaveToWitness={addLog} onNavigateToFile={fmNavigateRef} agentFilter={hubNavContext?.agentFilter} />}
         </>
       )}
 
