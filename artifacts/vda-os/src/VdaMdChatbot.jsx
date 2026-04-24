@@ -338,7 +338,7 @@ function TypingIndicator() {
 
 const OPENING_MESSAGE = {
   role: "assistant",
-  content: "Hi — I'm the VDA-MD framework expert. You're looking at the Property Directory — five live citizenM hotels, each running a full AI governance stack on Apaleo.\n\nTo explore the platform, **click any hotel card** to open that hotel's dashboard. Inside you'll find the Live Demo, Witness Agent, File Manager, and all the other tabs.\n\nWhat would you like to know?",
+  content: "Hi — I'm the VDA-MD framework expert. You're looking at the **VDA-MD Command Centre** — two panels showing the Agent Registry (left) and Hotel Operations (right), with five live citizenM hotels each running a full AI governance stack on Apaleo.\n\nTo explore the platform, click **\"Open hub →\"** on any hotel row in the right panel to open that hotel's hub. Inside you'll find Dashboard and Agent Onboarding always visible in the top bar, and Live Demo, Witness Agent, File Manager, and all the other tools behind **⚙ Advanced ▼**.\n\nWhat would you like to know?",
 };
 
 // ─── Chat icon SVG ─────────────────────────────────────────────────────────────
