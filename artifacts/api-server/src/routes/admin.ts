@@ -227,6 +227,7 @@ router.post("/admin/onboarding/quick-submit", async (req, res) => {
   const agentCard = {
     id: `did:vda:hospitality:${agentSlug}`,
     name: agentName,
+    version: "1.0.0",
     description: `Apaleo-native ${agentName.toLowerCase()} for the citizenM hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls.`,
     skills: [
       {
