@@ -5915,6 +5915,24 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
   const [activateError, setActivateError] = useState(null);
   const [activationUnavailable, setActivationUnavailable] = useState(false);
   const [onboardGuideModal, setOnboardGuideModal] = useState(null); // { slug, agentName, agentIcon }
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleMasterReset = async () => {
+    setIsResetting(true);
+    try {
+      await fetch("/api/admin/master-reset", { method: "POST" });
+    } catch (_) {}
+    setIsResetting(false);
+    setShowResetConfirm(false);
+    // Reset all local state so UI returns to pre-load state
+    setCompanies([]);
+    setNativeStatuses({});
+    setExternalAgents([]);
+    setPortfolio(null);
+    setAllPhases({});
+    setOnboardGuideModal(null);
+  };
 
   // AGENT_DEFS id → governance slug used in agent_phases table
   const GOVERNANCE_SLUG = {
@@ -6193,19 +6211,71 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
 
         {/* Hero */}
         <div style={{ marginBottom: 24 }}>
-          <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 28, color: T.text, letterSpacing: "-0.04em", marginBottom: 6, margin: "0 0 6px" }}>
-            VDA-MD Command Centre
-          </h1>
-          <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 12px" }}>
-            Agent admission status · Hotel operational phases · Click any cell to go deeper
-          </p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Tag color={T.blue}>NIST SP 800-53</Tag>
-            <Tag color={T.green}>GDPR</Tag>
-            <Tag color={T.purple}>EU AI Act</Tag>
-            <Tag color={T.orange}>C2MD Pipeline</Tag>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div>
+              <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 28, color: T.text, letterSpacing: "-0.04em", marginBottom: 6, margin: "0 0 6px" }}>
+                VDA-MD Command Centre
+              </h1>
+              <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 12px" }}>
+                Agent admission status · Hotel operational phases · Click any cell to go deeper
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Tag color={T.blue}>NIST SP 800-53</Tag>
+                <Tag color={T.green}>GDPR</Tag>
+                <Tag color={T.purple}>EU AI Act</Tag>
+                <Tag color={T.orange}>C2MD Pipeline</Tag>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              style={{
+                padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.red}`,
+                background: `${T.red}18`, color: T.red, fontSize: 12, fontFamily: T.mono,
+                fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", letterSpacing: "0.04em",
+                flexShrink: 0,
+              }}
+            >
+              ⚠ Master Reset
+            </button>
           </div>
         </div>
+
+        {/* ── Master Reset confirmation modal ── */}
+        {showResetConfirm && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: T.card, border: `1px solid ${T.red}60`, borderRadius: 16, padding: 32, width: 440, maxWidth: "92vw", boxShadow: `0 0 40px ${T.red}30` }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⚠</div>
+              <h2 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 20, color: T.red, margin: "0 0 12px" }}>Master Reset</h2>
+              <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.65, margin: "0 0 8px" }}>
+                This will permanently delete <strong style={{ color: T.text }}>all hotel data, governance files, agent phases, witness logs, and onboarding records</strong> from the platform.
+              </p>
+              <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.65, margin: "0 0 24px" }}>
+                The platform will return to its blank starting state — ready for a fresh onboarding run from scratch.
+              </p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setShowResetConfirm(false)}
+                  disabled={isResetting}
+                  style={{ padding: "8px 20px", borderRadius: 8, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 13, cursor: "pointer", fontFamily: T.sans }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleMasterReset}
+                  disabled={isResetting}
+                  style={{
+                    padding: "8px 20px", borderRadius: 8, border: "none",
+                    background: T.red, color: "#fff", fontSize: 13, fontWeight: 800,
+                    cursor: isResetting ? "default" : "pointer", fontFamily: T.sans,
+                    opacity: isResetting ? 0.7 : 1,
+                  }}
+                >
+                  {isResetting ? "Resetting…" : "Yes, Reset Everything"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Loading */}
         {companies === null && (

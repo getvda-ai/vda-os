@@ -10,7 +10,7 @@ import { Router, type IRouter } from "express";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
-import { db, governanceFiles } from "@workspace/db";
+import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 import { logger } from "../lib/logger.js";
@@ -179,5 +179,29 @@ export async function seedPlatformGovernanceFiles(): Promise<string[]> {
 
   return seeded;
 }
+
+// ─── POST /api/admin/master-reset ────────────────────────────────────────────
+// Wipes all tenant data so the platform returns to the pre-onboarding state.
+// Order matters: delete child tables before parent (companies).
+router.post("/admin/master-reset", async (_req, res) => {
+  try {
+    await db.delete(governanceFileVersions);
+    await db.delete(governanceFiles);
+    await db.delete(witnessEntries);
+    await db.delete(agentPhases);
+    await db.delete(hitlTokens);
+    await db.delete(onboardingRequests);
+    await db.delete(a2aTasks);
+    await db.delete(exceptionBaselines);
+    await db.delete(activationRequests);
+    await db.delete(agentCredentials);
+    await db.delete(companies);
+    logger.info("Master reset completed — all tenant data wiped");
+    res.json({ ok: true, message: "Platform reset to pre-onboarding state" });
+  } catch (err) {
+    logger.error({ err }, "master-reset error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Reset failed" });
+  }
+});
 
 export default router;
