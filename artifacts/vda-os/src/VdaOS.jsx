@@ -6114,7 +6114,11 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
                   <div key={agent.id}
                     style={{ ...rowBase, cursor: "pointer" }}
                     onClick={() => {
-                      // Prefer the first hotel where this agent is active; fall back to first company
+                      // Pending agents → guided onboarding modal; active agents → File Manager
+                      if (status === "pending") {
+                        setOnboardGuideModal({ slug, agentName: agent.name, agentIcon: agent.icon });
+                        return;
+                      }
                       const activeHotel = companies.find(co => {
                         const ph = getAgentPhase(slug, co.id);
                         return ph === "crawl" || ph === "walk" || ph === "run";
