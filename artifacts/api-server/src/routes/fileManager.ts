@@ -280,14 +280,29 @@ router.post("/fm/compliance-check", async (req, res) => {
     const currentClauses = countClauses(safeContent);
     const savedClauses = savedContent ? countClauses(savedContent as string) : null;
 
+    // Parse YAML front-matter so declarations like `nist_control: AC-2` count as coverage
+    const yamlMeta = parseYamlFrontMatter(safeContent);
+    const savedYamlMeta = savedContent ? parseYamlFrontMatter(savedContent as string) : null;
+    // Normalise: nist_control may be comma-separated ("AC-2, AU-2") or single
+    const declaredNist = (yamlMeta.nist_control || "")
+      .split(/[,\s]+/).map((s: string) => s.trim().toUpperCase()).filter(Boolean);
+    const savedDeclaredNist = savedYamlMeta
+      ? (savedYamlMeta.nist_control || "").split(/[,\s]+/).map((s: string) => s.trim().toUpperCase()).filter(Boolean)
+      : null;
+
     type ElementStatus = "present" | "missing" | "diluted";
     const elements: { id: string; label: string; category: "nist" | "framework" | "clause"; status: ElementStatus }[] = [];
 
     if (compMap) {
       for (const ctrl of compMap.nistControls) {
-        const countInStr = (s: string) => (s.match(new RegExp(ctrl.replace("-", "[\\s\\-]?"), "gi")) || []).length;
-        const currentCount = countInStr(safeContent);
-        const savedCount = savedContent ? countInStr(savedContent as string) : null;
+        const re = new RegExp(ctrl.replace("-", "[\\s\\-]?"), "gi");
+        const countInStr = (s: string) => (s.match(re) || []).length;
+        // A file "covers" this control if it mentions it in the body OR declares it in nist_control YAML field
+        const currentCount = countInStr(safeContent) + (declaredNist.includes(ctrl.toUpperCase()) ? 1 : 0);
+        const savedBodyCount = savedContent ? countInStr(savedContent as string) : null;
+        const savedCount = savedBodyCount !== null
+          ? savedBodyCount + (savedDeclaredNist?.includes(ctrl.toUpperCase()) ? 1 : 0)
+          : null;
         let status: ElementStatus;
         if (currentCount > 0) {
           status = (savedCount !== null && currentCount < savedCount) ? "diluted" : "present";
@@ -300,7 +315,8 @@ router.post("/fm/compliance-check", async (req, res) => {
       }
 
       for (const fw of compMap.frameworks) {
-        const countFw = (s: string) => fw.keywords.reduce((acc, kw) => acc + (s.toLowerCase().split(kw.toLowerCase()).length - 1), 0);
+        const countFw = (s: string) => fw.keywords.reduce((acc: number, kw: string) => acc + (s.toLowerCase().split(kw.toLowerCase()).length - 1), 0);
+        // Also scan the full content including YAML block for framework keywords
         const currentCount = countFw(safeContent);
         const savedCount = savedContent ? countFw(savedContent as string) : null;
         let status: ElementStatus;
