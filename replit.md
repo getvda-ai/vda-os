@@ -247,7 +247,42 @@ Database layer using Drizzle ORM with PostgreSQL.
 - `scenario_run_id` — groups entries from a single scenario run
 - `created_at` — auto-managed timestamp
 
-Run `pnpm --filter @workspace/db run push` to sync schema changes to the database.
+`agent_value_events` table (AP2 economic metering — value event ledger):
+- `id` — serial primary key
+- `agent_id` — agent slug (e.g. "availability-agent")
+- `company_id` — FK to companies
+- `property_code` — Apaleo property code (e.g. "BER"), nullable
+- `action` — event type (e.g. "availability_check", "reservation_create", "folio_charge")
+- `revenue_delta` — numeric(12,2), revenue approved by governance decision in EUR
+- `cost_cents` — integer, estimated governance cost (LLM + API overhead)
+- `currency` — varchar(3), default "EUR"
+- `decision_outcome` — varchar(20), default "PASS" (PASS / FAIL / ESCALATE)
+- `witness_token` — text, FK-style reference to witness_entries.id
+- `governance_phase` — varchar(20), agent's current phase (crawl/walk/run)
+- `source_data` — text (JSON stringified), snapshot of inputs used
+- `created_at` — timestamp with timezone, auto-set
+
+`agent_mandates` table (AP2 Signed Intent Mandates):
+- `id` — serial primary key
+- `mandate_id` — text unique, HMAC-SHA256 signed mandate identifier
+- `company_id` — integer FK to companies
+- `agent_id` — text agent slug
+- `phase` — varchar(10) crawl/walk/run
+- `authorizations` — JSONB array of `{ action, ceiling, currency }` authorization tiers
+- `issued_at` — timestamp with timezone
+- `valid_until` — timestamp with timezone (90-day validity)
+- `issuer_did` — text issuer DID
+- `signature` — text HMAC-SHA256 signature over canonical JSON
+- `revoked` — boolean default false
+- `revoked_at` — timestamp, nullable
+
+**CRITICAL — Two-step schema change workflow:**
+1. `cd lib/db && npm run push-force` — pushes Drizzle schema to PostgreSQL (NOT `npm run db:push`)
+2. `cd lib/db && npx tsc --build` — regenerates `lib/db/dist/*.d.ts` type declarations
+
+**Both steps are mandatory every time a schema file is added or changed.** Skipping step 2 leaves stale `.d.ts` files in `lib/db/dist/`. esbuild (the API server bundler) reads source `.ts` files directly and works fine, but TypeScript project references in `artifacts/api-server/tsconfig.json` resolve to the compiled `.d.ts` files. Stale declarations cause `tsc --noEmit` to report exports like `agentValueEvents` as non-existent even though they are bundled correctly at runtime. This creates invisible type debt that breaks future compile-time checks.
+
+**DB schema files live in:** `lib/db/src/schema/` — every new schema file must be `export *`'d from `lib/db/src/schema/index.ts`
 
 ### `lib/api-spec` (`@workspace/api-spec`)
 
@@ -281,3 +316,69 @@ GDPR agent coverage:
 - Lawful basis: Art. 6(1)(b) — performance of contract for guest-facing; Art. 6(1)(f) — legitimate interests for folio + revenue-reconciliation
 - Controller: citizenM Hotels · Processor: Rawson Consulting BV — VDA-MD Platform
 - Privacy by Design (Art. 25): Microsoft Presidio PII scrubbing layer before LLM inference
+
+---
+
+## Testing
+
+### TypeScript type check (run after any schema or import change)
+
+```bash
+cd lib/db && npx tsc --build          # must run first — regenerates lib/db/dist/ types
+cd artifacts/api-server && npx tsc --noEmit  # should produce zero errors
+```
+
+If `tsc --noEmit` reports `Module '"@workspace/db"' has no exported member 'X'`, the fix is always `cd lib/db && npx tsc --build`. This regenerates the stale `.d.ts` files. esbuild bundles from source so the runtime is fine, but TypeScript checks against the compiled declarations.
+
+### API endpoint smoke tests (server must be running on port 8080)
+
+```bash
+# Health check
+curl http://localhost:8080/api/healthz
+
+# Value ledger (AP2 economic metering)
+curl "http://localhost:8080/api/dashboard/value-ledger?companyId=1"
+curl "http://localhost:8080/api/dashboard/value-ledger/events?companyId=1&limit=10"
+
+# Mandates (AP2 Signed Intent Mandates) — registered at BOTH paths
+curl "http://localhost:8080/api/mandates?companyId=1"
+curl "http://localhost:8080/api/dashboard/mandates?companyId=1"
+
+# Dashboard phases
+curl "http://localhost:8080/api/dashboard/phases?companyId=1"
+
+# Agent card (public A2A)
+curl "http://localhost:8080/.well-known/agent.json"
+
+# DB table existence check
+psql $DATABASE_URL -c "\dt agent_value*"     # must show agent_value_events
+psql $DATABASE_URL -c "\dt agent_mandate*"   # must show agent_mandates
+```
+
+### Value event write verification
+
+After running the Live Demo or scenario runner, verify events were persisted:
+
+```bash
+psql $DATABASE_URL -c "SELECT agent_id, action, revenue_delta, decision_outcome, created_at FROM agent_value_events ORDER BY created_at DESC LIMIT 10;"
+```
+
+If the table is empty after a demo run, check server logs for `[ValueLedger] FAILED to write value event` (logged at ERROR level with full context: agentId, companyId, action, error message).
+
+### Mandate issuance verification
+
+After onboarding a hotel to the Walk or Run phase:
+
+```bash
+psql $DATABASE_URL -c "SELECT mandate_id, agent_id, phase, issued_at, valid_until, revoked FROM agent_mandates ORDER BY issued_at DESC LIMIT 5;"
+```
+
+### After any schema change — full checklist
+
+1. Edit `lib/db/src/schema/<NewTable>.ts`
+2. Add `export * from "./<NewTable>";` to `lib/db/src/schema/index.ts`
+3. `cd lib/db && npm run push-force` — sync to PostgreSQL
+4. `cd lib/db && npx tsc --build` — regenerate type declarations
+5. Restart the API server workflow to pick up the new bundle
+6. Run `cd artifacts/api-server && npx tsc --noEmit` — confirm zero type errors
+7. Smoke test the new endpoint with `curl`
