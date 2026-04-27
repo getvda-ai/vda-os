@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { usePoll, useSecondsAgo } from "./useDashboard.js";
+import RoiLedgerPanel from "./RoiLedgerPanel.jsx";
 import AgentStaircase, { CANONICAL_ORDER } from "./AgentStaircase.jsx";
 
 const DM = { fontFamily: "'DM Sans', sans-serif" };
@@ -395,7 +396,12 @@ export default function HotelGMView({ companyId, onOpenTab }) {
         </div>
       </div>
 
-      {/* Section D — Yesterday's decisions */}
+      {/* Section D — Agent Value Ledger (ROI) */}
+      <div style={{ marginBottom: 28 }}>
+        <RoiLedgerPanel companyId={companyId} />
+      </div>
+
+      {/* Section E — Yesterday's decisions */}
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <SectionHeader title="Yesterday's decisions" />

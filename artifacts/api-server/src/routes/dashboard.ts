@@ -8,11 +8,12 @@
  * POST /api/dashboard/phases/reset   (dev only — NODE_ENV !== 'production')
  */
 import { Router } from "express";
-import { db, agentPhases, witnessEntries, governanceFiles, hitlTokens } from "@workspace/db";
-import { eq, and, gte, lte, sql, isNull, not, inArray, desc, lt } from "drizzle-orm";
+import { db, agentPhases, witnessEntries, governanceFiles, hitlTokens, agentValueEvents, agentMandates } from "@workspace/db";
+import { eq, and, gte, lte, sql, isNull, not, inArray, desc, lt, sum } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { logger } from "../lib/logger.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
+import { issueMandate } from "../lib/mandateIssuer.js";
 
 const router = Router();
 
@@ -517,7 +518,18 @@ router.post("/dashboard/phases/promote", async (req, res) => {
 
     logger.info({ companyId, agentId, from: current.phase, to: targetPhase, promotedBy }, "Agent phase promoted");
 
-    res.json({ ok: true, agentId, companyId, from: current.phase, to: targetPhase, promotedBy });
+    // Issue a new AP2 Intent Mandate with the promoted phase's authorization tiers
+    let mandateId: string | null = null;
+    try {
+      const agentDid = `did:key:vda-${agentId}-${companyId}`;
+      const mandate = await issueMandate({ agentId, companyId, agentDid, phase: targetPhase });
+      mandateId = mandate.mandateId;
+      logger.info({ mandateId, agentId, companyId, phase: targetPhase }, "[Mandate] Mandate re-issued after phase promotion");
+    } catch (mandateErr) {
+      logger.warn({ mandateErr, agentId, companyId, targetPhase }, "[Mandate] Failed to re-issue mandate after phase promotion — non-fatal");
+    }
+
+    res.json({ ok: true, agentId, companyId, from: current.phase, to: targetPhase, promotedBy, mandateId });
   } catch (err) {
     logger.error({ err }, "dashboard/phases/promote error");
     res.status(500).json({ error: "Failed to promote agent phase" });
@@ -678,5 +690,131 @@ if (process.env.NODE_ENV !== "production") {
     }
   });
 }
+
+// ─── GET /api/dashboard/value-ledger ─────────────────────────────────────────
+// Returns per-agent ROI summary: total revenue delta, total governance cost, net value.
+
+router.get("/dashboard/value-ledger", async (req, res) => {
+  try {
+    const companyId = Number(req.query.companyId);
+    if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+    const sinceParam = req.query.since as string | undefined;
+    const since = sinceParam ? new Date(sinceParam) : new Date(Date.now() - 30 * 24 * 3600 * 1000);
+
+    const conditions = [
+      eq(agentValueEvents.companyId, companyId),
+      gte(agentValueEvents.createdAt, since),
+    ];
+
+    // Per-agent aggregation
+    const rows = await db
+      .select({
+        agentId: agentValueEvents.agentId,
+        totalEvents: sql<number>`COUNT(*)::int`,
+        passEvents: sql<number>`SUM(CASE WHEN decision_outcome = 'PASS' THEN 1 ELSE 0 END)::int`,
+        totalRevenue: sql<string>`COALESCE(SUM(CASE WHEN decision_outcome = 'PASS' THEN revenue_delta::numeric ELSE 0 END), 0)::text`,
+        totalCostCents: sql<number>`COALESCE(SUM(cost_cents), 0)::int`,
+        currency: agentValueEvents.currency,
+      })
+      .from(agentValueEvents)
+      .where(and(...conditions))
+      .groupBy(agentValueEvents.agentId, agentValueEvents.currency)
+      .orderBy(sql`SUM(CASE WHEN decision_outcome = 'PASS' THEN revenue_delta::numeric ELSE 0 END) DESC`);
+
+    // Platform totals
+    const [totals] = await db
+      .select({
+        totalRevenue: sql<string>`COALESCE(SUM(CASE WHEN decision_outcome = 'PASS' THEN revenue_delta::numeric ELSE 0 END), 0)::text`,
+        totalCostCents: sql<number>`COALESCE(SUM(cost_cents), 0)::int`,
+        totalEvents: sql<number>`COUNT(*)::int`,
+        passEvents: sql<number>`SUM(CASE WHEN decision_outcome = 'PASS' THEN 1 ELSE 0 END)::int`,
+      })
+      .from(agentValueEvents)
+      .where(and(...conditions));
+
+    const totalRevenue = parseFloat(totals?.totalRevenue ?? "0");
+    const totalCostEur = (totals?.totalCostCents ?? 0) / 100;
+
+    return res.json({
+      companyId,
+      since: since.toISOString(),
+      totals: {
+        totalRevenue,
+        totalCostEur,
+        netValue: totalRevenue - totalCostEur,
+        roiMultiple: totalCostEur > 0 ? +(totalRevenue / totalCostEur).toFixed(1) : null,
+        totalEvents: totals?.totalEvents ?? 0,
+        passEvents: totals?.passEvents ?? 0,
+      },
+      agents: rows.map(r => ({
+        agentId: r.agentId,
+        totalEvents: r.totalEvents,
+        passEvents: r.passEvents,
+        totalRevenue: parseFloat(r.totalRevenue),
+        totalCostEur: r.totalCostCents / 100,
+        netValue: parseFloat(r.totalRevenue) - r.totalCostCents / 100,
+        currency: r.currency ?? "EUR",
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, "dashboard/value-ledger error");
+    return res.status(500).json({ error: "Failed to fetch value ledger" });
+  }
+});
+
+// ─── GET /api/dashboard/value-ledger/events ───────────────────────────────────
+// Returns raw value event log for audit/drill-down.
+
+router.get("/dashboard/value-ledger/events", async (req, res) => {
+  try {
+    const companyId = Number(req.query.companyId);
+    if (!companyId) return res.status(400).json({ error: "companyId required" });
+    const limit = Math.min(Number(req.query.limit ?? 100), 500);
+    const agentFilter = req.query.agentId as string | undefined;
+
+    const conditions = [eq(agentValueEvents.companyId, companyId)];
+    if (agentFilter) conditions.push(eq(agentValueEvents.agentId, agentFilter));
+
+    const events = await db
+      .select()
+      .from(agentValueEvents)
+      .where(and(...conditions))
+      .orderBy(desc(agentValueEvents.createdAt))
+      .limit(limit);
+
+    return res.json({ events });
+  } catch (err) {
+    logger.error({ err }, "dashboard/value-ledger/events error");
+    return res.status(500).json({ error: "Failed to fetch events" });
+  }
+});
+
+// ─── GET /api/dashboard/mandates ─────────────────────────────────────────────
+// Returns active mandates for a company.
+
+router.get("/dashboard/mandates", async (req, res) => {
+  try {
+    const companyId = Number(req.query.companyId);
+    if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+    const mandates = await db
+      .select()
+      .from(agentMandates)
+      .where(eq(agentMandates.companyId, companyId))
+      .orderBy(desc(agentMandates.issuedAt));
+
+    return res.json({
+      mandates: mandates.map(m => ({
+        ...m,
+        expired: new Date(m.validUntil) < new Date(),
+        authorizations: m.authorizations,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, "dashboard/mandates error");
+    return res.status(500).json({ error: "Failed to fetch mandates" });
+  }
+});
 
 export default router;

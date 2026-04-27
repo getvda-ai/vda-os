@@ -9,3 +9,5 @@ export * from "./hitlTokens";
 export * from "./agentPhases";
 export * from "./exceptionBaselines";
 export * from "./activationRequests";
+export * from "./agentValueEvents";
+export * from "./agentMandates";

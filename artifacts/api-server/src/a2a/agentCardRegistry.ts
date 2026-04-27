@@ -13,11 +13,22 @@ export interface AgentSkill {
   description: string;
 }
 
+// ─── A2A v1.0 compliant AgentCard interface ───────────────────────────────────
+// Fields: name, description, url, version, provider, documentationUrl,
+// inputModes, outputModes, capabilities, skills, authentication
+// Ref: https://google.github.io/A2A/specification/
 export interface AgentCard {
   name: string;
   description: string;
   url: string;
   version: string;
+  provider: {
+    organization: string;
+    url: string;
+  };
+  documentationUrl: string;
+  inputModes: string[];
+  outputModes: string[];
   capabilities: {
     streaming: boolean;
     pushNotifications: boolean;
@@ -27,6 +38,17 @@ export interface AgentCard {
     schemes: string[];
   };
 }
+
+const DOCS_URL = "https://vda-md.citizenm.com/docs/agents";
+
+const PLATFORM_PROVIDER = {
+  organization: "citizenM Hotels — VDA-MD Platform",
+  url: "https://citizenm.com",
+};
+
+// Standard A2A v1.0 I/O modes for all VDA-MD agents
+const DEFAULT_INPUT_MODES = ["application/json", "text/plain"];
+const DEFAULT_OUTPUT_MODES = ["application/json"];
 
 const AGENT_DEFS: Record<string, { name: string; description: string; defaultSkills: AgentSkill[] }> = {
   "availability-agent": {
@@ -160,7 +182,11 @@ export async function getAgentCard(companyId: number, agentId: string): Promise<
     description: def.description,
     url: `${REPLIT_URL}/api/a2a/${companyId}/${agentId}`,
     version: "1.0.0",
-    capabilities: { streaming: false, pushNotifications: false },
+    provider: PLATFORM_PROVIDER,
+    documentationUrl: `${DOCS_URL}/${agentId}`,
+    inputModes: DEFAULT_INPUT_MODES,
+    outputModes: DEFAULT_OUTPUT_MODES,
+    capabilities: { streaming: true, pushNotifications: false },
     skills,
     authentication: { schemes: ["bearer"] },
   };
@@ -180,7 +206,11 @@ export function getOnboardingAgentCard(): AgentCard {
     description: def.description,
     url: `${REPLIT_URL}/api/a2a/onboarding`,
     version: "1.0.0",
-    capabilities: { streaming: false, pushNotifications: false },
+    provider: PLATFORM_PROVIDER,
+    documentationUrl: `${DOCS_URL}/onboarding-agent`,
+    inputModes: DEFAULT_INPUT_MODES,
+    outputModes: DEFAULT_OUTPUT_MODES,
+    capabilities: { streaming: true, pushNotifications: false },
     skills: def.defaultSkills,
     authentication: { schemes: ["bearer"] },
   };
@@ -192,7 +222,11 @@ export function getPlatformCard(): AgentCard {
     description: "VDA-MD is a governed multi-agent platform for citizenM hospitality operations. It exposes 9 specialised agents: 8 for the full Apaleo guest lifecycle (availability, rate, reservation, check-in, folio, folio charging, checkout, revenue reconciliation) and 1 Onboarding Agent for governed external agent admission. Every agent decision is governed by W3C Verifiable Credentials, §2.1 mandatory governance files, Witness Agent audit logging, and compliance guards enforcing GDPR, EU AI Act, and ISO 42001.",
     url: `${REPLIT_URL}/api/a2a`,
     version: "1.0.0",
-    capabilities: { streaming: false, pushNotifications: false },
+    provider: PLATFORM_PROVIDER,
+    documentationUrl: DOCS_URL,
+    inputModes: DEFAULT_INPUT_MODES,
+    outputModes: DEFAULT_OUTPUT_MODES,
+    capabilities: { streaming: true, pushNotifications: false },
     skills: AGENT_IDS.map(id => ({
       id,
       name: AGENT_DEFS[id].name,

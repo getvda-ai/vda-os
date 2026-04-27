@@ -5,6 +5,7 @@
 import { db, onboardingRequests, hitlTokens, governanceFiles } from "@workspace/db";
 import { eq, and, ne } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
+import { issueMandate } from "../lib/mandateIssuer.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 import { callAI } from "../routes/ai-proxy.js";
@@ -546,6 +547,14 @@ async function runPhase7(id: string, decidedBy: string) {
   // Issue VC
   const agentId = agentCard.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const vcIssued = await issueVcForAgent(agentId, PLATFORM_COMPANY_ID);
+
+  // Issue AP2 Intent Mandate (crawl phase — no standing authority until promoted)
+  try {
+    const agentDid = req.externalAgentDid ?? `did:key:vda-${agentId}`;
+    await issueMandate({ agentId, companyId: PLATFORM_COMPANY_ID, agentDid, phase: "crawl", onboardingId: id });
+  } catch (mandateErr) {
+    logger.warn({ mandateErr, agentId }, "[Mandate] Failed to issue crawl mandate at onboarding — non-fatal");
+  }
 
   // Update record
   await db.update(onboardingRequests)

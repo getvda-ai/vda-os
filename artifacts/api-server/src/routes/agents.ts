@@ -12,6 +12,8 @@ import { callAI, callAIFull, callAIFullWithUsage } from "./ai-proxy.js";
 import { db, governanceFiles, witnessEntries } from "@workspace/db";
 import { writeWitnessEntry, type AgentDecision, type WitnessEntryInput } from "../lib/witnessWriter.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
+import { writeValueEvent } from "../lib/valueEventWriter.js";
+import { requireValidMandate } from "../lib/mandateValidator.js";
 import { eq, desc, and, inArray, gte, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import {
@@ -749,6 +751,7 @@ router.post("/agents/availability", requireAgentCredential("availability-agent")
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    void writeValueEvent({ agentId: "availability-agent", agentName: "Availability Agent", companyId: Number(companyId), propertyCode: propertyId, action: "availability_check", revenueDelta: 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { arrival, departure, adults } });
     if (hasCrossDomainFiles(availFilesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Availability Agent");
     }
@@ -815,6 +818,7 @@ router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, re
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    void writeValueEvent({ agentId: "rate-agent", agentName: "Rate Agent", companyId: Number(companyId), propertyCode: propertyId, action: "rate_override", revenueDelta: reqRate, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { barRate: bar, requestedRate: reqRate, discountPct } });
     if (hasCrossDomainFiles(filesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Rate Agent");
     }
@@ -1026,6 +1030,13 @@ router.post("/agents/reservation", requireAgentCredential("reservation-bot"), as
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    {
+      const nights = (arrival && departure)
+        ? Math.max(1, Math.round((new Date(departure).getTime() - new Date(arrival).getTime()) / 86400000))
+        : 1;
+      const resvRevDelta = decision.decision === "PASS" && action === "create" ? nights * 150 : 0;
+      void writeValueEvent({ agentId: "reservation-bot", agentName: "Reservation Bot", companyId: Number(companyId), propertyCode: propertyId, action: `reservation_${action}`, revenueDelta: resvRevDelta, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { reservationId: executedReservationId, action, nights, writeExecuted } });
+    }
     if (hasCrossDomainFiles(resvFilesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Reservation Bot");
     }
@@ -1166,6 +1177,7 @@ router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    void writeValueEvent({ agentId: "check-in-agent", agentName: "Check-In Agent", companyId: Number(companyId), propertyCode: propertyId, action: "checkin_process", revenueDelta: 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { reservationId: resolvedReservationId, checkinExecuted } });
     if (hasCrossDomainFiles(checkinFilesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Check-In Agent");
     }
@@ -1255,7 +1267,10 @@ interface FolioChargeBody {
   serviceDate?: string;
 }
 
-router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent"), async (req, res) => {
+router.post("/agents/folio-charge",
+  requireAgentCredential("folio-charge-agent"),
+  requireValidMandate("folio-charge-agent", "folio_charge", (body) => Number((body as {chargeAmount?: number}).chargeAmount), "annotate"),
+  async (req, res) => {
   try {
     const { propertyId, folioId, chargeAmount, currency = "EUR", serviceType = "Other", chargeName, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1379,6 +1394,7 @@ router.post("/agents/folio-charge", requireAgentCredential("folio-charge-agent")
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    void writeValueEvent({ agentId: "folio-charge-agent", agentName: "Folio Charge Agent", companyId: Number(companyId), propertyCode: propertyId, action: "folio_charge", revenueDelta: decision.decision === "PASS" && chargePosted ? chargeAmount : 0, currency, decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { folioId: resolvedFolioId, chargeAmount, serviceType, chargePosted } });
     if (hasCrossDomainFiles(folioChargeFilesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Charge Agent");
     }
@@ -1522,6 +1538,7 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
     });
+    void writeValueEvent({ agentId: "checkout-agent", agentName: "Checkout Agent", companyId: Number(companyId), propertyCode: propertyId, action: "checkout_process", revenueDelta: 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { reservationId, checkoutExecuted, loyaltyTier } });
     if (hasCrossDomainFiles(checkoutFilesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Checkout Agent");
     }

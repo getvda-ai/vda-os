@@ -8040,6 +8040,9 @@ function AgentCredentialsTab({ companyId, companyName }) {
         )}
       </div>
 
+      {/* AP2 Intent Mandate Registry */}
+      <MandateRegistry companyId={companyId} />
+
       {/* Architecture notes */}
       <div style={{ marginTop: 20, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 11, color: T.dim, lineHeight: 1.8, fontFamily: T.mono }}>
         <div style={{ color: T.text, fontWeight: 700, marginBottom: 6, fontFamily: T.sans, fontSize: 12 }}>Cryptographic Architecture</div>
@@ -8050,6 +8053,101 @@ function AgentCredentialsTab({ companyId, companyName }) {
         <div>• <strong style={{ color: T.amber }}>Audit</strong> — Every agent endpoint records credentialVerified + governanceFileHash in Witness Agent ledger</div>
         <div>• <strong style={{ color: T.blue }}>Transport</strong> — Signed VC JSON encoded as base64url in Authorization: Bearer header. Internal use only; not a JWT. Cross-party exchange would require a Verifiable Presentation envelope (out of scope for this deployment).</div>
       </div>
+    </div>
+  );
+}
+
+function MandateRegistry({ companyId }) {
+  const [mandates, setMandates] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+
+  const fetchMandates = useCallback(async () => {
+    if (!companyId) return;
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/dashboard/mandates?companyId=${companyId}`);
+      if (r.ok) { const d = await r.json(); setMandates(d.mandates ?? []); }
+    } catch (e) { /* non-fatal */ }
+    setLoading(false);
+  }, [companyId]);
+
+  useEffect(() => { fetchMandates(); }, [fetchMandates]);
+
+  const phaseColor = { crawl: T.blue, walk: T.amber, run: T.green };
+
+  return (
+    <div style={{ marginTop: 20, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>AP2 Intent Mandate Registry</div>
+          <div style={{ fontSize: 11, color: T.dim, marginTop: 2, fontFamily: T.mono }}>
+            HMAC-SHA256 signed · per-phase spending authority · Crawl/Walk/Run ceiling enforcement
+          </div>
+        </div>
+        <button onClick={fetchMandates} disabled={loading} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 12px", fontSize: 11, color: T.dim, cursor: "pointer" }}>
+          {loading ? "…" : "Refresh"}
+        </button>
+      </div>
+      {mandates.length === 0 ? (
+        <div style={{ padding: "24px 16px", textAlign: "center", color: T.dim, fontSize: 12 }}>
+          {loading ? "Loading…" : "No mandates issued yet. Mandates are created automatically at agent onboarding completion and phase promotion."}
+        </div>
+      ) : (
+        <div>
+          {/* Header */}
+          <div style={{ display: "grid", gridTemplateColumns: "200px 80px 80px 120px 90px 36px", gap: 8, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 10, color: T.dim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.mono }}>
+            <span>Agent</span><span>Phase</span><span>Status</span><span>Valid Until</span><span>Signature</span><span />
+          </div>
+          {mandates.map((m, i) => {
+            const expired = m.expired;
+            const statusLabel = m.revoked ? "REVOKED" : expired ? "EXPIRED" : "ACTIVE";
+            const statusColor = m.revoked ? T.red : expired ? T.amber : T.green;
+            const pColor = phaseColor[m.phase] ?? T.dim;
+            const auths = Array.isArray(m.authorizations) ? m.authorizations : [];
+            return (
+              <div key={m.id ?? i} style={{ borderBottom: i < mandates.length - 1 ? `1px solid ${T.border}20` : "none" }}>
+                <div
+                  onClick={() => setExpanded(expanded === m.id ? null : m.id)}
+                  style={{ display: "grid", gridTemplateColumns: "200px 80px 80px 120px 90px 36px", gap: 8, padding: "10px 16px", alignItems: "center", cursor: "pointer", background: expanded === m.id ? T.surface : "transparent" }}
+                >
+                  <span style={{ fontSize: 11, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.agentId}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: pColor, fontFamily: T.mono, textTransform: "uppercase" }}>{m.phase}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: statusColor }}>{statusLabel}</span>
+                  <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{new Date(m.validUntil).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                  <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(m.signature ?? "").slice(0, 12)}…</span>
+                  <span style={{ fontSize: 11, color: T.dim }}>{expanded === m.id ? "▲" : "▼"}</span>
+                </div>
+                {expanded === m.id && (
+                  <div style={{ padding: "12px 16px 14px", background: T.surface, borderTop: `1px solid ${T.border}20` }}>
+                    <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 10 }}>
+                      <strong style={{ color: T.text }}>Mandate ID:</strong> {m.mandateId}
+                    </div>
+                    {auths.length > 0 ? (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 6 }}>Authorized Ceilings ({auths.length})</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {auths.map((a, ai) => (
+                            <div key={ai} style={{ background: `${pColor}12`, border: `1px solid ${pColor}30`, borderRadius: 6, padding: "6px 12px", display: "flex", gap: 12, alignItems: "center" }}>
+                              <span style={{ fontSize: 11, fontFamily: T.mono, color: pColor, fontWeight: 700, minWidth: 160 }}>{a.action}</span>
+                              <span style={{ fontSize: 11, color: T.text }}>
+                                {a.ceiling != null ? `≤ ${a.ceiling}${a.currency ? ` ${a.currency}` : a.unit ? ` ${a.unit}` : ""}` : "unlimited"}
+                              </span>
+                              {a.description && <span style={{ fontSize: 10, color: T.dim }}>{a.description}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: T.dim }}>Crawl phase — no standing authority. All actions require HITL pre-approval.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
