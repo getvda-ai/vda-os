@@ -365,6 +365,10 @@ psql $DATABASE_URL -c "SELECT agent_id, action, revenue_delta, decision_outcome,
 
 If the table is empty after a demo run, check server logs for `[ValueLedger] FAILED to write value event` (logged at ERROR level with full context: agentId, companyId, action, error message).
 
+**Architecture note — dual call paths:** There are two code paths that invoke agents:
+1. **Individual agent routes** — `/api/agents/availability`, `/api/agents/rate`, etc. — each protected by `requireAgentCredential` middleware. These have `writeValueEvent` wired at lines 754–1541.
+2. **Scenario runner** — `POST /api/agents/scenario/run` — called by `DemoShowreel.jsx`. This has its own **inline** implementation for all 7 steps and bypasses `requireAgentCredential`. `writeValueEvent` was added to all 7 steps (lines 1993–2432) on 2026-04-27. Prior to that date, only `writeWitnessEntry` was called by the scenario runner — which is why `agent_value_events` was empty while `witness_entries` had data.
+
 ### Mandate issuance verification
 
 After onboarding a hotel to the Walk or Run phase:

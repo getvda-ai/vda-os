@@ -1990,6 +1990,7 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
         filesConsulted: availScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(availScenarioFiles),
       });
+      void writeValueEvent({ agentId: "availability-agent", agentName: "Availability Agent", companyId: Number(companyId), propertyCode: propertyId, action: "availability_check", revenueDelta: 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: wid, sourceData: { arrival: scenarioArrival, departure: scenarioDeparture, scenarioRunId } });
       if (hasCrossDomainFiles(availScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Availability Agent");
       }
@@ -2034,6 +2035,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
         filesConsulted: rateScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(rateScenarioFiles),
       });
+      void writeValueEvent({ agentId: "rate-agent", agentName: "Rate Agent", companyId: Number(companyId), propertyCode: propertyId, action: "rate_override", revenueDelta: requested, currency: "EUR", decisionOutcome: rateDecision.decision, witnessToken: wid, sourceData: { barRate: bar, requestedRate: requested, discountPct, scenarioRunId } });
       if (hasCrossDomainFiles(rateScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Rate Agent");
       }
@@ -2123,6 +2125,7 @@ Apply reservation-policy.md rules. PASS if unit group is available, rate plan is
         filesConsulted: resvScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(resvScenarioFiles),
       });
+      void writeValueEvent({ agentId: "reservation-bot", agentName: "Reservation Bot", companyId: Number(companyId), propertyCode: propertyId, action: "reservation_create", revenueDelta: decision.decision === "PASS" ? 150 : 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: wid, sourceData: { reservationId: ids.reservationId, unitGroupId: ids.unitGroupId, ratePlanId: ids.ratePlanId, scenarioRunId } });
       if (hasCrossDomainFiles(resvScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Reservation Bot");
       }
@@ -2208,6 +2211,7 @@ All 5 check-in gates satisfy policy requirements. Apply check-in-policy.md and r
         filesConsulted: ciScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(ciScenarioFiles),
       });
+      void writeValueEvent({ agentId: "check-in-agent", agentName: "Check-In Agent", companyId: Number(companyId), propertyCode: propertyId, action: "guest_checkin", revenueDelta: 0, currency: "EUR", decisionOutcome: ciDecision.decision, witnessToken: wid, sourceData: { reservationId, checkinExecuted, scenarioRunId } });
       if (hasCrossDomainFiles(ciScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Check-In Agent");
       }
@@ -2300,6 +2304,7 @@ Apply folio-charge-policy thresholds. €89 with no disputes is within the appro
         filesConsulted: fcScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(fcScenarioFiles),
       });
+      void writeValueEvent({ agentId: "folio-charge-agent", agentName: "Folio Charge Agent", companyId: Number(companyId), propertyCode: propertyId, action: "folio_charge", revenueDelta: fcDecision.decision === "PASS" && chargePosted ? 89 : 0, currency: "EUR", decisionOutcome: fcDecision.decision, witnessToken: wid, sourceData: { folioId, chargePosted, chargeAmount: 89, scenarioRunId } });
       if (hasCrossDomainFiles(fcScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Charge Agent");
       }
@@ -2368,6 +2373,7 @@ Apply checkout-policy.md gates. The late checkout fee waiver should be covered b
           filesConsulted: coScenarioFiles,
           crossDomainInheritance: hasCrossDomainFiles(coScenarioFiles),
         });
+        void writeValueEvent({ agentId: "checkout-agent", agentName: "Checkout Agent", companyId: Number(companyId), propertyCode: propertyId, action: "guest_checkout", revenueDelta: 0, currency: "EUR", decisionOutcome: coDecision.decision, witnessToken: wid, sourceData: { reservationId, checkoutExecuted, loyaltyTier: "Gold", lateCheckout: "13:00", scenarioRunId } });
         if (hasCrossDomainFiles(coScenarioFiles)) {
           void emitCrossDomainGovernanceEvent(Number(companyId), "Checkout Agent");
         }
@@ -2423,6 +2429,7 @@ Apply revenue-reconciliation-policy variance thresholds. PASS — governance-com
         filesConsulted: revScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(revScenarioFiles),
       });
+      void writeValueEvent({ agentId: "revenue-reconciliation-agent", agentName: "Revenue Reconciliation Agent", companyId: Number(companyId), propertyCode: propertyId, action: "revenue_reconciliation", revenueDelta: 0, currency: "EUR", decisionOutcome: revDecision.decision, witnessToken: wid, sourceData: { date: today, reservationCount: reservations.count, totalRevenue: total, scenarioRunId } });
       if (hasCrossDomainFiles(revScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Revenue Reconciliation Agent");
       }
