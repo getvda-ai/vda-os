@@ -7,7 +7,7 @@
  * POST /api/dashboard/shadow-review
  * POST /api/dashboard/phases/reset   (dev only — NODE_ENV !== 'production')
  */
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { db, agentPhases, witnessEntries, governanceFiles, hitlTokens, agentValueEvents, agentMandates } from "@workspace/db";
 import { eq, and, gte, lte, sql, isNull, not, inArray, desc, lt, sum } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
@@ -790,10 +790,11 @@ router.get("/dashboard/value-ledger/events", async (req, res) => {
   }
 });
 
-// ─── GET /api/dashboard/mandates ─────────────────────────────────────────────
+// ─── GET /api/mandates ────────────────────────────────────────────────────────
 // Returns active mandates for a company.
+// Also aliased at /api/dashboard/mandates for backwards compatibility.
 
-router.get("/dashboard/mandates", async (req, res) => {
+async function handleGetMandates(req: Request, res: Response) {
   try {
     const companyId = Number(req.query.companyId);
     if (!companyId) return res.status(400).json({ error: "companyId required" });
@@ -812,9 +813,12 @@ router.get("/dashboard/mandates", async (req, res) => {
       })),
     });
   } catch (err) {
-    logger.error({ err }, "dashboard/mandates error");
+    logger.error({ err }, "mandates error");
     return res.status(500).json({ error: "Failed to fetch mandates" });
   }
-});
+}
+
+router.get("/mandates", handleGetMandates);
+router.get("/dashboard/mandates", handleGetMandates);
 
 export default router;

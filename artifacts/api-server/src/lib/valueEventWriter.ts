@@ -64,10 +64,10 @@ export async function writeValueEvent(input: ValueEventInput): Promise<number | 
       .values(row)
       .returning({ id: agentValueEvents.id });
 
-    logger.debug({ agentId: input.agentId, action: input.action, revenueDelta: input.revenueDelta }, "[ValueLedger] Event written");
+    logger.info({ agentId: input.agentId, action: input.action, companyId: input.companyId, revenueDelta: input.revenueDelta, id: inserted?.id }, "[ValueLedger] Event written");
     return inserted?.id ?? null;
   } catch (err) {
-    logger.warn({ err, agentId: input.agentId }, "[ValueLedger] Failed to write value event (non-fatal)");
+    logger.error({ err: err instanceof Error ? err.message : String(err), agentId: input.agentId, companyId: input.companyId, action: input.action }, "[ValueLedger] FAILED to write value event");
     return null;
   }
 }

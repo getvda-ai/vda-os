@@ -8066,7 +8066,7 @@ function MandateRegistry({ companyId }) {
     if (!companyId) return;
     setLoading(true);
     try {
-      const r = await fetch(`/api/dashboard/mandates?companyId=${companyId}`);
+      const r = await fetch(`/api/mandates?companyId=${companyId}`);
       if (r.ok) { const d = await r.json(); setMandates(d.mandates ?? []); }
     } catch (e) { /* non-fatal */ }
     setLoading(false);
