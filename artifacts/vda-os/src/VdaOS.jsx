@@ -10666,6 +10666,7 @@ export default function VdaOS() {
     setLogIsSeeded(true);
     setScreen("hub");
     setTab("dashboard");
+    setGlobalRole("compliance_officer"); // Always enter hub as CO
     setC2mdCache({});
     try {
       const res = await fetch("/api/companies", {
@@ -10711,6 +10712,7 @@ export default function VdaOS() {
     setSetup(savedData);
     setTab(initialTab);
     setHubNavContext(navContext);
+    setGlobalRole("compliance_officer"); // Always enter hub as CO (gate-first)
     const cfg = { ...INDUSTRY_CONFIGS[savedData.industry], id: savedData.industry };
     setLog(buildSeedLog(cfg, savedData.companyName));
     setLogIsSeeded(true);
