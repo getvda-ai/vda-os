@@ -6219,6 +6219,15 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
+              {/* CO role indicator */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{
+                  fontSize: 10, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em",
+                  color: T.red, background: `${T.red}18`, border: `1px solid ${T.red}50`,
+                  borderRadius: 4, padding: "2px 8px",
+                }}>COMPLIANCE OFFICER</span>
+                <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>Default view · Hotel roles unlock after agent admission</span>
+              </div>
               <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 28, color: T.text, letterSpacing: "-0.04em", marginBottom: 6, margin: "0 0 6px" }}>
                 VDA-MD Command Centre
               </h1>
@@ -6308,6 +6317,53 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
             }}>{seeding ? "Loading…" : "Load Demo Hotels →"}</button>
           </div>
         )}
+
+        {/* ── Compliance gate status banner (portfolio-wide) ── */}
+        {(() => {
+          if (!companies || companies.length === 0) return null;
+          const allPhasesFlat = Object.values(allPhases).flat();
+          const anyActivated = allPhasesFlat.length > 0;
+          const anyLive = allPhasesFlat.some(p => p.phase === "walk" || p.phase === "run");
+          if (!anyActivated) return (
+            <div style={{
+              background: "#150505", border: "1px solid #7f1d1d", borderRadius: 10,
+              padding: "12px 20px", marginBottom: 20,
+              display: "flex", alignItems: "center", gap: 14,
+            }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f87171", flexShrink: 0, boxShadow: "0 0 10px #f87171" }} />
+              <div>
+                <span style={{ color: "#f87171", fontWeight: 700, fontSize: 12, fontFamily: T.mono, marginRight: 10, letterSpacing: "0.06em" }}>COMPLIANCE GATE ACTIVE</span>
+                <span style={{ color: "#94a3b8", fontSize: 12 }}>No agents have been onboarded. Open a hotel hub and complete agent admission to unlock hotel-facing roles.</span>
+              </div>
+            </div>
+          );
+          if (!anyLive) return (
+            <div style={{
+              background: "#0c0900", border: "1px solid #78350f", borderRadius: 10,
+              padding: "12px 20px", marginBottom: 20,
+              display: "flex", alignItems: "center", gap: 14,
+            }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />
+              <div>
+                <span style={{ color: "#f59e0b", fontWeight: 700, fontSize: 12, fontFamily: T.mono, marginRight: 10, letterSpacing: "0.06em" }}>CRAWL PHASE ONLY</span>
+                <span style={{ color: "#78716c", fontSize: 12 }}>Agents are completing crawl baseline — no autonomous decisions live. Promote to Walk phase to go live.</span>
+              </div>
+            </div>
+          );
+          return (
+            <div style={{
+              background: "#030f09", border: "1px solid #166534", borderRadius: 10,
+              padding: "12px 20px", marginBottom: 20,
+              display: "flex", alignItems: "center", gap: 14,
+            }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#4ade80", flexShrink: 0 }} />
+              <div>
+                <span style={{ color: "#4ade80", fontWeight: 700, fontSize: 12, fontFamily: T.mono, marginRight: 10, letterSpacing: "0.06em" }}>AGENTS LIVE</span>
+                <span style={{ color: "#64748b", fontSize: 12 }}>Walk / Run phase agents are active. All hotel-facing roles are unlocked in the hub.</span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ═══ Two-panel layout ═══ */}
         {companies?.length > 0 && (
