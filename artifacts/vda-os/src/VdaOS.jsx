@@ -6203,13 +6203,19 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;900&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;600&display=swap" />
 
       {/* Sticky header */}
-      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, padding: "0 32px", height: 58, display: "flex", alignItems: "center", position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, padding: "0 32px", height: 58, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ background: T.orange, borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.mono, fontWeight: 900, fontSize: 13, color: "#fff" }}>VD</div>
           <div>
             <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: "-0.03em" }}>VDA-MD for Apaleo</div>
             <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>AI Governance · Apaleo Hospitality Stack</div>
           </div>
+        </div>
+        {/* CO role pill — always visible in header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.red, boxShadow: `0 0 8px ${T.red}` }} />
+          <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: T.red, letterSpacing: "0.1em" }}>COMPLIANCE OFFICER</span>
+          <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>· Hotel roles locked until agent admission</span>
         </div>
       </div>
 
@@ -6318,48 +6324,84 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
           </div>
         )}
 
-        {/* ── Compliance gate status banner (portfolio-wide) ── */}
+        {/* ── Portfolio-wide compliance gate status ── */}
         {(() => {
           if (!companies || companies.length === 0) return null;
           const allPhasesFlat = Object.values(allPhases).flat();
           const anyActivated = allPhasesFlat.length > 0;
           const anyLive = allPhasesFlat.some(p => p.phase === "walk" || p.phase === "run");
+          const crawlCount = allPhasesFlat.filter(p => p.phase === "crawl").length;
+          const walkCount  = allPhasesFlat.filter(p => p.phase === "walk").length;
+          const runCount   = allPhasesFlat.filter(p => p.phase === "run").length;
+
           if (!anyActivated) return (
             <div style={{
-              background: "#150505", border: "1px solid #7f1d1d", borderRadius: 10,
-              padding: "12px 20px", marginBottom: 20,
-              display: "flex", alignItems: "center", gap: 14,
+              background: "linear-gradient(135deg, #1a0505 0%, #0f0202 100%)",
+              border: "1px solid #7f1d1d", borderRadius: 14,
+              padding: "24px 28px", marginBottom: 28,
+              display: "flex", alignItems: "center", gap: 24,
+              boxShadow: "0 0 40px #f8717110",
             }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f87171", flexShrink: 0, boxShadow: "0 0 10px #f87171" }} />
-              <div>
-                <span style={{ color: "#f87171", fontWeight: 700, fontSize: 12, fontFamily: T.mono, marginRight: 10, letterSpacing: "0.06em" }}>COMPLIANCE GATE ACTIVE</span>
-                <span style={{ color: "#94a3b8", fontSize: 12 }}>No agents have been onboarded. Open a hotel hub and complete agent admission to unlock hotel-facing roles.</span>
+              <div style={{ flexShrink: 0, width: 48, height: 48, borderRadius: "50%", background: "#7f1d1d", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 20px #f87171aa" }}>
+                <span style={{ fontSize: 22 }}>🔴</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#f87171", fontWeight: 800, fontSize: 16, fontFamily: T.mono, letterSpacing: "0.06em", marginBottom: 4 }}>COMPLIANCE GATE ACTIVE</div>
+                <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.6 }}>
+                  No agents have been onboarded across any property. Hotel-facing roles (Ambassador, GM, Regional GM, Operations Chief) are locked.
+                  Open a hotel hub below and complete the agent admission flow to unlock all roles.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, textAlign: "center" }}>
+                <div style={{ fontSize: 28, fontWeight: 900, color: "#f87171", fontFamily: T.mono }}>0</div>
+                <div style={{ fontSize: 10, color: "#4b5563", fontFamily: T.mono }}>AGENTS LIVE</div>
               </div>
             </div>
           );
           if (!anyLive) return (
             <div style={{
-              background: "#0c0900", border: "1px solid #78350f", borderRadius: 10,
-              padding: "12px 20px", marginBottom: 20,
-              display: "flex", alignItems: "center", gap: 14,
+              background: "linear-gradient(135deg, #120900 0%, #0c0600 100%)",
+              border: "1px solid #78350f", borderRadius: 14,
+              padding: "24px 28px", marginBottom: 28,
+              display: "flex", alignItems: "center", gap: 24,
             }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />
-              <div>
-                <span style={{ color: "#f59e0b", fontWeight: 700, fontSize: 12, fontFamily: T.mono, marginRight: 10, letterSpacing: "0.06em" }}>CRAWL PHASE ONLY</span>
-                <span style={{ color: "#78716c", fontSize: 12 }}>Agents are completing crawl baseline — no autonomous decisions live. Promote to Walk phase to go live.</span>
+              <div style={{ flexShrink: 0, width: 48, height: 48, borderRadius: "50%", background: "#78350f", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 22 }}>🟡</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#f59e0b", fontWeight: 800, fontSize: 16, fontFamily: T.mono, letterSpacing: "0.06em", marginBottom: 4 }}>CRAWL PHASE ONLY — NO LIVE DECISIONS</div>
+                <div style={{ color: "#78716c", fontSize: 13, lineHeight: 1.6 }}>
+                  {crawlCount} agent{crawlCount !== 1 ? "s" : ""} in crawl baseline across the portfolio — no autonomous decisions are executing.
+                  Hotel-facing roles are accessible. Promote agents to Walk phase to go live.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, textAlign: "center" }}>
+                <div style={{ fontSize: 28, fontWeight: 900, color: "#f59e0b", fontFamily: T.mono }}>{crawlCount}</div>
+                <div style={{ fontSize: 10, color: "#4b5563", fontFamily: T.mono }}>IN CRAWL</div>
               </div>
             </div>
           );
           return (
             <div style={{
-              background: "#030f09", border: "1px solid #166534", borderRadius: 10,
-              padding: "12px 20px", marginBottom: 20,
-              display: "flex", alignItems: "center", gap: 14,
+              background: "linear-gradient(135deg, #020f06 0%, #010a04 100%)",
+              border: "1px solid #166534", borderRadius: 14,
+              padding: "24px 28px", marginBottom: 28,
+              display: "flex", alignItems: "center", gap: 24,
             }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#4ade80", flexShrink: 0 }} />
-              <div>
-                <span style={{ color: "#4ade80", fontWeight: 700, fontSize: 12, fontFamily: T.mono, marginRight: 10, letterSpacing: "0.06em" }}>AGENTS LIVE</span>
-                <span style={{ color: "#64748b", fontSize: 12 }}>Walk / Run phase agents are active. All hotel-facing roles are unlocked in the hub.</span>
+              <div style={{ flexShrink: 0, width: 48, height: 48, borderRadius: "50%", background: "#14532d", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 22 }}>🟢</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#4ade80", fontWeight: 800, fontSize: 16, fontFamily: T.mono, letterSpacing: "0.06em", marginBottom: 4 }}>AGENTS LIVE — ALL ROLES UNLOCKED</div>
+                <div style={{ color: "#64748b", fontSize: 13, lineHeight: 1.6 }}>
+                  {walkCount + runCount} agent{walkCount + runCount !== 1 ? "s" : ""} in Walk / Run phase.
+                  {crawlCount > 0 ? ` ${crawlCount} still in crawl baseline.` : ""} All hotel-facing roles are unlocked in the hub.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: "flex", gap: 16 }}>
+                {crawlCount > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 22, fontWeight: 900, color: "#f59e0b", fontFamily: T.mono }}>{crawlCount}</div><div style={{ fontSize: 10, color: "#4b5563", fontFamily: T.mono }}>CRAWL</div></div>}
+                {walkCount  > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 22, fontWeight: 900, color: "#60a5fa", fontFamily: T.mono }}>{walkCount}</div><div style={{ fontSize: 10, color: "#4b5563", fontFamily: T.mono }}>WALK</div></div>}
+                {runCount   > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 22, fontWeight: 900, color: "#4ade80", fontFamily: T.mono }}>{runCount}</div><div style={{ fontSize: 10, color: "#4b5563", fontFamily: T.mono }}>RUN</div></div>}
               </div>
             </div>
           );
