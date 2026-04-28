@@ -126,6 +126,11 @@ router.post("/hitl/respond/:token", async (req, res) => {
       const roleBand = hitl.roleBand;
 
       if (agentId && companyId) {
+        // Hoist rate-tracking vars to outer scope so they are accessible
+        // in writeGovernanceEvent below even if the inner aggregation fails.
+        let total = 0;
+        let approvedCount = 0;
+        let rejectedCount = 0;
         try {
           // ── Overall agreement rate (across all bands for this agent+company) ──
           const allResolved = await db
@@ -140,9 +145,9 @@ router.post("/hitl/respond/:token", async (req, res) => {
             );
 
           const resolved = allResolved.filter(r => r.outcome === "approved" || r.outcome === "rejected");
-          const total = resolved.length;
-          const approvedCount = resolved.filter(r => r.outcome === "approved").length;
-          const rejectedCount = resolved.filter(r => r.outcome === "rejected").length;
+          total = resolved.length;
+          approvedCount = resolved.filter(r => r.outcome === "approved").length;
+          rejectedCount = resolved.filter(r => r.outcome === "rejected").length;
 
           if (total > 0) {
             await db
