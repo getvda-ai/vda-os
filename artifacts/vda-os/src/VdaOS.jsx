@@ -6223,13 +6223,14 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
                 VDA-MD Command Centre
               </h1>
               <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 12px" }}>
-                Agent admission status · Hotel operational phases · Click any cell to go deeper
+                Agent admission · Phase lifecycle · AP2 Intent Mandates · Agent Value Ledger · Click any cell to go deeper
               </p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Tag color={T.blue}>NIST SP 800-53</Tag>
-                <Tag color={T.green}>GDPR</Tag>
-                <Tag color={T.purple}>EU AI Act</Tag>
-                <Tag color={T.orange}>C2MD Pipeline</Tag>
+                <Tag color={T.green}>GDPR · EU AI Act</Tag>
+                <Tag color={T.purple}>AP2 Intent Mandates</Tag>
+                <Tag color={T.orange}>Agent Value Ledger</Tag>
+                <Tag color="#e879f9">A2A v1.0</Tag>
               </div>
             </div>
             <button

@@ -30,15 +30,17 @@ If any of the three mandatory files (AGENTS.md, SOP.md, SKILL.md) are missing fo
 THE COMPLIANCE GUARD:
 Rejects any governance file save that reduces MUST clause counts, removes NIST references, or deletes ISO 42001 citations. Returns 409 Conflict. Writes a COMPLIANCE_BOUNDARY/FAIL Witness event. Governance files cannot be weakened without a formal named sign-off. Every edit creates a version history entry with commit message and author.
 
-THE EIGHT CAPABILITY LAYERS (v4.0, all live):
+THE TEN CAPABILITY LAYERS (v5.0, all live):
 1. Governance: VDA-MD with Compliance Guard + §2.1 Enforcement Rule
 2. Identity: W3C Verifiable Credentials, 23-hour rotation, SHA-256 governance file hash binding — if governance files change after a credential is issued, the hash mismatch is detected at the next invocation and written as a FRAMEWORK_INTEGRITY/FAIL event
-3. Transport: A2A Protocol (Google DeepMind JSON-RPC 2.0), Agent Card discovery, Ajv v8 schema validation on every incoming message
+3. Transport: A2A Protocol v1.0 (Google DeepMind JSON-RPC 2.0), Agent Card with inputModes/outputModes/provider/documentationUrl fields, Ajv v8 schema validation on every incoming message
 4. Output: Structured JSON-RPC responses with schema validation
 5. Eval: Adversarial governance sandbox, 95% pass rate required before any agent reaches production
-6. HITL: Decision cards, dual-gate approval, direct phase transition — Senior Ambassador gets a 30-second mobile card, not a governance document
+6. HITL: Decision cards, dual-gate approval, direct phase transition — Senior Ambassador gets a 30-second mobile card, not a governance document. Operational exception cards carry exceptionClass slug for baseline convergence tracking.
 7. Lifecycle: Onboarding Agent, 7-phase workflow, impact delta analysis, rollback
 8. Audit: Categorised Witness Agent, six-hour integrity check scheduler, Framework Integrity Panel
+9. AP2 Intent Mandates: Cryptographically-signed spending authority grants. Issued at onboarding completion and re-issued at each phase promotion (Crawl → Walk → Run). Each mandate encodes the authorisation ceiling for every action the agent may take, linked to the current governance file hash. Expired or missing mandates trigger immediate HITL escalation — the agent cannot act autonomously without a valid mandate.
+10. Agent Value Ledger: AP2 economic metering. Every PASS decision records revenue delta, governance cost (LLM + API overhead), and decision outcome in agent_value_events. The Hotel GM dashboard shows a live ROI panel: total revenue processed, governance cost, net value, and ROI multiple (revenue ÷ cost). Per-agent breakdown with drill-down into the raw event log. 30-day rolling window, refreshed every 30 seconds.
 
 THE AGENT EXECUTION PIPELINE (6 steps, every agent invocation):
 1. Governance Pre-flight: Load AGENTS.md + SOP.md + SKILL.md. If any file missing → immediate ESCALATE. No AI called, no Apaleo called.
@@ -77,6 +79,43 @@ Event categories and what they mean:
 - AGENT_LIFECYCLE: VC issuance, rotation, expiry, onboarding admission, rollback
 - A2A_PROTOCOL: External agent interactions, schema validation results, admission decisions
 The Framework Integrity Panel in the Witness Agent tab shows four live metrics: integrity checks passed (last 24h), integrity failures (all time), compliance rejections (last 7 days), and active EXCEPTION.md files.
+
+AP2 INTENT MANDATES (live now):
+AP2 (Agent Payments Protocol) Intent Mandates are cryptographically-signed, tamper-evident spending authority grants. They replace runtime EXCEPTION_AUTHORITY.md ceiling parsing with a verifiable authority object.
+
+Mandate lifecycle:
+- Issued automatically at onboarding completion (Crawl phase mandate, 7-day validity).
+- Re-issued at every phase promotion — Crawl → Walk (30-day validity), Walk → Run (90-day validity).
+- Each mandate revokes the previous one atomically before issuing the new one.
+- Linked to the current governance file hash: if governance files change, the hash mismatch is detectable at the mandate level.
+- Mandate payload is HMAC-SHA256 signed using the platform's Ed25519 issuer key material.
+
+Mandate enforcement:
+- Every agent route checks for an active non-expired mandate via requireValidMandate() middleware.
+- No active mandate → immediate HITL escalation (decision: ESCALATE, hitlRequired: true, violationReason: "no_mandate").
+- Active mandate present but action value exceeds ceiling → ceiling_breach escalation.
+- Mandate expired → mandate_expired escalation.
+- Failure to check mandate (system error) → non-fatal, agent proceeds with a warning log — mandate system unavailability must not block hotel operations.
+
+AP2 Authorisation Tiers (phase-based):
+- Crawl: No standing authority. Every action requires explicit HITL approval (ceiling: 0 for all actions).
+- Walk: Limited autonomy. E.g. discount ≤9%, folio charge ≤€200, rate delta ≤€30.
+- Run: Full governance-envelope authority. E.g. discount ≤20%, folio charge ≤€1000 (within SOP ceiling).
+
+Where to see it: Open any hotel hub → ⚙ Advanced ▼ → Agent Credentials tab → scroll down to "AP2 Intent Mandate Registry" — shows all active mandates with phase, validity, and authorisation tiers.
+
+AGENT VALUE LEDGER (live now):
+Every PASS decision by an agent writes a value event to the agent_value_events table recording: agentId, companyId, action, revenue delta (EUR), governance cost in cents (LLM + API), decision outcome, governance phase, and witness token.
+
+The Agent Value Ledger provides:
+- Revenue processed: total EUR value of PASS decisions in the 30-day window
+- Governance cost: total LLM + Apaleo API overhead
+- Net value: revenue − cost
+- ROI multiple: revenue ÷ cost (e.g. 47× means the platform generated 47 EUR of value per 1 EUR of governance cost)
+- Per-agent breakdown: sortable table with individual revenue, cost, and net columns
+- Drill-down event log: click any agent row to see raw events (last 50); or click "View event log →" for all-agent view
+
+Where to see it: Open any hotel hub → Dashboard tab → switch role to "Hotel GM" → scroll down to "Agent Value Ledger" section. The panel refreshes every 30 seconds. It populates as agents run — trigger the Live Demo to generate events immediately.
 
 C2MD (COMPLIANCE TO MARKDOWN):
 Named, structured, repeatable methodology for translating machine-readable compliance standards (NIST OSCAL, ISO 42001, APQC) into human-readable, domain-owner-editable Markdown governance files. Steps: (1) user selects target agent and file type, (2) provides regulatory reference (e.g. "NIST SP 800-53 AC-2"), (3) system loads hotel brand context, (4) Claude generates the file in the hotel's voice embedding all MUST/MUST NOT/MAY language and compliance cross-references, (5) saved with c2md_generated: true in frontmatter. The baseline must never be created by AI alone — human approval gate is mandatory.
@@ -338,7 +377,7 @@ function TypingIndicator() {
 
 const OPENING_MESSAGE = {
   role: "assistant",
-  content: "Hi — I'm the VDA-MD framework expert. You're looking at the **VDA-MD Command Centre** — two panels showing the Agent Registry (left) and Hotel Operations (right), with five live citizenM hotels each running a full AI governance stack on Apaleo.\n\nTo explore the platform, click **\"Open hub →\"** on any hotel row in the right panel to open that hotel's hub. Inside you'll find Dashboard and Agent Onboarding always visible in the top bar, and Live Demo, Witness Agent, File Manager, and all the other tools behind **⚙ Advanced ▼**.\n\nWhat would you like to know?",
+  content: "Hi — I'm the VDA-MD framework expert (v5.0). You're looking at the **VDA-MD Command Centre** — five live citizenM hotels, each running a full AI governance stack on Apaleo.\n\nThis build adds two new protocol layers: **AP2 Intent Mandates** (cryptographically-signed spending authority grants, issued per agent at each phase promotion) and the **Agent Value Ledger** (live ROI tracking — revenue processed vs governance cost, per agent and per property).\n\nClick **\"Open hub →\"** on any hotel row to enter that hotel's hub. Dashboard and Agent Onboarding are always in the top bar. Everything else — Live Demo, Witness Agent, File Manager, and more — is behind **⚙ Advanced ▼**.\n\nWhat would you like to know?",
 };
 
 // ─── Chat icon SVG ─────────────────────────────────────────────────────────────
@@ -584,7 +623,7 @@ export default function VdaMdChatbot() {
 
           {/* Status line */}
           <div style={{ padding: "5px 16px", fontSize: 11, color: "#ffffff", background: "#0d0f14", borderBottom: "1px solid #1e2130", flexShrink: 0 }}>
-            Powered by Claude · Knows VDA-MD v4.0
+            Powered by Claude · Knows VDA-MD v5.0
           </div>
 
           {/* Message area */}
