@@ -2,9 +2,9 @@
 file_type: EXCEPTION_AUTHORITY
 agent_id: rate-agent
 owner: Hotel GM
-version: "1.0"
+version: "2.0"
 approved_by: Compliance Officer
-approved_at: 2026-04-22
+approved_at: 2026-04-28
 domain: Revenue
 apaleo_api: "Rate Plans API, Revenue Reports API"
 nist_control: AC-2
@@ -13,8 +13,8 @@ nist_control: AC-2
 role_bands:
   ambassador:
     exceptions:
-      - exception_class: rate_discount_autonomous
-        description: Apply a rate discount within the autonomous authority band
+      - exception_class: rate_discount_standard
+        description: Apply a standard rate discount within the autonomous authority band (0–9% below BAR)
         ceiling: 9
         ceiling_type: percent_below_bar
         conditions:
@@ -27,8 +27,8 @@ role_bands:
 
   senior_ambassador:
     exceptions:
-      - exception_class: rate_discount_standard
-        description: Apply a rate discount for service recovery or key account retention
+      - exception_class: rate_discount_extended
+        description: Apply an extended rate discount for service recovery or key account retention (9–15% below BAR)
         ceiling: 15
         ceiling_type: percent_below_bar
         conditions:
@@ -41,8 +41,8 @@ role_bands:
 
   hotel_gm:
     exceptions:
-      - exception_class: rate_discount_gm
-        description: Apply a deep discount or rate plan override at GM discretion
+      - exception_class: rate_discount_exceptional
+        description: Apply an exceptional deep discount at GM discretion (above 15% below BAR)
         ceiling: 20
         ceiling_type: percent_below_bar
         conditions:

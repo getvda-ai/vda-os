@@ -982,14 +982,16 @@ router.get("/dashboard/activation/:agentId/crawl-status", async (req, res) => {
     const policy = await getPolicy();
     const frontLineBands = policy.front_line_bands ?? ["ambassador", "senior_ambassador", "hotel_gm"];
 
-    const bands: Record<string, { total: number; resolved: number; complete: boolean; classes: string[] }> = {};
+    const bands: Record<string, { total: number; resolved: number; pending: number; complete: boolean; classes: string[] }> = {};
     for (const band of frontLineBands) {
       const bandAuth = await getRoleBandAuthority(agentId, 0, band);
       const total = bandAuth?.exceptions?.length ?? 0;
       const resolvedSet = resolvedByBand[band] ?? new Set();
       const resolved = resolvedSet.size;
+      const pending = Math.max(0, total - resolved);
       const classes = bandAuth?.exceptions?.map((e) => e.exception_class) ?? [];
-      bands[band] = { total, resolved, complete: total > 0 && resolved >= total, classes };
+      // Completion: pending === 0 (includes bands with zero defined classes — nothing to resolve)
+      bands[band] = { total, resolved, pending, complete: pending === 0, classes };
     }
 
     const crawlComplete = frontLineBands.every((b) => bands[b]?.complete === true);

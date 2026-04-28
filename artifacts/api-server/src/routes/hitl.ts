@@ -246,10 +246,10 @@ router.post("/hitl/respond/:token", async (req, res) => {
 
       // ── Baseline upsert — only when authoriseAsBaseline=true and outcome=approved ──
       let baselined = false;
+      const hitlExceptionClass = (hitl.payload as Record<string, unknown>).exception_class as string | undefined;
       if (authoriseAsBaseline && outcome === "approved" && agentId && companyId != null) {
-        const exceptionClass = (hitl.payload as Record<string, unknown>).exception_class as string | undefined;
         const resolvedRoleBand = hitl.roleBand ?? "ambassador";
-        if (exceptionClass) {
+        if (hitlExceptionClass) {
           try {
             const existing = await db
               .select({ id: exceptionBaselines.id })
@@ -258,7 +258,7 @@ router.post("/hitl/respond/:token", async (req, res) => {
                 and(
                   eq(exceptionBaselines.agentId, agentId),
                   eq(exceptionBaselines.companyId, companyId),
-                  eq(exceptionBaselines.exceptionClass, exceptionClass)
+                  eq(exceptionBaselines.exceptionClass, hitlExceptionClass)
                 )
               )
               .limit(1);
@@ -273,7 +273,7 @@ router.post("/hitl/respond/:token", async (req, res) => {
                 agentId,
                 companyId,
                 roleBand: resolvedRoleBand,
-                exceptionClass,
+                exceptionClass: hitlExceptionClass,
                 authority: decided_by,
                 accepted: true,
                 rejected: false,
@@ -282,7 +282,7 @@ router.post("/hitl/respond/:token", async (req, res) => {
               });
             }
             baselined = true;
-            logger.info({ agentId, companyId, exceptionClass, decided_by }, "[HITL] Exception class baselined — future occurrences will not require review");
+            logger.info({ agentId, companyId, exceptionClass: hitlExceptionClass, decided_by }, "[HITL] Exception class baselined — future occurrences will not require review");
           } catch (baselineErr) {
             logger.warn({ baselineErr }, "[HITL] Failed to upsert exception baseline — non-fatal");
           }
@@ -297,7 +297,9 @@ router.post("/hitl/respond/:token", async (req, res) => {
         card_type: "operational_exception",
         agent_id: agentId,
         company_id: companyId,
+        approved: outcome === "approved",
         baselined,
+        exceptionClass: hitlExceptionClass ?? null,
       });
       return;
     }
