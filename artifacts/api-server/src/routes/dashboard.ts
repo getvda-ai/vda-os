@@ -838,7 +838,7 @@ router.post("/dashboard/activation/start", async (req, res) => {
       return res.status(400).json({ error: "agentId and companyId are required" });
     }
 
-    // Gate: agent must be in 'admitted' or 'vda_native' status in onboarding_requests
+    // Gate: agent must be in 'admitted' status in onboarding_requests (vda_native bypasses CO gate — not allowed)
     const onboardingRows = await db
       .select({ id: onboardingRequests.id, status: onboardingRequests.status })
       .from(onboardingRequests)
@@ -848,20 +848,18 @@ router.post("/dashboard/activation/start", async (req, res) => {
             eq(onboardingRequests.externalAgentDid, agentId),
             eq(onboardingRequests.externalAgentDid, `did:vda:hospitality:${agentId}`)
           ),
-          or(
-            eq(onboardingRequests.status, "admitted"),
-            eq(onboardingRequests.status, "vda_native")
-          )
+          eq(onboardingRequests.status, "admitted")
         )
       )
       .limit(1);
 
     if (!onboardingRows[0]) {
-      return res.status(403).json({ error: "Agent is not in admitted status — CO admission required before crawl activation" });
+      return res.status(403).json({ error: "Agent must be in 'admitted' status — CO Gate 0 admission required before crawl activation" });
     }
 
     // Single-hotel gate: check for any active activation not in terminal status
-    const TERMINAL_STATUSES = ["completed_crawl", "walk", "run"];
+    // Note: 'rejected' is terminal — a rejected activation must be re-started from scratch
+    const TERMINAL_STATUSES = ["completed_crawl", "walk", "run", "rejected"];
     const activeActivations = await db
       .select({ id: activationRequests.id, companyId: activationRequests.companyId, status: activationRequests.status })
       .from(activationRequests)
@@ -1014,7 +1012,41 @@ router.post("/dashboard/activation/:agentId/promote-to-walk", async (req, res) =
       return res.status(400).json({ error: "agentId (path) and companyId (body) are required" });
     }
 
-    // Validate crawlComplete first
+    // Gate 1: current phase must be 'crawl' — cannot promote if already walk/run or not started
+    const currentPhaseRows = await db
+      .select({ phase: agentPhases.phase })
+      .from(agentPhases)
+      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)))
+      .limit(1);
+
+    if (!currentPhaseRows[0]) {
+      return res.status(409).json({ error: "Agent has no active phase for this company — crawl must be started first" });
+    }
+    if (currentPhaseRows[0].phase !== "crawl") {
+      return res.status(409).json({ error: `Cannot promote to walk — current phase is '${currentPhaseRows[0].phase}' (must be 'crawl')` });
+    }
+
+    // Gate 2: no pending (unresolved) HITL tokens for this agent+company
+    const pendingHitlResult = await db
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(hitlTokens)
+      .where(
+        and(
+          eq(hitlTokens.agentId, agentId),
+          eq(hitlTokens.companyId, companyId),
+          isNull(hitlTokens.resolvedAt)
+        )
+      );
+
+    const pendingCount = pendingHitlResult[0]?.count ?? 0;
+    if (pendingCount > 0) {
+      return res.status(409).json({
+        error: `Cannot promote to walk — agent has ${pendingCount} pending HITL decision(s). Resolve all outstanding HITL cards before promotion.`,
+        pendingHitlCount: pendingCount,
+      });
+    }
+
+    // Validate crawlComplete (all exception classes resolved/baselined)
     const statusResp = await fetch(
       `http://localhost:${process.env.PORT ?? 8080}/api/dashboard/activation/${agentId}/crawl-status?companyId=${companyId}`
     );
@@ -1119,43 +1151,60 @@ router.post("/dashboard/activation/:agentId/cosign-run", async (req, res) => {
       return res.status(400).json({ error: "agentId (path) and companyId (body) are required" });
     }
 
-    // Verify agent is in walk phase for this company
-    const phaseRows = await db
-      .select({ phase: agentPhases.phase })
+    // Portfolio-wide gate: ALL activated properties for this agent must be at walk or run phase.
+    // Co-sign is a portfolio-level promotion — no single hotel can be left behind in crawl.
+    const allPhaseRows = await db
+      .select({ companyId: agentPhases.companyId, phase: agentPhases.phase })
       .from(agentPhases)
-      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)))
-      .limit(1);
+      .where(eq(agentPhases.agentId, agentId));
 
-    if (!phaseRows[0] || phaseRows[0].phase !== "walk") {
-      return res.status(409).json({ error: `Agent must be in walk phase for co-sign (current: ${phaseRows[0]?.phase ?? "not_activated"})` });
+    if (allPhaseRows.length === 0) {
+      return res.status(409).json({ error: "No active phases found for this agent — cannot co-sign run with no hotels activated" });
     }
 
-    // Update agent_phases to run
-    await db
-      .update(agentPhases)
-      .set({ phase: "run", phaseChangedAt: new Date() })
-      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)));
+    const notReady = allPhaseRows.filter((p) => p.phase !== "walk" && p.phase !== "run");
+    if (notReady.length > 0) {
+      return res.status(409).json({
+        error: `Portfolio co-sign blocked — ${notReady.length} hotel(s) are not yet at walk or run phase`,
+        hotelsNotReady: notReady.map((p) => ({ companyId: p.companyId, phase: p.phase })),
+      });
+    }
 
-    // Update activation_requests
-    await db
-      .update(activationRequests)
-      .set({ status: "run", coSignedBy, coSignedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(activationRequests.agentId, agentId), eq(activationRequests.companyId, companyId)));
+    // Promote ALL companies for this agent from walk → run (portfolio-wide)
+    const walkCompanyIds = allPhaseRows.filter((p) => p.phase === "walk").map((p) => p.companyId);
 
-    // Write Witness entry
+    if (walkCompanyIds.length > 0) {
+      await db
+        .update(agentPhases)
+        .set({ phase: "run", phaseChangedAt: new Date() })
+        .where(and(eq(agentPhases.agentId, agentId), inArray(agentPhases.companyId, walkCompanyIds)));
+
+      await db
+        .update(activationRequests)
+        .set({ status: "run", coSignedBy, coSignedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(activationRequests.agentId, agentId), inArray(activationRequests.companyId, walkCompanyIds)));
+    }
+
+    // Write portfolio-wide governance witness
     await writeGovernanceEvent({
       companyId,
       agent: agentId,
       eventCategory: "AGENT_LIFECYCLE",
       decision: "PASS",
-      clauseApplied: "VDA-MD §8: Operations Chief portfolio co-sign — agent cleared for full autonomous Run-phase operation",
-      actionProposed: `Agent ${agentId} co-signed to run by ${coSignedBy} at company ${companyId}`,
-      reasoning: "Walk-phase performance verified. Operations Chief co-sign confirms agent is cleared for full Run-phase autonomy.",
-      fileReferenced: "VDA-MD Phase Lifecycle Protocol — Walk → Run Co-sign",
-      apaleoData: { event_type: "agent_cosigned_to_run", agent_id: agentId, company_id: companyId, co_signed_by: coSignedBy },
+      clauseApplied: "VDA-MD §8: Operations Chief portfolio co-sign — agent cleared for full autonomous Run-phase operation across all hotels",
+      actionProposed: `Agent ${agentId} portfolio co-signed to run by ${coSignedBy} — ${walkCompanyIds.length} hotel(s) promoted, ${allPhaseRows.length} total in portfolio`,
+      reasoning: "All portfolio hotels verified at walk or run phase. Operations Chief co-sign promotes entire portfolio to autonomous Run-phase.",
+      fileReferenced: "VDA-MD Phase Lifecycle Protocol — Walk → Run Portfolio Co-sign",
+      apaleoData: {
+        event_type: "agent_portfolio_cosigned_to_run",
+        agent_id: agentId,
+        co_signed_by: coSignedBy,
+        hotels_promoted: walkCompanyIds,
+        total_portfolio_hotels: allPhaseRows.length,
+      },
     });
 
-    // Issue run mandate
+    // Issue run mandate for the requesting company
     let mandateId: string | null = null;
     try {
       const agentDid = `did:key:vda-${agentId}-${companyId}`;
@@ -1165,8 +1214,16 @@ router.post("/dashboard/activation/:agentId/cosign-run", async (req, res) => {
       logger.warn({ mandateErr }, "[Mandate] Failed to issue run mandate — non-fatal");
     }
 
-    logger.info({ agentId, companyId, coSignedBy, mandateId }, "[Activation] Agent co-signed to run");
-    return res.json({ ok: true, agentId, companyId, phase: "run", coSignedBy, mandateId });
+    logger.info({ agentId, hotelsPromoted: walkCompanyIds.length, coSignedBy, mandateId }, "[Activation] Agent portfolio co-signed to run");
+    return res.json({
+      ok: true,
+      agentId,
+      phase: "run",
+      coSignedBy,
+      mandateId,
+      hotelsPromoted: walkCompanyIds.length,
+      totalPortfolioHotels: allPhaseRows.length,
+    });
   } catch (err) {
     logger.error({ err }, "dashboard/activation/cosign-run error");
     return res.status(500).json({ error: "Failed to co-sign run" });

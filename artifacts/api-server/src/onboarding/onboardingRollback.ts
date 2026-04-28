@@ -142,16 +142,16 @@ router.post("/onboarding/:id/rollback", async (req, res) => {
 //
 // ?role_band=compliance_officer  → all records (pre_admitted visible to CO only)
 // ?role_band=<any other>         → exclude pre_admitted (not yet admitted)
-// (no param)                     → all records (backward compat)
+// (no param)                     → exclude pre_admitted (safe default — CO must identify themselves)
 
 router.get("/onboarding", async (req, res) => {
   try {
     const roleBandParam = req.query.role_band as string | undefined;
 
-    // compliance_officer sees all records including pre_admitted; all other roles see only admitted+
-    const all = roleBandParam && roleBandParam !== "compliance_officer"
-      ? await db.select().from(onboardingRequests).where(ne(onboardingRequests.status, "pre_admitted")).orderBy(onboardingRequests.createdAt)
-      : await db.select().from(onboardingRequests).orderBy(onboardingRequests.createdAt);
+    // Only compliance_officer sees pre_admitted; all other callers (including absent role_band) see only admitted+
+    const all = roleBandParam === "compliance_officer"
+      ? await db.select().from(onboardingRequests).orderBy(onboardingRequests.createdAt)
+      : await db.select().from(onboardingRequests).where(ne(onboardingRequests.status, "pre_admitted")).orderBy(onboardingRequests.createdAt);
 
     res.json({ requests: all, count: all.length });
   } catch (err) {
@@ -239,7 +239,7 @@ router.post("/onboarding/:id/reject", async (req, res) => {
 
     await db
       .update(onboardingRequests)
-      .set({ status: "rejected", updatedAt: new Date() })
+      .set({ status: "rejected_co", updatedAt: new Date() })
       .where(eq(onboardingRequests.id, id));
 
     const { writeGovernanceEvent } = await import("../lib/writeGovernanceEvent.js");
@@ -249,15 +249,15 @@ router.post("/onboarding/:id/reject", async (req, res) => {
       agent: "onboarding-agent",
       eventCategory: "AGENT_LIFECYCLE",
       decision: "FAIL",
-      clauseApplied: "VDA-MD §3: Compliance Officer technical admission gate — agent rejected",
+      clauseApplied: "VDA-MD §3: Compliance Officer technical admission gate — agent rejected at CO Gate 0",
       actionProposed: `Agent '${card?.name ?? id}' rejected by ${decided_by}. Reason: ${reason}`,
       reasoning: `Gate 0 rejected: CO found agent does not meet technical admission criteria. Reason: ${reason}`,
       fileReferenced: "VDA-MD Onboarding Protocol — Gate 0: CO Admission",
       apaleoData: { event_type: "co_agent_rejected", onboarding_request_id: id, decided_by, reason, agent_name: card?.name },
     });
 
-    logger.info({ id, decided_by, reason }, "[Onboarding] Agent rejected by CO");
-    res.json({ ok: true, status: "rejected", onboardingRequestId: id });
+    logger.info({ id, decided_by, reason }, "[Onboarding] Agent rejected by CO (status: rejected_co)");
+    res.json({ ok: true, status: "rejected_co", onboardingRequestId: id });
   } catch (err) {
     logger.error({ err }, "Onboarding reject error");
     res.status(500).json({ error: "Failed to reject agent" });

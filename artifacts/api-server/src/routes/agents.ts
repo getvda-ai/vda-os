@@ -23,7 +23,7 @@ import {
   listCredentialsFromFiles,
 } from "../lib/agentCredentialIssuer.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
-import { getRoleBandAuthority, getRejectedClasses } from "../lib/exceptionAuthorityReader.js";
+import { getRoleBandAuthority, getRejectedClasses, getAcceptedBaselineClasses } from "../lib/exceptionAuthorityReader.js";
 
 const router = Router();
 
@@ -793,30 +793,57 @@ router.post("/agents/rate",
     const reqRate = requestedRate ?? bar;
     const discountPct = bar > 0 ? Math.round(((bar - reqRate) / bar) * 100) : 0;
 
+    // Threshold-based exception class for rate discount (per-band crawl tracking)
+    const rateExceptionClass = discountPct <= 10
+      ? "rate_discount_standard"
+      : discountPct <= 20 ? "rate_discount_extended" : "rate_discount_exceptional";
+
     const rateAgentAuthorityEscalate = await guardAuthority("rate-agent", "Rate Agent", Number(companyId));
     if (rateAgentAuthorityEscalate) {
       return res.json(rateAgentAuthorityEscalate);
     }
-    const rateRejectedEscalate = await guardRejectedClass("rate-agent", "Rate Agent", Number(companyId), "rate_discount_autonomous");
+    const rateRejectedEscalate = await guardRejectedClass("rate-agent", "Rate Agent", Number(companyId), rateExceptionClass);
     if (rateRejectedEscalate) return res.json(rateRejectedEscalate);
-    const rateAgentAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", "rate_discount_autonomous");
-    const { decision, toolCallsMade, usedMcp, filesLoaded, inputTokens, outputTokens } = await evaluateWithPolicyAndMcp(
+    const rateAgentAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", rateExceptionClass);
+    const { decision: rawDecision, toolCallsMade, usedMcp, filesLoaded, inputTokens, outputTokens } = await evaluateWithPolicyAndMcp(
       "Rate Agent",
       "rate",
-      `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount) for property ${propertyId}. Fetch current rate plans via ListRatePlans and revenue report via GetReport from Apaleo, then apply rate-override policy. ${rateAgentAuthFrag}.`,
+      `Evaluate rate request of €${reqRate} vs BAR €${bar} (${discountPct}% discount, class: ${rateExceptionClass}) for property ${propertyId}. Fetch current rate plans via ListRatePlans and revenue report via GetReport from Apaleo, then apply rate-override policy. ${rateAgentAuthFrag}.`,
       [MCP_TOOLS.ListRatePlans, MCP_TOOLS.GetReport],
       Number(companyId)
     );
 
+    // Baseline fast-path: if this exception class is already baselined, convert ESCALATE → autonomous PASS
+    let decision = rawDecision;
+    let governanceSource: string | null = null;
+    if (rawDecision.decision === "ESCALATE") {
+      try {
+        const acceptedClasses = await getAcceptedBaselineClasses("rate-agent", Number(companyId));
+        if (acceptedClasses.includes(rateExceptionClass)) {
+          decision = {
+            ...rawDecision,
+            decision: "PASS" as const,
+            actionProposed: `${rawDecision.actionProposed ?? "Rate decision"} [Autonomous — exception class '${rateExceptionClass}' is baselined]`,
+            reasoning: `Exception class '${rateExceptionClass}' has been baselined by governance authority. Proceeding autonomously without HITL.`,
+            confidence: 0.95,
+          };
+          governanceSource = "exception_baselines";
+          logger.info({ agentId: "rate-agent", companyId, rateExceptionClass }, "[Rate Agent] Baselined class — ESCALATE → autonomous PASS");
+        }
+      } catch (baselineErr) {
+        logger.warn({ baselineErr }, "[Rate Agent] Baseline check failed — proceeding with original decision");
+      }
+    }
+
     const apaleoData: Record<string, unknown> = {
-      propertyId, barRate: bar, requestedRate: reqRate, discountPct, usedMcp, toolCallsMade,
-      input_tokens: inputTokens, output_tokens: outputTokens,
+      propertyId, barRate: bar, requestedRate: reqRate, discountPct, rateExceptionClass, usedMcp, toolCallsMade,
+      input_tokens: inputTokens, output_tokens: outputTokens, ...(governanceSource ? { governance_source: governanceSource } : {}),
     };
 
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
       agent: "Rate Agent",
-      decision: { ...decision, exceptionClass: "rate_discount_autonomous" },
+      decision: { ...decision, exceptionClass: rateExceptionClass },
       fileReferenced: governanceFileReferenced(filesLoaded),
       apaleoData,
       scenarioRunId,
@@ -2010,9 +2037,11 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       // 5% discount: €171 from BAR €180 — below the 10% escalation threshold, agent PASS
       // VIE-VDADEMO-SGL rate plan is now isBookable: true — ListRatePlans MCP call is safe
       const bar = 180; const requested = 171; const discountPct = 5;
+      // Threshold-based exception class (5% → standard)
+      const scenarioRateExceptionClass = discountPct <= 10 ? "rate_discount_standard" : discountPct <= 20 ? "rate_discount_extended" : "rate_discount_exceptional";
       const rateAuthorityEscalate = await guardAuthority("rate-agent", "Rate Agent", Number(companyId));
-      const rateRejectedEscalate = await guardRejectedClass("rate-agent", "Rate Agent", Number(companyId), "rate_discount_autonomous");
-      const rateAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", "rate_discount_autonomous");
+      const rateRejectedEscalate = await guardRejectedClass("rate-agent", "Rate Agent", Number(companyId), scenarioRateExceptionClass);
+      const rateAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", scenarioRateExceptionClass);
       const rateScenarioEscalate = rateAuthorityEscalate ?? rateRejectedEscalate;
       const { decision: rateDecision, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, filesLoaded: rateScenarioFiles, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead } = rateScenarioEscalate
         ? { decision: rateScenarioEscalate, usedMcp: false, toolCallsMade: 0, filesLoaded: [] as string[], inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 }
@@ -2034,10 +2063,25 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
         Number(companyId)
       );
       scenarioCacheCreation += rateCacheCreation; scenarioCacheRead += rateCacheRead;
+      // Scenario runner baseline fast-path (same logic as standalone rate agent)
+      let finalRateDecision = rateDecision;
+      if (!rateScenarioEscalate && rateDecision.decision === "ESCALATE") {
+        try {
+          const acceptedClasses = await getAcceptedBaselineClasses("rate-agent", Number(companyId));
+          if (acceptedClasses.includes(scenarioRateExceptionClass)) {
+            finalRateDecision = {
+              ...rateDecision, decision: "PASS" as const,
+              actionProposed: `${rateDecision.actionProposed ?? "Rate decision"} [Autonomous — class '${scenarioRateExceptionClass}' baselined]`,
+              reasoning: `Exception class '${scenarioRateExceptionClass}' is baselined. Proceeding autonomously.`,
+              confidence: 0.95,
+            };
+          }
+        } catch { /* baseline check best-effort */ }
+      }
       const wid = await writeWitnessEntry({
-        companyId: Number(companyId), agent: "Rate Agent", decision: { ...rateDecision, exceptionClass: "rate_discount_autonomous" },
+        companyId: Number(companyId), agent: "Rate Agent", decision: { ...finalRateDecision, exceptionClass: scenarioRateExceptionClass },
         fileReferenced: governanceFileReferenced(rateScenarioFiles),
-        apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, input_tokens: rateInputTokens, output_tokens: rateOutputTokens, cache_creation_tokens: rateCacheCreation, cache_read_tokens: rateCacheRead },
+        apaleoData: { barRate: bar, requestedRate: requested, discountPct, rateExceptionClass: scenarioRateExceptionClass, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, input_tokens: rateInputTokens, output_tokens: rateOutputTokens, cache_creation_tokens: rateCacheCreation, cache_read_tokens: rateCacheRead },
         scenarioRunId,
         filesConsulted: rateScenarioFiles,
         crossDomainInheritance: hasCrossDomainFiles(rateScenarioFiles),
@@ -2046,7 +2090,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
       if (hasCrossDomainFiles(rateScenarioFiles)) {
         void emitCrossDomainGovernanceEvent(Number(companyId), "Rate Agent");
       }
-      results.push({ step: 2, agent: "Rate Agent", ...rateDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead });
+      results.push({ step: 2, agent: "Rate Agent", ...finalRateDecision, witnessEntryId: wid, apaleoIds: { ...ids }, inputTokens: rateInputTokens, outputTokens: rateOutputTokens, cacheCreationTokens: rateCacheCreation, cacheReadTokens: rateCacheRead });
       emitStep(results[results.length - 1]);
     }
 

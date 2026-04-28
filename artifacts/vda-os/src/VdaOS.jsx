@@ -9120,89 +9120,6 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
       {/* ─── Onboarding Queue ─── */}
       {subTab === "queue" && (
         <div>
-          {/* ── CO Pending Admission gate ── */}
-          {role === "compliance_officer" && (() => {
-            const preAdmitted = requests.filter(r => r.status === "pre_admitted");
-            if (preAdmitted.length === 0) return null;
-            const handleAdmit = async (reqId) => {
-              setAdmitLoading(p => ({ ...p, [reqId]: true }));
-              try {
-                const r = await fetch(`/api/onboarding/${reqId}/admit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decided_by: "Compliance Officer" }) });
-                if (r.ok) { await fetchRequests(); }
-                else { const d = await r.json(); alert(d.error ?? "Admit failed"); }
-              } catch { alert("Network error"); }
-              setAdmitLoading(p => ({ ...p, [reqId]: false }));
-            };
-            const handleReject = async (reqId) => {
-              const reason = rejectReason[reqId]?.trim();
-              if (!reason) { alert("Please enter a rejection reason"); return; }
-              setRejectLoading(p => ({ ...p, [reqId]: true }));
-              try {
-                const r = await fetch(`/api/onboarding/${reqId}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason, decided_by: "Compliance Officer" }) });
-                if (r.ok) { await fetchRequests(); setRejectOpen(p => ({ ...p, [reqId]: false })); }
-                else { const d = await r.json(); alert(d.error ?? "Reject failed"); }
-              } catch { alert("Network error"); }
-              setRejectLoading(p => ({ ...p, [reqId]: false }));
-            };
-            return (
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.orange, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.orange, display: "inline-block" }} />
-                  Pending CO Admission ({preAdmitted.length})
-                </div>
-                <div style={{ fontSize: 11, color: T.dim, marginBottom: 12 }}>Gate 0: These VDA-native agents are awaiting your technical review. Only you can see pre-admitted agents — Hotel GMs cannot access them until admitted.</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {preAdmitted.map(req => {
-                    const card = req.agentCard || {};
-                    return (
-                      <div key={req.id} style={{ background: T.surface, border: `1px solid ${T.orange}40`, borderLeft: `4px solid ${T.orange}`, borderRadius: 10, padding: "14px 18px" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 14 }}>{card.name ?? "Unknown Agent"}</div>
-                            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginTop: 2 }}>{req.externalAgentDid ?? "—"} · source: {req.source ?? "—"}</div>
-                          </div>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <button
-                              disabled={admitLoading[req.id]}
-                              onClick={() => handleAdmit(req.id)}
-                              style={{ background: "#14532d", border: "1px solid #4ade80", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#4ade80", fontWeight: 700, cursor: "pointer", opacity: admitLoading[req.id] ? 0.5 : 1 }}
-                            >
-                              {admitLoading[req.id] ? "…" : "Admit →"}
-                            </button>
-                            <button
-                              onClick={() => setRejectOpen(p => ({ ...p, [req.id]: !p[req.id] }))}
-                              style={{ background: "#450a0a", border: "1px solid #f8717160", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#f87171", fontWeight: 700, cursor: "pointer" }}
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        </div>
-                        {rejectOpen[req.id] && (
-                          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-                            <input
-                              value={rejectReason[req.id] ?? ""}
-                              onChange={e => setRejectReason(p => ({ ...p, [req.id]: e.target.value }))}
-                              placeholder="Rejection reason (required)"
-                              style={{ flex: 1, background: "#0d0f14", border: "1px solid #f8717160", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: T.text, fontFamily: T.mono }}
-                            />
-                            <button
-                              disabled={rejectLoading[req.id]}
-                              onClick={() => handleReject(req.id)}
-                              style={{ background: "#450a0a", border: "1px solid #f87171", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#f87171", fontWeight: 700, cursor: "pointer", opacity: rejectLoading[req.id] ? 0.5 : 1 }}
-                            >
-                              {rejectLoading[req.id] ? "…" : "Confirm Reject"}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ height: 1, background: T.border, margin: "18px 0" }} />
-              </div>
-            );
-          })()}
-
           {/* ── GM Crawl Enable gate ── */}
           {role === "hotel_gm" && (() => {
             const admittedAgents = requests.filter(r => r.status === "admitted" || r.status === "vda_native");
@@ -9549,6 +9466,89 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
       {/* ─── HITL Approvals — action-first ─── */}
       {subTab === "approvals" && (
         <div>
+          {/* ── CO Pending Admission gate (Gate 0) — CO-only, shown at top of Approvals ── */}
+          {role === "compliance_officer" && (() => {
+            const preAdmitted = requests.filter(r => r.status === "pre_admitted");
+            if (preAdmitted.length === 0) return null;
+            const handleAdmit = async (reqId) => {
+              setAdmitLoading(p => ({ ...p, [reqId]: true }));
+              try {
+                const r = await fetch(`/api/onboarding/${reqId}/admit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decided_by: "Compliance Officer" }) });
+                if (r.ok) { await fetchRequests(); }
+                else { const d = await r.json(); alert(d.error ?? "Admit failed"); }
+              } catch { alert("Network error"); }
+              setAdmitLoading(p => ({ ...p, [reqId]: false }));
+            };
+            const handleReject = async (reqId) => {
+              const reason = rejectReason[reqId]?.trim();
+              if (!reason) { alert("Please enter a rejection reason"); return; }
+              setRejectLoading(p => ({ ...p, [reqId]: true }));
+              try {
+                const r = await fetch(`/api/onboarding/${reqId}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason, decided_by: "Compliance Officer" }) });
+                if (r.ok) { await fetchRequests(); setRejectOpen(p => ({ ...p, [reqId]: false })); }
+                else { const d = await r.json(); alert(d.error ?? "Reject failed"); }
+              } catch { alert("Network error"); }
+              setRejectLoading(p => ({ ...p, [reqId]: false }));
+            };
+            return (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.orange, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.orange, display: "inline-block" }} />
+                  Gate 0: Pending CO Admission ({preAdmitted.length})
+                </div>
+                <div style={{ fontSize: 11, color: T.dim, marginBottom: 12 }}>These VDA-native agents are awaiting your technical review. Only you can see pre-admitted agents — Hotel GMs cannot access them until admitted.</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {preAdmitted.map(req => {
+                    const card = req.agentCard || {};
+                    return (
+                      <div key={req.id} style={{ background: T.surface, border: `1px solid ${T.orange}40`, borderLeft: `4px solid ${T.orange}`, borderRadius: 10, padding: "14px 18px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{card.name ?? "Unknown Agent"}</div>
+                            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginTop: 2 }}>{req.externalAgentDid ?? "—"} · source: {req.source ?? "—"}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button
+                              disabled={admitLoading[req.id]}
+                              onClick={() => handleAdmit(req.id)}
+                              style={{ background: "#14532d", border: "1px solid #4ade80", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#4ade80", fontWeight: 700, cursor: "pointer", opacity: admitLoading[req.id] ? 0.5 : 1 }}
+                            >
+                              {admitLoading[req.id] ? "…" : "Admit →"}
+                            </button>
+                            <button
+                              onClick={() => setRejectOpen(p => ({ ...p, [req.id]: !p[req.id] }))}
+                              style={{ background: "#450a0a", border: "1px solid #f8717160", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#f87171", fontWeight: 700, cursor: "pointer" }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                        {rejectOpen[req.id] && (
+                          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                            <input
+                              value={rejectReason[req.id] ?? ""}
+                              onChange={e => setRejectReason(p => ({ ...p, [req.id]: e.target.value }))}
+                              placeholder="Rejection reason (required)"
+                              style={{ flex: 1, background: "#0d0f14", border: "1px solid #f8717160", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: T.text, fontFamily: T.mono }}
+                            />
+                            <button
+                              disabled={rejectLoading[req.id]}
+                              onClick={() => handleReject(req.id)}
+                              style={{ background: "#450a0a", border: "1px solid #f87171", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#f87171", fontWeight: 700, cursor: "pointer", opacity: rejectLoading[req.id] ? 0.5 : 1 }}
+                            >
+                              {rejectLoading[req.id] ? "…" : "Confirm Reject"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ height: 1, background: T.border, margin: "18px 0" }} />
+              </div>
+            );
+          })()}
+
           {/* Role-scoped context line */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 13 }}>
