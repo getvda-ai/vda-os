@@ -311,6 +311,16 @@ React + Vite frontend. Hospitality-only AI governance operating system for Apale
 **CRITICAL — DecisionCard cardType wiring:**
 Both `AmbassadorView.jsx` and `SeniorAmbassadorView.jsx` MUST pass `cardType={p.cardType ?? "ESCALATE"}` (from the HITL token), NOT hardcoded `"ESCALATE"`. The baseline checkbox only appears when `cardType === "operational_exception"`.
 
+**CRITICAL — Compliance Gate (iron-clad, do not remove):**
+- Default `globalRole` is `"compliance_officer"` — the first screen when entering any hub is always the CO view.
+- `DashboardTab` fetches `GET /api/dashboard/phases?companyId=N` on mount.
+- `HOTEL_ROLE_IDS = {"ambassador","senior_ambassador","hotel_gm","regional_gm","operations_chief"}` are ALL locked when `agentPhases.length === 0` (no agents activated).
+- Locked buttons show a red `NO AGENT` badge, are disabled with `cursor: not-allowed`, and any click routes back to `compliance_officer`.
+- An iron-clad `useEffect` snap-redirects to CO if a gated role is somehow active when phases load.
+- An amber warning banner shows when agents exist only in crawl phase (no walk/run live yet).
+- `compliance_officer` role is NEVER gated — it is the gate itself.
+- The gate unlocks when at least one `agent_phases` record exists (GM has activated crawl). Amber warning clears when at least one agent reaches walk or run phase.
+
 **Other features:**
 - **Live stats bar** in Hub header: Arrivals Today, Departures, In-House, Open Folios, Maintenance
 - **Journey stage live badges**: real-time counts from Apaleo API on each stage card

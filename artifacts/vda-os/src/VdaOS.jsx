@@ -10444,24 +10444,109 @@ const DASHBOARD_ROLES = [
   { id: "compliance_officer",  label: "Compliance Officer",  description: "Governance sign-off · Gate 2", color: "#f87171" },
 ];
 
+// Roles that are locked until at least one agent has been activated (admitted + crawl started).
+// Compliance Officer is ALWAYS accessible — it is the gate itself.
+const HOTEL_ROLE_IDS = new Set(["ambassador", "senior_ambassador", "hotel_gm", "regional_gm", "operations_chief"]);
+
 function DashboardTab({ companyId, onOpenTab, role, setRole }) {
-  // viewCompanyId allows Regional GM to drill into a specific hotel via Hotel GM view
   const [viewCompanyId, setViewCompanyId] = useState(companyId);
+
+  // ── Compliance gate: fetch active agent phases ──────────────────────────────
+  // null = loading, [] = loaded + empty (no agents activated)
+  const [agentPhases, setAgentPhases] = useState(null);
+
+  useEffect(() => {
+    if (!companyId) { setAgentPhases([]); return; }
+    fetch(`/api/dashboard/phases?companyId=${companyId}`)
+      .then(r => r.ok ? r.json() : { phases: [] })
+      .then(d => setAgentPhases(Array.isArray(d.phases) ? d.phases : []))
+      .catch(() => setAgentPhases([]));
+  }, [companyId]);
+
+  const phasesLoaded = agentPhases !== null;
+  // Gate is ACTIVE when phases are loaded and NO agents have been activated yet.
+  const gateActive = phasesLoaded && agentPhases.length === 0;
+  // Amber warning: agents exist but none are live (walk/run) yet.
+  const agentsInCrawlOnly = phasesLoaded && agentPhases.length > 0 &&
+    !agentPhases.some(p => p.phase === "walk" || p.phase === "run");
+
+  // Iron-clad redirect: if gate fires while a hotel role is selected, snap to CO.
+  useEffect(() => {
+    if (phasesLoaded && gateActive && HOTEL_ROLE_IDS.has(role)) {
+      setRole("compliance_officer");
+    }
+  }, [phasesLoaded, gateActive, role, setRole]);
 
   const handleSelectCompany = (cid) => {
     setViewCompanyId(cid);
     setRole("hotel_gm");
   };
 
+  const handleRoleClick = (roleId) => {
+    // Always allow CO.
+    if (roleId === "compliance_officer") { setRole(roleId); return; }
+    // Block hotel roles when gate is active.
+    if (gateActive) {
+      setRole("compliance_officer");
+      return;
+    }
+    setRole(roleId);
+  };
+
+  const isGated = (roleId) => gateActive && HOTEL_ROLE_IDS.has(roleId);
+
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "calc(100vh - 116px)", background: "#07080a" }}>
-      {/* Role switcher bar */}
+
+      {/* ── Compliance gate banner ── */}
+      {phasesLoaded && gateActive && (
+        <div style={{
+          background: "#150505", borderBottom: "1px solid #7f1d1d",
+          padding: "10px 28px", display: "flex", alignItems: "center", gap: 12,
+        }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: "#f87171", flexShrink: 0,
+            boxShadow: "0 0 8px #f87171",
+          }} />
+          <div style={{ flex: 1 }}>
+            <span style={{ color: "#f87171", fontWeight: 700, fontSize: 12, marginRight: 8 }}>
+              COMPLIANCE GATE ACTIVE
+            </span>
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>
+              No agents have been onboarded. Hotel-facing views are locked.
+              Complete agent admission in the Compliance Officer view to unlock all roles.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Amber warning: crawl only ── */}
+      {phasesLoaded && agentsInCrawlOnly && (
+        <div style={{
+          background: "#0c0900", borderBottom: "1px solid #78350f",
+          padding: "8px 28px", display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: "#f59e0b", flexShrink: 0,
+          }} />
+          <span style={{ color: "#f59e0b", fontWeight: 600, fontSize: 11, marginRight: 6 }}>
+            CRAWL PHASE ONLY
+          </span>
+          <span style={{ color: "#78716c", fontSize: 11 }}>
+            Agents are completing crawl baseline — no autonomous decisions yet.
+            Promote to Walk phase to unlock full hotel operations.
+          </span>
+        </div>
+      )}
+
+      {/* ── Role switcher bar ── */}
       <div style={{
         background: "#0a0b0e", borderBottom: "1px solid #1e2229",
         padding: "0 28px", display: "flex", alignItems: "center", gap: 0,
         overflowX: "auto",
       }}>
-        {/* "Viewing as:" context label */}
         <span style={{
           fontSize: 10, color: "#ffffff", fontFamily: "'DM Mono', monospace",
           letterSpacing: "0.07em", paddingRight: 12, marginRight: 4,
@@ -10469,31 +10554,53 @@ function DashboardTab({ companyId, onOpenTab, role, setRole }) {
         }}>
           VIEWING AS:
         </span>
+
         {DASHBOARD_ROLES.map((r) => {
           const active = role === r.id;
+          const gated  = isGated(r.id);
           return (
             <button
               key={r.id}
-              onClick={() => setRole(r.id)}
+              onClick={() => handleRoleClick(r.id)}
+              title={gated ? "Locked — complete compliance setup first" : undefined}
               style={{
                 background: "none", border: "none",
                 borderBottom: `2px solid ${active ? r.color : "transparent"}`,
-                color: active ? r.color : "#ffffff",
-                padding: "12px 16px", cursor: "pointer",
+                color: active ? r.color : gated ? "#4b5563" : "#ffffff",
+                padding: "12px 16px",
+                cursor: gated ? "not-allowed" : "pointer",
                 fontSize: 13, fontWeight: active ? 700 : 400,
                 fontFamily: "'DM Sans', sans-serif",
                 transition: "all 0.15s",
                 whiteSpace: "nowrap",
-                display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1,
+                display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2,
+                opacity: gated ? 0.5 : 1,
               }}
             >
-              <span>{r.label}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {r.label}
+                {gated && (
+                  <span style={{
+                    fontSize: 9, fontFamily: "'DM Mono', monospace",
+                    background: "#450a0a", color: "#f87171",
+                    border: "1px solid #7f1d1d",
+                    borderRadius: 3, padding: "1px 5px",
+                    letterSpacing: "0.05em", lineHeight: 1,
+                  }}>
+                    NO AGENT
+                  </span>
+                )}
+              </span>
               {active && (
                 <span style={{ fontSize: 10, color: "#ffffff", fontWeight: 400 }}>{r.description}</span>
+              )}
+              {gated && !active && (
+                <span style={{ fontSize: 9, color: "#4b5563" }}>locked</span>
               )}
             </button>
           );
         })}
+
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", padding: "0 4px" }}>
           <span style={{ fontSize: 10, color: "#ffffff", fontFamily: "'DM Mono', monospace", letterSpacing: "0.06em" }}>
             UI ROLE ONLY · NO AUTH
@@ -10501,7 +10608,7 @@ function DashboardTab({ companyId, onOpenTab, role, setRole }) {
         </div>
       </div>
 
-      {/* Role view */}
+      {/* ── Role view ── */}
       {role === "ambassador"        && <AmbassadorView       companyId={viewCompanyId} onOpenTab={onOpenTab} />}
       {role === "senior_ambassador" && <SeniorAmbassadorView companyId={viewCompanyId} />}
       {role === "hotel_gm"          && <HotelGMView          companyId={viewCompanyId} onOpenTab={onOpenTab} />}
@@ -10527,8 +10634,9 @@ export default function VdaOS() {
   const [c2mdCache, setC2mdCache] = useState({}); // persists across tab switches
   const fmNavigateRef = useRef(null); // ref for FileManagerTab's file navigation fn
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  // Lifted role state — shared between DashboardTab and AgentOnboardingTab
-  const [globalRole, setGlobalRole] = useState("senior_ambassador");
+  // Lifted role state — shared between DashboardTab and AgentOnboardingTab.
+  // Default: compliance_officer (gate-first: CO must onboard agents before hotel views unlock).
+  const [globalRole, setGlobalRole] = useState("compliance_officer");
   // Pending count for onboarding tab badge (role-filtered)
   const [onboardingBadgeCount, setOnboardingBadgeCount] = useState(0);
 
