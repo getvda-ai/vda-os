@@ -6156,14 +6156,15 @@ function Directory({ onNew, onLoad, role = "compliance_officer", currentSetup })
     setActivating(false);
   };
 
-  // Hotel phase summary — spec: use portfolio.summary[companyId] as primary source for totalAgents
-  // allPhases provides the per-phase breakdown (crawl/walk/run) since portfolio only has walkRunCount
+  // Hotel phase summary — uses allPhases as primary source (always fetched with real company IDs).
+  // Portfolio is used as a fallback for totalAgents only when present; never blocks rendering.
   const hotelPhaseSummary = (companyId) => {
-    const portEntry = portfolio?.summary?.[companyId];
+    const portEntry = portfolio?.summary?.[companyId]; // may be undefined for new companies
     const phases = allPhases[companyId];
-    // Gate on portfolio (primary source) — show skeleton until it arrives
-    if (portEntry === undefined) return "Loading…";
+    // Only show skeleton while BOTH sources are still in-flight for this company
+    if (portfolio === null && phases === undefined) return "Loading…";
     const phasesArr = (phases || []).filter(p => p.phase !== "not_activated");
+    // Prefer portfolio totalAgents when available; otherwise count from allPhases
     const total = portEntry?.totalAgents ?? phasesArr.length;
     if (!total) return "No agents active";
     const crawl = phasesArr.filter(p => p.phase === "crawl").length;
