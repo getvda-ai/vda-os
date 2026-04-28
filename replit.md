@@ -58,6 +58,159 @@ Hospitality-[Domain]-[Stage]-[AgentName].[FileType].md
 
 ---
 
+## Iron Onboarding — Gate-Enforced CO→GM→Crawl→Walk Flow
+
+The "Iron Onboarding" flow (#67) governs how a new Rate Agent is admitted into production across the citizenM hotel portfolio. It is a mandatory multi-gate process that ensures governance compliance at every stage.
+
+### Gate Flow
+
+```
+CO (Compliance Officer) creates Rate Agent record
+  └─ Status: pre_admitted (INVISIBLE to all other roles)
+       ↓
+CO reviews & admits → status: admitted
+  └─ Failure path: CO rejects → status: rejected_co (terminal)
+       ↓
+GM activates Crawl phase → activation/start (409 if duplicate)
+  └─ Crawl: operational_exception HITL cards appear per-band
+  └─ Bands: ambassador (rate_discount_standard ≤9%)
+             senior_ambassador (rate_discount_extended ≤15%)
+             hotel_gm (rate_discount_exceptional >15%)
+       ↓
+All bands baselined (crawl-status: all pending=0)
+  └─ Baseline: HITL card approved with authoriseAsBaseline=true
+               → exception_baselines row written
+               → 60s cache invalidated → class suppressed from queue
+       ↓
+GM promotes to Walk (promote-to-walk gate: crawlComplete=true required)
+  └─ New mandate issued for walk phase
+       ↓
+CO cosigns Run (cosign-run: signs off portfolio-wide)
+  └─ Agent enters autonomous Run phase
+```
+
+### Key Files — Iron Onboarding
+
+| File | Purpose |
+|------|---------|
+| `artifacts/api-server/src/onboarding/onboardingRollback.ts` | CO gate: pre_admitted visibility, admit/reject endpoints |
+| `artifacts/api-server/src/routes/dashboard.ts` | activation/start, crawl-status, promote-to-walk, portfolio-status, cosign-run |
+| `artifacts/api-server/src/lib/exceptionAuthorityReader.ts` | `getRejectedOrBaselinedClasses` (60s TTL cache), `getRoleBandAuthority` |
+| `artifacts/api-server/src/governance/rate-agent.EXCEPTION_AUTHORITY.md` | 3-class model (see below) |
+| `artifacts/api-server/src/routes/hitl.ts` | HITL respond endpoint: `authoriseAsBaseline` upserts `exception_baselines` |
+| `artifacts/vda-os/src/dashboard/DecisionCard.jsx` | HITL decision card with crawl-phase baseline checkbox |
+| `artifacts/vda-os/src/dashboard/AmbassadorView.jsx` | Passes real `p.cardType` to DecisionCard (not hardcoded) |
+| `artifacts/vda-os/src/dashboard/SeniorAmbassadorView.jsx` | Same as AmbassadorView |
+| `artifacts/vda-os/src/VdaOS.jsx` | CO Pending Admission in Approvals tab (not Queue) |
+
+### EXCEPTION_AUTHORITY.md — 3-Class Rate Agent Model (v2.0)
+
+```
+ambassador        → rate_discount_standard   (≤9% discount)
+senior_ambassador → rate_discount_extended   (≤15% discount)
+hotel_gm          → rate_discount_exceptional (>15% discount) + rate_plan_override
+```
+
+Source files: `artifacts/api-server/src/governance/rate-agent.EXCEPTION_AUTHORITY.md`
+             (auto-copied to `dist/governance/` during API server build)
+
+### Crawl-Status Per-Band Resolution Logic
+
+`GET /api/dashboard/activation/:agentId/crawl-status` computes resolved counts by **exception_class slug** matched against the authority file definition per band — NOT by the `roleBand` column stored in `exception_baselines` (which can be misattributed via escalation-target heuristics). This makes `crawlComplete` reliable.
+
+```typescript
+// Per-band resolution: authority-file-driven
+const resolvedClassSet = new Set(baselineRows.map(r => r.exceptionClass));
+// For each band, count how many of its defined classes are in resolvedClassSet
+const resolved = classes.filter(cls => resolvedClassSet.has(cls)).length;
+```
+
+### Baseline Fast-Path (Rate Agent)
+
+Before writing a HITL card, `agents.ts` checks `getRejectedOrBaselinedClasses()` (60s TTL cache in `exceptionAuthorityReader.ts`). If the exception class is already baselined, the decision is returned as `PASS` with `governance_source: "exception_baseline"` and no HITL card is written.
+
+```typescript
+const baselined = await getRejectedOrBaselinedClasses(companyId, "rate-agent");
+if (baselined.has(exceptionClass)) {
+  // Fast-path: suppress HITL, return PASS with governance_source tag
+}
+```
+
+### TERMINAL_STATUSES for Onboarding State Machine
+
+`rejected` and `rejected_co` are terminal statuses. `vda_native` is NOT a terminal status (it is a phase label, not a state).
+
+---
+
+## Phase 1 Protocol Build — AP2 Economic & Mandate Layer
+
+### T001 — A2A v1.0 Agent Card Fields
+
+All agent cards now expose full A2A v1.0 compliant fields via `agentCardRegistry.ts`:
+
+```typescript
+{
+  inputModes: ["application/json", "text/plain"],
+  outputModes: ["application/json"],
+  provider: { organization: "citizenM Hotels — VDA-MD Platform", url: "https://citizenm.com" },
+  documentationUrl: "https://vda-md.citizenm.com/docs/agents/<agentId>",
+  capabilities: { streaming: true, pushNotifications: false },
+  activeMandate: { mandateId, phase, authorizations, validUntil, issuedAt } | null,
+}
+```
+
+Source: `artifacts/api-server/src/a2a/agentCardRegistry.ts`
+
+### T002 — Agent Value Ledger + ROI Dashboard
+
+Every PASS decision writes an `agent_value_events` row via `writeValueEvent()` (fire-and-forget, non-blocking). The Operations Chief view shows the **ValueLedgerPanel** ROI dashboard:
+
+- Total revenue delta, governance cost, net value, ROI multiple per agent
+- Time-filtered (default 30 days), per-agent breakdown
+- Source: `artifacts/vda-os/src/dashboard/OperationsChiefView.jsx` (Section D)
+
+**API endpoints:**
+- `GET /api/dashboard/value-ledger?companyId=N&since=ISO` — per-agent + platform totals
+- `GET /api/dashboard/value-ledger/events?companyId=N&limit=N&agentId=slug` — raw event log
+
+**Two call paths write value events:**
+1. Individual agent routes (`/api/agents/*`) — lines 754–1541 in `agents.ts`
+2. Scenario runner (`POST /api/agents/scenario/run`) — inline writes at lines 1993–2432
+
+Source: `artifacts/api-server/src/lib/valueEventWriter.ts`
+
+### T003 — AP2 Signed Intent Mandates
+
+Intent Mandates are HMAC-SHA256-signed spending authority grants issued at:
+- Onboarding completion (crawl phase)
+- Each phase promotion (Crawl→Walk, Walk→Run)
+
+Validity windows: crawl=7 days, walk=30 days, run=90 days.
+
+**Authorization tiers by phase** (`PHASE_AUTHORIZATION_TIERS` in `lib/db/src/schema/agentMandates.ts`):
+- `crawl` — no standing authority (all actions require HITL)
+- `walk` — standard action ceilings defined per agent type
+- `run` — elevated ceilings, portfolio-wide scope
+
+Mandates are surfaced in the A2A Agent Card as `activeMandate` and via:
+- `GET /api/mandates?companyId=N` — all active mandates
+- `GET /api/dashboard/mandates?companyId=N` — alias
+
+Source: `artifacts/api-server/src/lib/mandateIssuer.ts`
+
+### T004 — AP2 Mandate Validator Middleware
+
+`requireValidMandate(agentId, action?, valueExtractor?, mode?)` — Express middleware:
+- `"enforce"` mode (default): returns `{ decision: "ESCALATE", hitlRequired: true }` on breach
+- `"annotate"` mode: attaches `req.mandateCtx` but never blocks (used on Rate Agent during crawl)
+
+Rate Agent uses `"annotate"` mode so crawl-phase exceptions are not hard-blocked.
+Folio Charge Agent uses `"enforce"` mode on the `folio_charge` action.
+
+Source: `artifacts/api-server/src/lib/mandateValidator.ts`
+
+---
+
 ## Overview
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
@@ -127,66 +280,165 @@ Apaleo sandbox integration via OAuth 2.0 client credentials flow. All credential
 
 ### `artifacts/vda-os` — VDA-MD for Apaleo
 
-React + Vite frontend. Hospitality-only AI governance operating system for Apaleo-powered properties:
-- **Locked to hospitality**: multi-industry configs stripped, Apaleo guest lifecycle hardcoded (Discover & Book → Check-In → In-Stay → Checkout → Post-Stay)
-- **Apaleo Property ID field** in setup wizard — connects live sandbox data
+React + Vite frontend. Hospitality-only AI governance operating system for Apaleo-powered properties. Entry point: `src/VdaOS.jsx`.
+
+**Main navigation tabs:**
+- `dashboard` — Role-based view switcher (see Role Views below)
+- `onboarding` — Agent Onboarding pipeline with Iron Onboarding gate flow
+- `journey` — Journey Map
+- `demo` — Live Demo (7-step scenario runner)
+- `c2md` — C2MD Studio (governance file generator)
+- `exception` — Exception Engine
+- `witness` — Witness Agent audit trail
+- `a2md` — A2MD Normaliser
+- `soc2` — SOC 2 SD
+- `credentials` — Agent Credentials
+- `a2a` — A2A Protocol
+- `filemanager` — File Manager
+
+**Role Views** (rendered inside the `dashboard` tab, `src/dashboard/`):
+
+| File | Role | Key Sections |
+|------|------|--------------|
+| `AmbassadorView.jsx` | `ambassador` | HITL pending decisions (passes real `cardType` from token), shift stats |
+| `SeniorAmbassadorView.jsx` | `senior_ambassador` | HITL pending decisions (passes real `cardType` from token), band metrics |
+| `HotelGMView.jsx` | `hotel_gm` | Crawl/Walk activation, portfolio health, exception class progress |
+| `RegionalGMView.jsx` | `regional_gm` | Multi-property overview |
+| `OperationsChiefView.jsx` | `operations_chief` | Platform overview, mandate status, ValueLedgerPanel ROI (Section D) |
+| `ComplianceOfficerView.jsx` | `compliance_officer` | Approvals tab (CO Pending Admission cards), EU AI Act tab, GDPR tab |
+| `DecisionCard.jsx` | All | HITL decision card with baseline checkbox (shown when `cardType === "operational_exception"` AND `currentPhase === "crawl"` AND `exceptionClass` present) |
+
+**CRITICAL — DecisionCard cardType wiring:**
+Both `AmbassadorView.jsx` and `SeniorAmbassadorView.jsx` MUST pass `cardType={p.cardType ?? "ESCALATE"}` (from the HITL token), NOT hardcoded `"ESCALATE"`. The baseline checkbox only appears when `cardType === "operational_exception"`.
+
+**Other features:**
 - **Live stats bar** in Hub header: Arrivals Today, Departures, In-House, Open Folios, Maintenance
 - **Journey stage live badges**: real-time counts from Apaleo API on each stage card
 - **Brand context ingestion** from property website via `/api/ingest/website`
 - **C2MD Translation Engine**: generates NIST SP 800-53 governance Markdown via Claude AI
 - **Exception overlay engine**: baseline vs exception governance policy decisions
-- **Witness Agent** audit trail (SOC 2, GDPR, EU AI Act, ISO 42001 compliant)
-
-Entry: `src/VdaOS.jsx` — full self-contained component
-Hooks: `src/hooks/use-apaleo.ts` — `useApaleoStats`, `useApaleoReservations`, `useApaleoProperties`, `useApaleoProperty`
 
 All AI API calls go to `/api/ai/messages` (backend proxy), NOT directly to Anthropic.
 All Apaleo data calls go to `/api/apaleo/*` (backend proxy), NOT directly to Apaleo.
 
+Hooks: `src/hooks/use-apaleo.ts` — `useApaleoStats`, `useApaleoReservations`, `useApaleoProperties`, `useApaleoProperty`
+
 ### `artifacts/api-server` — Express API Server
 
-- `/api/healthz` — health check
-- `/api/ai/messages` — Anthropic API proxy (uses Replit AI Integration, no user key needed)
-  - Automatically maps model names (e.g. `claude-sonnet-4-20250514` → `claude-sonnet-4-6`)
-- **Apaleo API Proxy** (`src/routes/apaleo.ts`) — all calls authenticated via server-side OAuth
-  - `GET /api/apaleo/properties` — list all properties
-  - `GET /api/apaleo/properties/:id` — single property
-  - `GET /api/apaleo/properties/:id/stats` — aggregated dashboard stats (arrivals, departures, in-house, folios, maintenance)
-  - `GET /api/apaleo/reservations` — list with filters (propertyId, status, dateFrom, dateTo, page)
-  - `GET /api/apaleo/reservations/:id` — single reservation with full expand
-  - `GET /api/apaleo/folios` — folios (propertyId, reservationId, status)
-  - `GET /api/apaleo/folios/:id` — single folio
-  - `GET /api/apaleo/unit-groups` — room categories
-  - `GET /api/apaleo/rate-plans` — rate plans
-  - `GET /api/apaleo/maintenances` — maintenance tasks
-  - `GET /api/apaleo/units` — room inventory (with condition filter)
-  - `GET /api/apaleo/availability/unit-groups` — availability by unit group
-- **VDA-MD Agent Suite** (`src/routes/agents.ts`) — 7 AI agents + Witness Stream persistence
-  - `POST /api/agents/availability` — Availability Agent (live unit group availability query)
-  - `POST /api/agents/rate` — Rate Agent (BAR vs requested rate, policy-governed override logic)
-  - `POST /api/agents/reservation` — Reservation Bot (create/retrieve/modify reservations)
-  - `POST /api/agents/checkin` — Check-In Agent (5-check validation, folio/ID verification)
-  - `POST /api/agents/folio` — Folio Agent (charge analysis, threshold flagging)
-  - `POST /api/agents/checkout` — Checkout Agent (folio settlement, loyalty late checkout)
-  - `POST /api/agents/revenue` — Revenue Reconciliation Agent (daily variance analysis)
-  - `GET /api/agents/witness?companyId=N` — retrieve persisted Witness Stream entries
-  - `POST /api/agents/scenario/run` — Run Full Scenario (7-step end-to-end guest journey)
+All routes are in `src/routes/`. Key route groups:
+
+**Core:**
+- `GET /api/healthz` — health check
+- `POST /api/ai/messages` — Anthropic API proxy (uses Replit AI Integration, no user key needed)
+
+**VDA-MD Agent Suite** (`src/routes/agents.ts`):
+- `POST /api/agents/availability` — Availability Agent
+- `POST /api/agents/rate` — Rate Agent (3-class exception: standard/extended/exceptional; annotate mandate mode)
+- `POST /api/agents/reservation` — Reservation Bot
+- `POST /api/agents/checkin` — Check-In Agent
+- `POST /api/agents/folio` — Folio Agent
+- `POST /api/agents/folio-charge` — Folio Charge Agent (enforce mandate mode)
+- `POST /api/agents/checkout` — Checkout Agent
+- `POST /api/agents/revenue` — Revenue Reconciliation Agent
+- `GET /api/agents/witness?companyId=N` — retrieve persisted Witness Stream entries
+- `POST /api/agents/scenario/run` — Run Full Scenario (7-step end-to-end guest journey)
+
+**Iron Onboarding — Activation & Crawl** (`src/routes/dashboard.ts`):
+- `POST /api/dashboard/activation/start` — GM activates crawl phase; returns 409 if already active
+- `GET /api/dashboard/activation/:agentId/crawl-status?companyId=N` — per-band baseline progress (resolves by exception_class slug from authority file)
+- `POST /api/dashboard/activation/:agentId/promote-to-walk` — GM promotes to walk (requires crawlComplete=true)
+- `GET /api/dashboard/activation/:agentId/portfolio-status?companyId=N` — full portfolio view
+- `POST /api/dashboard/activation/:agentId/cosign-run` — CO cosigns Run phase portfolio-wide
+
+**Dashboard / Phases** (`src/routes/dashboard.ts`):
+- `GET /api/dashboard/phases?companyId=N` — all agent phases for a company
+- `GET /api/dashboard/phases/portfolio` — portfolio-wide phase summary
+- `POST /api/dashboard/phases/promote` — promote agent to next phase
+- `POST /api/dashboard/phases/promote-band` — promote specific role band
+- `GET /api/dashboard/value-ledger?companyId=N&since=ISO` — AP2 ROI summary
+- `GET /api/dashboard/value-ledger/events?companyId=N` — raw value event log
+
+**Mandates** (`src/routes/dashboard.ts`):
+- `GET /api/mandates?companyId=N` — active mandates
+- `GET /api/dashboard/mandates?companyId=N` — alias
+
+**HITL** (`src/routes/hitl.ts`):
+- `POST /api/hitl/escalate` — create HITL card (operational_exception, raci_notification, approval)
+- `POST /api/hitl/respond/:token` — resolve HITL card; `authoriseAsBaseline=true` writes `exception_baselines` row and busts 60s cache
+- `GET /api/hitl/pending?companyId=N` — pending HITL tokens
+- `GET /api/hitl/resolved?companyId=N` — resolved HITL tokens
+
+**Onboarding Gate** (`src/onboarding/onboardingRollback.ts`):
+- `GET /api/onboarding?role_band=compliance_officer` — CO sees `pre_admitted` records; others do not
+- `POST /api/onboarding/:id/admit` — CO admits agent (status → admitted), returns full updated record
+- `POST /api/onboarding/:id/reject` — CO rejects agent (status → rejected_co, reason required), returns full updated record
+
+**Admin / Seeding** (`src/routes/admin.ts`):
+- `POST /api/admin/seed-governance-files` — seed all governance Markdown files from `src/governance/` into DB
+- `POST /api/admin/seed-rate-agent` — idempotent seed for Rate Agent governance files
+- `POST /api/admin/quick-submit?agentSlug=rate-agent&agentName=Rate Agent` — start onboarding pipeline for a new external agent (agentCard.id = slug, not DID)
+
+**A2A Protocol** (`src/routes/a2a.ts`):
+- `GET /api/a2a` — platform agent card (`getPlatformCard`)
+- `GET /api/a2a/:companyId/:agentId` — per-company agent card (includes `activeMandate`)
+- `GET /.well-known/agent.json` — public agent card
+
+**Compliance** (`src/routes/euAiAct.ts`, `src/routes/gdpr.ts`):
+- `GET /api/eu-ai-act/register|monitoring|incidents|declaration`
+- `GET /api/gdpr/ropa|article22|checklist|breaches`
 
 **Apaleo MCP Proxy** (`src/routes/mcp-proxy.ts`):
-- Transparent proxy to `https://mcp.apaleo.com/mcp` (Apaleo MCP v3.1.1, 235 tools)
-- Endpoint: `POST /api/mcp` — no client auth needed, proxy handles Apaleo bearer token
-- Auto-refreshes Apaleo token using the same cached token service (60 min TTL)
-- Forwards `Mcp-Session-Id` headers bidirectionally for session continuity
-- Supports SSE streaming and standard JSON responses
-- Connect any MCP client (mcpjam, Postman, Claude Desktop) to: `https://<dev-domain>/api/mcp`
-- Full MCP protocol: `initialize` → `tools/list` → `tools/call`
+- `POST /api/mcp` — transparent proxy to Apaleo MCP v3.1.1 (235 tools)
 
-**Apaleo OAuth** (`src/lib/apaleo.ts`):
-- `client_credentials` flow against `https://identity.apaleo.com/connect/token`
-- Token cached in memory with 5-min buffer before expiry
-- Secrets: `APALEO_CLIENT_ID`, `APALEO_CLIENT_SECRET` (Replit env secrets)
-- Scopes: omit `scope` param → server returns all scopes registered on the app
-  (Confirmed: `reservations.read`, `folios.read`, `availability.read`, `rates.read`, `reports.read`, `maintenances.read`, etc.)
+**Key lib files:**
+- `src/lib/exceptionAuthorityReader.ts` — `getRejectedOrBaselinedClasses(companyId, agentId)` with 60s TTL, `getRoleBandAuthority(agentId, companyId, band)`
+- `src/lib/mandateIssuer.ts` — `issueMandate`, `getActiveMandate`, `checkMandateCeiling`, `revokeMandate`
+- `src/lib/mandateValidator.ts` — `requireValidMandate(agentId, action?, valueExtractor?, mode?)` Express middleware
+- `src/lib/valueEventWriter.ts` — `writeValueEvent(input)` fire-and-forget value ledger writer
+- `src/lib/witnessWriter.ts` — `writeWitnessEntry`, `writeGovernanceEvent`
+- `src/lib/agentCredentialIssuer.ts` — W3C VC issuance, platform issuer DID, `computeGovernanceHash`
+- `src/a2a/agentCardRegistry.ts` — A2A v1.0 agent cards (all 9 agents + platform card)
+
+---
+
+## Database Schema
+
+**CRITICAL — Two-step schema change workflow:**
+1. `cd lib/db && npm run push-force` — pushes Drizzle schema to PostgreSQL
+2. `cd lib/db && npx tsc --build` — regenerates `lib/db/dist/*.d.ts` type declarations
+
+**Both steps are mandatory every time a schema file is added or changed.**
+
+**DB schema files:** `lib/db/src/schema/` — every new file must be `export *`'d from `lib/db/src/schema/index.ts`
+
+### Core Tables
+
+**`companies`** — hotel company records
+- `id` serial PK, `company_name`, `website_url`, `industry`, `brand_context`, `apaleo_property_id`
+
+**`witness_entries`** — immutable agent decision audit trail
+- `id`, `company_id`, `agent`, `decision` (PASS/FAIL/ESCALATE), `file_referenced`, `clause_applied`, `action_proposed`, `exception_applied`, `escalation_target`, `reasoning`, `apaleo_data` (JSONB), `scenario_run_id`, `created_at`
+
+**`governance_files`** — VDA-MD Markdown files stored per company+agent
+- `id`, `company_id`, `agent_id`, `file_type` (AGENTS/SOP/SKILL/EXCEPTION/EXCEPTION_AUTHORITY), `file_name`, `content`, `version`, `is_archived`, `created_at`
+
+**`hitl_tokens`** — HITL decision cards
+- `id`, `token` (UUID), `company_id`, `agent_id`, `card_type` (`operational_exception`/`approval`/`raci_notification`), `role_band`, `phase`, `payload` (JSONB), `outcome`, `decided_by`, `decided_at`, `witness_entry_id`, `exception_class`, `created_at`
+
+**`exception_baselines`** — approved baseline exception classes per agent+company+band
+- `id`, `agent_id`, `company_id`, `role_band`, `exception_class`, `accepted` (bool), `rejected` (bool), `decided_by`, `decided_at`, `created_at`
+- Used by `getRejectedOrBaselinedClasses()` (60s TTL cache) to suppress recurring HITL cards
+
+**`agent_phases`** — current onboarding phase per agent+company
+- `id`, `agent_id`, `company_id`, `phase` (crawl/walk/run), `agreement_rate` (numeric), `override_rate` (numeric), `role_band_phases` (JSONB — per-band phase + rates), `promoted_at`, `created_at`
+
+**`agent_value_events`** — AP2 economic metering (value event ledger)
+- `id`, `agent_id`, `company_id`, `property_code`, `action`, `revenue_delta` (numeric 12,2), `cost_cents` (int), `currency` (default EUR), `decision_outcome` (PASS/FAIL/ESCALATE), `witness_token`, `governance_phase`, `source_data` (JSON text), `created_at`
+
+**`agent_mandates`** — AP2 Signed Intent Mandates
+- `id`, `mandate_id` (unique, signed), `company_id`, `agent_id`, `agent_did`, `issuer_did`, `phase` (crawl/walk/run), `authorizations` (JSONB `[{action, ceiling, unit, currency}]`), `linked_governance_hash`, `signature` (HMAC-SHA256), `issued_at`, `valid_until`, `revoked` (bool), `revoked_at`, `revoked_reason`, `onboarding_id`
+
+---
 
 ## AI Integration
 
@@ -200,141 +452,49 @@ Available models (via proxy):
 - `claude-opus-4-6`
 - `claude-haiku-4-5`
 
-## Packages
-
-### `artifacts/api-server` (`@workspace/api-server`)
-
-Express 5 API server. Routes in `src/routes/`.
-- `health.ts` — `GET /api/healthz`
-- `ai-proxy.ts` — `POST /api/ai/messages` (Anthropic proxy)
-- `companies.ts` — REST CRUD for companies:
-  - `GET /api/companies` — list all (sorted by savedAt DESC)
-  - `POST /api/companies` — create a company record
-  - `DELETE /api/companies/:id` — delete by integer id
-
-### `lib/integrations-anthropic-ai` (`@workspace/integrations-anthropic-ai`)
-
-Pre-configured Anthropic SDK client using Replit AI Integration env vars.
-
-### `lib/db` (`@workspace/db`)
-
-Database layer using Drizzle ORM with PostgreSQL.
-
-**Schema:**
-
-`companies` table:
-- `id` — serial primary key
-- `company_name`, `website_url`, `industry` — company identity
-- `brand_context` — ingested brand text (up to 8000 chars)
-- `files_count` — count of uploaded documents
-- `saved_at` — user save timestamp (bigint)
-- `uploaded_files` — JSONB (currently null, reserved)
-- `apaleo_property_id` — optional Apaleo property code (e.g. "BER") for live sandbox data
-- `created_at`, `updated_at` — auto-managed timestamps
-
-`witness_entries` table (Task 3 — agent audit trail):
-- `id` — serial primary key
-- `company_id` — FK to companies
-- `agent` — agent name (e.g. "Availability Agent")
-- `decision` — PASS / FAIL / ESCALATE
-- `file_referenced` — governing policy file
-- `clause_applied` — specific policy clause
-- `action_proposed` — what the agent proposed to do
-- `exception_applied` — boolean flag
-- `escalation_target` — role to escalate to (nullable)
-- `reasoning` — 1-3 sentence AI explanation
-- `apaleo_data` — JSONB raw Apaleo API data used
-- `scenario_run_id` — groups entries from a single scenario run
-- `created_at` — auto-managed timestamp
-
-`agent_value_events` table (AP2 economic metering — value event ledger):
-- `id` — serial primary key
-- `agent_id` — agent slug (e.g. "availability-agent")
-- `company_id` — FK to companies
-- `property_code` — Apaleo property code (e.g. "BER"), nullable
-- `action` — event type (e.g. "availability_check", "reservation_create", "folio_charge")
-- `revenue_delta` — numeric(12,2), revenue approved by governance decision in EUR
-- `cost_cents` — integer, estimated governance cost (LLM + API overhead)
-- `currency` — varchar(3), default "EUR"
-- `decision_outcome` — varchar(20), default "PASS" (PASS / FAIL / ESCALATE)
-- `witness_token` — text, FK-style reference to witness_entries.id
-- `governance_phase` — varchar(20), agent's current phase (crawl/walk/run)
-- `source_data` — text (JSON stringified), snapshot of inputs used
-- `created_at` — timestamp with timezone, auto-set
-
-`agent_mandates` table (AP2 Signed Intent Mandates):
-- `id` — serial primary key
-- `mandate_id` — text unique, HMAC-SHA256 signed mandate identifier
-- `company_id` — integer FK to companies
-- `agent_id` — text agent slug
-- `phase` — varchar(10) crawl/walk/run
-- `authorizations` — JSONB array of `{ action, ceiling, currency }` authorization tiers
-- `issued_at` — timestamp with timezone
-- `valid_until` — timestamp with timezone (90-day validity)
-- `issuer_did` — text issuer DID
-- `signature` — text HMAC-SHA256 signature over canonical JSON
-- `revoked` — boolean default false
-- `revoked_at` — timestamp, nullable
-
-**CRITICAL — Two-step schema change workflow:**
-1. `cd lib/db && npm run push-force` — pushes Drizzle schema to PostgreSQL (NOT `npm run db:push`)
-2. `cd lib/db && npx tsc --build` — regenerates `lib/db/dist/*.d.ts` type declarations
-
-**Both steps are mandatory every time a schema file is added or changed.** Skipping step 2 leaves stale `.d.ts` files in `lib/db/dist/`. esbuild (the API server bundler) reads source `.ts` files directly and works fine, but TypeScript project references in `artifacts/api-server/tsconfig.json` resolve to the compiled `.d.ts` files. Stale declarations cause `tsc --noEmit` to report exports like `agentValueEvents` as non-existent even though they are bundled correctly at runtime. This creates invisible type debt that breaks future compile-time checks.
-
-**DB schema files live in:** `lib/db/src/schema/` — every new schema file must be `export *`'d from `lib/db/src/schema/index.ts`
-
-### `lib/api-spec` (`@workspace/api-spec`)
-
-OpenAPI spec + Orval codegen config.
-
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
+---
 
 ## Compliance Reporting API
 
-Compliance Officer role has a dedicated view (`ComplianceOfficerView.jsx`) with three tabs:
+Compliance Officer role has a dedicated view (`ComplianceOfficerView.jsx`) with:
 
-### Gate Approvals tab
-HITL task queues (Gate 1 / Gate 2), pending/approved/rejected counts, per-task approve/reject UI.
+### Approvals tab
+- **CO Pending Admission** — `pre_admitted` onboarding records awaiting CO review; Admit/Reject buttons call `/api/onboarding/:id/admit` and `/api/onboarding/:id/reject`
+- HITL Gate 1 / Gate 2 task queues, pending/approved/rejected counts
 
 ### EU AI Act tab (`src/routes/euAiAct.ts`)
-- `GET /api/eu-ai-act/register` — AI System Register (Art. 60/63), per-agent risk class, prohibited-use check, market status
-- `GET /api/eu-ai-act/monitoring` — Post-market monitoring (Art. 72), decision rates, anomalies, model version check
-- `GET /api/eu-ai-act/incidents` — Serious incident register (Art. 73), 90-day window, COMPLIANCE_BOUNDARY/FAIL + FRAMEWORK_INTEGRITY/FAIL events
-- `GET /api/eu-ai-act/declaration` — Declaration of Conformity (Art. 47), structured conformity fields
-Article-by-article checklist (Art. 9/10/12/13/14/17/26/47/49/72/73) with tri-state status (green/amber/red).
+- `GET /api/eu-ai-act/register` — AI System Register (Art. 60/63)
+- `GET /api/eu-ai-act/monitoring` — Post-market monitoring (Art. 72)
+- `GET /api/eu-ai-act/incidents` — Serious incident register (Art. 73)
+- `GET /api/eu-ai-act/declaration` — Declaration of Conformity (Art. 47)
 
 ### GDPR tab (`src/routes/gdpr.ts`)
-- `GET /api/gdpr/ropa` — Records of Processing Activities (Art. 30): 8 per-agent activities, lawful basis, data categories, Art. 22 scope flag, retention
-- `GET /api/gdpr/article22` — Automated decision-making register (Art. 22): 5 in-scope agents, HITL engagement rate, automated vs human-reviewed counts (last 30 days)
-- `GET /api/gdpr/checklist` — Article-by-article gap assessment (Art. 5/6/13-14/22/25/30/32/33/35) with tri-state status derived from live DB data
-- `GET /api/gdpr/breaches` — Data breach/near-miss register (Art. 33): 90-day window, COMPLIANCE_BOUNDARY/FAIL (regulatory near-miss) + FRAMEWORK_INTEGRITY/FAIL (security events)
-
-GDPR agent coverage:
-- Art. 22 scope (5 agents): rate-agent, reservation-bot, check-in-agent, folio-charge-agent, checkout-agent
-- Art. 22 out of scope (3 agents): availability-agent, folio-agent, revenue-reconciliation-agent
-- Lawful basis: Art. 6(1)(b) — performance of contract for guest-facing; Art. 6(1)(f) — legitimate interests for folio + revenue-reconciliation
-- Controller: citizenM Hotels · Processor: Rawson Consulting BV — VDA-MD Platform
-- Privacy by Design (Art. 25): Microsoft Presidio PII scrubbing layer before LLM inference
+- `GET /api/gdpr/ropa` — Records of Processing Activities (Art. 30)
+- `GET /api/gdpr/article22` — Automated decision-making register (Art. 22)
+- `GET /api/gdpr/checklist` — Article-by-article gap assessment
+- `GET /api/gdpr/breaches` — Data breach/near-miss register (Art. 33)
 
 ---
 
-## Testing
+## Testing & Verification
 
-### TypeScript type check (run after any schema or import change)
+### TypeScript type check
 
 ```bash
-cd lib/db && npx tsc --build          # must run first — regenerates lib/db/dist/ types
-cd artifacts/api-server && npx tsc --noEmit  # should produce zero errors
+cd lib/db && npx tsc --build          # regenerates lib/db/dist/ types
+cd artifacts/api-server && npx tsc --noEmit  # zero errors expected (except pre-existing admin.ts AgentCard.capabilities)
 ```
 
-If `tsc --noEmit` reports `Module '"@workspace/db"' has no exported member 'X'`, the fix is always `cd lib/db && npx tsc --build`. This regenerates the stale `.d.ts` files. esbuild bundles from source so the runtime is fine, but TypeScript checks against the compiled declarations.
-
-### API endpoint smoke tests (server must be running on port 8080)
+### API smoke tests (server on port 8080)
 
 ```bash
-# Health check
+# Health
 curl http://localhost:8080/api/healthz
+
+# Iron Onboarding — crawl flow
+curl "http://localhost:8080/api/dashboard/activation/rate-agent/crawl-status?companyId=1"
+curl -X POST http://localhost:8080/api/dashboard/activation/rate-agent/promote-to-walk \
+  -H "Content-Type: application/json" -d '{"companyId":1,"promotedBy":"Hotel GM"}'
 
 # Value ledger (AP2 economic metering)
 curl "http://localhost:8080/api/dashboard/value-ledger?companyId=1"
@@ -344,37 +504,36 @@ curl "http://localhost:8080/api/dashboard/value-ledger/events?companyId=1&limit=
 curl "http://localhost:8080/api/mandates?companyId=1"
 curl "http://localhost:8080/api/dashboard/mandates?companyId=1"
 
-# Dashboard phases
-curl "http://localhost:8080/api/dashboard/phases?companyId=1"
-
-# Agent card (public A2A)
+# A2A agent card (with mandate)
+curl "http://localhost:8080/api/a2a/1/rate-agent"
 curl "http://localhost:8080/.well-known/agent.json"
 
-# DB table existence check
-psql $DATABASE_URL -c "\dt agent_value*"     # must show agent_value_events
-psql $DATABASE_URL -c "\dt agent_mandate*"   # must show agent_mandates
+# CO onboarding gate
+curl "http://localhost:8080/api/onboarding?role_band=compliance_officer&companyId=1"
+
+# DB tables
+psql $DATABASE_URL -c "\dt agent_value*"       # must show agent_value_events
+psql $DATABASE_URL -c "\dt agent_mandate*"     # must show agent_mandates
+psql $DATABASE_URL -c "\dt exception_baselines*" # must show exception_baselines
+psql $DATABASE_URL -c "\dt agent_phases*"      # must show agent_phases
 ```
 
 ### Value event write verification
-
-After running the Live Demo or scenario runner, verify events were persisted:
 
 ```bash
 psql $DATABASE_URL -c "SELECT agent_id, action, revenue_delta, decision_outcome, created_at FROM agent_value_events ORDER BY created_at DESC LIMIT 10;"
 ```
 
-If the table is empty after a demo run, check server logs for `[ValueLedger] FAILED to write value event` (logged at ERROR level with full context: agentId, companyId, action, error message).
-
-**Architecture note — dual call paths:** There are two code paths that invoke agents:
-1. **Individual agent routes** — `/api/agents/availability`, `/api/agents/rate`, etc. — each protected by `requireAgentCredential` middleware. These have `writeValueEvent` wired at lines 754–1541.
-2. **Scenario runner** — `POST /api/agents/scenario/run` — called by `DemoShowreel.jsx`. This has its own **inline** implementation for all 7 steps and bypasses `requireAgentCredential`. `writeValueEvent` was added to all 7 steps (lines 1993–2432) on 2026-04-27. Prior to that date, only `writeWitnessEntry` was called by the scenario runner — which is why `agent_value_events` was empty while `witness_entries` had data.
-
 ### Mandate issuance verification
-
-After onboarding a hotel to the Walk or Run phase:
 
 ```bash
 psql $DATABASE_URL -c "SELECT mandate_id, agent_id, phase, issued_at, valid_until, revoked FROM agent_mandates ORDER BY issued_at DESC LIMIT 5;"
+```
+
+### Exception baseline verification
+
+```bash
+psql $DATABASE_URL -c "SELECT agent_id, company_id, role_band, exception_class, accepted, decided_at FROM exception_baselines ORDER BY decided_at DESC LIMIT 10;"
 ```
 
 ### After any schema change — full checklist
