@@ -301,7 +301,10 @@ router.post("/admin/onboarding/quick-submit", async (req, res) => {
   }
 
   const agentCard = {
-    id: `did:vda:hospitality:${agentSlug}`,
+    // Use the slug as the canonical A2A agent card ID (not a DID) so downstream
+    // lookups against governance files and agent registries match directly.
+    // The DID for W3C VC issuance is separately computed in the onboarding pipeline.
+    id: agentSlug,
     name: agentName,
     version: "1.0.0",
     description: `Apaleo-native ${agentName.toLowerCase()} for the citizenM hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls.`,
