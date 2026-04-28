@@ -773,7 +773,7 @@ router.post("/agents/rate",
     const bar = Number((body as {barRate?: number}).barRate) || 150;
     const req = Number((body as {requestedRate?: number}).requestedRate) || bar;
     return bar > 0 ? Math.round(((bar - req) / bar) * 100) : 0;
-  }, "enforce"),
+  }, "annotate"),
   async (req, res) => {
   try {
     const { propertyId, requestedRate, barRate, ratePlanId, companyId, scenarioRunId } = req.body as {
