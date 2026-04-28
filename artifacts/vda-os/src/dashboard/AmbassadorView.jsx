@@ -216,7 +216,7 @@ export default function AmbassadorView({ companyId, onOpenTab }) {
                   recommendedAction={payload.recommended_action ?? "approve"}
                   rationale={payload.rationale}
                   dataContext={payload}
-                  cardType="ESCALATE"
+                  cardType={p.cardType ?? "ESCALATE"}
                   onDecision={resolvedHitl}
                 />
               );

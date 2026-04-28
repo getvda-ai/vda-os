@@ -298,7 +298,7 @@ export default function SeniorAmbassadorView({ companyId }) {
                   recommendedAction={payload.recommended_action ?? "approve"}
                   rationale={payload.rationale}
                   dataContext={payload}
-                  cardType="ESCALATE"
+                  cardType={p.cardType ?? "ESCALATE"}
                   onDecision={handleDecision}
                 />
               );
