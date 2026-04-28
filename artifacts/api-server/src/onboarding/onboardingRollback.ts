@@ -202,8 +202,10 @@ router.post("/onboarding/:id/admit", async (req, res) => {
       apaleoData: { event_type: "co_agent_admitted", onboarding_request_id: id, decided_by, agent_name: card?.name },
     });
 
+    // Return the updated onboarding record
+    const updated = await db.select().from(onboardingRequests).where(eq(onboardingRequests.id, id)).limit(1);
     logger.info({ id, decided_by }, "[Onboarding] Agent admitted by CO");
-    res.json({ ok: true, status: "admitted", onboardingRequestId: id });
+    res.json({ ok: true, status: "admitted", onboardingRequestId: id, record: updated[0] ?? null });
   } catch (err) {
     logger.error({ err }, "Onboarding admit error");
     res.status(500).json({ error: "Failed to admit agent" });
@@ -256,8 +258,10 @@ router.post("/onboarding/:id/reject", async (req, res) => {
       apaleoData: { event_type: "co_agent_rejected", onboarding_request_id: id, decided_by, reason, agent_name: card?.name },
     });
 
+    // Return the updated onboarding record
+    const updated = await db.select().from(onboardingRequests).where(eq(onboardingRequests.id, id)).limit(1);
     logger.info({ id, decided_by, reason }, "[Onboarding] Agent rejected by CO (status: rejected_co)");
-    res.json({ ok: true, status: "rejected_co", onboardingRequestId: id });
+    res.json({ ok: true, status: "rejected_co", onboardingRequestId: id, record: updated[0] ?? null });
   } catch (err) {
     logger.error({ err }, "Onboarding reject error");
     res.status(500).json({ error: "Failed to reject agent" });

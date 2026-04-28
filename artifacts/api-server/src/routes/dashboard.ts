@@ -1026,7 +1026,8 @@ router.post("/dashboard/activation/:agentId/promote-to-walk", async (req, res) =
       return res.status(409).json({ error: `Cannot promote to walk — current phase is '${currentPhaseRows[0].phase}' (must be 'crawl')` });
     }
 
-    // Gate 2: no pending (unresolved) HITL tokens for this agent+company
+    // Gate 2: no pending (undecided) HITL tokens for this agent+company
+    // A token is pending if decidedAt IS NULL (outcome not yet recorded)
     const pendingHitlResult = await db
       .select({ count: sql<number>`COUNT(*)::int` })
       .from(hitlTokens)
@@ -1034,7 +1035,7 @@ router.post("/dashboard/activation/:agentId/promote-to-walk", async (req, res) =
         and(
           eq(hitlTokens.agentId, agentId),
           eq(hitlTokens.companyId, companyId),
-          isNull(hitlTokens.resolvedAt)
+          isNull(hitlTokens.decidedAt)
         )
       );
 

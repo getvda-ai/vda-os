@@ -794,9 +794,10 @@ router.post("/agents/rate",
     const discountPct = bar > 0 ? Math.round(((bar - reqRate) / bar) * 100) : 0;
 
     // Threshold-based exception class for rate discount (per-band crawl tracking)
-    const rateExceptionClass = discountPct <= 10
+    // Bands: 0-9% standard, 9-15% extended, 15%+ exceptional
+    const rateExceptionClass = discountPct <= 9
       ? "rate_discount_standard"
-      : discountPct <= 20 ? "rate_discount_extended" : "rate_discount_exceptional";
+      : discountPct <= 15 ? "rate_discount_extended" : "rate_discount_exceptional";
 
     const rateAgentAuthorityEscalate = await guardAuthority("rate-agent", "Rate Agent", Number(companyId));
     if (rateAgentAuthorityEscalate) {
@@ -2037,8 +2038,8 @@ If GetAvailableUnitGroups returns units, verify the count and PASS. If it return
       // 5% discount: €171 from BAR €180 — below the 10% escalation threshold, agent PASS
       // VIE-VDADEMO-SGL rate plan is now isBookable: true — ListRatePlans MCP call is safe
       const bar = 180; const requested = 171; const discountPct = 5;
-      // Threshold-based exception class (5% → standard)
-      const scenarioRateExceptionClass = discountPct <= 10 ? "rate_discount_standard" : discountPct <= 20 ? "rate_discount_extended" : "rate_discount_exceptional";
+      // Threshold-based exception class: 0-9% standard, 9-15% extended, 15%+ exceptional
+      const scenarioRateExceptionClass = discountPct <= 9 ? "rate_discount_standard" : discountPct <= 15 ? "rate_discount_extended" : "rate_discount_exceptional";
       const rateAuthorityEscalate = await guardAuthority("rate-agent", "Rate Agent", Number(companyId));
       const rateRejectedEscalate = await guardRejectedClass("rate-agent", "Rate Agent", Number(companyId), scenarioRateExceptionClass);
       const rateAuthFrag = await buildAuthorityFragment("rate-agent", Number(companyId), "ambassador", scenarioRateExceptionClass);
