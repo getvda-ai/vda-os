@@ -1,0 +1,43 @@
+Task #67 Review
+Overall verdict: Three blocking issues before running. Rest is correct.
+
+Blocking Issue 1 — exceptionClass is not on HITL token payloads
+Steps 5, 6, and 13 all assume the HITL token payload contains an exceptionClass field. Currently it does not. Looking at the existing hitl.ts ESCALATION_TO_ROLE_BAND logic, the payload carries escalationTarget, action, reasoning, and riskLevel — but not a structured exceptionClass identifier.
+Without exceptionClass on the token:
+
+Step 5's baseline upsert doesn't know which class to write to exception_baselines
+Step 6's crawl convergence check can't count resolved classes per band
+Step 13's checkbox label has no text to show: "Authorise agent to handle [???] autonomously"
+
+Amendment to Step 4 (activation/start) and agents.ts:
+
+When the agent creates a HITL card in agents.ts, the token payload must include exceptionClass: string — the slug identifier matching the exception_class field in EXCEPTION_AUTHORITY.md (e.g. "rate_discount_standard", "late_checkout_fee_waiver"). This derivation logic must be added to each agent's HITL card creation call. For the Rate Agent specifically: decisions invoking a discount map to "rate_discount_standard" for Senior Ambassador band or "rate_discount_extended" for Hotel GM band. The mapping is read from the agent's EXCEPTION_AUTHORITY.md — not hardcoded. If no matching exception class can be derived, the token payload gets exceptionClass: "unclassified" and the baseline checkbox is hidden on that card.
+
+
+Blocking Issue 2 — phase is not on HITL token payloads
+Step 13 says: "when cardType === 'operational_exception' and the token payload indicates phase === 'crawl'" — but phase is not currently persisted on HITL tokens. The token knows agentId and companyId but does not carry the phase at card creation time.
+Without this, DecisionCard.jsx cannot conditionally show the baseline checkbox for crawl-phase decisions only.
+Amendment to Step 4 and hitl.ts:
+
+When creating a HITL card in agents.ts, include agentPhase: string in the token payload, derived by looking up agent_phases for this agentId + companyId at card creation time. The value will be "crawl", "walk", "run", or "not_activated". DecisionCard.jsx reads token.payload.agentPhase to conditionally render the baseline checkbox. The checkbox is shown only when agentPhase === "crawl". Add agentPhase to the token payload type in hitlTokens.ts schema (as part of the payload JSONB — no schema migration needed).
+
+
+Blocking Issue 3 — EXCEPTION_AUTHORITY.md must exist before crawl-status works
+Step 7 reads EXCEPTION_AUTHORITY.md for the Rate Agent to get the total exception class count per band. This file must be seeded in governance_files at companyId=0 for agent_id="rate-agent" before crawl-status can return meaningful data. Task #48 was supposed to seed these files but the Rate Agent record has never been confirmed in the database.
+Amendment to Step 1:
+
+Extend the seed script to also insert the Rate Agent's EXCEPTION_AUTHORITY.md into governance_files if it does not exist. File content: use the Rate Agent schema from the Task #26 spec — bands: ambassador (ceiling: 9% below BAR, autonomous), senior_ambassador (ceiling: 15%, autonomous), hotel_gm (ceiling: 20%, hitl_required). The crawl-status endpoint must return a 503 with error: "EXCEPTION_AUTHORITY.md not seeded for this agent" if the file is missing — never silently return zero counts which would make crawl appear complete immediately.
+
+
+Non-blocking but important: Step 6 cache invalidation
+Step 6 adds a 60-second in-memory cache for getRejectedOrBaselinedClasses(). After a baseline is written (Step 5), the next agent decision for that class will still create a HITL card for up to 60 seconds before the cache refreshes. This is acceptable for production but means the verification flow in Step 14k will need a 60-second wait between baseline write and confirming no new card appears. Add this note to Step 14k:
+
+"Wait 60 seconds after baseline write before testing that the class no longer generates HITL cards, to allow cache invalidation."
+
+
+One thing Replit got right that was not explicitly specified
+Step 9 correctly sets the gate to status NOT IN ('completed_crawl', 'rejected', 'walk', 'run') — meaning a hotel in Walk does not block a second hotel's crawl. This matches the design exactly and the reasoning is sound. No amendment needed.
+
+Summary
+IssueBlocking?WhereexceptionClass missing from HITL token payload✅ YesSteps 5, 6, 13 all breakphase missing from HITL token payload✅ YesStep 13 checkbox never showsEXCEPTION_AUTHORITY.md seed not in Step 1✅ YesStep 7 returns wrong data60s cache means 14k needs wait before verifying⚠️ NoAdd to verification notes
+Send the three amendments to Replit before running. The rest of the task is solid.

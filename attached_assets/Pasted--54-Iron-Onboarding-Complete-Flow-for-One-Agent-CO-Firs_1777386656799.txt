@@ -1,0 +1,424 @@
+#54 — Iron Onboarding: Complete Flow for One Agent, CO First
+
+What & Why
+The current onboarding is structurally present but behaviourally loose.
+The fundamental problem: there is no enforced gate between technical
+admission (CO's job) and operational enablement (Hotel GM's job), and
+there is no mechanism for a role to convert an exception they've reviewed
+during crawl into a standing baseline authorisation — meaning the crawl
+phase never actually reduces the HITL load, which defeats its purpose.
+
+This task implements the complete, iron-clad onboarding flow for a single
+VDA native agent (Rate Agent as the reference implementation) from first
+CO approval through to Run phase across all five citizenM hotels. Every
+other agent will follow the identical flow once this one is complete.
+
+The defining mechanic is the Baseline Authorisation Checkbox:
+  During crawl, every HITL card the agent surfaces to a role contains
+  a checkbox: "Authorise agent to handle this class autonomously going
+  forward." When checked and submitted, the exception class is written
+  to exception_baselines as accepted=true. From that point, the agent
+  handles that class without surfacing a card. This is how crawl
+  naturally converges — not by hitting a time threshold but by the
+  roles progressively authorising the agent's behaviour through
+  direct observation.
+
+──────────────────────────────────────────────────────────────────────
+THE COMPLETE FLOW (reference implementation: Rate Agent, Berlin)
+──────────────────────────────────────────────────────────────────────
+
+GATE 0 — CISO TECHNICAL ADMISSION
+  Precondition: Rate Agent has source=vda_native, status=pre_admitted
+  Actor: Compliance Officer ONLY. No other role sees or can action this.
+  What the CO reviews:
+    - AGENTS.md: does it identify itself correctly, MUST/MUST NOT clauses
+    - SOP.md: does the operating procedure match the hotel's policies
+    - SKILL.md: are the skills appropriately scoped
+    - EXCEPTION_AUTHORITY.md: are the ceilings acceptable per band
+  The CO has two actions:
+    - "Admit to Framework" → status becomes "admitted", signed with CO
+      identity + timestamp in a Witness entry
+    - "Reject" → status becomes "rejected_co", with mandatory reason
+  Until status = "admitted":
+    - The agent does NOT appear in any Hotel GM view
+    - No activation is possible at any hotel
+    - The agent is invisible to all other roles
+
+GATE 1 — HOTEL GM ENABLES CRAWL (one hotel only initially)
+  Precondition: agent status = "admitted"
+  Actor: Hotel GM (maps to hotel_gm role band)
+  What appears: The admitted agent appears in Hotel GM's Agent Onboarding
+    tab with status "Admitted — pending activation". A single button:
+    "Enable Crawl at this hotel".
+  What happens on click:
+    - activation_requests record created for agentId + companyId
+    - agent_phases record created: phase = "crawl"
+    - Agent begins shadow mode: reads Apaleo data, makes decisions,
+      logs everything to Witness Agent
+    - Agent does NOT write to Apaleo in crawl phase
+    - Hotel GM sees confirmation: "Rate Agent is now in crawl shadow
+      mode at citizenM Berlin. Decisions will appear in staff queues
+      for review."
+  Constraint: Hotel GM can only enable crawl at ONE hotel initially.
+    The "Enable Crawl" button for other hotels is greyed out with
+    tooltip: "Complete crawl at Berlin before expanding."
+    This gate is enforced server-side — POST /api/dashboard/activation/start
+    must reject if any activation_request for this agent already exists
+    with status != "completed_crawl".
+
+THE CRAWL LOOP (runs continuously until all bands have baselined)
+  For every agent decision:
+    1. Agent evaluates against EXCEPTION_AUTHORITY.md
+    2. If decision is within an already-baselined exception class:
+       → Agent acts autonomously, logs to Witness (no HITL card)
+    3. If decision is within a non-baselined exception class:
+       → Agent creates a HITL card for the appropriate role band
+       → Card shows: what the agent wants to do, which governance
+         clause applies, ceiling from EXCEPTION_AUTHORITY.md
+       → Card has two controls:
+           [Approve this instance]  — approves once, card reappears next time
+           [Approve + ☐ Authorise as baseline]  — approves AND writes
+             exception_baselines record for this agentId + companyId +
+             roleBand + exceptionClass. Card does NOT appear again for
+             this class at this hotel.
+    4. If decision exceeds exception ceiling:
+       → Always escalates to next band (as defined in EXCEPTION_AUTHORITY.md)
+       → Cannot be baselined — only the governance file amendment
+         can change the ceiling
+    5. If decision matches a MUST NOT class:
+       → Blocked. Never surfaces as an approvable card.
+       → Logged to Witness as COMPLIANCE_BOUNDARY event.
+       → CO notified.
+
+  The crawl dashboard (visible to Hotel GM) shows:
+    For each role band:
+      - Exception classes: [Baselined ✓] [Pending review] [Rejected ✗]
+      - A crawl is complete for a band when every exception class is
+        either baselined or explicitly rejected (rejected = agent always
+        escalates that class, never autonomous)
+    Overall crawl progress bar: X of Y exception classes resolved
+
+  CRAWL COMPLETION:
+    When all required front-line bands (ambassador, senior_ambassador,
+    hotel_gm) have resolved all their exception classes:
+      → Hotel GM sees: "Crawl complete at Berlin. Rate Agent is ready
+        for Walk phase."
+      → "Promote to Walk at Berlin" button appears (Hotel GM only)
+      → On confirm: agent_phases updated to phase="walk" for companyId=1
+      → A Witness entry is created: "Crawl completed — X exception classes
+        baselined, Y rejected, signed by [Hotel GM name]"
+
+WALK PHASE
+  Status: Live at Berlin. Agent writes to Apaleo.
+  For baselined exception classes: agent acts autonomously.
+  For non-baselined classes: HITL card (still required as walk has
+    not yet resolved these — walk allows re-review in live mode).
+  Hotel GM can now enable crawl at a SECOND hotel:
+    → "Enable Crawl at London" button becomes available
+    → Same crawl loop runs at London, independently
+    → Each hotel runs its own baseline authorisation process
+    → A baseline at Berlin does NOT automatically apply to London —
+      each hotel's staff must independently authorise through observation
+  Hotel GM can promote Berlin from Walk to Run once:
+    - Walk agreement rate ≥ threshold from onboarding-policy.md
+    - All exception classes remain resolved (no new unresolved classes)
+
+RUN PHASE
+  Agent writes to Apaleo autonomously within all baselined classes.
+  New hotels can be onboarded directly to crawl by Hotel GM.
+  Definition of Run: agent is in walk or run phase at ALL five hotels.
+  Operations Chief must co-sign the Run status portfolio-wide:
+    → "Rate Agent is at Run phase or above at all properties" trigger
+    → Operations Chief sees a co-sign card: confirm portfolio-wide run
+    → On co-sign: agent_phases for all companyIds updated to phase="run"
+    → Witness entry: portfolio-wide run confirmation
+
+──────────────────────────────────────────────────────────────────────
+Done looks like
+──────────────────────────────────────────────────────────────────────
+Rate Agent (vda_native) has status=pre_admitted in onboarding_requests.
+
+Compliance Officer view of Agent Onboarding shows Rate Agent with
+  "Pending CO Admission" and a Review button. No other role sees it.
+
+CO can Admit or Reject. On Admit: status=admitted, Witness entry written.
+
+Hotel GM view shows Rate Agent only AFTER status=admitted with single
+  "Enable Crawl at Berlin" button. Other hotels are greyed.
+
+POST /api/dashboard/activation/start rejects if agent already has an
+  active activation_request that is not in status=completed_crawl.
+
+During crawl: Rate Agent decisions surface as HITL cards to correct bands.
+  Each card has "Approve this instance" and "Approve + Authorise as baseline"
+  checkbox. Checking the box and submitting writes to exception_baselines.
+
+After baseline write: that exception class never generates a HITL card
+  at that hotel again. Subsequent decisions in that class are autonomous
+  and logged to Witness with authority_source: "exception_baselines".
+
+Crawl dashboard shows per-band exception class resolution status.
+
+When all bands resolved: Hotel GM "Promote to Walk" button appears.
+  On confirm: phase="walk", Witness entry, second hotel crawl unlocked.
+
+Walk phase: agent writes to Apaleo. Hotel GM can enable crawl at second hotel.
+
+Run phase requires Operations Chief co-sign when all hotels at walk+.
+
+grep -rn "pre_admitted\|admitted\|crawl\|walk\|run" shows correct
+  status transitions at each gate.
+
+Build succeeds. No regressions on existing HITL approval flow.
+
+──────────────────────────────────────────────────────────────────────
+Out of scope
+──────────────────────────────────────────────────────────────────────
+Other VDA native agents (they follow identical flow once Rate Agent
+  reference implementation is confirmed working).
+External A2A agents (their admission pipeline is unchanged).
+Regional GM cross-property exceptions (Phase 2 of this work).
+The actual Apaleo API write execution in walk phase (existing behaviour).
+
+──────────────────────────────────────────────────────────────────────
+Steps
+──────────────────────────────────────────────────────────────────────
+
+1. Seed Rate Agent pre-admission record
+   Insert onboarding_requests row for Rate Agent:
+     agentId: "rate-agent"
+     source: "vda_native"
+     status: "pre_admitted"
+     agentCard: { name: "Rate Agent", description: "Evaluates and applies
+       rate discounts within EXCEPTION_AUTHORITY.md ceilings",
+       url: "/api/agents/rate", version: "1.0.0" }
+   Idempotent: skip if exists. Expose via POST /api/admin/seed-rate-agent.
+   Run immediately as part of this task's verification.
+
+2. Enforce CO-only visibility gate in onboarding_requests query
+   Modify GET /api/onboarding to accept a ?role_band= query parameter.
+   When role_band = "compliance_officer": return all records including
+     pre_admitted and admitted.
+   When role_band = anything else: return ONLY records where status IN
+     ("admitted", "activating", "crawl", "walk", "run") — never pre_admitted.
+   This is the server-side gate. The CO is the only role that sees
+     pre_admitted agents. All other roles see only admitted+ agents.
+
+3. CO Admission action endpoints
+   POST /api/onboarding/:id/admit
+     body: { decidedBy: string, notes?: string }
+     Validates caller context is compliance_officer (pass as body field
+       for now — auth is future work).
+     Sets status = "admitted".
+     Writes Witness entry: event_type "agent_admitted", agentId,
+       decidedBy, timestamp.
+     Returns updated record.
+   POST /api/onboarding/:id/reject
+     body: { decidedBy: string, reason: string }
+     Sets status = "rejected_co".
+     reason field is mandatory — 400 if missing.
+     Writes Witness entry: event_type "agent_rejected", agentId,
+       decidedBy, reason, timestamp.
+
+4. Enforce single-hotel crawl gate in activation/start
+   In POST /api/dashboard/activation/start:
+   Before creating a new activation_request, check:
+     SELECT COUNT(*) FROM activation_requests
+     WHERE agent_id = $agentId
+       AND status NOT IN ('completed_crawl', 'rejected')
+   If count > 0: return 409 with error:
+     "Agent already has an active activation. Complete crawl at the
+      current hotel before enabling a second."
+   This prevents Hotel GM from enabling crawl at multiple hotels
+   simultaneously.
+
+5. Baseline authorisation write path
+   When POST /api/hitl/respond/:token receives:
+     { outcome: "approved", authoriseAsBaseline: true }
+   In addition to standard approval handling:
+     Upsert into exception_baselines:
+       agentId, companyId, roleBand (from token), exceptionClass
+         (from token payload), accepted=true, acceptedBy, acceptedAt
+     Return { approved: true, baselined: true, exceptionClass }
+   When POST /api/hitl/respond/:token receives:
+     { outcome: "approved", authoriseAsBaseline: false }
+   Standard approval only. No exception_baselines write.
+
+6. Baseline check in agent decision path
+   In agents.ts, before creating a HITL card for any decision:
+     Call getRejectedOrBaselinedClasses(agentId, companyId):
+       Returns { baselined: string[], rejected: string[] }
+       Source: exception_baselines table
+     If decision.exceptionClass in baselined:
+       → Skip HITL card. Agent acts autonomously.
+       → Write Witness entry with governance_source: "exception_baselines"
+     If decision.exceptionClass in rejected:
+       → Always escalate. Never autonomous.
+     If not in either: → Create HITL card as normal.
+   Add getRejectedOrBaselinedClasses() to exceptionAuthorityReader.ts.
+   Cache result per agentId+companyId for 60 seconds to avoid per-decision
+   DB hits.
+
+7. Crawl completion detection
+   Add GET /api/dashboard/activation/:agentId/crawl-status?companyId=X
+   Returns:
+     {
+       agentId, companyId, phase,
+       bands: {
+         ambassador: {
+           totalExceptionClasses: N,
+           baselined: N,
+           rejected: N,
+           pending: N,
+           complete: boolean  // pending === 0
+         },
+         senior_ambassador: { ... },
+         hotel_gm: { ... }
+       },
+       crawlComplete: boolean  // all front_line_bands complete
+     }
+   Sources: EXCEPTION_AUTHORITY.md for total classes per band,
+     exception_baselines for baselined/rejected counts.
+   front_line_bands comes from getOnboardingPolicy() — not hardcoded.
+
+8. Promote to Walk endpoint
+   POST /api/dashboard/activation/:agentId/promote-to-walk
+     body: { companyId, promotedBy }
+   Validates:
+     - agent_phases.phase === "crawl" for this companyId
+     - crawlComplete === true (calls crawl-status internally)
+     - No pending HITL tokens for this agentId + companyId
+   On success:
+     - Updates agent_phases to phase="walk"
+     - Updates activation_requests status to "walk"
+     - Writes Witness entry: event_type "crawl_completed",
+       summary of baselined/rejected counts, promotedBy, timestamp
+   On validation failure: 409 with specific reason.
+
+9. Second hotel unlock logic
+   After promote-to-walk succeeds for any hotel:
+     The activation/start endpoint for this agentId no longer checks
+     for active crawl (the walk hotel's activation_request is now
+     status="walk", not a blocking status).
+   Concretely: modify Step 4's gate to check:
+     status NOT IN ('completed_crawl', 'rejected', 'walk', 'run')
+   This means once Berlin is in Walk, London crawl can begin.
+   Each hotel runs its own independent exception_baselines — no cross-hotel
+   inheritance. London's ambassador must baseline independently.
+
+10. Operations Chief Run co-sign
+    Add GET /api/dashboard/activation/:agentId/portfolio-status
+    Returns phase summary across all companyIds.
+    When all companyIds have phase IN ('walk', 'run'):
+      POST /api/dashboard/activation/:agentId/cosign-run
+        body: { cosignedBy }
+      Validates: caller is operations_chief
+      Updates all agent_phases records to phase="run"
+      Writes Witness entry: portfolio-wide run confirmed
+
+11. VdaOS.jsx — CO Admission UI
+    In the Agent Onboarding tab, Approvals sub-tab:
+    When role === "compliance_officer":
+      Show pre_admitted agents in a distinct "Pending CO Admission" section
+      Each row: agent name, source badge (VDA Native), governance files list,
+        "Review & Admit" button
+      On click: expand inline panel showing:
+        - AGENTS.md content summary (pull from File Manager)
+        - EXCEPTION_AUTHORITY.md ceiling table per band
+        - Two buttons: "Admit to Framework" (green) | "Reject" (red, requires reason)
+      Admit calls POST /api/onboarding/:id/admit
+      Reject calls POST /api/onboarding/:id/reject with mandatory reason modal
+    When role !== "compliance_officer":
+      pre_admitted agents are completely absent from all views
+
+12. VdaOS.jsx — Hotel GM Crawl Enable UI
+    In Agent Onboarding → Onboarding Queue:
+    When role === "hotel_gm":
+      Admitted agents appear with "Enable Crawl" button for current hotel only
+      Other hotels shown as greyed dots with tooltip "Expand after first crawl"
+      On "Enable Crawl": calls POST /api/dashboard/activation/start
+      On 409 (already active): show inline message "Complete Berlin crawl first"
+    Crawl progress panel (shown when phase=crawl for this hotel):
+      Per-band progress bars using GET /api/dashboard/activation/:agentId/crawl-status
+      Each band shows: X/Y exception classes resolved
+      When crawlComplete=true: "Promote to Walk" button appears
+      Promote calls POST /api/dashboard/activation/:agentId/promote-to-walk
+
+13. VdaOS.jsx — Crawl HITL Card with Baseline Checkbox
+    When cardType === "operational_exception" and phase === "crawl":
+    Render the existing decision card AND add below the action buttons:
+      ┌─────────────────────────────────────────────────────────┐
+      │ ☐ Authorise agent to handle [exception class] autonomously │
+      │   at this hotel going forward                           │
+      │   This will not appear in your queue again.             │
+      └─────────────────────────────────────────────────────────┘
+    Checkbox is unchecked by default.
+    Submit button label changes based on checkbox:
+      Unchecked: "Approve this instance"
+      Checked:   "Approve + Authorise as baseline"
+    On submit: POST /api/hitl/respond/:token with
+      { outcome: "approved", authoriseAsBaseline: checkboxState }
+    On success with baselined=true: show brief confirmation toast:
+      "✓ [Exception class] authorised as baseline — will not appear again"
+
+14. Verification
+    a. Run POST /api/admin/seed-rate-agent
+    b. Switch to Ambassador role: confirm Rate Agent is NOT visible
+    c. Switch to Hotel GM: confirm Rate Agent is NOT visible
+    d. Switch to Compliance Officer: confirm Rate Agent shows in
+       "Pending CO Admission" with Review & Admit button
+    e. CO admits Rate Agent. Confirm status=admitted in DB.
+       Confirm Witness entry written.
+    f. Switch to Hotel GM: confirm Rate Agent now shows with
+       "Enable Crawl at Berlin" button. Other hotels greyed.
+    g. Hotel GM enables crawl. Confirm:
+       - activation_requests record created
+       - agent_phases phase="crawl" for companyId=1
+    h. Attempt to enable crawl at London: confirm 409 rejection.
+    i. Run a Rate Agent decision via Live Demo.
+       Confirm HITL card appears in Ambassador queue with baseline checkbox.
+    j. Approve WITHOUT baseline: confirm card appears again next time.
+    k. Approve WITH baseline: confirm exception_baselines record written.
+       Confirm next Rate Agent decision of same class: no HITL card,
+       Witness entry shows governance_source="exception_baselines"
+    l. Resolve all ambassador exception classes. Confirm crawl-status
+       shows ambassador.complete=true.
+    m. Resolve all bands. Confirm crawlComplete=true.
+       Confirm "Promote to Walk" button appears for Hotel GM.
+    n. Promote to Walk. Confirm phase="walk", Witness entry written.
+       Confirm London "Enable Crawl" button is now available.
+
+──────────────────────────────────────────────────────────────────────
+Relevant files
+──────────────────────────────────────────────────────────────────────
+artifacts/api-server/src/routes/hitl.ts
+artifacts/api-server/src/routes/dashboard.ts
+artifacts/api-server/src/routes/agents.ts
+artifacts/api-server/src/lib/exceptionAuthorityReader.ts
+artifacts/vda-os/src/VdaOS.jsx
+lib/db/src/schema/exceptionBaselines.ts
+lib/db/src/schema/activationRequests.ts
+lib/db/src/schema/onboardingRequests.ts
+lib/db/src/schema/agentPhases.ts
+
+──────────────────────────────────────────────────────────────────────
+Dependencies
+──────────────────────────────────────────────────────────────────────
+Task #48 (exception_baselines table, onboarding-policy.md, source column)
+Task #49 (activation endpoints, activationOrchestrator)
+Task #53 (Command Centre directory — CO gate must be reflected there too)
+
+──────────────────────────────────────────────────────────────────────
+The one thing that makes this iron-clad
+──────────────────────────────────────────────────────────────────────
+The baseline checkbox converts observed behaviour into standing permission.
+The staff member is not reviewing an abstract exception class document —
+they are reviewing an actual decision the agent just made in their hotel,
+in their operational context, with real Apaleo data. When they tick
+"Authorise as baseline" they are saying: I have watched this agent do
+this correctly. It can do it without asking me next time.
+
+This is what makes the crawl phase converge naturally. Not a timer.
+Not an agreement rate threshold alone. The role's own decision to trust
+the agent, one exception class at a time, through direct observation.
+That is the VDA-MD governance model in its purest form.
