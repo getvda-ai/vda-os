@@ -5,7 +5,7 @@
  */
 import yaml from "js-yaml";
 import { db, governanceFiles, exceptionBaselines } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { logger } from "./logger.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -298,6 +298,66 @@ export async function getRejectedClasses(
         eq(exceptionBaselines.agentId, agentId),
         eq(exceptionBaselines.companyId, companyId),
         eq(exceptionBaselines.rejected, true)
+      )
+    );
+  return rows.map((r) => r.exceptionClass);
+}
+
+// ─── Baselined + Rejected class cache (60 s TTL) ─────────────────────────────
+
+const _baselineCache: Record<string, { classes: string[]; expiry: number }> = {};
+
+/**
+ * Return exception classes that are either accepted (baselined) or rejected
+ * for a given agent + company. Result is cached for 60 seconds.
+ *
+ * Use this to short-circuit HITL card creation for classes that have
+ * already been reviewed and approved as standing baselines.
+ */
+export async function getRejectedOrBaselinedClasses(
+  agentId: string,
+  companyId: number
+): Promise<string[]> {
+  const cacheKey = `${agentId}:${companyId}`;
+  const cached = _baselineCache[cacheKey];
+  if (cached && cached.expiry > Date.now()) return cached.classes;
+
+  const rows = await db
+    .select({ exceptionClass: exceptionBaselines.exceptionClass })
+    .from(exceptionBaselines)
+    .where(
+      and(
+        eq(exceptionBaselines.agentId, agentId),
+        eq(exceptionBaselines.companyId, companyId),
+        or(
+          eq(exceptionBaselines.accepted, true),
+          eq(exceptionBaselines.rejected, true)
+        )
+      )
+    );
+
+  const classes = rows.map((r) => r.exceptionClass);
+  _baselineCache[cacheKey] = { classes, expiry: Date.now() + 60_000 };
+  return classes;
+}
+
+/**
+ * Return only the accepted (baselined) exception classes for an agent+company.
+ * These are classes where human reviewers approved autonomous handling going forward.
+ * No cache — used in the hot path inside writeWitnessEntry.
+ */
+export async function getAcceptedBaselineClasses(
+  agentId: string,
+  companyId: number
+): Promise<string[]> {
+  const rows = await db
+    .select({ exceptionClass: exceptionBaselines.exceptionClass })
+    .from(exceptionBaselines)
+    .where(
+      and(
+        eq(exceptionBaselines.agentId, agentId),
+        eq(exceptionBaselines.companyId, companyId),
+        eq(exceptionBaselines.accepted, true)
       )
     );
   return rows.map((r) => r.exceptionClass);

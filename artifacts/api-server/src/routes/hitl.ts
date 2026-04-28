@@ -5,7 +5,7 @@
  * GET  /api/hitl/pending — all unresolved tokens for dashboard (role-band filtered)
  */
 import { Router, type IRouter } from "express";
-import { db, hitlTokens, onboardingRequests, agentPhases } from "@workspace/db";
+import { db, hitlTokens, onboardingRequests, agentPhases, exceptionBaselines } from "@workspace/db";
 import { eq, isNull, and, sql } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { advanceOrchestratorPhase } from "../onboarding/onboardingOrchestrator.js";
@@ -75,10 +75,11 @@ router.post("/hitl/escalate", async (req, res) => {
 router.post("/hitl/respond/:token", async (req, res) => {
   try {
     const { token } = req.params;
-    const { outcome, reason = "", decided_by = "Dashboard User" } = req.body as {
+    const { outcome, reason = "", decided_by = "Dashboard User", authoriseAsBaseline = false } = req.body as {
       outcome: "approved" | "rejected" | "acknowledged";
       reason?: string;
       decided_by?: string;
+      authoriseAsBaseline?: boolean;
     };
 
     if (!outcome || !["approved", "rejected", "acknowledged"].includes(outcome)) {
@@ -243,6 +244,51 @@ router.post("/hitl/respond/:token", async (req, res) => {
         }
       }
 
+      // ── Baseline upsert — only when authoriseAsBaseline=true and outcome=approved ──
+      let baselined = false;
+      if (authoriseAsBaseline && outcome === "approved" && agentId && companyId != null) {
+        const exceptionClass = (hitl.payload as Record<string, unknown>).exception_class as string | undefined;
+        const resolvedRoleBand = hitl.roleBand ?? "ambassador";
+        if (exceptionClass) {
+          try {
+            const existing = await db
+              .select({ id: exceptionBaselines.id })
+              .from(exceptionBaselines)
+              .where(
+                and(
+                  eq(exceptionBaselines.agentId, agentId),
+                  eq(exceptionBaselines.companyId, companyId),
+                  eq(exceptionBaselines.exceptionClass, exceptionClass)
+                )
+              )
+              .limit(1);
+
+            if (existing[0]) {
+              await db
+                .update(exceptionBaselines)
+                .set({ accepted: true, rejected: false, acceptedBy: decided_by, acceptedAt: new Date() })
+                .where(eq(exceptionBaselines.id, existing[0].id));
+            } else {
+              await db.insert(exceptionBaselines).values({
+                agentId,
+                companyId,
+                roleBand: resolvedRoleBand,
+                exceptionClass,
+                authority: decided_by,
+                accepted: true,
+                rejected: false,
+                acceptedBy: decided_by,
+                acceptedAt: new Date(),
+              });
+            }
+            baselined = true;
+            logger.info({ agentId, companyId, exceptionClass, decided_by }, "[HITL] Exception class baselined — future occurrences will not require review");
+          } catch (baselineErr) {
+            logger.warn({ baselineErr }, "[HITL] Failed to upsert exception baseline — non-fatal");
+          }
+        }
+      }
+
       res.json({
         status: "resolved",
         token,
@@ -251,6 +297,7 @@ router.post("/hitl/respond/:token", async (req, res) => {
         card_type: "operational_exception",
         agent_id: agentId,
         company_id: companyId,
+        baselined,
       });
       return;
     }

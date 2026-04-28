@@ -10,6 +10,7 @@
 import { db, witnessEntries, hitlTokens, agentPhases } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { getAcceptedBaselineClasses } from "./exceptionAuthorityReader.js";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,8 @@ export interface AgentDecision {
   exceptionApplied: boolean;
   escalationTarget: string | null;
   reasoning: string;
+  /** Structured exception class slug attached by the agent before calling writeWitnessEntry. */
+  exceptionClass?: string;
 }
 
 export interface WitnessEntryInput {
@@ -96,6 +99,7 @@ async function createOperationalHitlToken(
         agent_id: agentId,
         company_id: entry.companyId,
         current_phase: currentPhase,
+        exception_class: entry.decision.exceptionClass ?? null,
         witness_entry_id: witnessEntryId,
         decision: entry.decision.decision,
         clause_applied: entry.decision.clauseApplied,
@@ -156,12 +160,34 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
   //     platform / onboarding-agent context, not a live hotel property)
   //   • no scenarioRunId — skip sandbox evaluation runs; those are test traffic,
   //     not real operational decisions that need a governance review
+  //   • exception class not already baselined (accepted=true in exception_baselines)
   if (
     entry.decision.decision === "ESCALATE" &&
     entry.companyId > 0 &&
     !entry.scenarioRunId
   ) {
-    void createOperationalHitlToken(witnessId, entry);
+    // If an exceptionClass is provided, check whether it has already been baselined.
+    // Baselined classes are handled autonomously — no HITL card needed; the witness
+    // entry already records the decision with eventCategory "BASELINE_PASS".
+    if (entry.decision.exceptionClass) {
+      try {
+        const agentId = toAgentSlug(entry.agent);
+        const acceptedClasses = await getAcceptedBaselineClasses(agentId, entry.companyId);
+        if (!acceptedClasses.includes(entry.decision.exceptionClass)) {
+          void createOperationalHitlToken(witnessId, entry);
+        } else {
+          logger.info(
+            { agentId, exceptionClass: entry.decision.exceptionClass, witnessId },
+            "[Witness] Exception class baselined — skipping HITL card creation"
+          );
+        }
+      } catch (checkErr) {
+        logger.warn({ checkErr }, "[Witness] Baseline check failed — creating HITL card anyway");
+        void createOperationalHitlToken(witnessId, entry);
+      }
+    } else {
+      void createOperationalHitlToken(witnessId, entry);
+    }
   }
 
   return witnessId;

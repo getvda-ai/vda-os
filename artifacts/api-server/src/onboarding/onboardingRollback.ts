@@ -4,7 +4,7 @@
  */
 import { Router, type IRouter } from "express";
 import { db, onboardingRequests } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { deregisterDynamicAgent } from "./onboardingOrchestrator.js";
@@ -138,18 +138,129 @@ router.post("/onboarding/:id/rollback", async (req, res) => {
   }
 });
 
-// ─── GET /api/onboarding — list all requests ─────────────────────────────────
+// ─── GET /api/onboarding — list requests (role_band filtered) ─────────────────
+//
+// ?role_band=compliance_officer  → all records (pre_admitted visible to CO only)
+// ?role_band=<any other>         → exclude pre_admitted (not yet admitted)
+// (no param)                     → all records (backward compat)
 
-router.get("/onboarding", async (_req, res) => {
+router.get("/onboarding", async (req, res) => {
   try {
-    const all = await db
-      .select()
-      .from(onboardingRequests)
-      .orderBy(onboardingRequests.createdAt);
+    const roleBandParam = req.query.role_band as string | undefined;
+
+    // compliance_officer sees all records including pre_admitted; all other roles see only admitted+
+    const all = roleBandParam && roleBandParam !== "compliance_officer"
+      ? await db.select().from(onboardingRequests).where(ne(onboardingRequests.status, "pre_admitted")).orderBy(onboardingRequests.createdAt)
+      : await db.select().from(onboardingRequests).orderBy(onboardingRequests.createdAt);
+
     res.json({ requests: all, count: all.length });
   } catch (err) {
     logger.error({ err }, "Onboarding list error");
     res.status(500).json({ error: "Failed to list onboarding requests" });
+  }
+});
+
+// ─── POST /api/onboarding/:id/admit — CO admits a pre_admitted agent ─────────
+
+router.post("/onboarding/:id/admit", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { decided_by = "Compliance Officer" } = req.body as { decided_by?: string };
+
+    const rows = await db
+      .select()
+      .from(onboardingRequests)
+      .where(eq(onboardingRequests.id, id))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Onboarding request not found" });
+      return;
+    }
+    if (rows[0].status !== "pre_admitted") {
+      res.status(409).json({ error: `Cannot admit — current status is '${rows[0].status}' (expected 'pre_admitted')` });
+      return;
+    }
+
+    await db
+      .update(onboardingRequests)
+      .set({ status: "admitted", updatedAt: new Date() })
+      .where(eq(onboardingRequests.id, id));
+
+    // Write governance witness entry for the admission decision
+    const { writeGovernanceEvent } = await import("../lib/writeGovernanceEvent.js");
+    const card = rows[0].agentCard as Record<string, unknown>;
+    await writeGovernanceEvent({
+      companyId: rows[0].companyId ?? 0,
+      agent: "onboarding-agent",
+      eventCategory: "AGENT_LIFECYCLE",
+      decision: "PASS",
+      clauseApplied: "VDA-MD §3: Compliance Officer technical admission gate — agent cleared for Hotel GM crawl activation",
+      actionProposed: `Agent '${card?.name ?? id}' admitted by ${decided_by} — status: pre_admitted → admitted`,
+      reasoning: `Gate 0 cleared: CO technical admission approved. Agent may now be activated for crawl by a Hotel GM.`,
+      fileReferenced: "VDA-MD Onboarding Protocol — Gate 0: CO Admission",
+      apaleoData: { event_type: "co_agent_admitted", onboarding_request_id: id, decided_by, agent_name: card?.name },
+    });
+
+    logger.info({ id, decided_by }, "[Onboarding] Agent admitted by CO");
+    res.json({ ok: true, status: "admitted", onboardingRequestId: id });
+  } catch (err) {
+    logger.error({ err }, "Onboarding admit error");
+    res.status(500).json({ error: "Failed to admit agent" });
+  }
+});
+
+// ─── POST /api/onboarding/:id/reject — CO rejects a pre_admitted agent ───────
+
+router.post("/onboarding/:id/reject", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason, decided_by = "Compliance Officer" } = req.body as { reason?: string; decided_by?: string };
+
+    if (!reason || reason.trim().length === 0) {
+      res.status(400).json({ error: "reason is required for rejection" });
+      return;
+    }
+
+    const rows = await db
+      .select()
+      .from(onboardingRequests)
+      .where(eq(onboardingRequests.id, id))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Onboarding request not found" });
+      return;
+    }
+    if (rows[0].status !== "pre_admitted") {
+      res.status(409).json({ error: `Cannot reject — current status is '${rows[0].status}' (expected 'pre_admitted')` });
+      return;
+    }
+
+    await db
+      .update(onboardingRequests)
+      .set({ status: "rejected", updatedAt: new Date() })
+      .where(eq(onboardingRequests.id, id));
+
+    const { writeGovernanceEvent } = await import("../lib/writeGovernanceEvent.js");
+    const card = rows[0].agentCard as Record<string, unknown>;
+    await writeGovernanceEvent({
+      companyId: rows[0].companyId ?? 0,
+      agent: "onboarding-agent",
+      eventCategory: "AGENT_LIFECYCLE",
+      decision: "FAIL",
+      clauseApplied: "VDA-MD §3: Compliance Officer technical admission gate — agent rejected",
+      actionProposed: `Agent '${card?.name ?? id}' rejected by ${decided_by}. Reason: ${reason}`,
+      reasoning: `Gate 0 rejected: CO found agent does not meet technical admission criteria. Reason: ${reason}`,
+      fileReferenced: "VDA-MD Onboarding Protocol — Gate 0: CO Admission",
+      apaleoData: { event_type: "co_agent_rejected", onboarding_request_id: id, decided_by, reason, agent_name: card?.name },
+    });
+
+    logger.info({ id, decided_by, reason }, "[Onboarding] Agent rejected by CO");
+    res.json({ ok: true, status: "rejected", onboardingRequestId: id });
+  } catch (err) {
+    logger.error({ err }, "Onboarding reject error");
+    res.status(500).json({ error: "Failed to reject agent" });
   }
 });
 

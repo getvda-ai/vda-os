@@ -8,8 +8,8 @@
  * POST /api/dashboard/phases/reset   (dev only — NODE_ENV !== 'production')
  */
 import { Router, type Request, type Response } from "express";
-import { db, agentPhases, witnessEntries, governanceFiles, hitlTokens, agentValueEvents, agentMandates } from "@workspace/db";
-import { eq, and, gte, lte, sql, isNull, not, inArray, desc, lt, sum } from "drizzle-orm";
+import { db, agentPhases, witnessEntries, governanceFiles, hitlTokens, agentValueEvents, agentMandates, activationRequests, onboardingRequests, exceptionBaselines } from "@workspace/db";
+import { eq, and, gte, lte, sql, isNull, not, inArray, desc, lt, sum, or, ne } from "drizzle-orm";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { logger } from "../lib/logger.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
@@ -820,5 +820,357 @@ async function handleGetMandates(req: Request, res: Response) {
 
 router.get("/mandates", handleGetMandates);
 router.get("/dashboard/mandates", handleGetMandates);
+
+// ─── POST /api/dashboard/activation/start ─────────────────────────────────────
+// Hotel GM enables crawl for an admitted agent at one hotel.
+// Returns 409 if the agent already has an active crawl at any property that is not
+// yet in completed_crawl, walk, or run status (single-hotel gate).
+
+router.post("/dashboard/activation/start", async (req, res) => {
+  try {
+    const {
+      agentId,
+      companyId,
+      initiatedBy = "Hotel GM",
+    } = req.body as { agentId: string; companyId: number; initiatedBy?: string };
+
+    if (!agentId || companyId == null) {
+      return res.status(400).json({ error: "agentId and companyId are required" });
+    }
+
+    // Gate: agent must be in 'admitted' or 'vda_native' status in onboarding_requests
+    const onboardingRows = await db
+      .select({ id: onboardingRequests.id, status: onboardingRequests.status })
+      .from(onboardingRequests)
+      .where(
+        and(
+          or(
+            eq(onboardingRequests.externalAgentDid, agentId),
+            eq(onboardingRequests.externalAgentDid, `did:vda:hospitality:${agentId}`)
+          ),
+          or(
+            eq(onboardingRequests.status, "admitted"),
+            eq(onboardingRequests.status, "vda_native")
+          )
+        )
+      )
+      .limit(1);
+
+    if (!onboardingRows[0]) {
+      return res.status(403).json({ error: "Agent is not in admitted status — CO admission required before crawl activation" });
+    }
+
+    // Single-hotel gate: check for any active activation not in terminal status
+    const TERMINAL_STATUSES = ["completed_crawl", "walk", "run"];
+    const activeActivations = await db
+      .select({ id: activationRequests.id, companyId: activationRequests.companyId, status: activationRequests.status })
+      .from(activationRequests)
+      .where(
+        and(
+          eq(activationRequests.agentId, agentId),
+          not(inArray(activationRequests.status, TERMINAL_STATUSES))
+        )
+      );
+
+    if (activeActivations.length > 0) {
+      const blocking = activeActivations[0];
+      return res.status(409).json({
+        error: `Complete hotel ${blocking.companyId} crawl first — agent already has an active crawl at company ${blocking.companyId} (status: ${blocking.status})`,
+        blockingCompanyId: blocking.companyId,
+        blockingStatus: blocking.status,
+      });
+    }
+
+    // Create activation_requests row
+    const [activation] = await db
+      .insert(activationRequests)
+      .values({
+        agentId,
+        companyId,
+        initiatedBy,
+        status: "crawl",
+        currentBandStep: "ambassador",
+      })
+      .returning({ id: activationRequests.id });
+
+    // Create/update agent_phases row to crawl
+    const existingPhase = await db
+      .select({ id: agentPhases.id })
+      .from(agentPhases)
+      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)))
+      .limit(1);
+
+    if (existingPhase[0]) {
+      await db
+        .update(agentPhases)
+        .set({ phase: "crawl", phaseChangedAt: new Date(), activatedAt: new Date() })
+        .where(eq(agentPhases.id, existingPhase[0].id));
+    } else {
+      await db.insert(agentPhases).values({
+        agentId,
+        companyId,
+        phase: "crawl",
+        activatedAt: new Date(),
+        phaseChangedAt: new Date(),
+      });
+    }
+
+    logger.info({ agentId, companyId, activationId: activation.id, initiatedBy }, "[Activation] Crawl activated");
+    return res.json({ ok: true, activationId: activation.id, agentId, companyId, status: "crawl" });
+  } catch (err) {
+    logger.error({ err }, "dashboard/activation/start error");
+    return res.status(500).json({ error: "Failed to start activation" });
+  }
+});
+
+// ─── GET /api/dashboard/activation/:agentId/crawl-status ──────────────────────
+// Returns per-band exception class resolution counts and a crawlComplete boolean.
+// Returns 503 if EXCEPTION_AUTHORITY.md is not seeded for the agent.
+
+router.get("/dashboard/activation/:agentId/crawl-status", async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const companyId = Number(req.query.companyId);
+
+    if (!agentId || isNaN(companyId)) {
+      return res.status(400).json({ error: "agentId and companyId required" });
+    }
+
+    // Check EXCEPTION_AUTHORITY.md is seeded
+    const govRows = await db
+      .select({ id: governanceFiles.id, content: governanceFiles.content })
+      .from(governanceFiles)
+      .where(
+        and(
+          eq(governanceFiles.agentId, agentId),
+          eq(governanceFiles.fileType, "EXCEPTION_AUTHORITY"),
+          eq(governanceFiles.companyId, 0),
+          eq(governanceFiles.isArchived, false)
+        )
+      )
+      .limit(1);
+
+    if (!govRows[0]) {
+      return res.status(503).json({
+        error: `EXCEPTION_AUTHORITY.md not seeded for agent '${agentId}' — run POST /api/admin/seed-governance-files first`,
+      });
+    }
+
+    // Get all baselined/resolved exception classes for this agent+company
+    const baselineRows = await db
+      .select({
+        exceptionClass: exceptionBaselines.exceptionClass,
+        roleBand: exceptionBaselines.roleBand,
+        accepted: exceptionBaselines.accepted,
+        rejected: exceptionBaselines.rejected,
+      })
+      .from(exceptionBaselines)
+      .where(
+        and(
+          eq(exceptionBaselines.agentId, agentId),
+          eq(exceptionBaselines.companyId, companyId),
+          or(eq(exceptionBaselines.accepted, true), eq(exceptionBaselines.rejected, true))
+        )
+      );
+
+    const resolvedByBand: Record<string, Set<string>> = {};
+    for (const row of baselineRows) {
+      if (!resolvedByBand[row.roleBand]) resolvedByBand[row.roleBand] = new Set();
+      resolvedByBand[row.roleBand].add(row.exceptionClass);
+    }
+
+    // Get exception class counts per band from onboarding policy
+    const { getOnboardingPolicy: getPolicy, getRoleBandAuthority } = await import("../lib/exceptionAuthorityReader.js");
+    const policy = await getPolicy();
+    const frontLineBands = policy.front_line_bands ?? ["ambassador", "senior_ambassador", "hotel_gm"];
+
+    const bands: Record<string, { total: number; resolved: number; complete: boolean; classes: string[] }> = {};
+    for (const band of frontLineBands) {
+      const bandAuth = await getRoleBandAuthority(agentId, 0, band);
+      const total = bandAuth?.exceptions?.length ?? 0;
+      const resolvedSet = resolvedByBand[band] ?? new Set();
+      const resolved = resolvedSet.size;
+      const classes = bandAuth?.exceptions?.map((e) => e.exception_class) ?? [];
+      bands[band] = { total, resolved, complete: total > 0 && resolved >= total, classes };
+    }
+
+    const crawlComplete = frontLineBands.every((b) => bands[b]?.complete === true);
+
+    return res.json({ agentId, companyId, bands, crawlComplete, frontLineBands });
+  } catch (err) {
+    logger.error({ err }, "dashboard/activation/crawl-status error");
+    return res.status(500).json({ error: "Failed to get crawl status" });
+  }
+});
+
+// ─── POST /api/dashboard/activation/:agentId/promote-to-walk ─────────────────
+
+router.post("/dashboard/activation/:agentId/promote-to-walk", async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { companyId, promotedBy = "Hotel GM" } = req.body as { companyId: number; promotedBy?: string };
+
+    if (!agentId || companyId == null) {
+      return res.status(400).json({ error: "agentId (path) and companyId (body) are required" });
+    }
+
+    // Validate crawlComplete first
+    const statusResp = await fetch(
+      `http://localhost:${process.env.PORT ?? 8080}/api/dashboard/activation/${agentId}/crawl-status?companyId=${companyId}`
+    );
+    if (!statusResp.ok) {
+      const body = await statusResp.json() as Record<string, unknown>;
+      return res.status(statusResp.status).json({ error: body.error ?? "Failed to check crawl status" });
+    }
+    const statusData = await statusResp.json() as { crawlComplete: boolean };
+    if (!statusData.crawlComplete) {
+      return res.status(409).json({ error: "crawl is not complete — resolve all exception classes first" });
+    }
+
+    // Update agent_phases to walk
+    await db
+      .update(agentPhases)
+      .set({ phase: "walk", phaseChangedAt: new Date() })
+      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)));
+
+    // Update activation_requests status to walk
+    await db
+      .update(activationRequests)
+      .set({ status: "walk", updatedAt: new Date() })
+      .where(and(eq(activationRequests.agentId, agentId), eq(activationRequests.companyId, companyId)));
+
+    // Write Witness entry
+    await writeGovernanceEvent({
+      companyId,
+      agent: agentId,
+      eventCategory: "AGENT_LIFECYCLE",
+      decision: "PASS",
+      clauseApplied: "VDA-MD §7: Crawl-to-Walk promotion — all front-line exception classes resolved via direct observation",
+      actionProposed: `Agent ${agentId} promoted from crawl to walk by ${promotedBy} at company ${companyId}`,
+      reasoning: "All front-line band exception classes have been reviewed and baselined. Agent demonstrated autonomous competence during crawl phase.",
+      fileReferenced: "VDA-MD Phase Lifecycle Protocol — Crawl → Walk Promotion",
+      apaleoData: { event_type: "agent_promoted_to_walk", agent_id: agentId, company_id: companyId, promoted_by: promotedBy },
+    });
+
+    // Issue new mandate for walk phase
+    let mandateId: string | null = null;
+    try {
+      const agentDid = `did:key:vda-${agentId}-${companyId}`;
+      const mandate = await issueMandate({ agentId, companyId, agentDid, phase: "walk" });
+      mandateId = mandate.mandateId;
+    } catch (mandateErr) {
+      logger.warn({ mandateErr }, "[Mandate] Failed to issue walk mandate — non-fatal");
+    }
+
+    logger.info({ agentId, companyId, promotedBy, mandateId }, "[Activation] Agent promoted to walk");
+    return res.json({ ok: true, agentId, companyId, phase: "walk", promotedBy, mandateId });
+  } catch (err) {
+    logger.error({ err }, "dashboard/activation/promote-to-walk error");
+    return res.status(500).json({ error: "Failed to promote to walk" });
+  }
+});
+
+// ─── GET /api/dashboard/activation/:agentId/portfolio-status ─────────────────
+
+router.get("/dashboard/activation/:agentId/portfolio-status", async (req, res) => {
+  try {
+    const { agentId } = req.params;
+
+    const activations = await db
+      .select()
+      .from(activationRequests)
+      .where(eq(activationRequests.agentId, agentId))
+      .orderBy(activationRequests.createdAt);
+
+    const phases = await db
+      .select()
+      .from(agentPhases)
+      .where(eq(agentPhases.agentId, agentId));
+
+    const phaseByCompany = Object.fromEntries(phases.map((p) => [p.companyId, p.phase]));
+
+    const portfolio = activations.map((a) => ({
+      companyId: a.companyId,
+      status: a.status,
+      phase: phaseByCompany[a.companyId] ?? "not_activated",
+      initiatedBy: a.initiatedBy,
+      coSignedBy: a.coSignedBy,
+      createdAt: a.createdAt,
+    }));
+
+    const hotelsAtWalk = portfolio.filter((p) => p.phase === "walk" || p.phase === "run").length;
+    const hotelsAtRun = portfolio.filter((p) => p.phase === "run").length;
+
+    return res.json({ agentId, portfolio, hotelsAtWalk, hotelsAtRun, totalHotels: COMPANIES.length });
+  } catch (err) {
+    logger.error({ err }, "dashboard/activation/portfolio-status error");
+    return res.status(500).json({ error: "Failed to get portfolio status" });
+  }
+});
+
+// ─── POST /api/dashboard/activation/:agentId/cosign-run ──────────────────────
+
+router.post("/dashboard/activation/:agentId/cosign-run", async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { companyId, coSignedBy = "Operations Chief" } = req.body as { companyId: number; coSignedBy?: string };
+
+    if (!agentId || companyId == null) {
+      return res.status(400).json({ error: "agentId (path) and companyId (body) are required" });
+    }
+
+    // Verify agent is in walk phase for this company
+    const phaseRows = await db
+      .select({ phase: agentPhases.phase })
+      .from(agentPhases)
+      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)))
+      .limit(1);
+
+    if (!phaseRows[0] || phaseRows[0].phase !== "walk") {
+      return res.status(409).json({ error: `Agent must be in walk phase for co-sign (current: ${phaseRows[0]?.phase ?? "not_activated"})` });
+    }
+
+    // Update agent_phases to run
+    await db
+      .update(agentPhases)
+      .set({ phase: "run", phaseChangedAt: new Date() })
+      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)));
+
+    // Update activation_requests
+    await db
+      .update(activationRequests)
+      .set({ status: "run", coSignedBy, coSignedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(activationRequests.agentId, agentId), eq(activationRequests.companyId, companyId)));
+
+    // Write Witness entry
+    await writeGovernanceEvent({
+      companyId,
+      agent: agentId,
+      eventCategory: "AGENT_LIFECYCLE",
+      decision: "PASS",
+      clauseApplied: "VDA-MD §8: Operations Chief portfolio co-sign — agent cleared for full autonomous Run-phase operation",
+      actionProposed: `Agent ${agentId} co-signed to run by ${coSignedBy} at company ${companyId}`,
+      reasoning: "Walk-phase performance verified. Operations Chief co-sign confirms agent is cleared for full Run-phase autonomy.",
+      fileReferenced: "VDA-MD Phase Lifecycle Protocol — Walk → Run Co-sign",
+      apaleoData: { event_type: "agent_cosigned_to_run", agent_id: agentId, company_id: companyId, co_signed_by: coSignedBy },
+    });
+
+    // Issue run mandate
+    let mandateId: string | null = null;
+    try {
+      const agentDid = `did:key:vda-${agentId}-${companyId}`;
+      const mandate = await issueMandate({ agentId, companyId, agentDid, phase: "run" });
+      mandateId = mandate.mandateId;
+    } catch (mandateErr) {
+      logger.warn({ mandateErr }, "[Mandate] Failed to issue run mandate — non-fatal");
+    }
+
+    logger.info({ agentId, companyId, coSignedBy, mandateId }, "[Activation] Agent co-signed to run");
+    return res.json({ ok: true, agentId, companyId, phase: "run", coSignedBy, mandateId });
+  } catch (err) {
+    logger.error({ err }, "dashboard/activation/cosign-run error");
+    return res.status(500).json({ error: "Failed to co-sign run" });
+  }
+});
 
 export default router;

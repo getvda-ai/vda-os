@@ -1,6 +1,7 @@
 import { db, governanceFiles } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
+import { getActiveMandate } from "../lib/mandateIssuer.js";
 
 const REPLIT_URL = (process.env.REPLIT_DEV_DOMAIN
   ? `https://${process.env.REPLIT_DEV_DOMAIN}`
@@ -17,6 +18,14 @@ export interface AgentSkill {
 // Fields: name, description, url, version, provider, documentationUrl,
 // inputModes, outputModes, capabilities, skills, authentication
 // Ref: https://google.github.io/A2A/specification/
+export interface AgentCardMandate {
+  mandateId: string;
+  phase: string;
+  authorizations: Array<{ action: string; ceiling: number | null; unit?: string; currency?: string; description?: string }>;
+  validUntil: string;
+  issuedAt: string;
+}
+
 export interface AgentCard {
   name: string;
   description: string;
@@ -37,6 +46,8 @@ export interface AgentCard {
   authentication: {
     schemes: string[];
   };
+  /** AP2 Intent Mandate currently active for this agent+property. null = no mandate issued yet. */
+  activeMandate: AgentCardMandate | null;
 }
 
 const DOCS_URL = "https://vda-md.citizenm.com/docs/agents";
@@ -174,8 +185,21 @@ export async function getAgentCard(companyId: number, agentId: string): Promise<
   const def = AGENT_DEFS[agentId];
   if (!def) return null;
 
-  const dbSkills = await loadSkillsFromDb(companyId, agentId);
+  const [dbSkills, mandate] = await Promise.all([
+    loadSkillsFromDb(companyId, agentId),
+    getActiveMandate(agentId, companyId).catch(() => null),
+  ]);
   const skills = dbSkills ?? def.defaultSkills;
+
+  const activeMandate: AgentCardMandate | null = mandate
+    ? {
+        mandateId: mandate.mandateId,
+        phase: mandate.phase,
+        authorizations: (mandate.authorizations ?? []) as AgentCardMandate["authorizations"],
+        validUntil: mandate.validUntil instanceof Date ? mandate.validUntil.toISOString() : String(mandate.validUntil),
+        issuedAt: mandate.issuedAt instanceof Date ? mandate.issuedAt.toISOString() : String(mandate.issuedAt),
+      }
+    : null;
 
   return {
     name: def.name,
@@ -189,6 +213,7 @@ export async function getAgentCard(companyId: number, agentId: string): Promise<
     capabilities: { streaming: true, pushNotifications: false },
     skills,
     authentication: { schemes: ["bearer"] },
+    activeMandate,
   };
 }
 
@@ -213,6 +238,7 @@ export function getOnboardingAgentCard(): AgentCard {
     capabilities: { streaming: true, pushNotifications: false },
     skills: def.defaultSkills,
     authentication: { schemes: ["bearer"] },
+    activeMandate: null,
   };
 }
 
@@ -233,6 +259,7 @@ export function getPlatformCard(): AgentCard {
       description: AGENT_DEFS[id].description,
     })),
     authentication: { schemes: ["bearer"] },
+    activeMandate: null,
   };
 }
 

@@ -181,6 +181,82 @@ export async function seedPlatformGovernanceFiles(): Promise<string[]> {
   return seeded;
 }
 
+// ─── POST /api/admin/seed-rate-agent ─────────────────────────────────────────
+// Idempotent: seeds Rate Agent's EXCEPTION_AUTHORITY.md (via seedPlatformGovernanceFiles)
+// and creates an onboarding_requests row with source="vda_native", status="pre_admitted".
+// This is the entry point for the Iron Onboarding CO → GM → Crawl → Walk reference flow.
+
+router.post("/admin/seed-rate-agent", async (_req, res) => {
+  try {
+    // 1. Ensure governance files are seeded (idempotent)
+    const seeded = await seedPlatformGovernanceFiles();
+
+    // 2. Upsert onboarding_requests row for Rate Agent
+    const rateAgentDid = "did:vda:hospitality:rate-agent";
+    const existing = await db
+      .select({ id: onboardingRequests.id, status: onboardingRequests.status })
+      .from(onboardingRequests)
+      .where(
+        and(
+          eq(onboardingRequests.source, "vda_native"),
+          eq(onboardingRequests.externalAgentDid, rateAgentDid)
+        )
+      )
+      .limit(1);
+
+    let onboardingRequestId: string;
+    let alreadyExists = false;
+
+    if (existing[0]) {
+      onboardingRequestId = existing[0].id;
+      alreadyExists = true;
+    } else {
+      const agentCard = {
+        id: rateAgentDid,
+        name: "Rate Agent",
+        version: "1.0.0",
+        description: "Apaleo-native rate override agent for the citizenM hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls. Implements AP2 Intent Mandates for structured exception handling.",
+        skills: [
+          {
+            id: "rate-agent-core",
+            name: "Rate Override Evaluation",
+            description: "Evaluates rate requests against BAR, applies role-band authority thresholds, and produces governance-compliant PASS/ESCALATE decisions.",
+          },
+        ],
+        url: "/api/agents/rate",
+        provider: { organization: "citizenM · VDA-MD Platform", url: "https://citizenm.com" },
+      };
+
+      const [row] = await db
+        .insert(onboardingRequests)
+        .values({
+          sessionId: `vda-native-rate-agent-${Date.now()}`,
+          externalAgentDid: rateAgentDid,
+          agentCard,
+          source: "vda_native",
+          status: "pre_admitted",
+        })
+        .returning({ id: onboardingRequests.id });
+
+      onboardingRequestId = row.id;
+    }
+
+    logger.info({ onboardingRequestId, alreadyExists }, "[admin] Rate Agent seeded");
+    res.json({
+      ok: true,
+      onboardingRequestId,
+      alreadyExists,
+      message: alreadyExists
+        ? `Rate Agent already seeded (status: ${existing[0]?.status})`
+        : "Rate Agent seeded as pre_admitted — switch to Compliance Officer role to admit",
+      governanceFilesSeeded: seeded,
+    });
+  } catch (err) {
+    logger.error({ err }, "admin/seed-rate-agent error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Seed failed" });
+  }
+});
+
 // ─── POST /api/admin/master-reset ────────────────────────────────────────────
 // Wipes all tenant data so the platform returns to the pre-onboarding state.
 // Order matters: delete child tables before parent (companies).

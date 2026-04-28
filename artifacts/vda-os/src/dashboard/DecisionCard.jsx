@@ -35,7 +35,7 @@ function Spinner() {
  *   riskLevel        — 'low' | 'medium' | 'high'
  *   recommendedAction — 'approve' | 'reject'
  *   rationale        — one-line rationale for recommendation
- *   dataContext      — raw Apaleo/payload data
+ *   dataContext      — raw Apaleo/payload data (includes current_phase, exception_class)
  *   cardType         — 'ESCALATE' | 'EXCEPTION'
  *   onDecision       — callback(token, outcome) after resolution
  */
@@ -56,9 +56,15 @@ export default function DecisionCard({
   const [resolved, setResolved] = useState(false);
   const [clauseExpanded, setClauseExpanded] = useState(false);
   const [toast, setToast] = useState(null);
+  const [authoriseAsBaseline, setAuthoriseAsBaseline] = useState(false);
 
   const colors = PHASE_COLORS[cardType] ?? PHASE_COLORS.ESCALATE;
   const riskStyle = RISK_COLORS[riskLevel] ?? RISK_COLORS.medium;
+
+  // Derive crawl-phase baseline fields from payload
+  const currentPhase = dataContext?.current_phase ?? null;
+  const exceptionClass = dataContext?.exception_class ?? null;
+  const isOperationalCrawl = cardType === "ESCALATE" && currentPhase === "crawl" && exceptionClass;
 
   const agentLabel = (agentId ?? "Unknown Agent")
     .replace(/-/g, " ")
@@ -68,20 +74,26 @@ export default function DecisionCard({
     if (loading || resolved) return;
     setLoading(true);
     try {
+      const body = {
+        outcome,
+        reason: outcome === "approved" ? "Approved via dashboard" : "Rejected via dashboard",
+        decided_by: "Dashboard User",
+        ...(outcome === "approved" && isOperationalCrawl ? { authoriseAsBaseline } : {}),
+      };
       const resp = await fetch(`/api/hitl/respond/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          outcome,
-          reason: outcome === "approved" ? "Approved via dashboard" : "Rejected via dashboard",
-          decided_by: "Dashboard User",
-        }),
+        body: JSON.stringify(body),
       });
       if (!resp.ok) throw new Error("Request failed");
+      const data = await resp.json();
       setResolved(true);
       if (outcome === "approved") {
-        setToast("Decision logged — agent proceeding");
-        setTimeout(() => setToast(null), 3000);
+        const msg = data.baselined
+          ? `Baselined — ${exceptionClass} will not appear again`
+          : "Decision logged — agent proceeding";
+        setToast(msg);
+        setTimeout(() => setToast(null), 4000);
       }
       setTimeout(() => onDecision?.(token, outcome), 400);
     } catch (err) {
@@ -93,6 +105,10 @@ export default function DecisionCard({
 
   const clauseText = clauseApplied ?? "No governance clause available.";
   const shortClause = clauseText.length > 200 ? clauseText.slice(0, 200) + "…" : clauseText;
+
+  const approveLabel = isOperationalCrawl && authoriseAsBaseline
+    ? "APPROVE + AUTHORISE AS BASELINE"
+    : "APPROVE";
 
   return (
     <div style={{
@@ -139,6 +155,15 @@ export default function DecisionCard({
             {cardType}
           </span>
           <span style={{ fontSize: 12, color: "#ffffff", fontWeight: 500 }}>{agentLabel}</span>
+          {currentPhase && (
+            <span style={{
+              fontSize: 10, fontWeight: 600, letterSpacing: "0.06em",
+              background: "#1e2130", color: "#94a3b8",
+              padding: "2px 6px", borderRadius: 3, fontFamily: "monospace",
+            }}>
+              {currentPhase} phase
+            </span>
+          )}
         </div>
 
         {/* Title */}
@@ -194,6 +219,27 @@ export default function DecisionCard({
           </div>
         )}
 
+        {/* Baseline checkbox — only during crawl phase */}
+        {isOperationalCrawl && (
+          <label style={{
+            display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16,
+            background: "#0d1f2d", border: "1px solid #1e4060", borderRadius: 8,
+            padding: "10px 12px", cursor: loading || resolved ? "not-allowed" : "pointer",
+          }}>
+            <input
+              type="checkbox"
+              checked={authoriseAsBaseline}
+              onChange={(e) => setAuthoriseAsBaseline(e.target.checked)}
+              disabled={loading || resolved}
+              style={{ marginTop: 2, flexShrink: 0, accentColor: "#38bdf8" }}
+            />
+            <span style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+              <span style={{ color: "#38bdf8", fontWeight: 600 }}>Authorise as baseline</span>
+              {" — "}Authorise agent to handle <span style={{ color: "#e2e8f0", fontFamily: "monospace" }}>{exceptionClass}</span> autonomously at this hotel going forward. This class will not appear in your queue again.
+            </span>
+          </label>
+        )}
+
         {/* CTA Buttons */}
         <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
           <button
@@ -212,7 +258,7 @@ export default function DecisionCard({
             }}
           >
             {loading ? <Spinner /> : null}
-            APPROVE
+            {approveLabel}
           </button>
           <button
             disabled={loading || resolved}

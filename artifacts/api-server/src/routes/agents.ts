@@ -767,7 +767,14 @@ router.post("/agents/availability", requireAgentCredential("availability-agent")
 
 // ─── Rate Agent ───────────────────────────────────────────────────────────────
 
-router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, res) => {
+router.post("/agents/rate",
+  requireAgentCredential("rate-agent"),
+  requireValidMandate("rate-agent", "discount", (body) => {
+    const bar = Number((body as {barRate?: number}).barRate) || 150;
+    const req = Number((body as {requestedRate?: number}).requestedRate) || bar;
+    return bar > 0 ? Math.round(((bar - req) / bar) * 100) : 0;
+  }, "enforce"),
+  async (req, res) => {
   try {
     const { propertyId, requestedRate, barRate, ratePlanId, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -809,7 +816,7 @@ router.post("/agents/rate", requireAgentCredential("rate-agent"), async (req, re
     const witnessId = await writeWitnessEntry({
       companyId: Number(companyId),
       agent: "Rate Agent",
-      decision,
+      decision: { ...decision, exceptionClass: "rate_discount_autonomous" },
       fileReferenced: governanceFileReferenced(filesLoaded),
       apaleoData,
       scenarioRunId,
@@ -1269,7 +1276,7 @@ interface FolioChargeBody {
 
 router.post("/agents/folio-charge",
   requireAgentCredential("folio-charge-agent"),
-  requireValidMandate("folio-charge-agent", "folio_charge", (body) => Number((body as {chargeAmount?: number}).chargeAmount), "annotate"),
+  requireValidMandate("folio-charge-agent", "folio_charge", (body) => Number((body as {chargeAmount?: number}).chargeAmount), "enforce"),
   async (req, res) => {
   try {
     const { propertyId, folioId, chargeAmount, currency = "EUR", serviceType = "Other", chargeName, companyId, scenarioRunId } = req.body as {
@@ -2028,7 +2035,7 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
       );
       scenarioCacheCreation += rateCacheCreation; scenarioCacheRead += rateCacheRead;
       const wid = await writeWitnessEntry({
-        companyId: Number(companyId), agent: "Rate Agent", decision: rateDecision,
+        companyId: Number(companyId), agent: "Rate Agent", decision: { ...rateDecision, exceptionClass: "rate_discount_autonomous" },
         fileReferenced: governanceFileReferenced(rateScenarioFiles),
         apaleoData: { barRate: bar, requestedRate: requested, discountPct, ratePlanId: ids.ratePlanId, usedMcp: rateUsedMcp, toolCallsMade: rateToolCalls, input_tokens: rateInputTokens, output_tokens: rateOutputTokens, cache_creation_tokens: rateCacheCreation, cache_read_tokens: rateCacheRead },
         scenarioRunId,

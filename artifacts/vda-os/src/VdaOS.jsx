@@ -8540,6 +8540,17 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   const [wizardTesterOpen, setWizardTesterOpen] = useState(false);
   const [otherBandsOpen, setOtherBandsOpen] = useState(false);
   const [onboardingPolicy, setOnboardingPolicy] = useState(null);
+  // CO admission gate state
+  const [admitLoading, setAdmitLoading] = useState({});
+  const [rejectReason, setRejectReason] = useState({});
+  const [rejectLoading, setRejectLoading] = useState({});
+  const [rejectOpen, setRejectOpen] = useState({});
+  // GM crawl enable state
+  const [crawlLoading, setCrawlLoading] = useState({});
+  const [crawlStatus, setCrawlStatus] = useState({});
+  const [crawlStatusLoading, setCrawlStatusLoading] = useState({});
+  const [crawlMsg, setCrawlMsg] = useState({});
+  const [promoteToWalkLoading, setPromoteToWalkLoading] = useState({});
 
   useEffect(() => {
     fetch("/api/admin/onboarding-policy")
@@ -8555,11 +8566,13 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
   const fetchRequests = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch("/api/onboarding");
+      const params = new URLSearchParams();
+      if (role) params.set("role_band", role);
+      const r = await fetch(`/api/onboarding?${params.toString()}`);
       if (r.ok) { const d = await r.json(); setRequests((d.requests || []).reverse()); }
     } catch { /* silent */ }
     setLoading(false);
-  }, []);
+  }, [role]);
 
   const fetchPending = useCallback(async () => {
     setPendingLoading(true);
@@ -9107,6 +9120,220 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
       {/* ─── Onboarding Queue ─── */}
       {subTab === "queue" && (
         <div>
+          {/* ── CO Pending Admission gate ── */}
+          {role === "compliance_officer" && (() => {
+            const preAdmitted = requests.filter(r => r.status === "pre_admitted");
+            if (preAdmitted.length === 0) return null;
+            const handleAdmit = async (reqId) => {
+              setAdmitLoading(p => ({ ...p, [reqId]: true }));
+              try {
+                const r = await fetch(`/api/onboarding/${reqId}/admit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decided_by: "Compliance Officer" }) });
+                if (r.ok) { await fetchRequests(); }
+                else { const d = await r.json(); alert(d.error ?? "Admit failed"); }
+              } catch { alert("Network error"); }
+              setAdmitLoading(p => ({ ...p, [reqId]: false }));
+            };
+            const handleReject = async (reqId) => {
+              const reason = rejectReason[reqId]?.trim();
+              if (!reason) { alert("Please enter a rejection reason"); return; }
+              setRejectLoading(p => ({ ...p, [reqId]: true }));
+              try {
+                const r = await fetch(`/api/onboarding/${reqId}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason, decided_by: "Compliance Officer" }) });
+                if (r.ok) { await fetchRequests(); setRejectOpen(p => ({ ...p, [reqId]: false })); }
+                else { const d = await r.json(); alert(d.error ?? "Reject failed"); }
+              } catch { alert("Network error"); }
+              setRejectLoading(p => ({ ...p, [reqId]: false }));
+            };
+            return (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.orange, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.orange, display: "inline-block" }} />
+                  Pending CO Admission ({preAdmitted.length})
+                </div>
+                <div style={{ fontSize: 11, color: T.dim, marginBottom: 12 }}>Gate 0: These VDA-native agents are awaiting your technical review. Only you can see pre-admitted agents — Hotel GMs cannot access them until admitted.</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {preAdmitted.map(req => {
+                    const card = req.agentCard || {};
+                    return (
+                      <div key={req.id} style={{ background: T.surface, border: `1px solid ${T.orange}40`, borderLeft: `4px solid ${T.orange}`, borderRadius: 10, padding: "14px 18px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{card.name ?? "Unknown Agent"}</div>
+                            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginTop: 2 }}>{req.externalAgentDid ?? "—"} · source: {req.source ?? "—"}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button
+                              disabled={admitLoading[req.id]}
+                              onClick={() => handleAdmit(req.id)}
+                              style={{ background: "#14532d", border: "1px solid #4ade80", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#4ade80", fontWeight: 700, cursor: "pointer", opacity: admitLoading[req.id] ? 0.5 : 1 }}
+                            >
+                              {admitLoading[req.id] ? "…" : "Admit →"}
+                            </button>
+                            <button
+                              onClick={() => setRejectOpen(p => ({ ...p, [req.id]: !p[req.id] }))}
+                              style={{ background: "#450a0a", border: "1px solid #f8717160", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#f87171", fontWeight: 700, cursor: "pointer" }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                        {rejectOpen[req.id] && (
+                          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                            <input
+                              value={rejectReason[req.id] ?? ""}
+                              onChange={e => setRejectReason(p => ({ ...p, [req.id]: e.target.value }))}
+                              placeholder="Rejection reason (required)"
+                              style={{ flex: 1, background: "#0d0f14", border: "1px solid #f8717160", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: T.text, fontFamily: T.mono }}
+                            />
+                            <button
+                              disabled={rejectLoading[req.id]}
+                              onClick={() => handleReject(req.id)}
+                              style={{ background: "#450a0a", border: "1px solid #f87171", borderRadius: 6, padding: "6px 14px", fontSize: 12, color: "#f87171", fontWeight: 700, cursor: "pointer", opacity: rejectLoading[req.id] ? 0.5 : 1 }}
+                            >
+                              {rejectLoading[req.id] ? "…" : "Confirm Reject"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ height: 1, background: T.border, margin: "18px 0" }} />
+              </div>
+            );
+          })()}
+
+          {/* ── GM Crawl Enable gate ── */}
+          {role === "hotel_gm" && (() => {
+            const admittedAgents = requests.filter(r => r.status === "admitted" || r.status === "vda_native");
+            if (admittedAgents.length === 0) return null;
+            const fetchCrawlStatus = async (agentSlug) => {
+              setCrawlStatusLoading(p => ({ ...p, [agentSlug]: true }));
+              try {
+                const r = await fetch(`/api/dashboard/activation/${agentSlug}/crawl-status?companyId=${companyId}`);
+                const d = await r.json();
+                setCrawlStatus(p => ({ ...p, [agentSlug]: d }));
+              } catch { /* silent */ }
+              setCrawlStatusLoading(p => ({ ...p, [agentSlug]: false }));
+            };
+            const handleEnableCrawl = async (req) => {
+              const card = req.agentCard || {};
+              const agentSlug = (req.externalAgentDid ?? card.id ?? "").replace("did:vda:hospitality:", "");
+              setCrawlLoading(p => ({ ...p, [req.id]: true }));
+              setCrawlMsg(p => ({ ...p, [req.id]: null }));
+              try {
+                const r = await fetch("/api/dashboard/activation/start", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ agentId: agentSlug, companyId, initiatedBy: "Hotel GM" }),
+                });
+                const d = await r.json();
+                if (r.ok) {
+                  setCrawlMsg(p => ({ ...p, [req.id]: { ok: true, text: `Crawl started for company ${companyId}` } }));
+                  await fetchCrawlStatus(agentSlug);
+                } else {
+                  setCrawlMsg(p => ({ ...p, [req.id]: { ok: false, text: d.error ?? "Failed to start crawl" } }));
+                }
+              } catch { setCrawlMsg(p => ({ ...p, [req.id]: { ok: false, text: "Network error" } })); }
+              setCrawlLoading(p => ({ ...p, [req.id]: false }));
+            };
+            const handlePromoteToWalk = async (req) => {
+              const card = req.agentCard || {};
+              const agentSlug = (req.externalAgentDid ?? card.id ?? "").replace("did:vda:hospitality:", "");
+              setPromoteToWalkLoading(p => ({ ...p, [req.id]: true }));
+              try {
+                const r = await fetch(`/api/dashboard/activation/${agentSlug}/promote-to-walk`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ companyId, promotedBy: "Hotel GM" }),
+                });
+                const d = await r.json();
+                if (r.ok) {
+                  setCrawlMsg(p => ({ ...p, [req.id]: { ok: true, text: `Promoted to Walk phase` } }));
+                  await fetchCrawlStatus(agentSlug);
+                } else {
+                  setCrawlMsg(p => ({ ...p, [req.id]: { ok: false, text: d.error ?? "Promote failed" } }));
+                }
+              } catch { setCrawlMsg(p => ({ ...p, [req.id]: { ok: false, text: "Network error" } })); }
+              setPromoteToWalkLoading(p => ({ ...p, [req.id]: false }));
+            };
+            return (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.blue, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.blue, display: "inline-block" }} />
+                  Admitted Agents — Crawl Activation ({admittedAgents.length})
+                </div>
+                <div style={{ fontSize: 11, color: T.dim, marginBottom: 12 }}>Gate 1: Enable crawl for admitted agents at this hotel. Only one hotel at a time can be in active crawl.</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {admittedAgents.map(req => {
+                    const card = req.agentCard || {};
+                    const agentSlug = (req.externalAgentDid ?? card.id ?? "").replace("did:vda:hospitality:", "");
+                    const cs = crawlStatus[agentSlug];
+                    const csLoading = crawlStatusLoading[agentSlug];
+                    const msg = crawlMsg[req.id];
+                    return (
+                      <div key={req.id} style={{ background: T.surface, border: `1px solid ${T.blue}40`, borderLeft: `4px solid ${T.blue}`, borderRadius: 10, padding: "14px 18px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: cs ? 12 : 0 }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{card.name ?? agentSlug}</div>
+                            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginTop: 2 }}>{agentSlug} · {req.status}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <button onClick={() => fetchCrawlStatus(agentSlug)} style={{ background: `${T.blue}20`, border: `1px solid ${T.blue}40`, borderRadius: 6, padding: "5px 10px", fontSize: 11, color: T.blue, cursor: "pointer" }}>
+                              {csLoading ? "…" : "Check Status"}
+                            </button>
+                            <button
+                              disabled={crawlLoading[req.id]}
+                              onClick={() => handleEnableCrawl(req)}
+                              style={{ background: "#0c1f3f", border: `1px solid ${T.blue}`, borderRadius: 6, padding: "6px 14px", fontSize: 12, color: T.blue, fontWeight: 700, cursor: "pointer", opacity: crawlLoading[req.id] ? 0.5 : 1 }}
+                            >
+                              {crawlLoading[req.id] ? "…" : `Enable Crawl at hotel ${companyId}`}
+                            </button>
+                          </div>
+                        </div>
+                        {msg && (
+                          <div style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, background: msg.ok ? "#14532d40" : "#450a0a40", color: msg.ok ? "#4ade80" : "#f87171", marginBottom: 10 }}>
+                            {msg.ok ? "✓" : "✗"} {msg.text}
+                          </div>
+                        )}
+                        {cs && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, marginBottom: 8 }}>CRAWL PROGRESS — company {companyId}</div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              {Object.entries(cs.bands ?? {}).map(([band, data]) => (
+                                <div key={band}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+                                    <span style={{ color: T.muted }}>{band}</span>
+                                    <span style={{ color: data.complete ? T.green : T.dim, fontWeight: data.complete ? 700 : 400 }}>
+                                      {data.resolved}/{data.total} {data.complete ? "✓" : ""}
+                                    </span>
+                                  </div>
+                                  <div style={{ background: T.bg, borderRadius: 3, height: 6, overflow: "hidden" }}>
+                                    <div style={{ height: "100%", width: `${data.total > 0 ? (data.resolved / data.total) * 100 : 0}%`, background: data.complete ? T.green : T.blue, borderRadius: 3, transition: "width 0.4s" }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            {cs.crawlComplete && (
+                              <button
+                                disabled={promoteToWalkLoading[req.id]}
+                                onClick={() => handlePromoteToWalk(req)}
+                                style={{ marginTop: 12, width: "100%", background: "#14532d", border: "1px solid #4ade80", borderRadius: 8, padding: "10px 0", fontSize: 13, color: "#4ade80", fontWeight: 700, cursor: "pointer", opacity: promoteToWalkLoading[req.id] ? 0.5 : 1 }}
+                              >
+                                {promoteToWalkLoading[req.id] ? "Promoting…" : "Promote to Walk →"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ height: 1, background: T.border, margin: "18px 0" }} />
+              </div>
+            );
+          })()}
+
           {(() => {
             // Role-based stage filtering
             let queueRequests = requests;

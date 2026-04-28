@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from "react";
 import { usePoll, useSecondsAgo } from "./useDashboard.js";
 
 const DM = { fontFamily: "'DM Sans', sans-serif" };
@@ -70,7 +71,167 @@ function StatCard({ label, value, color, subtitle }) {
   );
 }
 
+const AGENT_COLOR = {
+  "availability-agent":           "#60a5fa",
+  "rate-agent":                   "#f59e0b",
+  "revenue-reconciliation-agent": "#a855f7",
+  "checkout-agent":               "#4ade80",
+  "folio-agent":                  "#34d399",
+  "check-in-agent":               "#38bdf8",
+  "reservation-bot":              "#fb923c",
+  "folio-charge-agent":           "#f472b6",
+  "onboarding-agent":             "#94a3b8",
+};
+
+function ValueLedgerPanel({ selectedCompanyId }) {
+  const [since, setSince] = useState("30d");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const sinceDate = {
+    "7d":  new Date(Date.now() - 7  * 86400000).toISOString(),
+    "30d": new Date(Date.now() - 30 * 86400000).toISOString(),
+    "90d": new Date(Date.now() - 90 * 86400000).toISOString(),
+  }[since];
+
+  const fetchLedger = useCallback(async () => {
+    if (!selectedCompanyId) return;
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/dashboard/value-ledger?companyId=${selectedCompanyId}&since=${sinceDate}`);
+      if (r.ok) setData(await r.json());
+    } catch { /* silent */ }
+    setLoading(false);
+  }, [selectedCompanyId, sinceDate]);
+
+  useEffect(() => {
+    fetchLedger();
+    const id = setInterval(fetchLedger, 30000);
+    return () => clearInterval(id);
+  }, [fetchLedger]);
+
+  const totals = data?.totals;
+  const agents = data?.agents ?? [];
+  const maxRev = Math.max(...agents.map((a) => Math.abs(a.totalRevenue)), 1);
+
+  return (
+    <div>
+      {/* Time range selector */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {[["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"]].map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => setSince(v)}
+            style={{
+              background: since === v ? "#1e3a5f" : "transparent",
+              border: `1px solid ${since === v ? "#60a5fa" : "#1e2130"}`,
+              borderRadius: 5, padding: "4px 12px", fontSize: 11,
+              color: since === v ? "#60a5fa" : "#64748b",
+              cursor: "pointer", fontFamily: "'DM Mono', monospace",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Platform totals strip */}
+      {totals && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+          {[
+            { label: "Total Revenue", value: `€${Number(totals.totalRevenue ?? 0).toLocaleString("en", { minimumFractionDigits: 0 })}`, color: "#4ade80" },
+            { label: "Governance Cost", value: `€${Number(totals.totalCostEur ?? 0).toFixed(2)}`, color: "#f87171" },
+            { label: "Net Value", value: `€${Number(totals.netValue ?? 0).toLocaleString("en", { minimumFractionDigits: 0 })}`, color: "#ffffff" },
+            { label: "ROI Multiple", value: totals.roiMultiple != null ? `${totals.roiMultiple}×` : "—", color: "#f59e0b" },
+            { label: "Total Events", value: totals.totalEvents ?? 0, color: "#94a3b8" },
+            { label: "Pass Events", value: totals.passEvents ?? 0, color: "#60a5fa" },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{
+              flex: 1, minWidth: 90,
+              background: "#0d0f14", border: "1px solid #1e2130",
+              borderRadius: 8, padding: "10px 14px",
+            }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color, marginBottom: 2, fontFamily: "'DM Mono', monospace" }}>{value}</div>
+              <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Per-agent bar chart */}
+      {loading && !data ? (
+        <div style={{ color: "#64748b", fontSize: 13 }}>Loading value ledger…</div>
+      ) : agents.length === 0 ? (
+        <div style={{
+          background: "#0d0f14", border: "1.5px dashed #1e2130", borderRadius: 10,
+          padding: "18px 20px", textAlign: "center",
+        }}>
+          <div style={{ fontSize: 13, color: "#64748b" }}>No value events yet — run agent scenario to populate the ledger</div>
+        </div>
+      ) : (
+        <div style={{ background: "#111318", border: "1px solid #1e2130", borderRadius: 10, overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{
+            display: "grid", gridTemplateColumns: "160px 1fr 80px 80px 70px",
+            padding: "8px 16px", background: "#0d0f14",
+            borderBottom: "1px solid #1e2130",
+          }}>
+            {["AGENT", "REVENUE", "NET VALUE", "EVENTS", "PASS%"].map((h) => (
+              <div key={h} style={{ fontSize: 9, color: "#64748b", fontWeight: 700, letterSpacing: "0.08em", textAlign: h === "AGENT" ? "left" : "right", fontFamily: "'DM Mono', monospace" }}>{h}</div>
+            ))}
+          </div>
+          {agents.map((a, idx) => {
+            const barWidth = maxRev > 0 ? (Math.abs(a.totalRevenue) / maxRev) * 100 : 0;
+            const passPct = a.totalEvents > 0 ? Math.round((a.passEvents / a.totalEvents) * 100) : 0;
+            const agentColor = AGENT_COLOR[a.agentId] ?? "#94a3b8";
+            return (
+              <div
+                key={a.agentId}
+                style={{
+                  display: "grid", gridTemplateColumns: "160px 1fr 80px 80px 70px",
+                  padding: "10px 16px", alignItems: "center",
+                  borderBottom: idx < agents.length - 1 ? "1px solid #1e2130" : "none",
+                }}
+              >
+                <div style={{ fontSize: 11, color: "#e2e8f0", fontWeight: 500 }}>
+                  {AGENT_SHORT[a.agentId] ?? a.agentId}
+                </div>
+                {/* Bar */}
+                <div style={{ position: "relative", paddingRight: 8 }}>
+                  <div style={{ background: "#1e2130", borderRadius: 3, height: 8, overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%", width: `${barWidth}%`,
+                      background: agentColor, borderRadius: 3,
+                      transition: "width 0.4s ease",
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: "#64748b", marginTop: 3, fontFamily: "'DM Mono', monospace" }}>
+                    €{Number(a.totalRevenue).toLocaleString("en", { minimumFractionDigits: 0 })}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: a.netValue >= 0 ? "#4ade80" : "#f87171", textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>
+                  €{Number(a.netValue).toFixed(0)}
+                </div>
+                <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "right", fontFamily: "'DM Mono', monospace" }}>
+                  {a.totalEvents}
+                </div>
+                <div style={{
+                  fontSize: 11, textAlign: "right", fontFamily: "'DM Mono', monospace",
+                  color: passPct >= 80 ? "#4ade80" : passPct >= 50 ? "#f59e0b" : "#f87171",
+                }}>
+                  {passPct}%
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OperationsChiefView() {
+  const [ledgerCompanyId, setLedgerCompanyId] = useState(HOTELS[0]?.companyId ?? 3);
   const { data: chainData, loading: chainLoading, lastUpdated } = usePoll(async () => {
     const r = await fetch("/api/dashboard/chain-health");
     return r.json();
@@ -161,7 +322,7 @@ export default function OperationsChiefView() {
       </div>
 
       {/* Section C — Adoption progress: 9 agents × 5 properties */}
-      <div>
+      <div style={{ marginBottom: 32 }}>
         <h3 style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: "0 0 4px" }}>
           Adoption progress — all properties
         </h3>
@@ -217,6 +378,35 @@ export default function OperationsChiefView() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Section D — Agent Value Ledger (ROI Dashboard) */}
+      <div style={{ marginTop: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: "0 0 2px" }}>Agent Value Ledger</h3>
+            <div style={{ fontSize: 11, color: "#64748b" }}>Revenue delta and governance cost per agent · AP2 economic metering</div>
+          </div>
+          {/* Hotel picker */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {HOTELS.map((h) => (
+              <button
+                key={h.companyId}
+                onClick={() => setLedgerCompanyId(h.companyId)}
+                style={{
+                  background: ledgerCompanyId === h.companyId ? "#1e3a5f" : "transparent",
+                  border: `1px solid ${ledgerCompanyId === h.companyId ? "#60a5fa" : "#1e2130"}`,
+                  borderRadius: 5, padding: "4px 10px", fontSize: 11,
+                  color: ledgerCompanyId === h.companyId ? "#60a5fa" : "#64748b",
+                  cursor: "pointer", fontFamily: "'DM Mono', monospace",
+                }}
+              >
+                {h.code}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ValueLedgerPanel selectedCompanyId={ledgerCompanyId} />
       </div>
     </div>
   );
