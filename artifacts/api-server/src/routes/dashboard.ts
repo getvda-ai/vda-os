@@ -954,11 +954,13 @@ router.get("/dashboard/activation/:agentId/crawl-status", async (req, res) => {
       });
     }
 
-    // Get all baselined/resolved exception classes for this agent+company
+    // Get all baselined/resolved exception classes for this agent+company.
+    // We use exception_class as the key (NOT roleBand) because the roleBand
+    // stored in exception_baselines may be misattributed via escalation-target
+    // heuristics. The authority file is the source of truth for band membership.
     const baselineRows = await db
       .select({
         exceptionClass: exceptionBaselines.exceptionClass,
-        roleBand: exceptionBaselines.roleBand,
         accepted: exceptionBaselines.accepted,
         rejected: exceptionBaselines.rejected,
       })
@@ -971,11 +973,8 @@ router.get("/dashboard/activation/:agentId/crawl-status", async (req, res) => {
         )
       );
 
-    const resolvedByBand: Record<string, Set<string>> = {};
-    for (const row of baselineRows) {
-      if (!resolvedByBand[row.roleBand]) resolvedByBand[row.roleBand] = new Set();
-      resolvedByBand[row.roleBand].add(row.exceptionClass);
-    }
+    // Build a flat set of all resolved exception class slugs (accepted OR rejected)
+    const resolvedClassSet = new Set(baselineRows.map((r) => r.exceptionClass));
 
     // Get exception class counts per band from onboarding policy
     const { getOnboardingPolicy: getPolicy, getRoleBandAuthority } = await import("../lib/exceptionAuthorityReader.js");
@@ -985,12 +984,13 @@ router.get("/dashboard/activation/:agentId/crawl-status", async (req, res) => {
     const bands: Record<string, { total: number; resolved: number; pending: number; complete: boolean; classes: string[] }> = {};
     for (const band of frontLineBands) {
       const bandAuth = await getRoleBandAuthority(agentId, 0, band);
-      const total = bandAuth?.exceptions?.length ?? 0;
-      const resolvedSet = resolvedByBand[band] ?? new Set();
-      const resolved = resolvedSet.size;
-      const pending = Math.max(0, total - resolved);
+      // Source of truth: which exception classes does this band define?
       const classes = bandAuth?.exceptions?.map((e) => e.exception_class) ?? [];
-      // Completion: pending === 0 (includes bands with zero defined classes — nothing to resolve)
+      const total = classes.length;
+      // Match by exception_class slug against the resolved set (authority-file-driven, not roleBand-driven)
+      const resolved = classes.filter((cls) => resolvedClassSet.has(cls)).length;
+      const pending = Math.max(0, total - resolved);
+      // Completion: pending === 0 (bands with zero defined classes have nothing to resolve → complete)
       bands[band] = { total, resolved, pending, complete: pending === 0, classes };
     }
 
