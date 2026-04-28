@@ -23,7 +23,7 @@ import {
   listCredentialsFromFiles,
 } from "../lib/agentCredentialIssuer.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
-import { getRoleBandAuthority, getRejectedClasses, getAcceptedBaselineClasses } from "../lib/exceptionAuthorityReader.js";
+import { getRoleBandAuthority, getRejectedClasses, getRejectedOrBaselinedClasses } from "../lib/exceptionAuthorityReader.js";
 
 const router = Router();
 
@@ -814,19 +814,20 @@ router.post("/agents/rate",
       Number(companyId)
     );
 
-    // Baseline fast-path: if this exception class is already baselined, convert ESCALATE → autonomous PASS
+    // Baseline fast-path: if this exception class is already baselined (accepted), convert ESCALATE → autonomous PASS.
+    // Uses getRejectedOrBaselinedClasses (60s TTL cache) — guardRejectedClass already blocked rejected classes above,
+    // so any class found here is necessarily accepted (baselined).
     let decision = rawDecision;
     let governanceSource: string | null = null;
     if (rawDecision.decision === "ESCALATE") {
       try {
-        const acceptedClasses = await getAcceptedBaselineClasses("rate-agent", Number(companyId));
-        if (acceptedClasses.includes(rateExceptionClass)) {
+        const baselinedOrRejected = await getRejectedOrBaselinedClasses("rate-agent", Number(companyId));
+        if (baselinedOrRejected.includes(rateExceptionClass)) {
           decision = {
             ...rawDecision,
             decision: "PASS" as const,
             actionProposed: `${rawDecision.actionProposed ?? "Rate decision"} [Autonomous — exception class '${rateExceptionClass}' is baselined]`,
             reasoning: `Exception class '${rateExceptionClass}' has been baselined by governance authority. Proceeding autonomously without HITL.`,
-            confidence: 0.95,
           };
           governanceSource = "exception_baselines";
           logger.info({ agentId: "rate-agent", companyId, rateExceptionClass }, "[Rate Agent] Baselined class — ESCALATE → autonomous PASS");
@@ -2064,17 +2065,16 @@ Apply rate-override-policy thresholds. A ${discountPct}% discount is within the 
         Number(companyId)
       );
       scenarioCacheCreation += rateCacheCreation; scenarioCacheRead += rateCacheRead;
-      // Scenario runner baseline fast-path (same logic as standalone rate agent)
+      // Scenario runner baseline fast-path (60s TTL cache via getRejectedOrBaselinedClasses)
       let finalRateDecision = rateDecision;
       if (!rateScenarioEscalate && rateDecision.decision === "ESCALATE") {
         try {
-          const acceptedClasses = await getAcceptedBaselineClasses("rate-agent", Number(companyId));
-          if (acceptedClasses.includes(scenarioRateExceptionClass)) {
+          const baselinedOrRejected = await getRejectedOrBaselinedClasses("rate-agent", Number(companyId));
+          if (baselinedOrRejected.includes(scenarioRateExceptionClass)) {
             finalRateDecision = {
               ...rateDecision, decision: "PASS" as const,
               actionProposed: `${rateDecision.actionProposed ?? "Rate decision"} [Autonomous — class '${scenarioRateExceptionClass}' baselined]`,
               reasoning: `Exception class '${scenarioRateExceptionClass}' is baselined. Proceeding autonomously.`,
-              confidence: 0.95,
             };
           }
         } catch { /* baseline check best-effort */ }
