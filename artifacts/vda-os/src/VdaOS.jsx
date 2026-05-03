@@ -5911,8 +5911,8 @@ function buildSeedLog(config, companyName) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const VDA_NATIVE_AGENTS = [
-  { slug: "availability-agent",            name: "Availability Agent",      icon: "🔍" },
   { slug: "rate-agent",                    name: "Rate Agent",              icon: "💰" },
+  { slug: "availability-agent",            name: "Availability Agent",      icon: "🔍" },
   { slug: "reservation-bot",              name: "Reservation Bot",          icon: "📋" },
   { slug: "check-in-agent",               name: "Check-In Agent",           icon: "✅" },
   { slug: "folio-agent",                  name: "Folio Agent",              icon: "🧾" },
@@ -5977,6 +5977,22 @@ function GovernanceFileReview({ agentSlug, onNext, onFilesLoaded }) {
   const mustNotCount = (activeContent.match(/\bMUST NOT\b/g) || []).length;
   const mayCount = (activeContent.match(/\bMAY\b/g) || []).length;
 
+  // NIST control refs extracted across ALL loaded file contents
+  const allContent = Object.values(contents).join("\n");
+  const nistRefs = [...new Set((allContent.match(/\b(?:AC|AU|CA|CM|CP|IA|IR|MA|MP|PE|PL|PM|RA|SA|SC|SI|SR)-\d+(?:\(\d+\))?/g) || []))].sort();
+
+  // Exception authority ceiling table from EXCEPTION_AUTHORITY.md
+  const eaFile = (files || []).find(f => f.fileType === "EXCEPTION_AUTHORITY");
+  const eaContent = eaFile ? (contents[eaFile.id] || "") : "";
+  const CEILING_BANDS = ["ambassador", "senior_ambassador", "hotel_gm", "ops_director", "ciso"];
+  const BAND_LABELS = { ambassador: "Ambassador", senior_ambassador: "Sr Ambassador", hotel_gm: "Hotel GM", ops_director: "Ops Director", ciso: "CISO" };
+  const parseCeiling = (band) => {
+    const re = new RegExp(`${band}:[\\s\\S]*?max_value:\\s*([\\d.]+)`, "m");
+    const m = eaContent.match(re);
+    return m ? m[1] : null;
+  };
+  const ceilingRows = CEILING_BANDS.map(b => ({ band: BAND_LABELS[b], ceiling: parseCeiling(b) })).filter(r => r.ceiling !== null);
+
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
@@ -6021,27 +6037,63 @@ function GovernanceFileReview({ agentSlug, onNext, onFilesLoaded }) {
           }}>Next → Stage 2</button>
         </div>
       </div>
-      <div style={{ width: 180, borderLeft: `1px solid ${T.border}`, padding: 16, flexShrink: 0, overflowY: "auto" }}>
-        <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 12 }}>CLAUSE COUNTS</div>
-        {[{ label: "MUST", value: mustCount, color: T.green }, { label: "MUST NOT", value: mustNotCount, color: T.red }, { label: "MAY", value: mayCount, color: T.blue }]
-          .map(({ label, value, color }) => (
-            <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <span style={{ fontSize: 11, fontFamily: T.mono, color: T.dim }}>{label}</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color, fontFamily: T.mono }}>{value}</span>
-            </div>
-          ))}
+
+      {/* Right panel: Clause counts + NIST refs + Ceiling table */}
+      <div style={{ width: 200, borderLeft: `1px solid ${T.border}`, flexShrink: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        {/* Clause counts */}
+        <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 10 }}>CLAUSE COUNTS</div>
+          {[{ label: "MUST", value: mustCount, color: T.green }, { label: "MUST NOT", value: mustNotCount, color: T.red }, { label: "MAY", value: mayCount, color: T.blue }]
+            .map(({ label, value, color }) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontFamily: T.mono, color: T.dim }}>{label}</span>
+                <span style={{ fontSize: 17, fontWeight: 700, color, fontFamily: T.mono }}>{value}</span>
+              </div>
+            ))}
+        </div>
+
+        {/* NIST control refs */}
+        <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 8 }}>NIST CONTROLS</div>
+          {loading ? <div style={{ fontSize: 10, color: T.dim }}>—</div>
+            : nistRefs.length === 0 ? <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>None referenced</div>
+            : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {nistRefs.slice(0, 24).map(ref => (
+                  <span key={ref} style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: T.blue, background: `${T.blue}18`, border: `1px solid ${T.blue}30`, borderRadius: 3, padding: "2px 5px" }}>{ref}</span>
+                ))}
+                {nistRefs.length > 24 && <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>+{nistRefs.length - 24}</span>}
+              </div>
+            )}
+        </div>
+
+        {/* Exception authority ceiling table */}
+        <div style={{ padding: "12px 16px 10px" }}>
+          <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 8 }}>AUTHORITY CEILINGS</div>
+          {ceilingRows.length === 0
+            ? <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>Open EXCEPTION_AUTHORITY.md tab to load</div>
+            : ceilingRows.map(({ band, ceiling }) => (
+              <div key={band} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+                <span style={{ fontSize: 10, color: T.muted, fontFamily: T.mono }}>{band}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, fontFamily: T.mono }}>€{ceiling}</span>
+              </div>
+            ))}
+        </div>
       </div>
     </div>
   );
 }
 
 // ─── Stage 2: Sandbox Evaluation ────────────────────────────────────────────
-function SandboxEvaluation({ requestId, onNext, onSandboxRun }) {
+function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, onSandboxRun }) {
+  const isExternal = agentSource === "a2a_external";
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState(null);
   const [threshold, setThreshold] = useState(null); // loaded from backend policy
   const [error, setError] = useState(null);
-  const passRate = results ? results.filter(r => r.passed).length / results.length : null;
+  const passRate = results ? results.filter(r => r.passed).length / results.length
+    : isExternal && existingPassRate != null ? Number(existingPassRate)
+    : null;
   const THRESHOLD = threshold ?? 0.6; // fallback only if policy not yet loaded
   const canProceed = passRate !== null && passRate >= THRESHOLD;
 
@@ -6067,54 +6119,79 @@ function SandboxEvaluation({ requestId, onNext, onSandboxRun }) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
-        <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 16px" }}>
-          5 predefined governance scenarios are evaluated against this agent's SOP.md by Claude.
-          Each actual decision is compared to an expected outcome (PASS / FAIL / ESCALATE).
-          ≥60% match rate required to proceed.
-        </p>
-        {!requestId && (
-          <div style={{ padding: "10px 14px", background: "#1a0505", border: `1px solid ${T.red}40`, borderRadius: 8, color: T.red, fontSize: 12, marginBottom: 16 }}>
-            No onboarding request found for this agent. Submit via POST /api/onboarding/submit with source=vda_native.
-          </div>
-        )}
-        <button onClick={runSandbox} disabled={running || !requestId} style={{
-          padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
-          background: running ? "#1e2229" : "#2d1b69", color: running ? T.dim : "#c4b5fd",
-          border: `1px solid ${running ? T.border : "#7c3aed"}`, cursor: running || !requestId ? "not-allowed" : "pointer",
-          display: "flex", alignItems: "center", gap: 8,
-        }}>
-          {running && <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(196,181,253,0.3)", borderTopColor: "#c4b5fd", borderRadius: "50%", animation: "co-spin 0.7s linear infinite" }} />}
-          {running ? "Running scenarios…" : "▶ Run Sandbox Evaluation"}
-        </button>
-        {error && <div style={{ marginTop: 12, color: T.red, fontSize: 12 }}>{error}</div>}
-
-        {results && (
-          <div style={{ marginTop: 20 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20, padding: "14px 18px", background: canProceed ? "#0d1f0d" : "#1a0a0a", border: `1px solid ${canProceed ? T.green : T.red}40`, borderRadius: 10 }}>
-              <div style={{ fontSize: 32, fontWeight: 700, fontFamily: T.mono, color: canProceed ? T.green : T.red }}>{Math.round(passRate * 100)}%</div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: canProceed ? T.green : T.red }}>Pass Rate {canProceed ? "✓" : "✗"}</div>
-                <div style={{ fontSize: 11, color: T.dim }}>{results.filter(r => r.passed).length}/{results.length} scenarios matched · threshold {Math.round(THRESHOLD * 100)}%</div>
-              </div>
+        {/* External agents: show read-only orchestrator eval result — no re-run */}
+        {isExternal ? (
+          <>
+            <div style={{ padding: "10px 14px", background: "#0f1824", border: `1px solid ${T.blue}40`, borderRadius: 8, fontSize: 12, color: T.blue, marginBottom: 16 }}>
+              External A2A agent — sandbox evaluation was run by the onboarding orchestrator pipeline. Results are read-only.
             </div>
-            <div style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: T.mono }}>
-                <span>Scenario</span><span>Expected</span><span>Actual</span><span>Result</span>
-              </div>
-              {results.map((r, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "10px 16px", borderBottom: i < results.length - 1 ? `1px solid ${T.border}20` : "none", alignItems: "start" }}>
-                  <div>
-                    <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 3 }}>{r.scenario}</div>
-                    {r.clause && <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, lineHeight: 1.4 }}>"{r.clause.slice(0, 80)}{r.clause.length > 80 ? "…" : ""}"</div>}
-                    {r.witnessId && <div style={{ fontSize: 10, fontFamily: T.mono, color: "#374151", marginTop: 2 }}>Witness #{r.witnessId}</div>}
-                  </div>
-                  <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: dc(r.expected) }}>{r.expected}</span>
-                  <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: dc(r.decision) }}>{r.decision}</span>
-                  <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: r.passed ? T.green : T.red }}>{r.passed ? "✓ PASS" : "✗ FAIL"}</span>
+            {passRate !== null ? (
+              <div style={{ padding: "14px 18px", background: canProceed ? "#0d1f0d" : "#1a0a0a", border: `1px solid ${canProceed ? T.green : T.red}40`, borderRadius: 10, display: "flex", alignItems: "center", gap: 16 }}>
+                <div style={{ fontSize: 32, fontWeight: 700, fontFamily: T.mono, color: canProceed ? T.green : T.red }}>{Math.round(passRate * 100)}%</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: canProceed ? T.green : T.red }}>Orchestrator Pass Rate {canProceed ? "✓" : "✗"}</div>
+                  <div style={{ fontSize: 11, color: T.dim }}>Evaluated during A2A pipeline · threshold {Math.round(THRESHOLD * 100)}%</div>
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+            ) : (
+              <div style={{ padding: "10px 14px", background: "#1a1208", border: `1px solid ${T.amber}40`, borderRadius: 8, fontSize: 12, color: T.amber }}>
+                No eval pass rate recorded yet — orchestrator may still be processing.
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 16px" }}>
+              5 predefined governance scenarios are evaluated against this agent's SOP.md through the same
+              governance pipeline used for live A2A decisions (evaluateWithPolicy → SOP + AGENTS + SKILL).
+              Each actual decision is compared to an expected outcome (PASS / FAIL / ESCALATE).
+              ≥{Math.round(THRESHOLD * 100)}% match rate required to proceed.
+            </p>
+            {!requestId && (
+              <div style={{ padding: "10px 14px", background: "#1a0505", border: `1px solid ${T.red}40`, borderRadius: 8, color: T.red, fontSize: 12, marginBottom: 16 }}>
+                No onboarding request found for this agent. Submit via POST /api/onboarding/submit with source=vda_native.
+              </div>
+            )}
+            <button onClick={runSandbox} disabled={running || !requestId} style={{
+              padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
+              background: running ? "#1e2229" : "#2d1b69", color: running ? T.dim : "#c4b5fd",
+              border: `1px solid ${running ? T.border : "#7c3aed"}`, cursor: running || !requestId ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              {running && <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(196,181,253,0.3)", borderTopColor: "#c4b5fd", borderRadius: "50%", animation: "co-spin 0.7s linear infinite" }} />}
+              {running ? "Running scenarios…" : "▶ Run Sandbox Evaluation"}
+            </button>
+            {error && <div style={{ marginTop: 12, color: T.red, fontSize: 12 }}>{error}</div>}
+
+            {results && (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20, padding: "14px 18px", background: canProceed ? "#0d1f0d" : "#1a0a0a", border: `1px solid ${canProceed ? T.green : T.red}40`, borderRadius: 10 }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, fontFamily: T.mono, color: canProceed ? T.green : T.red }}>{Math.round(passRate * 100)}%</div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: canProceed ? T.green : T.red }}>Pass Rate {canProceed ? "✓" : "✗"}</div>
+                    <div style={{ fontSize: 11, color: T.dim }}>{results.filter(r => r.passed).length}/{results.length} scenarios matched · threshold {Math.round(THRESHOLD * 100)}%</div>
+                  </div>
+                </div>
+                <div style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: T.mono }}>
+                    <span>Scenario</span><span>Expected</span><span>Actual</span><span>Result</span>
+                  </div>
+                  {results.map((r, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "10px 16px", borderBottom: i < results.length - 1 ? `1px solid ${T.border}20` : "none", alignItems: "start" }}>
+                      <div>
+                        <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 3 }}>{r.scenario}</div>
+                        {r.clause && <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, lineHeight: 1.4 }}>"{r.clause.slice(0, 80)}{r.clause.length > 80 ? "…" : ""}"</div>}
+                        {r.witnessId && <div style={{ fontSize: 10, fontFamily: T.mono, color: "#374151", marginTop: 2 }}>Witness #{r.witnessId}</div>}
+                      </div>
+                      <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: dc(r.expected) }}>{r.expected}</span>
+                      <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: dc(r.decision) }}>{r.decision}</span>
+                      <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: r.passed ? T.green : T.red }}>{r.passed ? "✓ PASS" : "✗ FAIL"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
       <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
@@ -6665,7 +6742,13 @@ function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
               {/* Stage body */}
               <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                 {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
-                {stage === 2 && <SandboxEvaluation requestId={requestId} onNext={() => completeStage(1)} onSandboxRun={ts => setSandboxTs(ts)} />}
+                {stage === 2 && <SandboxEvaluation
+                  requestId={requestId}
+                  agentSource={agent?.source ?? null}
+                  existingPassRate={agent?.evalPassRate ?? null}
+                  onNext={() => completeStage(1)}
+                  onSandboxRun={ts => setSandboxTs(ts)}
+                />}
                 {stage === 3 && <ApaleoCRUDReview agentSlug={agentSlug} govFiles={govFiles} govContents={govContents} onNext={() => completeStage(2)} />}
                 {stage === 4 && <WitnessReviewStage agentSlug={agentSlug} sandboxTimestamp={sandboxTs} onNext={() => completeStage(3)} />}
                 {stage === 5 && <ExceptionAuthorityConfirmation exceptionContent={exceptionContent} onNext={() => completeStage(4)} />}
@@ -7156,8 +7239,23 @@ function OnboardingConsole({ onLoadHotel }) {
       {walkthroughOpen && (
         <CISOWalkthrough
           agents={walkthroughSource === "a2a_external"
-            ? externalReqs.map(r => ({ slug: r.agentCard?.name || r.id, name: r.agentCard?.name || r.id, icon: "🤖", status: r.status, requestId: r.id }))
+            ? externalReqs.map(r => {
+                const card = r.agentCard || {};
+                // Normalise to the same slug format used by governanceFiles.agentId
+                const rawId = card.id || card.name || r.externalAgentDid || r.id;
+                const slug = String(rawId).toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+                return {
+                  slug,
+                  name: card.name || r.externalAgentDid || r.id,
+                  icon: "🤖",
+                  status: r.status,
+                  requestId: r.id,
+                  evalPassRate: r.evalPassRate ?? null,
+                  source: "a2a_external",
+                };
+              })
             : walkthroughAgents}
+          source={walkthroughSource}
           onClose={() => setWalkthroughOpen(false)}
           onAdmitted={() => { setWalkthroughOpen(false); setRefreshKey(k => k + 1); }}
           onRejected={() => { setWalkthroughOpen(false); setRefreshKey(k => k + 1); }}
