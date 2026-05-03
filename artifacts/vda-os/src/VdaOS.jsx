@@ -6451,11 +6451,11 @@ function ExceptionAuthorityConfirmation({ exceptionContent, onNext }) {
         <span style={{ fontSize: 12, color: T.dim }}>
           {allKeys.length > 0 ? `${allKeys.filter(k => checked[k]).length} / ${allKeys.length} confirmed` : "Load governance files first"}
         </span>
-        <button onClick={onNext} disabled={allKeys.length > 0 && !allChecked} style={{
+        <button onClick={onNext} disabled={!allChecked || allKeys.length === 0} style={{
           padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
-          background: allChecked || allKeys.length === 0 ? T.blue : "#1e2229",
-          color: allChecked || allKeys.length === 0 ? "#fff" : T.dim,
-          border: "none", cursor: (allChecked || allKeys.length === 0) ? "pointer" : "not-allowed",
+          background: allChecked && allKeys.length > 0 ? T.blue : "#1e2229",
+          color: allChecked && allKeys.length > 0 ? "#fff" : T.dim,
+          border: "none", cursor: allChecked && allKeys.length > 0 ? "pointer" : "not-allowed",
         }}>Next → Stage 6</button>
       </div>
     </div>
@@ -6707,16 +6707,24 @@ function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
           {STAGES.map((s, i) => {
             const done = completions[i];
             const active = stage === s.id;
+            // A stage is accessible only if all prior stages are completed
+            // (stage 1 is always accessible; stage N requires completions[0..N-2] all true)
+            const accessible = i === 0 || completions.slice(0, i).every(Boolean);
             return (
-              <button key={s.id} onClick={() => setStage(s.id)} style={{
-                background: active ? "#111318" : "none", border: "none",
-                borderLeft: active ? `3px solid ${T.blue}` : "3px solid transparent",
-                color: done ? T.green : active ? T.text : T.dim,
-                padding: "10px 16px 10px 13px", cursor: "pointer", fontSize: 12,
-                fontWeight: active ? 600 : 400, fontFamily: T.sans, textAlign: "left",
-                display: "flex", alignItems: "center", gap: 8,
-              }}>
-                <span style={{ fontSize: 11 }}>{done ? "✓" : active ? "▶" : String(s.id)}</span>
+              <button
+                key={s.id}
+                onClick={() => accessible && setStage(s.id)}
+                title={accessible ? undefined : "Complete previous stages first"}
+                style={{
+                  background: active ? "#111318" : "none", border: "none",
+                  borderLeft: active ? `3px solid ${T.blue}` : "3px solid transparent",
+                  color: done ? T.green : active ? T.text : accessible ? T.dim : "#2a2f3a",
+                  padding: "10px 16px 10px 13px",
+                  cursor: accessible ? "pointer" : "not-allowed",
+                  fontSize: 12, fontWeight: active ? 600 : 400, fontFamily: T.sans, textAlign: "left",
+                  display: "flex", alignItems: "center", gap: 8, opacity: accessible ? 1 : 0.45,
+                }}>
+                <span style={{ fontSize: 11 }}>{done ? "✓" : active ? "▶" : accessible ? String(s.id) : "🔒"}</span>
                 <span>{s.icon} {s.label}</span>
               </button>
             );
