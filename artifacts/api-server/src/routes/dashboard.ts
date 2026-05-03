@@ -1062,19 +1062,26 @@ router.post("/dashboard/activation/:agentId/promote-to-walk", async (req, res) =
       return res.status(409).json({ error: "crawl is not complete — resolve all exception classes first" });
     }
 
-    // Update agent_phases to walk
+    // Issue AP2 Intent Mandate FIRST — before any DB writes.
+    // If issuance fails the outer catch returns 500 and no phase change is committed,
+    // ensuring Walk phase agents always carry a valid signed authority token.
+    const agentDid = `did:key:vda-${agentId}-${companyId}`;
+    const mandate = await issueMandate({ agentId, companyId, agentDid, phase: "walk" });
+    const mandateId = mandate.mandateId;
+    logger.info({ mandateId, agentId, companyId }, "[Mandate] Walk-phase intent mandate issued");
+
+    // Mandate secured — now commit the phase promotion to the DB
     await db
       .update(agentPhases)
       .set({ phase: "walk", phaseChangedAt: new Date() })
       .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)));
 
-    // Update activation_requests status to walk
     await db
       .update(activationRequests)
       .set({ status: "walk", updatedAt: new Date() })
       .where(and(eq(activationRequests.agentId, agentId), eq(activationRequests.companyId, companyId)));
 
-    // Write Witness entry
+    // Write Witness entry recording both the promotion and the mandate issuance
     await writeGovernanceEvent({
       companyId,
       agent: agentId,
@@ -1082,26 +1089,101 @@ router.post("/dashboard/activation/:agentId/promote-to-walk", async (req, res) =
       decision: "PASS",
       clauseApplied: "VDA-MD §7: Crawl-to-Walk promotion — all front-line exception classes resolved via direct observation",
       actionProposed: `Agent ${agentId} promoted from crawl to walk by ${promotedBy} at company ${companyId}`,
-      reasoning: "All front-line band exception classes have been reviewed and baselined. Agent demonstrated autonomous competence during crawl phase.",
+      reasoning: `All front-line band exception classes have been reviewed and baselined. Agent demonstrated autonomous competence during crawl phase. AP2 Intent Mandate issued: ${mandateId}.`,
       fileReferenced: "VDA-MD Phase Lifecycle Protocol — Crawl → Walk Promotion",
-      apaleoData: { event_type: "agent_promoted_to_walk", agent_id: agentId, company_id: companyId, promoted_by: promotedBy },
+      apaleoData: { event_type: "agent_promoted_to_walk", agent_id: agentId, company_id: companyId, promoted_by: promotedBy, mandate_id: mandateId },
     });
-
-    // Issue new mandate for walk phase
-    let mandateId: string | null = null;
-    try {
-      const agentDid = `did:key:vda-${agentId}-${companyId}`;
-      const mandate = await issueMandate({ agentId, companyId, agentDid, phase: "walk" });
-      mandateId = mandate.mandateId;
-    } catch (mandateErr) {
-      logger.warn({ mandateErr }, "[Mandate] Failed to issue walk mandate — non-fatal");
-    }
 
     logger.info({ agentId, companyId, promotedBy, mandateId }, "[Activation] Agent promoted to walk");
     return res.json({ ok: true, agentId, companyId, phase: "walk", promotedBy, mandateId });
   } catch (err) {
     logger.error({ err }, "dashboard/activation/promote-to-walk error");
     return res.status(500).json({ error: "Failed to promote to walk" });
+  }
+});
+
+// ─── POST /api/dashboard/activation/:agentId/promote-to-run ──────────────────
+
+router.post("/dashboard/activation/:agentId/promote-to-run", async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { companyId, promotedBy = "Hotel GM" } = req.body as { companyId: number; promotedBy?: string };
+
+    if (!agentId || companyId == null) {
+      return res.status(400).json({ error: "agentId (path) and companyId (body) are required" });
+    }
+
+    // Gate 1: current phase must be 'walk'
+    const currentPhaseRows = await db
+      .select({ phase: agentPhases.phase })
+      .from(agentPhases)
+      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)))
+      .limit(1);
+
+    if (!currentPhaseRows[0]) {
+      return res.status(409).json({ error: "Agent has no active phase for this company" });
+    }
+    if (currentPhaseRows[0].phase !== "walk") {
+      return res.status(409).json({ error: `Cannot promote to run — current phase is '${currentPhaseRows[0].phase}' (must be 'walk')` });
+    }
+
+    // Gate 2: no pending (undecided) HITL tokens for this agent+company
+    const pendingHitlResult = await db
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(hitlTokens)
+      .where(
+        and(
+          eq(hitlTokens.agentId, agentId),
+          eq(hitlTokens.companyId, companyId),
+          isNull(hitlTokens.decidedAt)
+        )
+      );
+
+    const pendingCount = pendingHitlResult[0]?.count ?? 0;
+    if (pendingCount > 0) {
+      return res.status(409).json({
+        error: `Cannot promote to run — agent has ${pendingCount} pending HITL decision(s). Resolve all outstanding HITL cards before promotion.`,
+        pendingHitlCount: pendingCount,
+      });
+    }
+
+    // Issue AP2 Intent Mandate FIRST — before any DB writes.
+    // If issuance fails the outer catch returns 500 and no phase change is committed,
+    // ensuring Run phase agents always carry a valid signed authority token.
+    const agentDid = `did:key:vda-${agentId}-${companyId}`;
+    const mandate = await issueMandate({ agentId, companyId, agentDid, phase: "run" });
+    const mandateId = mandate.mandateId;
+    logger.info({ mandateId, agentId, companyId }, "[Mandate] Run-phase intent mandate issued");
+
+    // Mandate secured — now commit the phase promotion to the DB
+    await db
+      .update(agentPhases)
+      .set({ phase: "run", phaseChangedAt: new Date() })
+      .where(and(eq(agentPhases.agentId, agentId), eq(agentPhases.companyId, companyId)));
+
+    await db
+      .update(activationRequests)
+      .set({ status: "run", updatedAt: new Date() })
+      .where(and(eq(activationRequests.agentId, agentId), eq(activationRequests.companyId, companyId)));
+
+    // Write Witness entry recording both the promotion and the mandate issuance
+    await writeGovernanceEvent({
+      companyId,
+      agent: agentId,
+      eventCategory: "AGENT_LIFECYCLE",
+      decision: "PASS",
+      clauseApplied: "VDA-MD §8: Walk-to-Run promotion — agent demonstrated sustained autonomous competence across walk phase",
+      actionProposed: `Agent ${agentId} promoted from walk to run by ${promotedBy} at company ${companyId}`,
+      reasoning: `Walk-phase performance reviewed and approved. Agent cleared for full autonomous hotel-level operation. AP2 Intent Mandate issued: ${mandateId}.`,
+      fileReferenced: "VDA-MD Phase Lifecycle Protocol — Walk → Run Promotion",
+      apaleoData: { event_type: "agent_promoted_to_run", agent_id: agentId, company_id: companyId, promoted_by: promotedBy, mandate_id: mandateId },
+    });
+
+    logger.info({ agentId, companyId, promotedBy, mandateId }, "[Activation] Agent promoted to run");
+    return res.json({ ok: true, agentId, companyId, phase: "run", promotedBy, mandateId });
+  } catch (err) {
+    logger.error({ err }, "dashboard/activation/promote-to-run error");
+    return res.status(500).json({ error: "Failed to promote to run" });
   }
 });
 
@@ -1173,9 +1255,21 @@ router.post("/dashboard/activation/:agentId/cosign-run", async (req, res) => {
       });
     }
 
-    // Promote ALL companies for this agent from walk → run (portfolio-wide)
+    // Identify which companies need promoting from walk → run
     const walkCompanyIds = allPhaseRows.filter((p) => p.phase === "walk").map((p) => p.companyId);
 
+    // Issue AP2 Intent Mandates for EVERY company being promoted — BEFORE any DB writes.
+    // If any mandate fails the outer catch returns 500 and no phase changes are committed,
+    // ensuring every Run-phase row is backed by a valid signed authority token.
+    const issuedMandates: Array<{ companyId: number; mandateId: string }> = [];
+    for (const cid of walkCompanyIds) {
+      const agentDid = `did:key:vda-${agentId}-${cid}`;
+      const mandate = await issueMandate({ agentId, companyId: cid, agentDid, phase: "run" });
+      issuedMandates.push({ companyId: cid, mandateId: mandate.mandateId });
+      logger.info({ mandateId: mandate.mandateId, agentId, companyId: cid }, "[Mandate] Run-phase intent mandate issued (portfolio co-sign)");
+    }
+
+    // All mandates secured — now commit the phase promotions to the DB
     if (walkCompanyIds.length > 0) {
       await db
         .update(agentPhases)
@@ -1188,7 +1282,12 @@ router.post("/dashboard/activation/:agentId/cosign-run", async (req, res) => {
         .where(and(eq(activationRequests.agentId, agentId), inArray(activationRequests.companyId, walkCompanyIds)));
     }
 
-    // Write portfolio-wide governance witness
+    // The mandateId for the requesting company (used as the primary reference in the response)
+    const requestingMandate = issuedMandates.find((m) => m.companyId === companyId);
+    const mandateId = requestingMandate?.mandateId ?? issuedMandates[0]?.mandateId ?? null;
+    const mandateMap = Object.fromEntries(issuedMandates.map((m) => [m.companyId, m.mandateId]));
+
+    // Write portfolio-wide governance witness recording mandate issuance
     await writeGovernanceEvent({
       companyId,
       agent: agentId,
@@ -1196,7 +1295,7 @@ router.post("/dashboard/activation/:agentId/cosign-run", async (req, res) => {
       decision: "PASS",
       clauseApplied: "VDA-MD §8: Operations Chief portfolio co-sign — agent cleared for full autonomous Run-phase operation across all hotels",
       actionProposed: `Agent ${agentId} portfolio co-signed to run by ${coSignedBy} — ${walkCompanyIds.length} hotel(s) promoted, ${allPhaseRows.length} total in portfolio`,
-      reasoning: "All portfolio hotels verified at walk or run phase. Operations Chief co-sign promotes entire portfolio to autonomous Run-phase.",
+      reasoning: `All portfolio hotels verified at walk or run phase. Operations Chief co-sign promotes entire portfolio to autonomous Run-phase. AP2 Intent Mandates issued for ${issuedMandates.length} hotel(s): ${issuedMandates.map((m) => `company ${m.companyId} → ${m.mandateId}`).join("; ") || "none (all already at run)"}.`,
       fileReferenced: "VDA-MD Phase Lifecycle Protocol — Walk → Run Portfolio Co-sign",
       apaleoData: {
         event_type: "agent_portfolio_cosigned_to_run",
@@ -1204,26 +1303,18 @@ router.post("/dashboard/activation/:agentId/cosign-run", async (req, res) => {
         co_signed_by: coSignedBy,
         hotels_promoted: walkCompanyIds,
         total_portfolio_hotels: allPhaseRows.length,
+        mandate_ids: mandateMap,
       },
     });
 
-    // Issue run mandate for the requesting company
-    let mandateId: string | null = null;
-    try {
-      const agentDid = `did:key:vda-${agentId}-${companyId}`;
-      const mandate = await issueMandate({ agentId, companyId, agentDid, phase: "run" });
-      mandateId = mandate.mandateId;
-    } catch (mandateErr) {
-      logger.warn({ mandateErr }, "[Mandate] Failed to issue run mandate — non-fatal");
-    }
-
-    logger.info({ agentId, hotelsPromoted: walkCompanyIds.length, coSignedBy, mandateId }, "[Activation] Agent portfolio co-signed to run");
+    logger.info({ agentId, hotelsPromoted: walkCompanyIds.length, coSignedBy, mandatesIssued: issuedMandates.length }, "[Activation] Agent portfolio co-signed to run");
     return res.json({
       ok: true,
       agentId,
       phase: "run",
       coSignedBy,
       mandateId,
+      mandateIds: mandateMap,
       hotelsPromoted: walkCompanyIds.length,
       totalPortfolioHotels: allPhaseRows.length,
     });

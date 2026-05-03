@@ -6877,6 +6877,9 @@ function CrawlProgressDashboard({ agentSlug, companyId, onPromoted }) {
   const [loading, setLoading] = useState(true);
   const [showPromote, setShowPromote] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [promotionSucceeded, setPromotionSucceeded] = useState(false);
+  const [promotedMandateId, setPromotedMandateId] = useState(null);
+  const [promoteError, setPromoteError] = useState(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -6890,13 +6893,21 @@ function CrawlProgressDashboard({ agentSlug, companyId, onPromoted }) {
 
   const promote = async () => {
     setPromoting(true);
+    setPromoteError(null);
     try {
       const r = await fetch(`/api/dashboard/activation/${agentSlug}/promote-to-walk`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyId, promotedBy: "Hotel GM" }),
       });
-      if (r.ok) { setShowPromote(false); onPromoted?.(); }
-    } catch {}
+      const d = await r.json();
+      if (r.ok) {
+        setPromotionSucceeded(true);
+        setPromotedMandateId(d.mandateId ?? null);
+        onPromoted?.();
+      } else {
+        setPromoteError(d.error ?? "Promotion failed");
+      }
+    } catch { setPromoteError("Network error"); }
     setPromoting(false);
   };
 
@@ -6944,14 +6955,36 @@ function CrawlProgressDashboard({ agentSlug, companyId, onPromoted }) {
       {showPromote && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 8000, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: T.card, border: `1px solid ${T.green}40`, borderRadius: 14, padding: 28, width: 440, maxWidth: "92vw" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 8 }}>Promote to Walk Phase</div>
-            <p style={{ fontSize: 12, color: T.muted, lineHeight: 1.6, marginBottom: 20 }}>All exception classes baselined. Walk phase grants limited autonomous authority (≤10% discount, ≤€150 refund, ≤€500 folio charge). A Witness entry and Intent Mandate will be issued.</p>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setShowPromote(false)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#1e2229", color: T.dim, border: `1px solid ${T.border}`, fontSize: 13, cursor: "pointer" }}>Cancel</button>
-              <button onClick={promote} disabled={promoting} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#14532d", color: T.green, border: `1px solid ${T.green}`, fontSize: 13, fontWeight: 700, cursor: promoting ? "not-allowed" : "pointer" }}>
-                {promoting ? "Promoting…" : "✓ Confirm Walk Promotion"}
-              </button>
-            </div>
+            {promotionSucceeded ? (
+              <>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.green, marginBottom: 8 }}>✓ Promoted to Walk Phase</div>
+                <p style={{ fontSize: 12, color: T.muted, lineHeight: 1.6, marginBottom: 12 }}>Agent is now operating in Walk phase with cryptographically-signed spending authority.</p>
+                <div style={{ background: "#0d1f0d", border: `1px solid ${T.green}40`, borderRadius: 8, padding: "10px 14px", marginBottom: 20 }}>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.07em" }}>Intent Mandate ID</div>
+                  {promotedMandateId
+                    ? <div style={{ fontSize: 11, color: T.green, fontFamily: T.mono, wordBreak: "break-all" }}>{promotedMandateId}</div>
+                    : <div style={{ fontSize: 11, color: "#f97316", fontFamily: T.mono }}>Mandate ID unavailable — check server logs</div>
+                  }
+                </div>
+                <button onClick={() => { setShowPromote(false); setPromotionSucceeded(false); setPromotedMandateId(null); }} style={{ width: "100%", padding: "10px 0", borderRadius: 8, background: "#14532d", color: T.green, border: `1px solid ${T.green}`, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  Done
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 8 }}>Promote to Walk Phase</div>
+                <p style={{ fontSize: 12, color: T.muted, lineHeight: 1.6, marginBottom: 20 }}>All exception classes baselined. Walk phase grants limited autonomous authority (≤10% discount, ≤€150 refund, ≤€500 folio charge). A Witness entry and Intent Mandate will be issued.</p>
+                {promoteError && (
+                  <div style={{ fontSize: 12, color: "#f87171", background: "#450a0a40", border: "1px solid #f8717140", borderRadius: 6, padding: "8px 10px", marginBottom: 14 }}>✗ {promoteError}</div>
+                )}
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => { setShowPromote(false); setPromoteError(null); }} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#1e2229", color: T.dim, border: `1px solid ${T.border}`, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={promote} disabled={promoting} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#14532d", color: T.green, border: `1px solid ${T.green}`, fontSize: 13, fontWeight: 700, cursor: promoting ? "not-allowed" : "pointer" }}>
+                    {promoting ? "Promoting…" : "✓ Confirm Walk Promotion"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -10641,7 +10674,8 @@ function AgentOnboardingTab({ companyId, companyName, role = "hotel_gm", onRoleC
                 });
                 const d = await r.json();
                 if (r.ok) {
-                  setCrawlMsg(p => ({ ...p, [req.id]: { ok: true, text: `Promoted to Walk phase` } }));
+                  const mandateLabel = d.mandateId ? ` · Mandate: ${d.mandateId}` : "";
+                  setCrawlMsg(p => ({ ...p, [req.id]: { ok: true, text: `Promoted to Walk phase${mandateLabel}` } }));
                   await fetchCrawlStatus(agentSlug);
                 } else {
                   setCrawlMsg(p => ({ ...p, [req.id]: { ok: false, text: d.error ?? "Promote failed" } }));
