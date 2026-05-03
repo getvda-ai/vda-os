@@ -6039,9 +6039,10 @@ function GovernanceFileReview({ agentSlug, onNext, onFilesLoaded }) {
 function SandboxEvaluation({ requestId, onNext, onSandboxRun }) {
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState(null);
+  const [threshold, setThreshold] = useState(null); // loaded from backend policy
   const [error, setError] = useState(null);
   const passRate = results ? results.filter(r => r.passed).length / results.length : null;
-  const THRESHOLD = 0.6;
+  const THRESHOLD = threshold ?? 0.6; // fallback only if policy not yet loaded
   const canProceed = passRate !== null && passRate >= THRESHOLD;
 
   const runSandbox = async () => {
@@ -6052,7 +6053,11 @@ function SandboxEvaluation({ requestId, onNext, onSandboxRun }) {
       const r = await fetch(`/api/onboarding/${requestId}/run-sandbox`, { method: "POST" });
       const d = await r.json();
       if (!r.ok) setError(d.error || "Sandbox failed");
-      else { setResults(d.results || []); onSandboxRun?.(ts); }
+      else {
+        setResults(d.results || []);
+        if (d.threshold != null) setThreshold(d.threshold);
+        onSandboxRun?.(ts);
+      }
     } catch { setError("Network error"); }
     finally { setRunning(false); }
   };
@@ -6856,6 +6861,76 @@ function CrawlProgressDashboard({ agentSlug, companyId, onPromoted }) {
   );
 }
 
+// ─── Track2CompanyRow — per-hotel CWR activation row ─────────────────────────
+// Shows admitted agents per hotel with PreCrawlConfirmation or CrawlProgressDashboard
+// depending on the agent's current phase for this company.
+function Track2CompanyRow({ company, name, admittedAgents, agentPhases, onOpenHub, onRefresh }) {
+  const [expanded, setExpanded] = useState(false);
+  const crawlCount = Object.values(agentPhases).filter(p => p === "crawl").length;
+  const walkCount = Object.values(agentPhases).filter(p => p === "walk").length;
+  const runCount = Object.values(agentPhases).filter(p => p === "run").length;
+  const totalActivated = crawlCount + walkCount + runCount;
+
+  return (
+    <div style={{ borderBottom: `1px solid ${T.border}10` }}>
+      {/* Company header row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 20px", cursor: "pointer" }} onClick={() => setExpanded(p => !p)}>
+        <span style={{ fontSize: 12, color: T.dim }}>{expanded ? "▼" : "▶"}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+          <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginTop: 2 }}>
+            {totalActivated === 0
+              ? `${admittedAgents.length} agent${admittedAgents.length !== 1 ? "s" : ""} admitted — click to activate`
+              : `${crawlCount ? `🟡 ${crawlCount} crawl ` : ""}${walkCount ? `🔵 ${walkCount} walk ` : ""}${runCount ? `🟢 ${runCount} run` : ""}`.trim()}
+          </div>
+        </div>
+        <button onClick={e => { e.stopPropagation(); onOpenHub(); }} style={{ padding: "4px 10px", borderRadius: 5, fontSize: 10, fontFamily: T.mono, fontWeight: 700, background: "#1e2229", border: `1px solid ${T.border}`, color: T.dim, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
+          Hub →
+        </button>
+      </div>
+
+      {/* Expanded: per-agent activation state */}
+      {expanded && (
+        <div style={{ borderTop: `1px solid ${T.border}20`, background: "#0a0c10", padding: "8px 14px 12px" }}>
+          {admittedAgents.length === 0 ? (
+            <div style={{ fontSize: 11, color: T.dim, padding: "8px 0" }}>No admitted agents — complete Track 1 first.</div>
+          ) : admittedAgents.map(agent => {
+            const phase = agentPhases[agent.slug] ?? null;
+            return (
+              <div key={agent.slug} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+                  <span style={{ fontSize: 13 }}>{agent.icon}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{agent.name}</span>
+                  <span style={{ fontSize: 10, fontFamily: T.mono, color: phase ? { crawl: T.amber, walk: T.blue, run: T.green }[phase] || T.dim : T.dim }}>
+                    {phase ? phase.toUpperCase() : "Not started"}
+                  </span>
+                </div>
+                {!phase ? (
+                  <PreCrawlConfirmation
+                    agentSlug={agent.slug}
+                    companyId={company.id}
+                    onCrawlEnabled={onRefresh}
+                  />
+                ) : phase === "crawl" ? (
+                  <CrawlProgressDashboard
+                    agentSlug={agent.slug}
+                    companyId={company.id}
+                    onPromoted={onRefresh}
+                  />
+                ) : (
+                  <div style={{ padding: "8px 12px", background: "#0d1f0d", border: `1px solid ${T.green}30`, borderRadius: 7, fontSize: 11, color: T.green }}>
+                    ✓ {phase.charAt(0).toUpperCase() + phase.slice(1)} phase active
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── OnboardingConsole — three-track starting screen ─────────────────────────
 function OnboardingConsole({ onLoadHotel }) {
   const [requests, setRequests] = useState(null);
@@ -6868,7 +6943,7 @@ function OnboardingConsole({ onLoadHotel }) {
   const loadAll = useCallback(async () => {
     try {
       const [reqRes, compRes] = await Promise.all([
-        fetch("/api/onboarding").then(r => r.json()),
+        fetch("/api/onboarding?role_band=compliance_officer").then(r => r.json()),
         fetch("/api/companies").then(r => r.json()),
       ]);
       setRequests(reqRes.requests || []);
@@ -7015,24 +7090,19 @@ function OnboardingConsole({ onLoadHotel }) {
                   <div style={{ fontSize: 11 }}>Admit at least 1 agent to unlock hotel operations</div>
                 </div>
               ) : (companies || []).map(company => {
-                const ag = phaseMap[company.id] || {};
-                const vals = Object.values(ag);
-                const crawl = vals.filter(p => p === "crawl").length;
-                const walk = vals.filter(p => p === "walk").length;
-                const run = vals.filter(p => p === "run").length;
+                const admittedAgents = walkthroughAgents.filter(a => ["admitted","onboarded"].includes(a.status || ""));
+                const agentPhases = phaseMap[company.id] || {};
                 const name = company.companyName || company.name || `Company ${company.id}`;
                 return (
-                  <div key={company.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 20px", borderBottom: `1px solid ${T.border}10` }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                      <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginTop: 2 }}>
-                        {vals.length === 0 ? "No agents activated" : `${crawl ? `🟡 ${crawl}c ` : ""}${walk ? `🔵 ${walk}w ` : ""}${run ? `🟢 ${run}r` : ""}`}
-                      </div>
-                    </div>
-                    <button onClick={() => onLoadHotel(company)} style={{ padding: "5px 12px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#1e2229", border: `1px solid ${T.border}`, color: T.dim, cursor: "pointer", whiteSpace: "nowrap" }}>
-                      Open Hub →
-                    </button>
-                  </div>
+                  <Track2CompanyRow
+                    key={company.id}
+                    company={company}
+                    name={name}
+                    admittedAgents={admittedAgents}
+                    agentPhases={agentPhases}
+                    onOpenHub={() => onLoadHotel(company)}
+                    onRefresh={() => setRefreshKey(k => k + 1)}
+                  />
                 );
               })}
           </div>

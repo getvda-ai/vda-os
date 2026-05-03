@@ -66,7 +66,7 @@ export default function DecisionCard({
   const exceptionClass = dataContext?.exception_class ?? null;
   // Baseline checkbox shows on operational_exception cards in crawl phase (not on plain ESCALATE).
   // cardType is sourced directly from the HITL token.cardType which is "operational_exception".
-  const isOperationalCrawl = cardType === "operational_exception" && currentPhase === "crawl" && exceptionClass;
+  const isOperationalCrawl = currentPhase === "crawl" && !!exceptionClass;
 
   const agentLabel = (agentId ?? "Unknown Agent")
     .replace(/-/g, " ")
