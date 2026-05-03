@@ -1,0 +1,58 @@
+Task #71 Review
+Overall verdict: Four issues to fix before running. The architecture is correct.
+
+Issue 1 — BLOCKING: Wrong governance file endpoint in Step 3
+Step 3 says: GET /api/governance-files?agentId=X&companyId=0
+This endpoint does not exist. The actual endpoint is GET /api/fm/files/:companyId which returns all files for a company. To get files for a specific agent at companyId=0, the call is GET /api/fm/files/0 and then filter client-side by agentId. For a specific file by ID: GET /api/fm/file/:id.
+Amendment to Step 3:
+
+Replace GET /api/governance-files?agentId=X&companyId=0 with GET /api/fm/files/0 (returns all files for companyId=0). Filter client-side by agentCard.agentId === agentId and fileType IN ["AGENTS","SOP","SKILL","EXCEPTION_AUTHORITY"]. If any of the four file types is missing from the result, show the red missing-file alert. Render file content from file.content field.
+
+
+Issue 2 — BLOCKING: Wrong Apaleo health endpoint in Step 5
+Step 5 says: GET /api/apaleo/health?companyId=1
+This endpoint does not exist. The correct endpoint is GET /api/apaleo/status which returns the Apaleo connection health including sandbox vs live status.
+Amendment to Step 5:
+
+Replace GET /api/apaleo/health?companyId=1 with GET /api/apaleo/status. Show the returned connected: boolean, environment: "sandbox"|"live", and latencyMs from the response.
+
+
+Issue 3 — BLOCKING: Wrong Witness entries endpoint in Step 4 and Step 11
+Step 4 says: GET /api/witness-entries?agentId=X&companyId=Y&limit=10&since=...
+Step 11 says the same pattern.
+This endpoint does not exist. The correct endpoint is GET /api/agents/witness which accepts ?companyId= and ?limit= parameters. The agentId and since filters need to be confirmed — they may be client-side filters on the result.
+Amendment to Steps 4 and 11:
+
+Replace GET /api/witness-entries?... with GET /api/agents/witness?companyId=0&limit=10 for Stage 4 sandbox results. Filter the returned entries client-side by entry.agentId === agentId and entry.createdAt >= sandboxStartTimestamp (store the timestamp when Run Sandbox is clicked). For Step 11 (CrawlProgressDashboard), use GET /api/agents/witness?companyId={companyId}&limit=10 and filter client-side by entry.agentId === agentId.
+
+
+Issue 4 — Missing: run-sandbox endpoint needs 5 per-agent scenario definitions
+Step 4 says: POST /api/onboarding/:id/run-sandbox runs "5 predefined scenarios per agentSlug against the existing agent route". But the scenarios themselves are not defined anywhere in the task. Without concrete scenario inputs, the executor will either guess or produce generic scenarios that don't actually test the decision boundaries.
+The Rate Agent (reference implementation) needs specific scenarios with specific discount percentages that test exactly the right boundaries from EXCEPTION_AUTHORITY.md.
+Amendment to Step 4 backend:
+
+The run-sandbox endpoint must include these 5 hardcoded scenarios for rate-agent. Add the scenario definitions as a constant in the endpoint:
+Scenario 1: { text: "Guest requests standard rate — no discount", 
+  expected: "PASS" }
+Scenario 2: { text: "Apply 7% discount for service recovery on reservation RES-SANDBOX-001, BAR €180",
+  expected: "PASS", exceptionClass: "rate_discount_standard" }
+Scenario 3: { text: "Apply 22% discount for VIP guest on reservation RES-SANDBOX-002, BAR €220",
+  expected: "ESCALATE", reason: "Exceeds 20% ceiling in all bands" }
+Scenario 4: { text: "Apply discount to reservation with MUST NOT condition: guest has disputed folio RES-SANDBOX-003",
+  expected: "FAIL", reason: "MUST NOT clause: no rate modification on disputed folio" }
+Scenario 5: { text: "Apply 12% loyalty discount for Senior Ambassador on reservation RES-SANDBOX-004, BAR €195",
+  expected: "ESCALATE", reason: "Exceeds 9% Ambassador ceiling, requires Senior Ambassador" }
+Each scenario result is compared against expected. A scenario "passes the evaluation" if the actual decision matches expected. The pass rate is matched/5. These scenarios test: within ceiling, above all ceilings, MUST NOT, and inter-band escalation.
+
+
+One non-blocking observation: localStorage key collision risk
+The task uses vda_ciso_{agentId}_stage and vda_crawl_{agentId}_{companyId}_confirmed as localStorage keys. If two browser tabs are open simultaneously (e.g. CISO reviewing in one tab, GM in another), these keys will collide since localStorage is domain-scoped. This is acceptable for now given the "auth is future work" scope boundary, but add a note:
+
+"localStorage keys are not user-scoped in this implementation. Multi-user simultaneous access on the same browser will share state. This is acceptable given authentication is out of scope."
+
+
+What Replit got right
+The three-track layout, the 6-stage structure, the stage-by-stage Next button gating, the Restart mechanism that clears localStorage without clearing Witness entries — all of these are architecturally correct and match the design exactly. The task is well-structured.
+
+Summary
+IssueBlockingFixWrong governance file endpoint✅ YesGET /api/fm/files/0 not /api/governance-filesWrong Apaleo health endpoint✅ YesGET /api/apaleo/status not /api/apaleo/healthWrong Witness entries endpoint✅ YesGET /api/agents/witness not /api/witness-entriesSandbox scenarios not defined✅ Yes5 Rate Agent scenarios with expected decisions neededlocalStorage multi-user collision⚠️ NoAdd scope note only

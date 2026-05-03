@@ -1,0 +1,690 @@
+#68 — VDA-MD Starting Experience: CISO-First Onboarding with 
+      Stage-by-Stage Walkthrough
+
+What & Why
+The current platform drops a first-time CISO into a Command Centre that 
+shows hotels and agents with no explanation of what has been validated, 
+what needs to happen before anything can run, or what order to do it in.
+
+The real problem: compliance is not provable from the current UI. A CISO 
+needs to see — stage by stage — what each agent does, what it can and 
+cannot do, what it outputs in Apaleo, what the Witness Agent records, and 
+then sign it off. Only after that sign-off does the Hotel GM see anything.
+
+This task replaces the starting screen with a three-track onboarding 
+console that enforces the correct sequence:
+
+  Track 1  CISO: VDA Native Agent Admission
+           One agent at a time. Stage-by-stage walkthrough. Fully 
+           observable. Restartable. CISO signs off each agent before 
+           Hotel GM can touch it.
+
+  Track 2  Hotel: Crawl → Walk → Run  
+           One agent at a time. One hotel at a time for crawl. 
+           Exception confirmation from EXCEPTION_AUTHORITY.md before 
+           crawl starts. HITL loop by role during crawl. Baseline 
+           checkbox converts observed exceptions into standing permissions.
+
+  Track 3  A2A External Agent Admission
+           Same CISO-first admission flow as Track 1, then Hotel CWR.
+
+The starting screen IS the governance proof. When a CISO has completed 
+Track 1 for an agent, every step they took is in the Witness Agent trail.
+That trail is the EU AI Act Article 17 documentation.
+
+──────────────────────────────────────────────────────────────────────
+THE STARTING SCREEN LAYOUT
+──────────────────────────────────────────────────────────────────────
+
+This replaces the current Command Centre as the FIRST screen any user 
+sees. Role-aware: what you see depends on who you are.
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  VDA-MD · AI Governance for Apaleo            [role selector]       │
+│  "Before an AI agent touches a guest, it has to earn the right."    │
+├──────────────────┬──────────────────┬──────────────────────────────┤
+│  TRACK 1         │  TRACK 2         │  TRACK 3                     │
+│  VDA Agent       │  Hotel           │  External A2A                │
+│  Admission       │  Activation      │  Admission                   │
+│  (CISO)          │  (Hotel GM)      │  (CISO → Hotel GM)           │
+│                  │                  │                              │
+│  8 agents        │  0 agents        │  1 agent                     │
+│  0 admitted      │  activated       │  awaiting CO                 │
+│  8 pending CO    │                  │                              │
+│                  │                  │                              │
+│  [Start →]       │  [Locked]        │  [Start →]                   │
+│                  │  Until ≥1 agent  │                              │
+│                  │  admitted        │                              │
+└──────────────────┴──────────────────┴──────────────────────────────┘
+
+Track 2 is locked (greyed, no click) until at least one VDA native agent 
+has been admitted through Track 1. This is enforced server-side and UI.
+
+Track 3 is always accessible — external agents can be reviewed by CISO 
+at any time, independently of Track 1.
+
+For Hotel GM role: Track 1 column shows admission status only (read-only),
+  Track 2 is the active panel.
+For Ambassador/Senior Ambassador: Track 2 shows crawl HITL queue only.
+For Operations Chief: Track 2 shows portfolio Run co-sign status.
+For Compliance Officer: All three tracks fully accessible.
+
+──────────────────────────────────────────────────────────────────────
+TRACK 1: CISO VDA NATIVE AGENT ADMISSION WALKTHROUGH
+──────────────────────────────────────────────────────────────────────
+
+Clicking "Start →" on Track 1 opens the CISO Walkthrough for the first 
+unadmitted agent. This is a full-screen stage-by-stage flow.
+
+AGENT SELECTOR
+  Top bar shows all 8 VDA native agents as tabs:
+    Availability Agent  Rate Agent  Reservation Bot  Check-In Agent
+    Folio Agent  Folio Charge Agent  Checkout Agent  Revenue Reconciliation
+  Each tab shows status badge: ⏳ Pending  ✅ Admitted  ❌ Rejected
+  CISO can jump to any agent. Progress is saved per agent.
+  
+  First time: Rate Agent is pre-selected (the reference implementation).
+
+STAGE STRUCTURE
+  Each agent has 6 stages. A persistent left sidebar shows all stages 
+  with completion status. Each stage has:
+    - Stage content (read-only display of evidence)
+    - A confirmation checkbox: "I have reviewed this stage"
+    - A [Next →] button (disabled until checkbox is checked)
+    - A [Restart this agent] button (always visible, resets all stages 
+      for this agent, clears any partial admission state)
+  Progress is persisted in localStorage keyed by agentId so browser 
+  refresh does not lose position.
+
+─────────────────────────────
+STAGE 1: GOVERNANCE FILES
+─────────────────────────────
+Title: "What this agent is, and what it is not allowed to do"
+
+Left column — File viewer (tabbed):
+  [AGENTS.md] [SOP.md] [SKILL.md] [EXCEPTION_AUTHORITY.md]
+  Full file content rendered as formatted markdown.
+  Fetched from: GET /api/governance-files?agentId=rate-agent&companyId=0
+  If any file is missing: red warning "File missing — cannot proceed"
+  
+Right column — Compliance summary:
+  MUST clauses count: N  (green if ≥ minimum from onboarding-policy.md)
+  MUST NOT clauses count: N
+  MAY clauses count: N
+  NIST controls referenced: [AC-2, SI-12, ...]
+  ISO 42001 citations: N
+  Exception authority per band:
+    Ambassador:        ceiling [value] [type]  authority [autonomous/hitl]
+    Senior Ambassador: ceiling [value] [type]  authority [autonomous/hitl]
+    Hotel GM:          ceiling [value] [type]  authority [hitl_required]
+    ...
+
+Confirmation checkbox: "I have read the governance files and the exception 
+  authority ceilings are acceptable for this agent."
+
+[Next →]
+
+─────────────────────────────
+STAGE 2: SANDBOX EVALUATION
+─────────────────────────────
+Title: "Watch the agent run 5 test scenarios"
+
+Explanation: "The agent will now run against 5 pre-defined scenarios using 
+  live Apaleo sandbox data. No reservations will be created or modified. 
+  Each scenario tests a different decision boundary."
+
+[Run Sandbox Evaluation] button
+  Calls: POST /api/onboarding/:id/run-sandbox
+  Shows live progress as scenarios run (streaming or polling):
+  
+  Scenario 1: Standard availability query — expected PASS
+  Scenario 2: 8% rate discount request — expected PASS (within ceiling)
+  Scenario 3: 22% rate discount request — expected ESCALATE (above ceiling)
+  Scenario 4: Rate request with MUST NOT condition — expected FAIL
+  Scenario 5: Cross-property rate with no authority — expected ESCALATE
+
+  Each scenario shows:
+    Input: what was asked
+    Governance files consulted: [AGENTS.md ✓] [SOP.md ✓] [SKILL.md ✓]
+    Decision: PASS / FAIL / ESCALATE (with colour)
+    Governance clause that applied (quoted from the file)
+    Witness entry ID written: #NNN
+
+Pass rate shown at bottom: X/5 passed correctly.
+If pass rate < threshold from onboarding-policy.md: red warning, 
+  Next button disabled. "Re-run to try again."
+If pass rate ≥ threshold: green confirmation.
+
+Confirmation checkbox: "I have reviewed all 5 scenarios and the agent's 
+  decisions are correct."
+
+[Next →]
+
+─────────────────────────────
+STAGE 3: APALEO CRUD REVIEW
+─────────────────────────────
+Title: "What this agent reads and writes in Apaleo"
+
+Two columns:
+
+Left — READ operations:
+  API endpoints this agent calls (from SKILL.md):
+    GET /api/v1/inventory/v0/...  "Availability lookup"
+    GET /api/v1/rateplan/v0/...   "Rate plan retrieval"
+    ...
+  Apaleo permission required: [read:property] [read:rate] ...
+  
+Right — WRITE operations:
+  API endpoints this agent writes to (from AGENTS.md MUST clauses):
+    [NONE in crawl phase]
+    [In walk phase: POST /api/v1/reservations/...  "Rate override"]
+  Data classification: GDPR Article 5 compliance status
+  PII fields accessed: guestId, email (read-only)
+  PII fields written: none in crawl
+
+Live sandbox read test:
+  [Test Apaleo Connection] button
+  Calls: POST /api/onboarding/:id/test-apaleo-read
+  Shows: actual API response snippet (anonymised), latency, success/fail
+
+Confirmation checkbox: "I understand what data this agent reads and writes 
+  in Apaleo, and this is within acceptable scope."
+
+[Next →]
+
+─────────────────────────────
+STAGE 4: WITNESS AGENT REVIEW
+─────────────────────────────
+Title: "What gets recorded in the audit trail"
+
+Explanation: "Every decision this agent makes creates an immutable Witness 
+  Agent entry. Here is what a real entry looks like from the sandbox run."
+
+Shows the last 5 Witness entries created by this agent during Stage 2:
+  Entry #NNN
+    Agent: rate-agent
+    Decision: PASS
+    Action: 8% discount applied
+    Governance source: SOP.md clause 4.2
+    Exception class: rate_discount_standard
+    Ceiling applied: 9% below BAR
+    Authority: autonomous
+    Apaleo reservation: [sandbox ID]
+    Timestamp: [ISO]
+    Hash: [first 12 chars]
+
+Side panel — Compliance mapping:
+  EU AI Act Article 13 (Transparency): ✅ decision reasoning logged
+  EU AI Act Article 14 (Human oversight): ✅ HITL gate defined for ceiling breach
+  EU AI Act Article 17 (Quality management): ✅ audit trail maintained
+  SOC 2 Type II System Description: auto-generated on demand
+  [Download SOC 2 excerpt] button
+
+Confirmation checkbox: "The audit trail captures sufficient information for 
+  compliance reporting."
+
+[Next →]
+
+─────────────────────────────
+STAGE 5: EXCEPTION AUTHORITY CONFIRMATION
+─────────────────────────────
+Title: "Confirm what each role can approve autonomously"
+
+Explanation: "Before this agent runs at any hotel, you must confirm the 
+  exception authority ceilings are correct. These values come from 
+  EXCEPTION_AUTHORITY.md and can only be changed by editing the file."
+
+One card per role band:
+
+  ┌────────────────────────────────────────────────────────┐
+  │ AMBASSADOR BAND                                        │
+  │ ─────────────────────────────────────────────────────  │
+  │ rate_discount_standard                                 │
+  │ "Apply a rate discount for service recovery"           │
+  │ Ceiling: 9% below BAR  |  Authority: Autonomous       │
+  │ If exceeded: escalates to senior_ambassador            │
+  │                                                        │
+  │ ☐ I confirm this ceiling is correct for ambassadors   │
+  └────────────────────────────────────────────────────────┘
+
+  [similar card for Senior Ambassador, Hotel GM, Regional GM, CO]
+
+Each exception class card has an individual confirm checkbox.
+All cards must be individually confirmed.
+
+Important note shown in red:
+  "These ceilings cannot be overridden during hotel crawl. If a ceiling 
+   needs changing, reject this agent, amend EXCEPTION_AUTHORITY.md, 
+   and restart the walkthrough."
+
+Confirmation checkbox: "I have confirmed all exception authority ceilings 
+  for all role bands."
+
+[Next →]
+
+─────────────────────────────
+STAGE 6: ADMIT OR REJECT
+─────────────────────────────
+Title: "Final decision"
+
+Summary panel — shows completion of Stages 1–5:
+  ✅ Stage 1: Governance files reviewed
+  ✅ Stage 2: Sandbox pass rate: 5/5
+  ✅ Stage 3: Apaleo CRUD scope confirmed
+  ✅ Stage 4: Witness audit trail verified
+  ✅ Stage 5: Exception authority ceilings confirmed
+
+Declaration text (non-editable):
+  "I, [CO name / role], confirm that Rate Agent has been reviewed in full 
+   against VDA-MD governance standards. The agent's governance files, 
+   operational scope, audit trail, and exception authority are acceptable 
+   for deployment at citizenM properties. This admission is recorded in 
+   the Witness Agent trail."
+
+Two actions:
+
+  [✅ Admit to Framework]  (green)
+    Calls: POST /api/onboarding/:id/admit
+    On success: 
+      - Stage 6 shows green "Admitted" confirmation
+      - Witness entry written: event_type="agent_admitted"
+      - Agent tab in top bar updates to ✅
+      - Toast: "Rate Agent admitted. Hotel GM can now enable crawl."
+    Returns to agent selector. Next unadmitted agent is pre-selected.
+
+  [❌ Reject] (red, opens modal)
+    Modal title: "Reject Rate Agent"
+    Mandatory reason field (textarea, min 20 chars)
+    [Confirm Rejection] button
+    Calls: POST /api/onboarding/:id/reject { reason }
+    On success:
+      - Witness entry written: event_type="agent_rejected", reason logged
+      - Agent tab updates to ❌
+      - Toast: "Rate Agent rejected. Amend governance files and restart."
+
+──────────────────────────────────────────────────────────────────────
+TRACK 2: HOTEL CRAWL → WALK → RUN
+──────────────────────────────────────────────────────────────────────
+
+Clicking Track 2 (Hotel GM or above) opens the Hotel Activation console.
+
+AGENT SELECTOR (same top-bar pattern as Track 1)
+  Shows only admitted agents. Non-admitted agents are not shown.
+  
+  For each admitted agent, shows per-hotel status dots:
+    BER  LND  MUC  PAR  VIE
+    Each dot: – (not started) | 🟡 crawl | 🔵 walk | 🟢 run
+
+HOTEL GM selects an agent and a hotel. Three sub-sections:
+
+─────────────────────────────
+PRE-CRAWL: EXCEPTION CONFIRMATION
+─────────────────────────────
+Before crawl can be enabled, Hotel GM must confirm the exceptions from 
+EXCEPTION_AUTHORITY.md that will trigger a HITL during crawl.
+
+Title: "Exceptions your staff will be asked to review during crawl"
+
+Explanation: "During crawl, the agent runs in shadow mode. When it wants 
+  to exercise an exception, your staff will see a decision card. Here 
+  are all the exception classes this agent may surface, organised by 
+  who reviews them."
+
+One section per front-line band:
+
+  AMBASSADOR QUEUE
+  ────────────────────────────────────────
+  rate_discount_standard
+  "Apply a rate discount for service recovery or guest retention"
+  Ceiling: 9% below BAR  |  When triggered: card in Ambassador queue
+  Staff will see: what the agent wants to do, the governance clause, 
+    and the option to approve once or authorise as baseline.
+
+  [☐ Understood — Ambassadors will receive these cards during crawl]
+
+  SENIOR AMBASSADOR QUEUE
+  ────────────────────────────────────────
+  rate_discount_extended
+  "Rate discount above 9% for loyalty or exceptional service recovery"
+  Ceiling: 15% below BAR  |  When triggered: card in SA queue
+  
+  [☐ Understood — Senior Ambassadors will receive these cards]
+
+  HOTEL GM QUEUE
+  ────────────────────────────────────────
+  rate_discount_exceptional  (hitl_required — always asks)
+  "Rate discount above 15% for exceptional circumstances"
+  Ceiling: 20% below BAR  |  Always surfaces for Hotel GM approval
+  Note: "hitl_required means this ALWAYS creates a card, even after 
+    crawl. The agent never acts autonomously on this class."
+  
+  [☐ Understood — I will receive cards for this exception class]
+
+All three boxes must be checked before "Enable Crawl" button appears.
+
+[Enable Crawl at Berlin]
+  Calls: POST /api/dashboard/activation/start
+  On success: crawl begins, shadow mode active
+
+─────────────────────────────
+CRAWL PHASE DASHBOARD
+─────────────────────────────
+Shows when phase = crawl for this agent + hotel.
+
+Left column — Progress:
+  Per-band exception class resolution:
+    Ambassador:        [██████░░░░] 2/4 resolved
+      rate_discount_standard    ✅ Baselined
+      minor_folio_adjustment    ⏳ 3 cards reviewed, not yet baselined
+      ...
+    Senior Ambassador: [░░░░░░░░░░] 0/2 resolved
+    Hotel GM:          N/A (hitl_required classes never baseline)
+
+  Overall: crawl complete when all front-line bands show 100%
+  
+Right column — Recent crawl decisions:
+  Live feed of last 10 decisions (auto-refreshing every 30s):
+    #201  PASS (autonomous)   "Availability query"           
+    #202  HITL → Ambassador   "8% discount request"          
+    #203  PASS (baselined)    "standard_checkout_fee_waiver" 
+
+  [View all in Witness Agent →]
+
+HITL CARDS (rendered in Ambassador/SA/GM dashboard during crawl):
+  Each card shows:
+    What the agent wants to do
+    Which EXCEPTION_AUTHORITY.md clause applies
+    The specific ceiling
+    The governance source file and clause number
+    
+    Two action buttons:
+      [Approve this instance]
+      [Approve + ✅ Authorise as baseline]
+      
+    When "Authorise as baseline" is selected, button label changes to:
+      [Approve + Authorise as baseline]
+    
+    Below the buttons (shown when baseline option selected):
+    ┌──────────────────────────────────────────────────────┐
+    │ ✅ This exception class will no longer appear in     │
+    │    your queue at citizenM Berlin.                    │
+    │    The agent will handle it autonomously.            │
+    │    You can revoke this at any time in Settings.      │
+    └──────────────────────────────────────────────────────┘
+
+  On submit with baseline=true:
+    Toast: "[exception_class] authorised as baseline — removed from queue"
+    Progress bar in crawl dashboard updates immediately
+
+PROMOTE TO WALK:
+  When crawlComplete = true:
+    Green banner in crawl dashboard: 
+      "All exception classes resolved. Rate Agent is ready for Walk at Berlin."
+    [Promote to Walk at Berlin] button (Hotel GM only)
+    On click: confirmation modal showing summary of what was baselined
+    On confirm: phase = walk, Witness entry, London crawl unlock toast
+
+─────────────────────────────
+WALK PHASE
+─────────────────────────────
+Agent writes to Apaleo. All baselined classes autonomous.
+Non-baselined hitl_required classes still surface cards.
+Hotel GM sees second hotel crawl unlock: "Enable crawl at London →"
+Walk → Run promoted when all hotels at walk or above and 
+  Operations Chief co-signs.
+
+─────────────────────────────
+RUN PHASE
+─────────────────────────────
+All hotels active. Operations Chief portfolio co-sign required.
+Status shows on Command Centre right panel.
+
+──────────────────────────────────────────────────────────────────────
+TRACK 3: EXTERNAL A2A ADMISSION
+──────────────────────────────────────────────────────────────────────
+
+Same 6-stage CISO walkthrough as Track 1, with two differences:
+
+Stage 1 shows governance files generated by the 7-phase A2A pipeline 
+  (candidateFileGenerator output) rather than pre-seeded files.
+Stage 2 uses the existing sandbox evaluation from onboardingOrchestrator
+  (the passRate already computed in Phase 5).
+Stages 3–6 identical.
+
+After CISO admits the external agent, Hotel GM can enable crawl
+  identically to Track 2.
+
+External agents are shown separately in Track 3's agent selector.
+Current: "Apaleo Smart Pricing Agent — status: onboarded" shown 
+  as pre-existing (grey badge, skips Track 3 since already onboarded).
+
+──────────────────────────────────────────────────────────────────────
+Done looks like
+──────────────────────────────────────────────────────────────────────
+Starting screen shows three-track layout. Track 2 is locked until 
+  ≥1 VDA native agent is admitted.
+
+Track 1: Clicking Rate Agent "Start →" opens 6-stage walkthrough.
+  Stage 1 renders all 4 governance files with compliance summary.
+  Stage 2 runs 5 sandbox scenarios and shows pass/fail per scenario 
+    with governance clause and Witness entry ID.
+  Stage 3 shows READ/WRITE API scope from SKILL.md and AGENTS.md.
+  Stage 4 shows last 5 Witness entries from Stage 2 with EU AI Act mapping.
+  Stage 5 shows one card per exception class per band, each individually 
+    confirmable.
+  Stage 6 Admit button calls POST /api/onboarding/:id/admit and writes 
+    Witness entry. Reject requires mandatory reason.
+
+Progress persists across browser refresh (localStorage per agentId).
+[Restart this agent] resets all stages and clears localStorage.
+[Next →] disabled until confirmation checkbox checked.
+Each Next → click writes a Witness entry:
+  event_type: "ciso_stage_completed", stage: N, agentId, timestamp
+
+Track 2: Rate Agent appears after admission. Pre-crawl exception 
+  confirmation shows all EXCEPTION_AUTHORITY.md classes by band.
+  All band checkboxes must be checked before Enable Crawl appears.
+  Crawl dashboard shows per-band resolution progress.
+  HITL cards have Approve + Authorise as baseline checkbox.
+  Baseline write removes class from dashboard pending list immediately.
+  Promote to Walk available when crawlComplete = true.
+
+[Restart this agent] in Track 1 clears: admission status, all stage 
+  confirmations, localStorage progress. Does NOT clear Witness entries 
+  (audit trail is immutable). Sets onboarding_requests.status back to 
+  "pre_admitted".
+
+──────────────────────────────────────────────────────────────────────
+Out of scope
+──────────────────────────────────────────────────────────────────────
+Authentication / role enforcement via JWT (role passed as selector for now)
+Regional GM cross-property exception inheritance
+Automated sandbox scenario generation (5 scenarios are hardcoded per agent)
+Notification system for staff when crawl cards arrive in their queue
+The Apaleo write execution differences between crawl and walk (existing)
+
+──────────────────────────────────────────────────────────────────────
+Steps
+──────────────────────────────────────────────────────────────────────
+
+1. New starting screen component: OnboardingConsole
+   Replace the current Directory root with OnboardingConsole when no 
+   agents have phase="run" and no setup has been selected.
+   Once any setup is selected (hotel hub navigation), the existing 
+   Command Centre still works as before — OnboardingConsole is the 
+   zero-state and "return to start" screen only.
+   Three-column layout (equal width). Data sources:
+     Track 1: GET /api/onboarding?source=vda_native
+     Track 2: GET /api/dashboard/phases/portfolio
+     Track 3: GET /api/onboarding?source=a2a_external
+   Track 2 locked state: when Track 1 admitted count = 0.
+
+2. CISO Walkthrough component: CISOWalkthrough
+   New component in VdaOS.jsx. Full-screen modal overlay.
+   Props: agentId, onboardingRequestId, source ("vda_native" | "a2a_external")
+   State: currentStage (1–6), stageCompletions (bool[6]), 
+     sandboxResults, localStorage sync
+   Left sidebar: stage list with completion indicators
+   Main content: stage-specific render (see steps 3–8)
+   Top bar: agent selector tabs with status badges
+   Persistent [Restart this agent] button in top-right
+
+3. Stage 1 renderer: GovernanceFileReview
+   Fetch GET /api/governance-files?agentId=X&companyId=0 for all 4 files.
+   Tab switcher: AGENTS.md | SOP.md | SKILL.md | EXCEPTION_AUTHORITY.md
+   Right panel: parse and count MUST/MUST NOT/MAY clauses using existing 
+     compliance guard logic. Show NIST refs. Build ceiling table from 
+     EXCEPTION_AUTHORITY.md role_band sections.
+   Missing file: red alert, Next disabled, suggests running seed script.
+
+4. Stage 2 renderer: SandboxEvaluation
+   [Run Sandbox Evaluation] calls POST /api/onboarding/:id/run-sandbox
+   New backend endpoint in onboardingRollback.ts (or admin.ts):
+     Runs 5 predefined scenarios against the agent's route in agents.ts
+     Each scenario: POST /api/a2a/1/{agentSlug} with test payload
+     Records Witness entry per scenario
+     Returns: array of { scenario, input, decision, clause, witnessId, passed }
+   Frontend polls for result or uses response directly.
+   Renders per-scenario result rows with colour-coded decision badges.
+   Pass rate check against onboarding-policy.sandbox_pass_threshold.
+
+5. Stage 3 renderer: ApleoCRUDReview
+   Parse SKILL.md for API endpoint references (regex: Apaleo API paths)
+   Parse AGENTS.md MUST clauses for write operations
+   Show two-column READ/WRITE table
+   [Test Apaleo Connection] calls GET /api/apaleo/health?companyId=1
+   Shows response status and latency.
+
+6. Stage 4 renderer: WitnessReview
+   Fetch last 5 Witness entries for this agentId from Stage 2 sandbox run
+   (filter by session or timestamp since Run Sandbox was clicked)
+   Render formatted entry cards with all fields visible
+   EU AI Act compliance mapping: hardcoded to Article 13/14/17 for now
+   [Download SOC 2 excerpt] generates a text blob with the entries
+
+7. Stage 5 renderer: ExceptionAuthorityConfirmation
+   Parse EXCEPTION_AUTHORITY.md role_band sections
+   Render one confirmation card per exception_class per front-line band
+   Individual checkbox per class (min 1 AGENTS.md MUST ceiling per card)
+   All individual checkboxes must be checked for stage confirm to enable
+   Display hitl_required classes with distinct styling and note that 
+     they ALWAYS generate cards even in walk/run
+
+8. Stage 6 renderer: AdmitOrReject
+   Summary checklist of completed stages
+   Declaration text with role and timestamp
+   [Admit] → POST /api/onboarding/:id/admit
+     On success: update localStorage, update agent tab badge, return to 
+     agent selector showing next unadmitted agent
+     Write stage completion Witness entry: "ciso_walkthrough_completed"
+   [Reject] → modal with mandatory reason textarea (min 20 chars)
+     POST /api/onboarding/:id/reject
+     On success: agent tab badge → ❌
+
+9. Stage completion Witness entries
+   On each Next → click: POST /api/witness (or inline in agent endpoint):
+     event_type: "ciso_stage_completed"
+     stage: N  (1-5)
+     agentId, companyId: 0
+     decidedBy: currentRole
+   This means the Witness trail documents every stage the CISO reviewed,
+   not just the final admit decision.
+
+10. Pre-crawl exception confirmation component: PreCrawlConfirmation
+    Shown in Track 2 when agent is admitted but not yet in crawl at hotel.
+    Parse EXCEPTION_AUTHORITY.md front-line bands.
+    One accordion section per band (ambassador, senior_ambassador, hotel_gm).
+    Each exception_class shown with: description, ceiling, ceiling_type, 
+      authority, escalate_to.
+    hitl_required classes: labelled "Always requires approval — never autonomous"
+    One checkbox per BAND (not per class — band-level confirmation):
+      "☐ I understand [band] staff will receive decision cards for these 
+       exception classes during crawl"
+    All three band checkboxes must be checked for Enable Crawl to appear.
+    State persisted in localStorage per agentId+companyId.
+
+11. Crawl progress dashboard component: CrawlProgressDashboard
+    Polls GET /api/dashboard/activation/:agentId/crawl-status?companyId=X 
+    every 30 seconds.
+    Per-band progress bars (resolved/total).
+    Recent decisions feed: poll GET /api/witness-entries?agentId=X&companyId=Y
+      &limit=10&since=[crawl start timestamp]
+    When crawlComplete=true: green banner + Promote to Walk button.
+
+12. Baseline checkbox on DecisionCard.jsx
+    As specified in Task #67 Step 13 (unchanged from that spec):
+    Show only when payload.current_phase === "crawl"
+    Checkbox label: "☐ Authorise agent to handle [payload.exception_class] 
+      autonomously at this hotel going forward — will not appear again"
+    Submit label changes on check.
+    POST includes authoriseAsBaseline.
+    Toast on baselined=true.
+
+13. localStorage persistence layer
+    Key pattern: vda_ciso_{agentId}_stage   → int (1-6)
+    Key pattern: vda_ciso_{agentId}_stages  → bool[6] JSON
+    Key pattern: vda_crawl_{agentId}_{companyId}_confirmed → bool[3] JSON
+    [Restart this agent] clears all keys for that agentId:
+      Deletes localStorage keys
+      Calls POST /api/onboarding/:id/restart (new endpoint) which sets 
+        status back to "pre_admitted", clears any sandbox results stored
+        on the record
+      Does NOT delete Witness entries
+
+14. POST /api/onboarding/:id/restart endpoint
+    Sets onboarding_requests.status = "pre_admitted"
+    Clears evalPassRate, firstHitlToken fields on the record
+    Writes Witness entry: event_type="ciso_walkthrough_restarted",
+      agentId, restartedBy, timestamp
+    Returns updated record
+
+15. Verification sequence
+    a. Load platform fresh. Confirm OnboardingConsole renders with 3 tracks.
+       Track 2 shows "Locked — admit an agent first".
+    b. Click Track 1 Start. Confirm CISOWalkthrough opens for Rate Agent.
+    c. Stage 1: all 4 files render. Compliance summary shows clause counts.
+       Checkbox disabled until all files loaded. Check box. Next → enabled.
+    d. Stage 2: click Run Sandbox. All 5 scenarios run. Pass rate = 5/5.
+       Witness entries created (check Witness Agent tab shows new entries).
+       Check box. Next →.
+    e. Stage 3: READ/WRITE table renders. Test Apaleo connection returns 200.
+       Check box. Next →.
+    f. Stage 4: last 5 Witness entries from Stage 2 visible. EU AI Act 
+       mapping shows. Check box. Next →.
+    g. Stage 5: all exception class cards render by band. Check all individual
+       cards. Stage confirm checkbox enabled. Check box. Next →.
+    h. Stage 6: all 5 stages show ✅. Click Admit.
+       Confirm status = "admitted" in DB.
+       Confirm Witness entry event_type="agent_admitted" written.
+       Confirm Track 2 unlocks on starting screen.
+    i. Click Restart. Confirm status reverts to "pre_admitted".
+       Confirm localStorage cleared. Confirm Track 2 re-locks.
+    j. Re-admit via Stage 6.
+    k. Track 2: click Rate Agent. PreCrawlConfirmation shows 3 band sections.
+       Check all 3 band checkboxes. Enable Crawl button appears.
+       Click Enable Crawl. Confirm agent_phases phase="crawl" for companyId=1.
+       London and other hotels greyed.
+    l. Run Live Demo. Confirm HITL card appears with baseline checkbox.
+       Approve without baseline: card appears again next run.
+       Approve with baseline: toast appears. Card does not appear next run.
+       (wait 60s for cache invalidation before testing no-card behaviour)
+    m. Resolve all ambassador exception classes via baseline or rejection.
+       Confirm ambassador progress bar = 100%.
+
+──────────────────────────────────────────────────────────────────────
+Relevant files
+──────────────────────────────────────────────────────────────────────
+artifacts/vda-os/src/VdaOS.jsx (OnboardingConsole, CISOWalkthrough,
+  PreCrawlConfirmation, CrawlProgressDashboard components)
+artifacts/vda-os/src/dashboard/DecisionCard.jsx (baseline checkbox)
+artifacts/api-server/src/routes/admin.ts (seed, restart endpoints)
+artifacts/api-server/src/onboarding/onboardingRollback.ts 
+  (admit, reject, restart, run-sandbox endpoints)
+artifacts/api-server/src/routes/dashboard.ts (crawl-status, promote-to-walk)
+artifacts/api-server/src/lib/exceptionAuthorityReader.ts
+
+──────────────────────────────────────────────────────────────────────
+Dependencies
+──────────────────────────────────────────────────────────────────────
+Task #48 (EXCEPTION_AUTHORITY.md, onboarding-policy.md seeded)
+Task #67 (admit/reject endpoints, baseline write path, crawl-status)
