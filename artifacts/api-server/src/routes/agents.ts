@@ -696,7 +696,10 @@ After fetching live data, respond ONLY in this exact JSON format with no extra t
 
 // ─── Availability Agent ───────────────────────────────────────────────────────
 
-router.post("/agents/availability", requireAgentCredential("availability-agent"), async (req, res) => {
+router.post("/agents/availability",
+  requireAgentCredential("availability-agent"),
+  requireValidMandate("availability-agent", undefined, undefined, "annotate"),
+  async (req, res) => {
   try {
     const {
       propertyId,
@@ -884,7 +887,10 @@ interface CreatedReservation {
   id: string;
 }
 
-router.post("/agents/reservation", requireAgentCredential("reservation-bot"), async (req, res) => {
+router.post("/agents/reservation",
+  requireAgentCredential("reservation-bot"),
+  requireValidMandate("reservation-bot", undefined, undefined, "annotate"),
+  async (req, res) => {
   try {
     const {
       propertyId, action = "retrieve", reservationId,
@@ -1090,7 +1096,10 @@ router.post("/agents/reservation", requireAgentCredential("reservation-bot"), as
 
 // ─── Check-In Agent ───────────────────────────────────────────────────────────
 
-router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (req, res) => {
+router.post("/agents/checkin",
+  requireAgentCredential("check-in-agent"),
+  requireValidMandate("check-in-agent", undefined, undefined, "annotate"),
+  async (req, res) => {
   try {
     const { propertyId, reservationId, guestName, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1229,7 +1238,10 @@ router.post("/agents/checkin", requireAgentCredential("check-in-agent"), async (
 
 // ─── Folio Agent (read-only analysis) ────────────────────────────────────────
 
-router.post("/agents/folio", requireAgentCredential("folio-agent"), async (req, res) => {
+router.post("/agents/folio",
+  requireAgentCredential("folio-agent"),
+  requireValidMandate("folio-agent", undefined, undefined, "annotate"),
+  async (req, res) => {
   try {
     const { propertyId, reservationId, folioId, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1446,7 +1458,10 @@ router.post("/agents/folio-charge",
 
 // ─── Checkout Agent ───────────────────────────────────────────────────────────
 
-router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async (req, res) => {
+router.post("/agents/checkout",
+  requireAgentCredential("checkout-agent"),
+  requireValidMandate("checkout-agent", "refund", (body) => Number((body as { refundAmount?: number }).refundAmount) || undefined, "annotate"),
+  async (req, res) => {
   try {
     const { propertyId, reservationId, guestName, loyaltyTier, lateCheckout, companyId, scenarioRunId } = req.body as {
       propertyId: string;
@@ -1590,7 +1605,10 @@ router.post("/agents/checkout", requireAgentCredential("checkout-agent"), async 
 
 // ─── Revenue Reconciliation Agent ─────────────────────────────────────────────
 
-router.post("/agents/revenue", requireAgentCredential("revenue-reconciliation-agent"), async (req, res) => {
+router.post("/agents/revenue",
+  requireAgentCredential("revenue-reconciliation-agent"),
+  requireValidMandate("revenue-reconciliation-agent", undefined, undefined, "annotate"),
+  async (req, res) => {
   try {
     const { propertyId, date, companyId, scenarioRunId } = req.body as {
       propertyId: string;

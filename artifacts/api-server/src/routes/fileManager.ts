@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { callAI } from "./ai-proxy.js";
-import { db, governanceFiles, governanceFileVersions } from "@workspace/db";
+import { db, governanceFiles, governanceFileVersions, companies } from "@workspace/db";
 import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
 import { checkComplianceGuards } from "../lib/complianceGuards.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
+import { generateExceptionAuthorityFile, COMPANIES_MAP, JURISDICTION_CONTEXT } from "../lib/exceptionAuthorityGenerator.js";
 import yaml from "js-yaml";
 
 /**
@@ -15,11 +16,12 @@ import yaml from "js-yaml";
  *       role_bands: { [band]: { exceptions: ExceptionEntry[] } }
  *       must_not_override: string[]
  *       escalation_targets: Record<string, string>
- * Blocks updates that weaken agent authority definitions per band:
- *   ceiling_reduction     — a band's ceiling value lowered
+ * Blocks updates that expand agent authority without CO override:
+ *   ceiling_expansion     — a band's ceiling value raised (requires CO override per §10)
  *   authority_downgrade   — a band's authority changed to a less-capable class
  *   escalate_to removal   — a band's escalate_to field removed
  *   must_not_override removal — a global must_not_override item removed
+ * Ceiling reductions (making the agent more restricted) are always permitted without override.
  * Returns a list of violation strings (empty = allowed).
  */
 function checkExceptionAuthorityDilution(existingContent: string, newContent: string): string[] {
@@ -93,11 +95,14 @@ function checkExceptionAuthorityDilution(existingContent: string, newContent: st
       const aDoc = aDocs.find(d => d.exception_class === bDoc.exception_class) ?? aDocs[0];
       if (!aDoc) continue;
 
-      // ceiling_reduction — numeric ceilings
-      if (typeof bDoc.ceiling === "number" && typeof aDoc.ceiling === "number" && aDoc.ceiling < bDoc.ceiling) {
+      // ceiling_expansion — numeric ceilings (raising ceiling = authority expansion, requires CO override)
+      // Ceiling reduction (more restrictive) is always permitted without override.
+      if (bDoc.ceiling != null && aDoc.ceiling != null &&
+          !Number.isNaN(Number(aDoc.ceiling)) && !Number.isNaN(Number(bDoc.ceiling)) &&
+          Number(aDoc.ceiling) > Number(bDoc.ceiling)) {
         violations.push(
-          `DILUTION [§10]: band "${band}" class "${bDoc.exception_class ?? "?"}" ceiling reduced from ${bDoc.ceiling} to ${aDoc.ceiling}. ` +
-          "Ceiling can only be increased or unchanged under VDA-MD §10.",
+          `EXPANSION [§10]: band "${band}" class "${bDoc.exception_class ?? "?"}" ceiling raised from ${bDoc.ceiling} to ${aDoc.ceiling}. ` +
+          "Ceiling expansion requires Compliance Officer override under VDA-MD §10.",
         );
       }
       // ceiling_reduction — time string ceilings (HH:MM format; lexicographic order = chronological order)
@@ -879,10 +884,224 @@ router.post("/fm/search/:companyId", async (req, res) => {
   }
 });
 
+// ─── POST /api/fm/generate-exception-authority ────────────────────────────────
+// AI-driven, jurisdiction-aware EXCEPTION_AUTHORITY.md generation per agent + hotel.
+// Fetches AGENTS.md + SOP.md + SKILL.md from DB (company-specific first, fallback 0),
+// derives jurisdiction from companyId, calls generateExceptionAuthorityFile(), saves result.
+// Respects regenerate=false to skip if file already exists.
+
+router.post("/fm/generate-exception-authority", async (req, res) => {
+  try {
+    const { agentId, companyId: rawCompanyId, regenerate = true } = req.body as {
+      agentId?: string;
+      companyId?: number | string;
+      regenerate?: boolean;
+    };
+
+    if (!agentId) return res.status(400).json({ error: "agentId required" });
+    const companyId = rawCompanyId != null ? Number(rawCompanyId) : 0;
+    if (Number.isNaN(companyId)) return res.status(400).json({ error: "Invalid companyId" });
+
+    // Check if file already exists when regenerate=false
+    if (!regenerate) {
+      const existing = await db
+        .select({ id: governanceFiles.id, content: governanceFiles.content })
+        .from(governanceFiles)
+        .where(and(
+          eq(governanceFiles.agentId, agentId),
+          eq(governanceFiles.companyId, companyId),
+          eq(governanceFiles.fileType, "EXCEPTION_AUTHORITY"),
+          eq(governanceFiles.isArchived, false)
+        ))
+        .limit(1);
+      if (existing[0]) {
+        return res.json({ skipped: true, fileId: existing[0].id, message: "File already exists; pass regenerate=true to overwrite" });
+      }
+    }
+
+    // Fetch source governance files (company-specific first, then platform fallback)
+    const lookupIds = companyId === 0 ? [0] : [companyId, 0];
+    const filesByType: Record<string, string> = {};
+    for (const ft of ["AGENTS", "SOP", "SKILL"]) {
+      for (const cid of lookupIds) {
+        const rows = await db
+          .select({ content: governanceFiles.content })
+          .from(governanceFiles)
+          .where(and(
+            eq(governanceFiles.agentId, agentId),
+            eq(governanceFiles.companyId, cid),
+            eq(governanceFiles.fileType, ft as "AGENTS" | "SOP" | "SKILL"),
+            eq(governanceFiles.isArchived, false)
+          ))
+          .limit(1);
+        if (rows[0]) { filesByType[ft] = rows[0].content; break; }
+      }
+    }
+
+    // Fetch brand context from companies table
+    let companyName = "citizenM Hotels";
+    let brandContext: string | undefined;
+    if (companyId > 0) {
+      const companyRows = await db
+        .select({ companyName: companies.companyName, brandContext: companies.brandContext })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .limit(1);
+      if (companyRows[0]) {
+        companyName = companyRows[0].companyName;
+        brandContext = companyRows[0].brandContext ?? undefined;
+      }
+    }
+
+    // Derive jurisdiction from companyId
+    const companyMeta = COMPANIES_MAP[companyId] ?? null;
+    const jurisdiction = companyMeta ? (JURISDICTION_CONTEXT[companyMeta.propertyCode] ?? null) : null;
+
+    // Generate
+    const result = await generateExceptionAuthorityFile({
+      agentId,
+      companyId,
+      agentsMd: filesByType["AGENTS"] ?? "",
+      sopMd: filesByType["SOP"] ?? "",
+      skillMd: filesByType["SKILL"] ?? "",
+      brandContext,
+      companyName,
+      industry: "hospitality",
+      jurisdiction,
+    });
+
+    const { content, sourceClauses, jurisdictionApplied } = result;
+
+    // Compliance check
+    const mustCount = (content.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
+    const mustNotCount = (content.match(/\bMUST NOT\b/g) || []).length;
+    const mayCount = (content.match(/\bMAY\b/g) || []).length;
+    const wordCount = content.split(/\s+/).filter(Boolean).length;
+    const complianceCheck: string[] = [];
+    if (mustNotCount < 1) complianceCheck.push("Generated file has 0 MUST NOT clauses (minimum 1 required)");
+    if (!jurisdiction && mustNotCount < 2) complianceCheck.push("No jurisdiction context — add hotel-specific jurisdiction clauses");
+
+    // Upsert: archive old, insert new
+    const existing = await db
+      .select({ id: governanceFiles.id })
+      .from(governanceFiles)
+      .where(and(
+        eq(governanceFiles.agentId, agentId),
+        eq(governanceFiles.companyId, companyId),
+        eq(governanceFiles.fileType, "EXCEPTION_AUTHORITY"),
+        eq(governanceFiles.isArchived, false)
+      ))
+      .limit(1);
+
+    if (existing[0]) {
+      await db.update(governanceFiles)
+        .set({
+          content,
+          mustCount,
+          mustNotCount,
+          mayCount,
+          wordCount,
+          updatedAt: new Date(),
+          status: "draft",
+        })
+        .where(eq(governanceFiles.id, existing[0].id));
+    } else {
+      const filename = `${agentId}-EXCEPTION_AUTHORITY.md`;
+      await db.insert(governanceFiles).values({
+        companyId,
+        filename,
+        filepath: `${companyId === 0 ? "platform" : `company-${companyId}`}/${filename}`,
+        fileType: "EXCEPTION_AUTHORITY",
+        axis: "shared",
+        agentId,
+        content,
+        status: "draft",
+        owner: "Compliance Officer",
+        domain: "Governance",
+        nistControl: "AC-2",
+        baseline: false,
+        mustCount,
+        mustNotCount,
+        mayCount,
+        wordCount,
+      });
+    }
+
+    const file = await db
+      .select()
+      .from(governanceFiles)
+      .where(and(
+        eq(governanceFiles.agentId, agentId),
+        eq(governanceFiles.companyId, companyId),
+        eq(governanceFiles.fileType, "EXCEPTION_AUTHORITY"),
+        eq(governanceFiles.isArchived, false)
+      ))
+      .limit(1);
+
+    return res.json({
+      file: file[0] ?? null,
+      complianceCheck,
+      jurisdictionApplied,
+      sourceClauses,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.post("/fm/agent/suggest", async (req, res) => {
   try {
-    const { fileType, axis, companyName, industry, existingFiles, brandContext, existingContent, filename } = req.body;
+    const { fileType, axis, companyName, industry, existingFiles, brandContext, existingContent, filename, agentId, companyId: rawCompanyId } = req.body;
     if (!fileType) return res.status(400).json({ error: "fileType required" });
+
+    // ── EXCEPTION_AUTHORITY: route to jurisdiction-aware generator ──────────────
+    if ((fileType as string).toUpperCase() === "EXCEPTION_AUTHORITY" && !existingContent) {
+      const cid = rawCompanyId != null ? Number(rawCompanyId) : 0;
+      const companyMeta = COMPANIES_MAP[cid] ?? null;
+      const jurisdiction = companyMeta ? (JURISDICTION_CONTEXT[companyMeta.propertyCode] ?? null) : null;
+
+      let agentsMd = "";
+      let sopMd = "";
+      let skillMd = "";
+      if (agentId) {
+        const lookupIds = cid === 0 ? [0] : [cid, 0];
+        for (const ft of ["AGENTS", "SOP", "SKILL"]) {
+          for (const lid of lookupIds) {
+            const rows = await db.select({ content: governanceFiles.content }).from(governanceFiles)
+              .where(and(eq(governanceFiles.agentId, agentId as string), eq(governanceFiles.companyId, lid), eq(governanceFiles.fileType, ft as "AGENTS" | "SOP" | "SKILL"), eq(governanceFiles.isArchived, false))).limit(1);
+            if (rows[0]) { if (ft === "AGENTS") agentsMd = rows[0].content; else if (ft === "SOP") sopMd = rows[0].content; else skillMd = rows[0].content; break; }
+          }
+        }
+      }
+
+      const result = await generateExceptionAuthorityFile({
+        agentId: (agentId as string) || "unknown-agent",
+        companyId: cid,
+        agentsMd,
+        sopMd,
+        skillMd,
+        brandContext: brandContext as string | undefined,
+        companyName: companyName as string | undefined,
+        industry: (industry as string | undefined) || "hospitality",
+        jurisdiction,
+      });
+
+      const clauses = {
+        mustCount: (result.content.match(/\bMUST\b(?!\s+NOT)/g) || []).length,
+        mustNotCount: (result.content.match(/\bMUST NOT\b/g) || []).length,
+        mayCount: (result.content.match(/\bMAY\b/g) || []).length,
+        wordCount: result.content.split(/\s+/).filter(Boolean).length,
+      };
+
+      return res.json({
+        content: result.content,
+        ...clauses,
+        meta: {},
+        complianceWarnings: [],
+        sourceClauses: result.sourceClauses,
+        jurisdictionApplied: result.jurisdictionApplied,
+      });
+    }
 
     if (existingContent) {
       const systemPrompt = `You are a VDA-MD Governance Improvement Engine. Analyse the governance file and return a JSON object with:

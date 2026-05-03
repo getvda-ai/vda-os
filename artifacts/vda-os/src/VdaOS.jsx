@@ -5936,26 +5936,47 @@ function saveCurrentStage(slug, s) {
 }
 
 // ─── Stage 1: Governance File Review ────────────────────────────────────────
-function GovernanceFileReview({ agentSlug, onNext, onFilesLoaded }) {
+function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded }) {
   const [files, setFiles] = useState(null);
   const [contents, setContents] = useState({});
   const [activeTab, setActiveTab] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
   const FILE_TYPES = ["AGENTS", "SOP", "SKILL", "EXCEPTION_AUTHORITY"];
   const FILE_LABELS = { AGENTS: "AGENTS.md", SOP: "SOP.md", SKILL: "SKILL.md", EXCEPTION_AUTHORITY: "EXCEPTION_AUTHORITY.md" };
 
   useEffect(() => {
+    if (!agentSlug) return;
     setLoading(true); setError(null);
-    fetch("/api/fm/files/0")
-      .then(r => r.json())
-      .then(async (data) => {
-        const all = data.files || [];
-        const agentFiles = all.filter(f => f.agentId === agentSlug && FILE_TYPES.includes(f.fileType));
-        setFiles(agentFiles);
-        if (agentFiles.length > 0) setActiveTab(agentFiles[0].id);
+    (async () => {
+      try {
+        // Fetch company-specific files, then merge in platform files for missing types
+        const fetchCid = companyId || 0;
+        const r1 = await fetch(`/api/fm/files/${fetchCid}`);
+        const d1 = await r1.json();
+        let all = (d1.files || []).filter(f => f.agentId === agentSlug && FILE_TYPES.includes(f.fileType));
+
+        // Fallback: if companyId > 0, also load platform files for types missing from this company
+        if (fetchCid > 0) {
+          const presentTypes = new Set(all.map(f => f.fileType));
+          const missingFromCompany = FILE_TYPES.filter(t => !presentTypes.has(t));
+          if (missingFromCompany.length > 0) {
+            try {
+              const r0 = await fetch("/api/fm/files/0");
+              const d0 = await r0.json();
+              const platformFiles = (d0.files || []).filter(f => f.agentId === agentSlug && missingFromCompany.includes(f.fileType));
+              all = [...all, ...platformFiles];
+            } catch {}
+          }
+        }
+
+        setFiles(all);
+        if (all.length > 0) setActiveTab(all[0].id);
         const cm = {};
-        await Promise.all(agentFiles.map(async f => {
+        await Promise.all(all.map(async f => {
           try {
             const r = await fetch(`/api/fm/file/${f.id}`);
             const d = await r.json();
@@ -5963,11 +5984,32 @@ function GovernanceFileReview({ agentSlug, onNext, onFilesLoaded }) {
           } catch { cm[f.id] = "(failed to load)"; }
         }));
         setContents(cm);
-        onFilesLoaded?.(agentFiles, cm);
+        onFilesLoaded?.(all, cm);
         setLoading(false);
-      })
-      .catch(() => { setError("Failed to load governance files"); setLoading(false); });
-  }, [agentSlug]);
+      } catch {
+        setError("Failed to load governance files");
+        setLoading(false);
+      }
+    })();
+  }, [agentSlug, companyId, refreshTick]);
+
+  const handleGenerateEA = async () => {
+    setGenerating(true); setGenerateError(null);
+    try {
+      const r = await fetch("/api/fm/generate-exception-authority", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agentSlug, companyId: companyId || 0, regenerate: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Generation failed");
+      setRefreshTick(t => t + 1);
+    } catch (err) {
+      setGenerateError(err.message || "Generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const presentTypes = new Set((files || []).map(f => f.fileType));
   const missingTypes = FILE_TYPES.filter(t => !presentTypes.has(t));
@@ -6020,10 +6062,60 @@ function GovernanceFileReview({ agentSlug, onNext, onFilesLoaded }) {
               })}
             </div>
             {missingTypes.length > 0 && (
-              <div style={{ padding: "8px 16px", background: "#1a0505", borderBottom: `1px solid ${T.red}40`, color: T.red, fontSize: 12, flexShrink: 0 }}>
-                Missing: {missingTypes.map(t => FILE_LABELS[t]).join(", ")} — seed governance files before proceeding.
+              <div style={{ padding: "8px 16px", background: "#1a0505", borderBottom: `1px solid ${T.red}40`, color: T.red, fontSize: 12, flexShrink: 0, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <span>Missing: {missingTypes.map(t => FILE_LABELS[t]).join(", ")}</span>
+                {missingTypes.includes("EXCEPTION_AUTHORITY") && (
+                  <button onClick={handleGenerateEA} disabled={generating} style={{
+                    padding: "4px 12px", borderRadius: 5, fontSize: 11, fontFamily: T.mono, fontWeight: 700,
+                    background: generating ? "#1a0f00" : "#1c1200", color: generating ? T.dim : T.amber,
+                    border: `1px solid ${T.amber}50`, cursor: generating ? "not-allowed" : "pointer", flexShrink: 0,
+                  }}>
+                    {generating ? "Generating…" : "⚡ Generate exception authority"}
+                  </button>
+                )}
+                {!missingTypes.includes("EXCEPTION_AUTHORITY") && <span>— seed governance files before proceeding.</span>}
+                {generateError && <span style={{ color: T.red, fontSize: 11 }}>{generateError}</span>}
               </div>
             )}
+            {/* Source clause column shown when EXCEPTION_AUTHORITY tab is active */}
+            {(() => {
+              const eaFile = (files || []).find(f => f.fileType === "EXCEPTION_AUTHORITY");
+              const isEATab = eaFile && activeTab === eaFile.id;
+              const eaRawContent = eaFile ? (contents[eaFile.id] || "") : "";
+              const sourceClauses = (() => {
+                try {
+                  const fm = eaRawContent.match(/^---\s*\n([\s\S]*?)\n---/);
+                  if (!fm) return [];
+                  const scBlock = fm[1].match(/source_clauses:\s*\n((?:\s*-[^\n]+\n?)*(?:\s+\w+:[^\n]+\n?)*)/);
+                  if (!scBlock) return [];
+                  const lines = scBlock[1].split("\n");
+                  const result = [];
+                  let cur = {};
+                  for (const line of lines) {
+                    const ecMatch = line.match(/exception_class:\s*["']?([^"'\n]+?)["']?\s*$/);
+                    const tcMatch = line.match(/traced_to_clause:\s*["']?([^"'\n]+?)["']?\s*$/);
+                    if (ecMatch) { if (cur.ec) result.push(cur); cur = { ec: ecMatch[1].trim() }; }
+                    else if (tcMatch) { cur.tc = tcMatch[1].trim(); result.push(cur); cur = {}; }
+                  }
+                  if (cur.ec) result.push(cur);
+                  return result.filter(r => r.ec);
+                } catch { return []; }
+              })();
+              if (!isEATab || sourceClauses.length === 0) return null;
+              return (
+                <div style={{ padding: "8px 16px 0", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+                  <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 6 }}>SOURCE CLAUSES</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto", marginBottom: 8 }}>
+                    {sourceClauses.map((sc, i) => (
+                      <div key={i} style={{ display: "flex", gap: 10, fontSize: 10, fontFamily: T.mono }}>
+                        <span style={{ color: T.amber, fontWeight: 700, flexShrink: 0, minWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sc.ec}</span>
+                        <span style={{ color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>← {sc.tc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", fontSize: 12, fontFamily: T.mono, lineHeight: 1.8, color: "#c0c6d8", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
               {activeContent || "(select a file tab above)"}
             </div>
@@ -6370,8 +6462,13 @@ function WitnessReviewStage({ agentSlug, sandboxTimestamp, onNext }) {
 }
 
 // ─── Stage 5: Exception Authority Confirmation ──────────────────────────────
-function ExceptionAuthorityConfirmation({ exceptionContent, onNext }) {
+function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId = 0, onNext }) {
   const [checked, setChecked] = useState({});
+  const [pendingQueries, setPendingQueries] = useState({}); // key → submitted reason
+  const [reasonInputs, setReasonInputs] = useState({});    // key → current textarea text
+  const [submitting, setSubmitting] = useState({});
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState(null);
   const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
   const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
 
@@ -6384,8 +6481,10 @@ function ExceptionAuthorityConfirmation({ exceptionContent, onNext }) {
       const classes = [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => {
         const s = block.slice(m.index);
         const auth = (s.match(/authority:\s*["']?([^"'\n]+)["']?/) || [])[1]?.trim() || "—";
+        const ceilMatch = s.match(/ceiling:\s*([^\n]+)/);
+        const ceil = ceilMatch ? ceilMatch[1].trim().replace(/^['"]|['"]$/g, "") : null;
         const desc = (s.match(/description:\s*["']?([^"'\n]+)["']?/) || [])[1]?.trim() || "";
-        return { cls: m[1], auth, desc, hitl: auth.includes("hitl") };
+        return { cls: m[1], auth, desc, ceil, hitl: auth.includes("hitl") };
       });
       if (classes.length > 0) out[band] = classes;
     }
@@ -6393,15 +6492,93 @@ function ExceptionAuthorityConfirmation({ exceptionContent, onNext }) {
   }, [exceptionContent]);
 
   const allKeys = FRONT_LINE.flatMap(b => (parsedBands[b] || []).map(c => `${b}--${c.cls}`));
-  const allChecked = allKeys.length > 0 && allKeys.every(k => checked[k]);
-  const toggle = k => setChecked(p => ({ ...p, [k]: !p[k] }));
+  const hasPendingQueries = Object.keys(pendingQueries).length > 0;
+  const allChecked = allKeys.length > 0 && allKeys.every(k => checked[k] || pendingQueries[k]);
+  const canProceed = allChecked && !hasPendingQueries;
+
+  const handleUncheck = (k) => {
+    setChecked(p => ({ ...p, [k]: false }));
+  };
+  const handleCheck = (k) => {
+    if (!pendingQueries[k]) setChecked(p => ({ ...p, [k]: true }));
+  };
+  const handleSubmitQuery = async (k, band, cls) => {
+    const reason = (reasonInputs[k] || "").trim();
+    if (!reason) return;
+    setSubmitting(p => ({ ...p, [k]: true }));
+    try {
+      await fetch("/api/agents/witness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId: companyId || 0,
+          agent: "onboarding-agent",
+          decision: {
+            decision: "INFO",
+            clauseApplied: `VDA-MD §10 EXCEPTION_AUTHORITY ceiling query — ${cls}`,
+            actionProposed: `CISO raised discrepancy on exception class ${cls} in band ${band}`,
+            exceptionApplied: false,
+            escalationTarget: "Compliance Officer",
+            reasoning: reason,
+          },
+          fileReferenced: "EXCEPTION_AUTHORITY.md",
+          apaleoData: {
+            event_type: "ciso_ceiling_query",
+            exception_class: cls,
+            band,
+            reason,
+            agent_slug: agentSlug || null,
+          },
+          credentialVerified: true,
+        }),
+      });
+      setPendingQueries(p => ({ ...p, [k]: reason }));
+      setReasonInputs(p => ({ ...p, [k]: "" }));
+    } catch {}
+    setSubmitting(p => ({ ...p, [k]: false }));
+  };
+
+  const handleRegenerate = async () => {
+    setRegenerating(true); setRegenError(null);
+    try {
+      const r = await fetch("/api/fm/generate-exception-authority", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agentSlug, companyId: companyId || 0, regenerate: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Regeneration failed");
+      // Clear all pending queries and reset checkboxes to force re-review
+      setPendingQueries({});
+      setChecked({});
+      setReasonInputs({});
+    } catch (err) {
+      setRegenError(err.message || "Regeneration failed");
+    }
+    setRegenerating(false);
+  };
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
         <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 20px" }}>
-          Check each exception class to confirm you have reviewed and accepted the authority structure for this agent.
+          Check each exception class to confirm you have reviewed and accepted the authority structure for this agent. Uncheck and provide a reason to flag a ceiling for re-generation.
         </p>
+        {hasPendingQueries && (
+          <div style={{ padding: "12px 16px", background: "#1a0d00", border: `1px solid ${T.amber}40`, borderRadius: 8, marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 12, color: T.amber, flex: 1 }}>
+              {Object.keys(pendingQueries).length} ceiling query{Object.keys(pendingQueries).length > 1 ? "ies" : ""} submitted — re-generate the file to resolve before admitting.
+            </span>
+            <button onClick={handleRegenerate} disabled={regenerating} style={{
+              padding: "6px 14px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700,
+              background: regenerating ? "#1a0d00" : T.amber, color: regenerating ? T.dim : "#000",
+              border: "none", cursor: regenerating ? "not-allowed" : "pointer",
+            }}>
+              {regenerating ? "Regenerating…" : "⚡ Regenerate"}
+            </button>
+            {regenError && <span style={{ fontSize: 10, color: T.red }}>{regenError}</span>}
+          </div>
+        )}
         {FRONT_LINE.map(band => {
           const classes = parsedBands[band] || [];
           return (
@@ -6415,25 +6592,74 @@ function ExceptionAuthorityConfirmation({ exceptionContent, onNext }) {
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {classes.map(({ cls, auth, desc, hitl }) => {
+                  {classes.map(({ cls, auth, desc, ceil, hitl }) => {
                     const k = `${band}--${cls}`;
+                    const isPending = !!pendingQueries[k];
+                    const isUnchecked = !checked[k] && !isPending;
+                    const showReason = isUnchecked && checked[k] === false && checked.hasOwnProperty?.(k) === false ? false : !checked[k] && !isPending && allKeys.includes(k);
                     return (
-                      <label key={k} style={{
-                        display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px",
-                        background: hitl ? "#150b1a" : "#111318",
-                        border: `1px solid ${hitl ? "#7c3aed50" : T.border}`,
-                        borderRadius: 8, cursor: "pointer",
-                      }}>
-                        <input type="checkbox" checked={!!checked[k]} onChange={() => toggle(k)} style={{ marginTop: 2, flexShrink: 0, accentColor: T.blue }} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                            <span style={{ fontSize: 12, fontFamily: T.mono, fontWeight: 700, color: T.text }}>{cls}</span>
-                            {hitl && <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: "#c4b5fd", background: "#2d1b6930", padding: "1px 6px", borderRadius: 3 }}>ALWAYS HITL</span>}
-                            <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginLeft: "auto" }}>auth: {auth}</span>
+                      <div key={k} style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                        <label style={{
+                          display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px",
+                          background: isPending ? "#1a0800" : hitl ? "#150b1a" : "#111318",
+                          border: `1px solid ${isPending ? T.amber + "60" : hitl ? "#7c3aed50" : T.border}`,
+                          borderRadius: isPending || showReason ? "8px 8px 0 0" : 8,
+                          cursor: isPending ? "default" : "pointer",
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={!!checked[k] && !isPending}
+                            disabled={isPending}
+                            onChange={() => checked[k] ? handleUncheck(k) : handleCheck(k)}
+                            style={{ marginTop: 2, flexShrink: 0, accentColor: T.blue }}
+                          />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                              <span style={{ fontSize: 12, fontFamily: T.mono, fontWeight: 700, color: isPending ? T.amber : T.text }}>{cls}</span>
+                              {hitl && <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: "#c4b5fd", background: "#2d1b6930", padding: "1px 6px", borderRadius: 3 }}>ALWAYS HITL</span>}
+                              {isPending && <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.amber, background: "#1a0800", padding: "1px 6px", borderRadius: 3 }}>⚠ QUERIED</span>}
+                              {ceil && <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>ceiling: {ceil}</span>}
+                              <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginLeft: "auto" }}>auth: {auth}</span>
+                            </div>
+                            {desc && <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{desc}</div>}
+                            {isPending && <div style={{ fontSize: 10, color: T.amber, marginTop: 4, fontFamily: T.mono }}>Query: {pendingQueries[k]}</div>}
                           </div>
-                          {desc && <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{desc}</div>}
-                        </div>
-                      </label>
+                        </label>
+                        {(k in checked) && !checked[k] && !isPending && (
+                          <div style={{ padding: "10px 14px", background: "#0d0f14", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: "0 0 8px 8px" }}>
+                            <div style={{ fontSize: 10, fontFamily: T.mono, color: T.amber, marginBottom: 6 }}>REASON FOR DISCREPANCY (required)</div>
+                            <textarea
+                              value={reasonInputs[k] || ""}
+                              onChange={e => setReasonInputs(p => ({ ...p, [k]: e.target.value }))}
+                              placeholder="Describe why this ceiling or authority level is incorrect or requires review…"
+                              style={{
+                                width: "100%", minHeight: 60, padding: "8px 10px", borderRadius: 6, fontSize: 11, fontFamily: T.mono,
+                                background: "#050608", color: T.text, border: `1px solid ${T.amber}40`, resize: "vertical", boxSizing: "border-box",
+                              }}
+                            />
+                            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                              <button
+                                onClick={() => handleSubmitQuery(k, band, cls)}
+                                disabled={!reasonInputs[k]?.trim() || submitting[k]}
+                                style={{
+                                  padding: "5px 14px", borderRadius: 5, fontSize: 11, fontFamily: T.mono, fontWeight: 700,
+                                  background: reasonInputs[k]?.trim() ? T.amber : "#1e2229",
+                                  color: reasonInputs[k]?.trim() ? "#000" : T.dim,
+                                  border: "none", cursor: reasonInputs[k]?.trim() ? "pointer" : "not-allowed",
+                                }}
+                              >
+                                {submitting[k] ? "Submitting…" : "Submit query"}
+                              </button>
+                              <button
+                                onClick={() => handleCheck(k)}
+                                style={{ padding: "5px 14px", borderRadius: 5, fontSize: 11, fontFamily: T.mono, background: "none", color: T.dim, border: `1px solid ${T.border}`, cursor: "pointer" }}
+                              >
+                                Re-check (no issue)
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -6448,14 +6674,18 @@ function ExceptionAuthorityConfirmation({ exceptionContent, onNext }) {
         )}
       </div>
       <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <span style={{ fontSize: 12, color: T.dim }}>
-          {allKeys.length > 0 ? `${allKeys.filter(k => checked[k]).length} / ${allKeys.length} confirmed` : "Load governance files first"}
+        <span style={{ fontSize: 12, color: hasPendingQueries ? T.amber : T.dim }}>
+          {hasPendingQueries
+            ? `${Object.keys(pendingQueries).length} query pending — re-generate required before Admit`
+            : allKeys.length > 0
+              ? `${allKeys.filter(k => checked[k]).length} / ${allKeys.length} confirmed`
+              : "Load governance files first"}
         </span>
-        <button onClick={onNext} disabled={!allChecked || allKeys.length === 0} style={{
+        <button onClick={onNext} disabled={!canProceed} style={{
           padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
-          background: allChecked && allKeys.length > 0 ? T.blue : "#1e2229",
-          color: allChecked && allKeys.length > 0 ? "#fff" : T.dim,
-          border: "none", cursor: allChecked && allKeys.length > 0 ? "pointer" : "not-allowed",
+          background: canProceed ? T.blue : "#1e2229",
+          color: canProceed ? "#fff" : T.dim,
+          border: "none", cursor: canProceed ? "pointer" : "not-allowed",
         }}>Next → Stage 6</button>
       </div>
     </div>
@@ -6756,7 +6986,7 @@ function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
               </div>
               {/* Stage body */}
               <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
+                {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} companyId={0} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
                 {stage === 2 && <SandboxEvaluation
                   requestId={requestId}
                   agentSource={agent?.source ?? null}
@@ -6766,7 +6996,7 @@ function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
                 />}
                 {stage === 3 && <ApaleoCRUDReview agentSlug={agentSlug} govFiles={govFiles} govContents={govContents} onNext={() => completeStage(2)} />}
                 {stage === 4 && <WitnessReviewStage agentSlug={agentSlug} sandboxTimestamp={sandboxTs} onNext={() => completeStage(3)} />}
-                {stage === 5 && <ExceptionAuthorityConfirmation exceptionContent={exceptionContent} onNext={() => completeStage(4)} />}
+                {stage === 5 && <ExceptionAuthorityConfirmation exceptionContent={exceptionContent} agentSlug={agentSlug} companyId={0} onNext={() => completeStage(4)} />}
                 {stage === 6 && <AdmitOrRejectStage agentSlug={agentSlug} requestId={requestId} stageCompletions={completions} onAdmitted={s => { const c = [false,false,false,false,false,false]; setCompletions(c); setStage(1); onAdmitted?.(s); }} onRejected={(s, r) => onRejected?.(s, r)} />}
               </div>
             </>

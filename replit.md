@@ -170,14 +170,15 @@ Every PASS decision writes an `agent_value_events` row via `writeValueEvent()` (
 - Source: `artifacts/vda-os/src/dashboard/OperationsChiefView.jsx` (Section D)
 
 **API endpoints:**
-- `GET /api/dashboard/value-ledger?companyId=N&since=ISO` — per-agent + platform totals
+- `GET /api/dashboard/value-ledger?companyId=N&since=ISO` — per-agent + platform totals (companyId=0 supported)
 - `GET /api/dashboard/value-ledger/events?companyId=N&limit=N&agentId=slug` — raw event log
+- `POST /api/admin/seed-value-events` `{ companyId }` — idempotent baseline seed (≥50 events skips)
 
 **Two call paths write value events:**
 1. Individual agent routes (`/api/agents/*`) — lines 754–1541 in `agents.ts`
 2. Scenario runner (`POST /api/agents/scenario/run`) — inline writes at lines 1993–2432
 
-Source: `artifacts/api-server/src/lib/valueEventWriter.ts`
+Source: `artifacts/api-server/src/lib/valueEventWriter.ts`, `artifacts/api-server/src/routes/admin.ts`
 
 ### T003 — AP2 Signed Intent Mandates
 
@@ -204,8 +205,20 @@ Source: `artifacts/api-server/src/lib/mandateIssuer.ts`
 - `"enforce"` mode (default): returns `{ decision: "ESCALATE", hitlRequired: true }` on breach
 - `"annotate"` mode: attaches `req.mandateCtx` but never blocks (used on Rate Agent during crawl)
 
-Rate Agent uses `"annotate"` mode so crawl-phase exceptions are not hard-blocked.
-Folio Charge Agent uses `"enforce"` mode on the `folio_charge` action.
+All 8 agent routes now carry `requireValidMandate`:
+
+| Agent | Action | Mode |
+|-------|--------|------|
+| availability-agent | — | annotate |
+| rate-agent | discount | annotate |
+| reservation-bot | — | annotate |
+| check-in-agent | — | annotate |
+| folio-agent | — | annotate |
+| folio-charge-agent | folio_charge | **enforce** |
+| checkout-agent | refund | annotate |
+| revenue-reconciliation-agent | — | annotate |
+
+`"enforce"` on folio-charge-agent returns ESCALATE on ceiling breach (hard block). All others annotate `req.mandateCtx` for downstream use without blocking.
 
 Source: `artifacts/api-server/src/lib/mandateValidator.ts`
 

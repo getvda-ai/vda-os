@@ -10,9 +10,10 @@ import { Router, type IRouter } from "express";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
-import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials } from "@workspace/db";
+import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
+import { generateExceptionAuthorityFile, COMPANIES_MAP, JURISDICTION_CONTEXT } from "../lib/exceptionAuthorityGenerator.js";
 import { startOnboarding } from "../onboarding/onboardingOrchestrator.js";
 import { logger } from "../lib/logger.js";
 
@@ -337,6 +338,301 @@ router.post("/admin/onboarding/quick-submit", async (req, res) => {
   } catch (err) {
     logger.error({ err, agentSlug }, "[quick-submit] Failed to start onboarding");
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start onboarding" });
+  }
+});
+
+// ─── In-memory seed job tracker ──────────────────────────────────────────────
+
+interface SeedJob {
+  completed: number;
+  total: number;
+  errors: { agentId: string; companyId: number; error: string }[];
+  done: boolean;
+}
+
+const seedJobs = new Map<string, SeedJob>();
+
+// ─── POST /api/admin/seed-exception-authority-files ──────────────────────────
+// Returns { jobId } immediately. Starts background generation of 40 files
+// (8 agents × 5 hotels) + re-seeds the 8 companyId=0 baseline files.
+// regenerate=false skips files that already exist.
+
+router.post("/admin/seed-exception-authority-files", async (_req, res) => {
+  const jobId = `ea-seed-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const companyIds = Object.keys(COMPANIES_MAP).map(Number); // [1,2,3,4,5]
+  const total = NATIVE_AGENTS.length * companyIds.length; // 40
+
+  const job: SeedJob = { completed: 0, total, errors: [], done: false };
+  seedJobs.set(jobId, job);
+
+  res.json({ jobId, total });
+
+  // Run in background (intentionally not awaited)
+  (async () => {
+    for (const agent of NATIVE_AGENTS) {
+      for (const companyId of companyIds) {
+        try {
+          // Fetch source files (companyId first, then 0)
+          const lookupIds = [companyId, 0];
+          const filesByType: Record<string, string> = {};
+          for (const ft of ["AGENTS", "SOP", "SKILL"]) {
+            for (const cid of lookupIds) {
+              const rows = await db
+                .select({ content: governanceFiles.content })
+                .from(governanceFiles)
+                .where(and(
+                  eq(governanceFiles.agentId, agent.agentId),
+                  eq(governanceFiles.companyId, cid),
+                  eq(governanceFiles.fileType, ft as "AGENTS" | "SOP" | "SKILL"),
+                  eq(governanceFiles.isArchived, false)
+                ))
+                .limit(1);
+              if (rows[0]) { filesByType[ft] = rows[0].content; break; }
+            }
+          }
+
+          // Fetch brand context
+          let companyName = "citizenM Hotels";
+          let brandContextStr: string | undefined;
+          const companyRows = await db
+            .select({ companyName: companies.companyName, brandContext: companies.brandContext })
+            .from(companies)
+            .where(eq(companies.id, companyId))
+            .limit(1);
+          if (companyRows[0]) {
+            companyName = companyRows[0].companyName;
+            brandContextStr = companyRows[0].brandContext ?? undefined;
+          }
+
+          // Derive jurisdiction
+          const companyMeta = COMPANIES_MAP[companyId] ?? null;
+          const jurisdiction = companyMeta ? (JURISDICTION_CONTEXT[companyMeta.propertyCode] ?? null) : null;
+
+          // Generate
+          const result = await generateExceptionAuthorityFile({
+            agentId: agent.agentId,
+            companyId,
+            agentsMd: filesByType["AGENTS"] ?? "",
+            sopMd: filesByType["SOP"] ?? "",
+            skillMd: filesByType["SKILL"] ?? "",
+            brandContext: brandContextStr,
+            companyName,
+            industry: "hospitality",
+            jurisdiction,
+          });
+
+          const { content } = result;
+          const mustCount = (content.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
+          const mustNotCount = (content.match(/\bMUST NOT\b/g) || []).length;
+          const mayCount = (content.match(/\bMAY\b/g) || []).length;
+          const wordCount = content.split(/\s+/).filter(Boolean).length;
+          const filename = `${agent.agentId}-EXCEPTION_AUTHORITY.md`;
+
+          // Upsert
+          const existing = await db
+            .select({ id: governanceFiles.id })
+            .from(governanceFiles)
+            .where(and(
+              eq(governanceFiles.agentId, agent.agentId),
+              eq(governanceFiles.companyId, companyId),
+              eq(governanceFiles.fileType, "EXCEPTION_AUTHORITY"),
+              eq(governanceFiles.isArchived, false)
+            ))
+            .limit(1);
+
+          if (existing[0]) {
+            await db.update(governanceFiles)
+              .set({ content, mustCount, mustNotCount, mayCount, wordCount, updatedAt: new Date() })
+              .where(eq(governanceFiles.id, existing[0].id));
+          } else {
+            await db.insert(governanceFiles).values({
+              companyId,
+              filename,
+              filepath: `company-${companyId}/${filename}`,
+              fileType: "EXCEPTION_AUTHORITY",
+              axis: "shared",
+              agentId: agent.agentId,
+              content,
+              status: "approved",
+              owner: "Compliance Officer",
+              domain: agent.domain,
+              nistControl: "AC-2",
+              baseline: false,
+              mustCount,
+              mustNotCount,
+              mayCount,
+              wordCount,
+            });
+          }
+
+          logger.info({ agentId: agent.agentId, companyId }, "[seed-ea] Generated OK");
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          job.errors.push({ agentId: agent.agentId, companyId, error: errMsg });
+          logger.error({ agentId: agent.agentId, companyId, err: errMsg }, "[seed-ea] Generation failed");
+        }
+        job.completed++;
+      }
+    }
+    job.done = true;
+    logger.info({ jobId, completed: job.completed, errors: job.errors.length }, "[seed-ea] Job complete");
+  })().catch(err => {
+    logger.error({ jobId, err }, "[seed-ea] Unexpected job error");
+    job.done = true;
+  });
+});
+
+// ─── GET /api/admin/seed-exception-authority-files/:jobId ────────────────────
+
+router.get("/admin/seed-exception-authority-files/:jobId", (req, res) => {
+  const job = seedJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  return res.json({
+    jobId: req.params.jobId,
+    completed: job.completed,
+    total: job.total,
+    done: job.done,
+    errors: job.errors,
+  });
+});
+
+// ─── POST /api/admin/seed-value-events ───────────────────────────────────────
+// Seeds realistic baseline AP2 value events for the ROI dashboard demo.
+// Idempotent per company: skips if ≥ 50 events already exist.
+
+const SEED_AGENTS: Array<{
+  agentId: string; agentName: string;
+  actions: Array<{ action: string; revenueDelta: number; costCents: number; outcome: string }>;
+}> = [
+  { agentId: "reservation-bot", agentName: "Reservation Bot", actions: [
+    { action: "reservation_create", revenueDelta: 189, costCents: 4, outcome: "PASS" },
+    { action: "reservation_create", revenueDelta: 254, costCents: 4, outcome: "PASS" },
+    { action: "reservation_create", revenueDelta: 189, costCents: 4, outcome: "PASS" },
+    { action: "reservation_create", revenueDelta: 378, costCents: 4, outcome: "PASS" },
+    { action: "reservation_create", revenueDelta: 0, costCents: 4, outcome: "ESCALATE" },
+    { action: "reservation_create", revenueDelta: 189, costCents: 4, outcome: "PASS" },
+    { action: "reservation_create", revenueDelta: 126, costCents: 4, outcome: "PASS" },
+    { action: "reservation_create", revenueDelta: 252, costCents: 4, outcome: "PASS" },
+    { action: "reservation_retrieve", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "reservation_retrieve", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+  ]},
+  { agentId: "check-in-agent", agentName: "Check-In Agent", actions: [
+    { action: "checkin_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkin_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkin_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkin_process", revenueDelta: 0, costCents: 4, outcome: "ESCALATE" },
+    { action: "checkin_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkin_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkin_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkin_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+  ]},
+  { agentId: "folio-charge-agent", agentName: "Folio Charge Agent", actions: [
+    { action: "folio_charge", revenueDelta: 89, costCents: 4, outcome: "PASS" },
+    { action: "folio_charge", revenueDelta: 45, costCents: 4, outcome: "PASS" },
+    { action: "folio_charge", revenueDelta: 0, costCents: 4, outcome: "FAIL" },
+    { action: "folio_charge", revenueDelta: 89, costCents: 4, outcome: "PASS" },
+    { action: "folio_charge", revenueDelta: 125, costCents: 4, outcome: "PASS" },
+    { action: "folio_charge", revenueDelta: 89, costCents: 4, outcome: "PASS" },
+    { action: "folio_charge", revenueDelta: 0, costCents: 4, outcome: "ESCALATE" },
+    { action: "folio_charge", revenueDelta: 89, costCents: 4, outcome: "PASS" },
+  ]},
+  { agentId: "checkout-agent", agentName: "Checkout Agent", actions: [
+    { action: "checkout_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkout_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkout_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkout_process", revenueDelta: 0, costCents: 4, outcome: "ESCALATE" },
+    { action: "checkout_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkout_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+    { action: "checkout_process", revenueDelta: 0, costCents: 4, outcome: "PASS" },
+  ]},
+  { agentId: "rate-agent", agentName: "Rate Agent", actions: [
+    { action: "rate_override", revenueDelta: 0, costCents: 3, outcome: "PASS" },
+    { action: "rate_override", revenueDelta: 0, costCents: 3, outcome: "PASS" },
+    { action: "rate_override", revenueDelta: 0, costCents: 3, outcome: "FAIL" },
+    { action: "rate_override", revenueDelta: 0, costCents: 3, outcome: "PASS" },
+    { action: "rate_override", revenueDelta: 0, costCents: 3, outcome: "ESCALATE" },
+    { action: "rate_override", revenueDelta: 0, costCents: 3, outcome: "PASS" },
+  ]},
+  { agentId: "availability-agent", agentName: "Availability Agent", actions: [
+    { action: "availability_check", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "availability_check", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "availability_check", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "availability_check", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "availability_check", revenueDelta: 0, costCents: 2, outcome: "FAIL" },
+    { action: "availability_check", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "availability_check", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+  ]},
+  { agentId: "folio-agent", agentName: "Folio Agent", actions: [
+    { action: "folio_read", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "folio_read", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "folio_read", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "folio_read", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+    { action: "folio_read", revenueDelta: 0, costCents: 2, outcome: "PASS" },
+  ]},
+  { agentId: "revenue-reconciliation-agent", agentName: "Revenue Reconciliation Agent", actions: [
+    { action: "revenue_reconciliation", revenueDelta: 4872, costCents: 5, outcome: "PASS" },
+    { action: "revenue_reconciliation", revenueDelta: 5104, costCents: 5, outcome: "PASS" },
+    { action: "revenue_reconciliation", revenueDelta: 4690, costCents: 5, outcome: "PASS" },
+    { action: "revenue_reconciliation", revenueDelta: 5380, costCents: 5, outcome: "PASS" },
+    { action: "revenue_reconciliation", revenueDelta: 0, costCents: 5, outcome: "ESCALATE" },
+    { action: "revenue_reconciliation", revenueDelta: 5210, costCents: 5, outcome: "PASS" },
+    { action: "revenue_reconciliation", revenueDelta: 4950, costCents: 5, outcome: "PASS" },
+  ]},
+];
+
+router.post("/admin/seed-value-events", async (req, res) => {
+  try {
+    const targetCompanyId = Number((req.body as { companyId?: number })?.companyId ?? 1);
+
+    // Idempotent guard: skip if already seeded
+    const [existing] = await db
+      .select({ count: agentValueEvents.id })
+      .from(agentValueEvents)
+      .where(eq(agentValueEvents.companyId, targetCompanyId))
+      .limit(1);
+    const existingCount = await db
+      .select()
+      .from(agentValueEvents)
+      .where(eq(agentValueEvents.companyId, targetCompanyId))
+      .then(rows => rows.length);
+
+    if (existingCount >= 50) {
+      return res.json({ ok: true, skipped: true, existing: existingCount, message: "Already seeded — ≥50 events exist" });
+    }
+
+    const now = Date.now();
+    const DAYS_30 = 30 * 24 * 3600 * 1000;
+    const rows: Array<{
+      agentId: string; companyId: number; propertyCode: string; action: string;
+      revenueDelta: string; costCents: number; currency: string;
+      decisionOutcome: string; witnessToken: null; governancePhase: string; createdAt: Date;
+    }> = [];
+
+    for (const agent of SEED_AGENTS) {
+      agent.actions.forEach((ev, idx) => {
+        const ageMs = Math.floor((idx / agent.actions.length) * DAYS_30 * 0.9);
+        rows.push({
+          agentId: agent.agentId,
+          companyId: targetCompanyId,
+          propertyCode: targetCompanyId === 1 ? "BER" : targetCompanyId === 2 ? "LND" : "MUC",
+          action: ev.action,
+          revenueDelta: String(ev.revenueDelta),
+          costCents: ev.costCents,
+          currency: "EUR",
+          decisionOutcome: ev.outcome,
+          witnessToken: null,
+          governancePhase: "walk",
+          createdAt: new Date(now - DAYS_30 + ageMs + Math.floor(Math.random() * 3600000)),
+        });
+      });
+    }
+
+    await db.insert(agentValueEvents).values(rows);
+    logger.info({ companyId: targetCompanyId, count: rows.length }, "[seed-value-events] Seeded");
+    return res.json({ ok: true, seeded: rows.length, companyId: targetCompanyId });
+  } catch (err) {
+    logger.error({ err }, "admin/seed-value-events error");
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Seed failed" });
   }
 });
 

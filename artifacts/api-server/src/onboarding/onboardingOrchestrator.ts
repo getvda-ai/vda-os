@@ -2,8 +2,9 @@
  * Onboarding Orchestrator — 7-phase state machine for A2A agent admission.
  * Exports advanceOrchestratorPhase() for direct call from HITL respond endpoint.
  */
-import { db, onboardingRequests, hitlTokens, governanceFiles } from "@workspace/db";
+import { db, onboardingRequests, hitlTokens, governanceFiles, companies } from "@workspace/db";
 import { eq, and, ne } from "drizzle-orm";
+import { generateExceptionAuthorityFile, COMPANIES_MAP, JURISDICTION_CONTEXT } from "../lib/exceptionAuthorityGenerator.js";
 import { logger } from "../lib/logger.js";
 import { issueMandate } from "../lib/mandateIssuer.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
@@ -315,16 +316,76 @@ async function runPhase3(id: string, agentCard: AgentCard, impactDelta: ReturnTy
   const candidateFiles = await generateCandidateFiles(agentCard, impactDelta);
   const guardResult = validateCandidateFiles(candidateFiles);
 
+  // ── Sequential EXCEPTION_AUTHORITY.md generation (Step 9) ──────────────────
+  // After the three-file generation, attempt jurisdiction-aware EXCEPTION_AUTHORITY.md.
+  // Failure is non-blocking: pipeline continues to Phase 4 with partial_failure logged.
+  let exceptionAuthorityMd: string | null = null;
+  let eaGenerationFailed = false;
+  try {
+    const reqRow = await db
+      .select({ companyId: onboardingRequests.companyId })
+      .from(onboardingRequests)
+      .where(eq(onboardingRequests.id, id))
+      .limit(1);
+    const companyId = reqRow[0]?.companyId ?? 0;
+
+    let companyName = "citizenM Hotels";
+    let brandContext: string | undefined;
+    if (companyId && companyId > 0) {
+      const companyRows = await db
+        .select({ companyName: companies.companyName, brandContext: companies.brandContext })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .limit(1);
+      if (companyRows[0]) {
+        companyName = companyRows[0].companyName;
+        brandContext = companyRows[0].brandContext ?? undefined;
+      }
+    }
+
+    const agentId = agentCard.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const companyMeta = companyId ? (COMPANIES_MAP[companyId] ?? null) : null;
+    const jurisdiction = companyMeta ? (JURISDICTION_CONTEXT[companyMeta.propertyCode] ?? null) : null;
+
+    const eaResult = await generateExceptionAuthorityFile({
+      agentId,
+      companyId: companyId ?? 0,
+      agentsMd: candidateFiles.agents_md,
+      sopMd: candidateFiles.sop_md,
+      skillMd: candidateFiles.skill_md,
+      brandContext,
+      companyName,
+      industry: "hospitality",
+      jurisdiction,
+    });
+
+    exceptionAuthorityMd = eaResult.content;
+    logger.info({ id, agentId, sourceClauses: eaResult.sourceClauses.length }, "[runPhase3] EXCEPTION_AUTHORITY.md generated");
+  } catch (eaErr) {
+    eaGenerationFailed = true;
+    logger.warn({ id, err: eaErr instanceof Error ? eaErr.message : String(eaErr) }, "[runPhase3] EXCEPTION_AUTHORITY.md generation failed — continuing to Phase 4");
+  }
+
+  const filesWithEA = {
+    ...candidateFiles,
+    exception_authority_md: exceptionAuthorityMd,
+    ...(eaGenerationFailed ? { partial_failure: "exception_authority_generation_failed" } : {}),
+  };
+
   await db.update(onboardingRequests)
-    .set({ candidateFiles: candidateFiles as unknown as Record<string, unknown>, updatedAt: new Date() })
+    .set({ candidateFiles: filesWithEA as unknown as Record<string, unknown>, updatedAt: new Date() })
     .where(eq(onboardingRequests.id, id));
 
   await witnessOnboarding("candidate_files_generated", {
     actionProposed: "Candidate governance files generated",
-    reasoning: guardResult.passed ? "All files passed compliance guard" : `Compliance guard failures: ${guardResult.failures.join("; ")}`,
+    reasoning: guardResult.passed
+      ? `All files passed compliance guard${exceptionAuthorityMd ? " · EXCEPTION_AUTHORITY.md generated" : eaGenerationFailed ? " · EXCEPTION_AUTHORITY.md generation failed (partial)" : ""}`
+      : `Compliance guard failures: ${guardResult.failures.join("; ")}`,
     files_created_count: impactDelta.files_to_create,
     files_modified_count: impactDelta.files_to_modify,
     compliance_guard_passed: guardResult.passed,
+    exception_authority_generated: !!exceptionAuthorityMd,
+    exception_authority_partial_failure: eaGenerationFailed,
   });
 
   if (!guardResult.passed) {
@@ -338,7 +399,7 @@ async function runPhase3(id: string, agentCard: AgentCard, impactDelta: ReturnTy
   }
 
   // Continue to phase 4 immediately
-  await runPhase4(id, agentCard, impactDelta, candidateFiles);
+  await runPhase4(id, agentCard, impactDelta, filesWithEA as typeof candidateFiles);
 }
 
 async function runPhase3Wrapper(id: string) {

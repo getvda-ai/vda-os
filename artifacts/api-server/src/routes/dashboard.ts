@@ -697,7 +697,7 @@ if (process.env.NODE_ENV !== "production") {
 router.get("/dashboard/value-ledger", async (req, res) => {
   try {
     const companyId = Number(req.query.companyId);
-    if (!companyId) return res.status(400).json({ error: "companyId required" });
+    if (req.query.companyId == null || req.query.companyId === "" || isNaN(companyId)) return res.status(400).json({ error: "companyId required" });
 
     const sinceParam = req.query.since as string | undefined;
     const since = sinceParam ? new Date(sinceParam) : new Date(Date.now() - 30 * 24 * 3600 * 1000);
@@ -769,7 +769,7 @@ router.get("/dashboard/value-ledger", async (req, res) => {
 router.get("/dashboard/value-ledger/events", async (req, res) => {
   try {
     const companyId = Number(req.query.companyId);
-    if (!companyId) return res.status(400).json({ error: "companyId required" });
+    if (req.query.companyId == null || req.query.companyId === "" || isNaN(companyId)) return res.status(400).json({ error: "companyId required" });
     const limit = Math.min(Number(req.query.limit ?? 100), 500);
     const agentFilter = req.query.agentId as string | undefined;
 
