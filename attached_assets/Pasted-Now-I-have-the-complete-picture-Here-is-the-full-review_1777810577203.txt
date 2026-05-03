@@ -1,0 +1,29 @@
+Now I have the complete picture. Here is the full review.
+
+Task #72 Amendments Review
+Critical finding first: All 8 EXCEPTION_AUTHORITY.md files already exist at companyId=0 — they were seeded as part of earlier tasks. The files have the correct structure with ceiling, ceiling_type, authority, escalate_to. But they are missing two things the amendments add: source_clauses in the YAML front matter and a jurisdiction section. The generate endpoint (/api/fm/generate-exception-authority) and seed endpoint (/api/admin/seed-exception-authority-files) both return 404 — they don't exist yet. So Task #72 is extending existing files, not creating from scratch.
+
+Amendment 1 — Fix ceiling dilution check ✅ Correct
+The bug is real. The function checkExceptionAuthorityDilution is referenced as being at line 97 — this must be in the live code added by a later task that our zip doesn't have. The logic aDoc.ceiling < bDoc.ceiling would treat a lower ceiling (more restrictive) as dilution, which is backwards. A ceiling going up is an authority expansion and is the dilution. The fix aDoc.ceiling > bDoc.ceiling is correct.
+One addition needed: ceiling comparison must be numeric, not string. The YAML stores ceilings as integers (ceiling: 9) but YAML parsers can return them as strings in some cases. The check should be Number(aDoc.ceiling) > Number(bDoc.ceiling) to avoid "10" > "9" evaluating as false due to string comparison.
+Amendment 1 final: Accept as written, add Number() coercion: Number(aDoc.ceiling) > Number(bDoc.ceiling).
+
+Amendment 2 — Embed source_clauses in YAML front matter ✅ Correct
+The live file confirms hasSourceClauses: false — the existing files don't have this yet. Embedding in YAML front matter rather than a separate DB field is the right call — it keeps the file self-contained and readable by any consumer without a DB query. The CISO looking at the raw file can trace every ceiling back to the SOP clause that produced it. Accept as written.
+
+Amendment 3 — Pass companyId with fallback to companyId=0 ✅ Correct and important
+The live data shows files only at companyId=0 (platform baseline). No hotel-specific overrides exist at companyIds 1–5. The fallback is essential — without it, Stage 1 would show nothing for any hotel until 40 files are seeded. The fallback chain (/api/fm/files/:companyId → filter for EXCEPTION_AUTHORITY → if missing, fetch /api/fm/files/0) is correct. Accept as written.
+
+Amendment 4 — Async job with polling ✅ Correct and necessary
+Generating 40 files (8 agents × 5 hotels) via sequential AI calls at ~3–5 seconds each is 2–3 minutes minimum. A synchronous endpoint would time out. The async job pattern (POST returns { jobId }, GET /:jobId polls { completed, total, errors }) is the right pattern. One addition: the in-memory map should also store errors as an array of { agentId, companyId, error } so the admin can see which specific combinations failed without re-running the entire seed. Accept as written, add structured error tracking.
+
+Amendment 5 — Sequential AI call, not in GENERATE_TOOL schema ✅ Correct and critical
+This is the most important amendment. Adding EXCEPTION_AUTHORITY.md as a fourth parameter to the generate_candidate_governance_files tool would increase the prompt's token demand significantly — the tool already generates three substantial markdown files. A separate sequential call after generateCandidateFiles() returns means: (a) the SOP is already generated and can be passed as the MAY clause source, (b) if the EXCEPTION_AUTHORITY generation fails the first three files are still saved, (c) the token budget for the first call is unchanged. Accept as written.
+One practical note: the sequential call should have a try/catch that writes a partial failure to the onboarding record — if the EXCEPTION_AUTHORITY generation fails, the A2A pipeline should continue to Phase 4 (first HITL) rather than failing entirely. The CISO can trigger re-generation from Stage 1 of the walkthrough.
+
+What the Amendments Together Reveal
+The existing files at companyId=0 are a good foundation but they're missing the two things that make them genuinely self-documenting: source_clauses (Amendment 2) and jurisdiction context (Task #72 Step 1). The generate endpoint will produce enriched versions of these files with both additions, and the seed script (Amendment 4) will replace the existing 8 files with the enriched versions and create the 40 hotel-specific variants.
+All 5 amendments are correct. Run as amended with the two additions noted:
+
+Add Number() coercion to ceiling comparison
+Add structured error array { agentId, companyId, error } to the async job tracking
