@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useApaleoStats, useApaleoReservations } from "./hooks/use-apaleo";
 import VdaMdChatbot from "./VdaMdChatbot.jsx";
 import AmbassadorView      from "./dashboard/AmbassadorView.jsx";
@@ -5904,6 +5904,1199 @@ function buildSeedLog(config, companyName) {
   return all.map((e, i) => ({ ...e, id: Date.now() + i }));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CISO-FIRST ONBOARDING CONSOLE — Task #71
+// Three-track starting screen: VDA Native Agent Admission / Hotel Activation /
+// External A2A Admission
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VDA_NATIVE_AGENTS = [
+  { slug: "availability-agent",            name: "Availability Agent",      icon: "🔍" },
+  { slug: "rate-agent",                    name: "Rate Agent",              icon: "💰" },
+  { slug: "reservation-bot",              name: "Reservation Bot",          icon: "📋" },
+  { slug: "check-in-agent",               name: "Check-In Agent",           icon: "✅" },
+  { slug: "folio-agent",                  name: "Folio Agent",              icon: "🧾" },
+  { slug: "folio-charge-agent",           name: "Folio Charge Agent",       icon: "💳" },
+  { slug: "checkout-agent",              name: "Checkout Agent",            icon: "🚪" },
+  { slug: "revenue-reconciliation-agent", name: "Revenue Reconciliation",   icon: "📊" },
+];
+
+function loadStageCompletions(slug) {
+  try { return JSON.parse(localStorage.getItem(`vda_ciso_${slug}_stages`) || "null") || [false,false,false,false,false,false]; }
+  catch { return [false,false,false,false,false,false]; }
+}
+function saveStageCompletions(slug, c) {
+  try { localStorage.setItem(`vda_ciso_${slug}_stages`, JSON.stringify(c)); } catch {}
+}
+function loadCurrentStage(slug) {
+  try { return Number(localStorage.getItem(`vda_ciso_${slug}_stage`) || "1") || 1; } catch { return 1; }
+}
+function saveCurrentStage(slug, s) {
+  try { localStorage.setItem(`vda_ciso_${slug}_stage`, String(s)); } catch {}
+}
+
+// ─── Stage 1: Governance File Review ────────────────────────────────────────
+function GovernanceFileReview({ agentSlug, onNext, onFilesLoaded }) {
+  const [files, setFiles] = useState(null);
+  const [contents, setContents] = useState({});
+  const [activeTab, setActiveTab] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const FILE_TYPES = ["AGENTS", "SOP", "SKILL", "EXCEPTION_AUTHORITY"];
+  const FILE_LABELS = { AGENTS: "AGENTS.md", SOP: "SOP.md", SKILL: "SKILL.md", EXCEPTION_AUTHORITY: "EXCEPTION_AUTHORITY.md" };
+
+  useEffect(() => {
+    setLoading(true); setError(null);
+    fetch("/api/fm/files/0")
+      .then(r => r.json())
+      .then(async (data) => {
+        const all = data.files || [];
+        const agentFiles = all.filter(f => f.agentId === agentSlug && FILE_TYPES.includes(f.fileType));
+        setFiles(agentFiles);
+        if (agentFiles.length > 0) setActiveTab(agentFiles[0].id);
+        const cm = {};
+        await Promise.all(agentFiles.map(async f => {
+          try {
+            const r = await fetch(`/api/fm/file/${f.id}`);
+            const d = await r.json();
+            cm[f.id] = d.content || "(empty)";
+          } catch { cm[f.id] = "(failed to load)"; }
+        }));
+        setContents(cm);
+        onFilesLoaded?.(agentFiles, cm);
+        setLoading(false);
+      })
+      .catch(() => { setError("Failed to load governance files"); setLoading(false); });
+  }, [agentSlug]);
+
+  const presentTypes = new Set((files || []).map(f => f.fileType));
+  const missingTypes = FILE_TYPES.filter(t => !presentTypes.has(t));
+  const canProceed = !loading && missingTypes.length === 0;
+  const activeContent = contents[activeTab] || "";
+  const mustCount = (activeContent.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
+  const mustNotCount = (activeContent.match(/\bMUST NOT\b/g) || []).length;
+  const mayCount = (activeContent.match(/\bMAY\b/g) || []).length;
+
+  return (
+    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+        {loading ? (
+          <div style={{ padding: 24, color: T.dim, fontSize: 13 }}>Loading governance files…</div>
+        ) : error ? (
+          <div style={{ padding: 24, color: T.red, fontSize: 13 }}>{error}</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, overflowX: "auto", flexShrink: 0 }}>
+              {FILE_TYPES.map(ft => {
+                const f = (files || []).find(x => x.fileType === ft);
+                const missing = !f;
+                return (
+                  <button key={ft} onClick={() => f && setActiveTab(f.id)} style={{
+                    background: "none", border: "none",
+                    borderBottom: activeTab === f?.id ? `2px solid ${T.blue}` : "2px solid transparent",
+                    color: missing ? T.red : activeTab === f?.id ? T.text : T.dim,
+                    padding: "10px 16px", cursor: f ? "pointer" : "default",
+                    fontSize: 12, fontFamily: T.mono, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0,
+                  }}>
+                    {missing ? "⚠ " : ""}{FILE_LABELS[ft]}
+                  </button>
+                );
+              })}
+            </div>
+            {missingTypes.length > 0 && (
+              <div style={{ padding: "8px 16px", background: "#1a0505", borderBottom: `1px solid ${T.red}40`, color: T.red, fontSize: 12, flexShrink: 0 }}>
+                Missing: {missingTypes.map(t => FILE_LABELS[t]).join(", ")} — seed governance files before proceeding.
+              </div>
+            )}
+            <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", fontSize: 12, fontFamily: T.mono, lineHeight: 1.8, color: "#c0c6d8", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {activeContent || "(select a file tab above)"}
+            </div>
+          </>
+        )}
+        <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+          <button onClick={onNext} disabled={!canProceed} style={{
+            padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
+            background: canProceed ? T.blue : "#1e2229", color: canProceed ? "#fff" : T.dim,
+            border: "none", cursor: canProceed ? "pointer" : "not-allowed",
+          }}>Next → Stage 2</button>
+        </div>
+      </div>
+      <div style={{ width: 180, borderLeft: `1px solid ${T.border}`, padding: 16, flexShrink: 0, overflowY: "auto" }}>
+        <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 12 }}>CLAUSE COUNTS</div>
+        {[{ label: "MUST", value: mustCount, color: T.green }, { label: "MUST NOT", value: mustNotCount, color: T.red }, { label: "MAY", value: mayCount, color: T.blue }]
+          .map(({ label, value, color }) => (
+            <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontSize: 11, fontFamily: T.mono, color: T.dim }}>{label}</span>
+              <span style={{ fontSize: 18, fontWeight: 700, color, fontFamily: T.mono }}>{value}</span>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Stage 2: Sandbox Evaluation ────────────────────────────────────────────
+function SandboxEvaluation({ requestId, onNext, onSandboxRun }) {
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState(null);
+  const [error, setError] = useState(null);
+  const passRate = results ? results.filter(r => r.passed).length / results.length : null;
+  const THRESHOLD = 0.6;
+  const canProceed = passRate !== null && passRate >= THRESHOLD;
+
+  const runSandbox = async () => {
+    if (!requestId) { setError("No onboarding request ID — submit this agent via POST /api/onboarding/submit first."); return; }
+    setRunning(true); setError(null);
+    const ts = Date.now();
+    try {
+      const r = await fetch(`/api/onboarding/${requestId}/run-sandbox`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) setError(d.error || "Sandbox failed");
+      else { setResults(d.results || []); onSandboxRun?.(ts); }
+    } catch { setError("Network error"); }
+    finally { setRunning(false); }
+  };
+
+  const dc = (d) => d === "PASS" ? T.green : d === "FAIL" ? T.red : T.amber;
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+        <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 16px" }}>
+          5 predefined governance scenarios are evaluated against this agent's SOP.md by Claude.
+          Each actual decision is compared to an expected outcome (PASS / FAIL / ESCALATE).
+          ≥60% match rate required to proceed.
+        </p>
+        {!requestId && (
+          <div style={{ padding: "10px 14px", background: "#1a0505", border: `1px solid ${T.red}40`, borderRadius: 8, color: T.red, fontSize: 12, marginBottom: 16 }}>
+            No onboarding request found for this agent. Submit via POST /api/onboarding/submit with source=vda_native.
+          </div>
+        )}
+        <button onClick={runSandbox} disabled={running || !requestId} style={{
+          padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
+          background: running ? "#1e2229" : "#2d1b69", color: running ? T.dim : "#c4b5fd",
+          border: `1px solid ${running ? T.border : "#7c3aed"}`, cursor: running || !requestId ? "not-allowed" : "pointer",
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          {running && <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(196,181,253,0.3)", borderTopColor: "#c4b5fd", borderRadius: "50%", animation: "co-spin 0.7s linear infinite" }} />}
+          {running ? "Running scenarios…" : "▶ Run Sandbox Evaluation"}
+        </button>
+        {error && <div style={{ marginTop: 12, color: T.red, fontSize: 12 }}>{error}</div>}
+
+        {results && (
+          <div style={{ marginTop: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20, padding: "14px 18px", background: canProceed ? "#0d1f0d" : "#1a0a0a", border: `1px solid ${canProceed ? T.green : T.red}40`, borderRadius: 10 }}>
+              <div style={{ fontSize: 32, fontWeight: 700, fontFamily: T.mono, color: canProceed ? T.green : T.red }}>{Math.round(passRate * 100)}%</div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: canProceed ? T.green : T.red }}>Pass Rate {canProceed ? "✓" : "✗"}</div>
+                <div style={{ fontSize: 11, color: T.dim }}>{results.filter(r => r.passed).length}/{results.length} scenarios matched · threshold {Math.round(THRESHOLD * 100)}%</div>
+              </div>
+            </div>
+            <div style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: T.mono }}>
+                <span>Scenario</span><span>Expected</span><span>Actual</span><span>Result</span>
+              </div>
+              {results.map((r, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "10px 16px", borderBottom: i < results.length - 1 ? `1px solid ${T.border}20` : "none", alignItems: "start" }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 3 }}>{r.scenario}</div>
+                    {r.clause && <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, lineHeight: 1.4 }}>"{r.clause.slice(0, 80)}{r.clause.length > 80 ? "…" : ""}"</div>}
+                    {r.witnessId && <div style={{ fontSize: 10, fontFamily: T.mono, color: "#374151", marginTop: 2 }}>Witness #{r.witnessId}</div>}
+                  </div>
+                  <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: dc(r.expected) }}>{r.expected}</span>
+                  <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: dc(r.decision) }}>{r.decision}</span>
+                  <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: r.passed ? T.green : T.red }}>{r.passed ? "✓ PASS" : "✗ FAIL"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+        <button onClick={onNext} disabled={!canProceed} style={{
+          padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
+          background: canProceed ? T.blue : "#1e2229", color: canProceed ? "#fff" : T.dim,
+          border: "none", cursor: canProceed ? "pointer" : "not-allowed",
+        }}>Next → Stage 3</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stage 3: Apaleo CRUD Review ────────────────────────────────────────────
+function ApaleoCRUDReview({ agentSlug, govFiles, govContents, onNext }) {
+  const [apaleoStatus, setApaleoStatus] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const skillContent = govContents?.[(govFiles || []).find(f => f.fileType === "SKILL")?.id] || "";
+  const agentsContent = govContents?.[(govFiles || []).find(f => f.fileType === "AGENTS")?.id] || "";
+  const apiPaths = [...new Set((skillContent.match(/\/api\/v1\/[a-z\-\/{}]+/gi) || []).map(p => p.trim()))].slice(0, 20);
+  const writeOps = (agentsContent.match(/MUST\s+(?:create|update|post|submit|write|send|modify|delete|cancel)[^.\n]+/gi) || []).slice(0, 8);
+  const readPaths = apiPaths.filter(p => !p.match(/create|update|delete|cancel/i));
+  const writePaths = apiPaths.filter(p => p.match(/create|update|delete|cancel/i));
+
+  const testConnection = async () => {
+    setTesting(true);
+    try {
+      const r = await fetch("/api/apaleo/status");
+      const d = await r.json();
+      setApaleoStatus(d);
+    } catch { setApaleoStatus({ error: "Connection test failed" }); }
+    setTesting(false);
+  };
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Apaleo PMS Connection</div>
+          <button onClick={testConnection} disabled={testing} style={{
+            padding: "8px 20px", borderRadius: 7, fontSize: 12, fontWeight: 700, fontFamily: T.mono,
+            background: "#0f1824", color: T.blue, border: `1px solid ${T.blue}40`, cursor: testing ? "wait" : "pointer",
+          }}>{testing ? "Testing…" : "Test Apaleo Connection"}</button>
+          {apaleoStatus && (
+            <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {[
+                { label: "Connected", value: apaleoStatus.connected ? "Yes" : "No", color: apaleoStatus.connected ? T.green : T.red },
+                { label: "Properties", value: apaleoStatus.propertyCount ?? "—", color: T.blue },
+                { label: "MCP", value: apaleoStatus.mcpConfigured ? "Configured" : "Not configured", color: apaleoStatus.mcpConfigured ? T.green : T.amber },
+                { label: "Token Expiry", value: apaleoStatus.tokenExpiry ? new Date(apaleoStatus.tokenExpiry).toLocaleDateString() : "—", color: T.dim },
+              ].map(({ label, value, color }) => (
+                <div key={label} style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", minWidth: 110 }}>
+                  <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: T.mono }}>{String(value)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          {[
+            { title: "READ Operations", items: readPaths.length > 0 ? readPaths : ["GET /api/v1/reservations/{id}", "GET /api/v1/folios/{id}", "GET /api/v1/properties/{id}", "GET /api/v1/units"], color: T.blue },
+            { title: "WRITE Operations", items: writePaths.length > 0 ? writePaths : writeOps.map(s => s.trim().slice(0, 60)), color: T.amber },
+          ].map(({ title, items, color }) => (
+            <div key={title} style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 11, fontWeight: 700, fontFamily: T.mono, color, letterSpacing: "0.08em" }}>{title}</div>
+              <div style={{ padding: "8px 0" }}>
+                {(items.length > 0 ? items : ["(None declared in SKILL.md)"]).slice(0, 8).map((item, i) => (
+                  <div key={i} style={{ padding: "5px 14px", fontSize: 11, fontFamily: T.mono, color: "#c0c6d8" }}>{item}</div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+        <button onClick={onNext} style={{ padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono, background: T.blue, color: "#fff", border: "none", cursor: "pointer" }}>Next → Stage 4</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stage 4: Witness Review ─────────────────────────────────────────────────
+function WitnessReviewStage({ agentSlug, sandboxTimestamp, onNext }) {
+  const [entries, setEntries] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const EU_MAP = [
+    { article: "Art. 13", title: "Transparency", desc: "Witness entries provide real-time transparency on all agent decisions and their governance basis." },
+    { article: "Art. 14", title: "Human Oversight", desc: "HITL cards and ESCALATE decisions ensure humans retain oversight over boundary-crossing actions." },
+    { article: "Art. 17", title: "Risk Management", desc: "MUST/MUST NOT compliance guards are evaluated against SOP.md before every decision." },
+  ];
+
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/agents/witness?companyId=0&limit=50")
+      .then(r => r.json())
+      .then(d => {
+        const all = d.entries || d.rows || [];
+        const filtered = all
+          .filter(e => e.agent === agentSlug || e.agentId === agentSlug)
+          .filter(e => !sandboxTimestamp || new Date(e.createdAt || e.timestamp || 0).getTime() >= sandboxTimestamp)
+          .slice(0, 5);
+        setEntries(filtered);
+        setLoading(false);
+      })
+      .catch(() => { setEntries([]); setLoading(false); });
+  }, [agentSlug, sandboxTimestamp]);
+
+  const downloadSOC2 = () => {
+    const lines = [
+      "SOC 2 Type II — Governance Witness Excerpt",
+      `Agent: ${agentSlug}`,
+      `Generated: ${new Date().toISOString()}`,
+      "EU AI Act: Art.13 Transparency · Art.14 Human Oversight · Art.17 Risk Management",
+      "",
+      "─── Witness Entries ───",
+      ...(entries || []).map((e, i) => [
+        `\n[${i + 1}] Decision: ${e.decision?.decision || e.decision}`,
+        `    Clause: ${e.decision?.clauseApplied || "—"}`,
+        `    Action: ${e.decision?.actionProposed || "—"}`,
+        `    Time: ${e.createdAt || e.timestamp || "—"}`,
+      ].join("\n")),
+    ].join("\n");
+    const url = URL.createObjectURL(new Blob([lines], { type: "text/plain" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: `soc2-witness-${agentSlug}-${Date.now()}.txt` });
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+          {EU_MAP.map(({ article, title, desc }) => (
+            <div key={article} style={{ flex: 1, minWidth: 200, background: "#0f1520", border: `1px solid ${T.blue}30`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: T.blue, marginBottom: 4 }}>{article} — {title}</div>
+              <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.08em" }}>
+            WITNESS ENTRIES {sandboxTimestamp ? "(since sandbox run)" : ""}
+          </div>
+          <button onClick={downloadSOC2} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#0f1520", border: `1px solid ${T.blue}40`, color: T.blue, cursor: "pointer" }}>
+            ↓ SOC 2 Excerpt
+          </button>
+        </div>
+        {loading ? (
+          <div style={{ color: T.dim, fontSize: 12 }}>Loading…</div>
+        ) : !entries || entries.length === 0 ? (
+          <div style={{ padding: "16px 18px", background: "#111318", border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, color: T.dim }}>
+            No witness entries for this agent since the sandbox run.
+            Run Stage 2 sandbox to generate entries.
+          </div>
+        ) : entries.map((e, i) => {
+          const dec = e.decision?.decision || String(e.decision) || "—";
+          const col = dec === "PASS" ? T.green : dec === "FAIL" ? T.red : T.amber;
+          return (
+            <div key={e.id ?? i} style={{ background: "#111318", border: `1px solid ${T.border}`, borderLeft: `3px solid ${col}`, borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 5 }}>
+                <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: col }}>{dec}</span>
+                <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>#{e.id}</span>
+                <span style={{ fontSize: 10, color: T.dim, marginLeft: "auto" }}>{e.createdAt ? new Date(e.createdAt).toLocaleTimeString() : "—"}</span>
+              </div>
+              <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 4 }}>{e.decision?.actionProposed || "—"}</div>
+              <div style={{ fontSize: 11, fontFamily: T.mono, color: "#94a3b8", lineHeight: 1.4 }}>{e.decision?.clauseApplied || "—"}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+        <button onClick={onNext} style={{ padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono, background: T.blue, color: "#fff", border: "none", cursor: "pointer" }}>Next → Stage 5</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stage 5: Exception Authority Confirmation ──────────────────────────────
+function ExceptionAuthorityConfirmation({ exceptionContent, onNext }) {
+  const [checked, setChecked] = useState({});
+  const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
+  const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
+
+  const parsedBands = useMemo(() => {
+    if (!exceptionContent) return {};
+    const out = {};
+    for (const band of FRONT_LINE) {
+      const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override|$)`, "m");
+      const block = (exceptionContent.match(re) || [""])[0];
+      const classes = [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => {
+        const s = block.slice(m.index);
+        const auth = (s.match(/authority:\s*["']?([^"'\n]+)["']?/) || [])[1]?.trim() || "—";
+        const desc = (s.match(/description:\s*["']?([^"'\n]+)["']?/) || [])[1]?.trim() || "";
+        return { cls: m[1], auth, desc, hitl: auth.includes("hitl") };
+      });
+      if (classes.length > 0) out[band] = classes;
+    }
+    return out;
+  }, [exceptionContent]);
+
+  const allKeys = FRONT_LINE.flatMap(b => (parsedBands[b] || []).map(c => `${b}--${c.cls}`));
+  const allChecked = allKeys.length > 0 && allKeys.every(k => checked[k]);
+  const toggle = k => setChecked(p => ({ ...p, [k]: !p[k] }));
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+        <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 20px" }}>
+          Check each exception class to confirm you have reviewed and accepted the authority structure for this agent.
+        </p>
+        {FRONT_LINE.map(band => {
+          const classes = parsedBands[band] || [];
+          return (
+            <div key={band} style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 10 }}>
+                {BAND_LABEL[band].toUpperCase()}
+              </div>
+              {classes.length === 0 ? (
+                <div style={{ fontSize: 12, color: T.dim, padding: "10px 14px", background: "#0d0f14", borderRadius: 8, border: `1px solid ${T.border}` }}>
+                  No exception classes defined — load EXCEPTION_AUTHORITY.md in Stage 1 first.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {classes.map(({ cls, auth, desc, hitl }) => {
+                    const k = `${band}--${cls}`;
+                    return (
+                      <label key={k} style={{
+                        display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px",
+                        background: hitl ? "#150b1a" : "#111318",
+                        border: `1px solid ${hitl ? "#7c3aed50" : T.border}`,
+                        borderRadius: 8, cursor: "pointer",
+                      }}>
+                        <input type="checkbox" checked={!!checked[k]} onChange={() => toggle(k)} style={{ marginTop: 2, flexShrink: 0, accentColor: T.blue }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                            <span style={{ fontSize: 12, fontFamily: T.mono, fontWeight: 700, color: T.text }}>{cls}</span>
+                            {hitl && <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: "#c4b5fd", background: "#2d1b6930", padding: "1px 6px", borderRadius: 3 }}>ALWAYS HITL</span>}
+                            <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginLeft: "auto" }}>auth: {auth}</span>
+                          </div>
+                          {desc && <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{desc}</div>}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {allKeys.length === 0 && (
+          <div style={{ textAlign: "center", color: T.dim, fontSize: 13, padding: "20px 0" }}>
+            No exception classes found — complete Stage 1 to load EXCEPTION_AUTHORITY.md.
+          </div>
+        )}
+      </div>
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <span style={{ fontSize: 12, color: T.dim }}>
+          {allKeys.length > 0 ? `${allKeys.filter(k => checked[k]).length} / ${allKeys.length} confirmed` : "Load governance files first"}
+        </span>
+        <button onClick={onNext} disabled={allKeys.length > 0 && !allChecked} style={{
+          padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
+          background: allChecked || allKeys.length === 0 ? T.blue : "#1e2229",
+          color: allChecked || allKeys.length === 0 ? "#fff" : T.dim,
+          border: "none", cursor: (allChecked || allKeys.length === 0) ? "pointer" : "not-allowed",
+        }}>Next → Stage 6</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stage 6: Admit or Reject ────────────────────────────────────────────────
+function AdmitOrRejectStage({ agentSlug, requestId, stageCompletions, onAdmitted, onRejected }) {
+  const [admitting, setAdmitting] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejecting, setRejecting] = useState(false);
+  const [error, setError] = useState(null);
+  const STAGE_LABELS = ["Governance Files", "Sandbox Evaluation", "Apaleo CRUD", "Witness Review", "Exception Authority"];
+
+  const handleAdmit = async () => {
+    if (!requestId) { setError("No onboarding request ID"); return; }
+    setAdmitting(true); setError(null);
+    try {
+      const r = await fetch(`/api/onboarding/${requestId}/admit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decided_by: "CISO (dashboard)" }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setError(d.error || "Admission failed"); }
+      else {
+        await fetch("/api/agents/witness", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId: 0, agent: "onboarding-agent",
+            decision: { decision: "PASS", clauseApplied: "VDA-MD Onboarding §6 — CISO walkthrough completed, agent admitted", actionProposed: `${agentSlug} admitted to VDA framework`, exceptionApplied: false, escalationTarget: null, reasoning: "CISO completed all 6 walkthrough stages and admitted agent" },
+            fileReferenced: "AGENTS.md",
+            apaleoData: { event_type: "ciso_walkthrough_completed", agentId: agentSlug, onboarding_id: requestId },
+            credentialVerified: true,
+          }),
+        }).catch(() => {});
+        onAdmitted?.(agentSlug);
+      }
+    } catch { setError("Network error"); }
+    finally { setAdmitting(false); }
+  };
+
+  const handleReject = async () => {
+    if (!requestId || rejectReason.trim().length < 20) return;
+    setRejecting(true); setError(null);
+    try {
+      const r = await fetch(`/api/onboarding/${requestId}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: rejectReason, decided_by: "CISO (dashboard)" }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setError(d.error || "Rejection failed"); }
+      else { onRejected?.(agentSlug, rejectReason); }
+    } catch { setError("Network error"); }
+    finally { setRejecting(false); }
+  };
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "24px 28px" }}>
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 12 }}>STAGE COMPLETION</div>
+          {STAGE_LABELS.map((label, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < STAGE_LABELS.length - 1 ? `1px solid ${T.border}20` : "none" }}>
+              <span style={{ fontSize: 14, color: stageCompletions[i] ? T.green : T.dim }}>{stageCompletions[i] ? "✓" : "○"}</span>
+              <span style={{ fontSize: 13, color: stageCompletions[i] ? T.text : T.dim }}>{label}</span>
+              {!stageCompletions[i] && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.amber, marginLeft: "auto" }}>Incomplete</span>}
+            </div>
+          ))}
+        </div>
+        <div style={{ background: "#0f1520", border: `1px solid ${T.blue}30`, borderRadius: 10, padding: "16px 18px", marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: T.blue, letterSpacing: "0.08em", marginBottom: 8 }}>ADMISSION DECLARATION — EU AI ACT ARTICLE 17</div>
+          <p style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.7, margin: 0 }}>
+            By clicking "Admit to Framework", I confirm as CISO that I have reviewed all six governance stages for <strong style={{ color: T.text }}>{agentSlug}</strong>: governance files, sandbox evaluation pass rate, Apaleo CRUD permissions, witness trail, and exception authority structure. This admission is recorded immutably in the Witness Agent and forms part of the Article 17 Risk Management documentation.
+          </p>
+          <div style={{ marginTop: 8, fontSize: 11, color: T.dim, fontFamily: T.mono }}>
+            Timestamp: {new Date().toISOString()} · Decided by: CISO (dashboard)
+          </div>
+        </div>
+        {!requestId && (
+          <div style={{ padding: "12px 16px", background: "#1a0505", border: `1px solid ${T.red}40`, borderRadius: 8, color: T.red, fontSize: 12, marginBottom: 16 }}>
+            No onboarding request ID — submit via POST /api/onboarding/submit with source=vda_native first.
+          </div>
+        )}
+        {error && <div style={{ color: T.red, fontSize: 12, marginBottom: 12 }}>{error}</div>}
+        <div style={{ display: "flex", gap: 12 }}>
+          <button onClick={handleAdmit} disabled={admitting || !requestId} style={{
+            flex: 1, padding: "14px 0", borderRadius: 10, fontSize: 14, fontWeight: 700,
+            background: admitting || !requestId ? "#1a2a1a" : "#14532d",
+            color: admitting || !requestId ? T.dim : T.green,
+            border: `1px solid ${admitting || !requestId ? T.dim : T.green}`,
+            cursor: admitting || !requestId ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          }}>
+            {admitting && <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(74,222,128,0.3)", borderTopColor: T.green, borderRadius: "50%", animation: "co-spin 0.7s linear infinite" }} />}
+            ✅ Admit to Framework
+          </button>
+          <button onClick={() => setRejectOpen(true)} disabled={admitting || !requestId} style={{
+            flex: 1, padding: "14px 0", borderRadius: 10, fontSize: 14, fontWeight: 700,
+            background: "#450a0a", color: T.red, border: `1px solid ${T.red}`,
+            cursor: admitting || !requestId ? "not-allowed" : "pointer",
+            opacity: admitting || !requestId ? 0.5 : 1,
+          }}>❌ Reject</button>
+        </div>
+      </div>
+      {rejectOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.red}60`, borderRadius: 16, padding: 28, width: 480, maxWidth: "92vw" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 8 }}>Reject Agent Admission</div>
+            <p style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>Provide a reason (min 20 chars). This will be recorded in the Witness Agent.</p>
+            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Reason for rejection…"
+              style={{ width: "100%", height: 100, background: "#0d0f14", border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 12, padding: "10px 12px", fontFamily: T.sans, resize: "vertical", boxSizing: "border-box" }} />
+            {rejectReason.length > 0 && rejectReason.length < 20 && (
+              <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>{20 - rejectReason.length} more characters required</div>
+            )}
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <button onClick={() => setRejectOpen(false)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#1e2229", color: T.dim, border: `1px solid ${T.border}`, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              <button onClick={handleReject} disabled={rejecting || rejectReason.trim().length < 20} style={{
+                flex: 1, padding: "10px 0", borderRadius: 8, background: "#450a0a", color: T.red,
+                border: `1px solid ${T.red}`, fontSize: 13, fontWeight: 700,
+                cursor: rejecting || rejectReason.trim().length < 20 ? "not-allowed" : "pointer",
+                opacity: rejecting || rejectReason.trim().length < 20 ? 0.6 : 1,
+              }}>{rejecting ? "Rejecting…" : "Confirm Rejection"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CISOWalkthrough — full-screen modal ─────────────────────────────────────
+function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
+  const [agentIdx, setAgentIdx] = useState(0);
+  const agent = agents?.[agentIdx];
+  const agentSlug = agent?.slug || "";
+  const requestId = agent?.requestId || null;
+  const [stage, setStage] = useState(() => loadCurrentStage(agentSlug));
+  const [completions, setCompletions] = useState(() => loadStageCompletions(agentSlug));
+  const [sandboxTs, setSandboxTs] = useState(null);
+  const [govFiles, setGovFiles] = useState(null);
+  const [govContents, setGovContents] = useState({});
+  const [restarting, setRestarting] = useState(false);
+
+  useEffect(() => {
+    if (!agentSlug) return;
+    setStage(loadCurrentStage(agentSlug));
+    setCompletions(loadStageCompletions(agentSlug));
+    setSandboxTs(null);
+    setGovFiles(null);
+    setGovContents({});
+  }, [agentSlug]);
+
+  useEffect(() => { if (agentSlug) saveCurrentStage(agentSlug, stage); }, [agentSlug, stage]);
+  useEffect(() => { if (agentSlug) saveStageCompletions(agentSlug, completions); }, [agentSlug, completions]);
+
+  const completeStage = (idx) => {
+    const next = completions.map((v, i) => i === idx ? true : v);
+    setCompletions(next);
+    if (idx + 1 < 6) setStage(idx + 2);
+    fetch("/api/agents/witness", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyId: 0, agent: "onboarding-agent",
+        decision: { decision: "INFO", clauseApplied: `VDA-MD Onboarding §walkthrough — stage ${idx + 1} completed`, actionProposed: `CISO stage ${idx + 1} completed for ${agentSlug}`, exceptionApplied: false, escalationTarget: null, reasoning: `CISO completed stage ${idx + 1} of walkthrough` },
+        fileReferenced: "AGENTS.md",
+        apaleoData: { event_type: "ciso_stage_completed", stage: idx + 1, agentId: agentSlug, onboarding_id: requestId || null },
+        credentialVerified: true,
+      }),
+    }).catch(() => {});
+  };
+
+  const handleRestart = async () => {
+    setRestarting(true);
+    if (requestId) {
+      await fetch(`/api/onboarding/${requestId}/restart`, { method: "POST" }).catch(() => {});
+    }
+    const cleared = [false, false, false, false, false, false];
+    setCompletions(cleared); setStage(1); setSandboxTs(null);
+    if (agentSlug) { saveStageCompletions(agentSlug, cleared); saveCurrentStage(agentSlug, 1); }
+    setRestarting(false);
+  };
+
+  const exceptionFile = (govFiles || []).find(f => f.fileType === "EXCEPTION_AUTHORITY");
+  const exceptionContent = exceptionFile ? govContents[exceptionFile.id] : null;
+
+  const STAGES = [
+    { id: 1, label: "Governance Files", icon: "📄" },
+    { id: 2, label: "Sandbox Evaluation", icon: "🧪" },
+    { id: 3, label: "Apaleo CRUD Review", icon: "🔗" },
+    { id: 4, label: "Witness Review", icon: "🕵️" },
+    { id: 5, label: "Exception Authority", icon: "⚖️" },
+    { id: 6, label: "Admit or Reject", icon: "🏛" },
+  ];
+
+  const badgeOf = (a) => {
+    const s = a?.status;
+    if (s === "admitted" || s === "onboarded") return { icon: "✅", color: T.green };
+    if (s === "rejected_co") return { icon: "❌", color: T.red };
+    if (s === "pre_admitted") return { icon: "⏳", color: T.amber };
+    return { icon: "○", color: T.dim };
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 9000, display: "flex", flexDirection: "column", fontFamily: T.sans }}>
+      <style>{`@keyframes co-spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* Top agent-tab bar */}
+      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "stretch", overflowX: "auto", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "0 20px", borderRight: `1px solid ${T.border}`, flexShrink: 0, gap: 8 }}>
+          <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: "#f87171", letterSpacing: "0.1em" }}>CISO WALKTHROUGH</span>
+          <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>EU AI Act Art. 17</span>
+        </div>
+        {(agents || []).map((a, idx) => {
+          const { icon, color } = badgeOf(a);
+          const active = idx === agentIdx;
+          return (
+            <button key={a.slug} onClick={() => setAgentIdx(idx)} style={{
+              background: "none", border: "none",
+              borderBottom: active ? `2px solid ${T.blue}` : "2px solid transparent",
+              borderTop: "2px solid transparent",
+              color: active ? T.text : T.dim,
+              padding: "12px 14px", cursor: "pointer", fontSize: 11, fontWeight: active ? 700 : 400,
+              fontFamily: T.sans, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6,
+            }}>
+              <span style={{ color }}>{icon}</span>{a.name}
+            </button>
+          );
+        })}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", flexShrink: 0 }}>
+          <button onClick={handleRestart} disabled={restarting} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#150505", border: `1px solid ${T.red}50`, color: T.red, cursor: "pointer" }}>
+            {restarting ? "Restarting…" : "↺ Restart this agent"}
+          </button>
+          <button onClick={onClose} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#1e2229", border: `1px solid ${T.border}`, color: T.dim, cursor: "pointer" }}>✕ Close</button>
+        </div>
+      </div>
+
+      {/* Body: sidebar + content */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        {/* Stage sidebar */}
+        <div style={{ width: 220, borderRight: `1px solid ${T.border}`, background: "#050608", display: "flex", flexDirection: "column", padding: "16px 0", flexShrink: 0, overflowY: "auto" }}>
+          <div style={{ padding: "0 16px 12px", fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em" }}>
+            {(agent?.name || "SELECT AGENT").toUpperCase()}
+          </div>
+          {STAGES.map((s, i) => {
+            const done = completions[i];
+            const active = stage === s.id;
+            return (
+              <button key={s.id} onClick={() => setStage(s.id)} style={{
+                background: active ? "#111318" : "none", border: "none",
+                borderLeft: active ? `3px solid ${T.blue}` : "3px solid transparent",
+                color: done ? T.green : active ? T.text : T.dim,
+                padding: "10px 16px 10px 13px", cursor: "pointer", fontSize: 12,
+                fontWeight: active ? 600 : 400, fontFamily: T.sans, textAlign: "left",
+                display: "flex", alignItems: "center", gap: 8,
+              }}>
+                <span style={{ fontSize: 11 }}>{done ? "✓" : active ? "▶" : String(s.id)}</span>
+                <span>{s.icon} {s.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Stage content area */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {!agentSlug ? (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.dim, fontSize: 13 }}>Select an agent tab to begin.</div>
+          ) : (
+            <>
+              {/* Stage header */}
+              <div style={{ padding: "14px 24px", borderBottom: `1px solid ${T.border}`, background: "#050608", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.1em" }}>STAGE {stage} OF 6</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{STAGES[stage - 1]?.icon} {STAGES[stage - 1]?.label}</span>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                  {STAGES.map((s, i) => (
+                    <div key={s.id} style={{ width: 8, height: 8, borderRadius: "50%", background: completions[i] ? T.green : stage === s.id ? T.blue : T.border }} />
+                  ))}
+                </div>
+              </div>
+              {/* Stage body */}
+              <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
+                {stage === 2 && <SandboxEvaluation requestId={requestId} onNext={() => completeStage(1)} onSandboxRun={ts => setSandboxTs(ts)} />}
+                {stage === 3 && <ApaleoCRUDReview agentSlug={agentSlug} govFiles={govFiles} govContents={govContents} onNext={() => completeStage(2)} />}
+                {stage === 4 && <WitnessReviewStage agentSlug={agentSlug} sandboxTimestamp={sandboxTs} onNext={() => completeStage(3)} />}
+                {stage === 5 && <ExceptionAuthorityConfirmation exceptionContent={exceptionContent} onNext={() => completeStage(4)} />}
+                {stage === 6 && <AdmitOrRejectStage agentSlug={agentSlug} requestId={requestId} stageCompletions={completions} onAdmitted={s => { const c = [false,false,false,false,false,false]; setCompletions(c); setStage(1); onAdmitted?.(s); }} onRejected={(s, r) => onRejected?.(s, r)} />}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PreCrawlConfirmation — Track 2 band-confirmation before crawl ────────────
+function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
+  const [authContent, setAuthContent] = useState("");
+  const [checked, setChecked] = useState({});
+  const [open, setOpen] = useState({});
+  const [enabling, setEnabling] = useState(false);
+  const [error, setError] = useState(null);
+  const LS_KEY = `vda_crawl_${agentSlug}_${companyId}_confirmed`;
+
+  useEffect(() => {
+    try { setChecked(JSON.parse(localStorage.getItem(LS_KEY) || "{}")); } catch {}
+    fetch("/api/fm/files/0")
+      .then(r => r.json())
+      .then(async d => {
+        const f = (d.files || []).find(x => x.agentId === agentSlug && x.fileType === "EXCEPTION_AUTHORITY");
+        if (!f) return;
+        const r = await fetch(`/api/fm/file/${f.id}`);
+        const fd = await r.json();
+        setAuthContent(fd.content || "");
+      })
+      .catch(() => {});
+  }, [agentSlug]);
+
+  const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
+  const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
+  const parseBandClasses = (band) => {
+    const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override|$)`, "m");
+    const block = (authContent.match(re) || [""])[0];
+    return [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => m[1]);
+  };
+
+  const toggleCheck = b => {
+    const next = { ...checked, [b]: !checked[b] };
+    setChecked(next);
+    try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch {}
+  };
+
+  const allBandsChecked = FRONT_LINE.every(b => checked[b]);
+
+  const enableCrawl = async () => {
+    setEnabling(true); setError(null);
+    try {
+      const r = await fetch("/api/dashboard/activation/start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agentSlug, companyId, initiatedBy: "Hotel GM" }),
+      });
+      const d = await r.json();
+      if (!r.ok) setError(d.error || "Failed to enable crawl");
+      else onCrawlEnabled?.();
+    } catch { setError("Network error"); }
+    finally { setEnabling(false); }
+  };
+
+  return (
+    <div style={{ background: "#0d0f14", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: "#111318", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>Pre-Crawl Band Confirmation</span>
+        <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>Hotel GM must confirm all 3 bands</span>
+      </div>
+      <div style={{ padding: 14 }}>
+        {FRONT_LINE.map(band => {
+          const classes = parseBandClasses(band);
+          const isOpen = !!open[band];
+          return (
+            <div key={band} style={{ marginBottom: 8, background: "#0a0c10", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+              <button onClick={() => setOpen(p => ({ ...p, [band]: !p[band] }))} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "9px 12px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+                <input type="checkbox" checked={!!checked[band]} onChange={() => toggleCheck(band)} onClick={e => e.stopPropagation()} style={{ flexShrink: 0, accentColor: T.blue }} />
+                <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.text }}>{BAND_LABEL[band]}</span>
+                <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>{classes.length} classes</span>
+                <span style={{ color: T.dim, fontSize: 11 }}>{isOpen ? "▲" : "▼"}</span>
+              </button>
+              {isOpen && classes.length > 0 && (
+                <div style={{ padding: "0 12px 10px", borderTop: `1px solid ${T.border}20` }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
+                    {classes.map(c => <span key={c} style={{ fontSize: 10, fontFamily: T.mono, color: "#94a3b8", background: "#111318", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 7px" }}>{c}</span>)}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {error && <div style={{ color: T.red, fontSize: 12, marginTop: 8 }}>{error}</div>}
+        {allBandsChecked && (
+          <button onClick={enableCrawl} disabled={enabling} style={{
+            width: "100%", padding: "10px 0", borderRadius: 8, fontSize: 13, fontWeight: 700,
+            background: enabling ? "#1e2229" : "#14532d", color: enabling ? T.dim : T.green,
+            border: `1px solid ${enabling ? T.dim : T.green}`, cursor: enabling ? "not-allowed" : "pointer", marginTop: 10,
+          }}>{enabling ? "Enabling…" : "▶ Enable Crawl Phase"}</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── CrawlProgressDashboard — Track 2 per-band progress + promote to walk ────
+function CrawlProgressDashboard({ agentSlug, companyId, onPromoted }) {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showPromote, setShowPromote] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/dashboard/activation/${agentSlug}/crawl-status?companyId=${companyId}`);
+      if (r.ok) setStatus(await r.json());
+    } catch {}
+    setLoading(false);
+  }, [agentSlug, companyId]);
+
+  useEffect(() => { loadStatus(); const t = setInterval(loadStatus, 30000); return () => clearInterval(t); }, [loadStatus]);
+
+  const promote = async () => {
+    setPromoting(true);
+    try {
+      const r = await fetch(`/api/dashboard/activation/${agentSlug}/promote-to-walk`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, promotedBy: "Hotel GM" }),
+      });
+      if (r.ok) { setShowPromote(false); onPromoted?.(); }
+    } catch {}
+    setPromoting(false);
+  };
+
+  const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
+  const bands = status?.bands || {};
+  const fBands = status?.frontLineBands || Object.keys(bands);
+
+  return (
+    <div style={{ background: "#0d0f14", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: "#111318", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>Crawl Progress</span>
+        <button onClick={loadStatus} style={{ background: "none", border: "none", cursor: "pointer", color: T.dim, fontSize: 11 }}>↻</button>
+      </div>
+      {loading ? (
+        <div style={{ padding: 14, color: T.dim, fontSize: 12 }}>Loading…</div>
+      ) : !status ? (
+        <div style={{ padding: 14, color: T.dim, fontSize: 12 }}>Crawl status unavailable — governance files may not be seeded.</div>
+      ) : (
+        <div style={{ padding: 14 }}>
+          {fBands.map(band => {
+            const b = bands[band] || {};
+            const pct = b.total > 0 ? Math.round((b.resolved / b.total) * 100) : (b.total === 0 ? 100 : 0);
+            return (
+              <div key={band} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: T.text }}>{BAND_LABEL[band] || band}</span>
+                  <span style={{ fontSize: 11, fontFamily: T.mono, color: b.complete ? T.green : T.dim }}>{b.resolved ?? 0}/{b.total ?? 0}{b.complete ? " ✓" : ""}</span>
+                </div>
+                <div style={{ height: 5, background: "#1e2229", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: b.complete ? T.green : T.blue, borderRadius: 3, transition: "width 0.3s" }} />
+                </div>
+              </div>
+            );
+          })}
+          {status.crawlComplete && (
+            <div style={{ marginTop: 12, padding: "10px 12px", background: "#0d1f0d", border: `1px solid ${T.green}40`, borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: T.green, fontSize: 12 }}>✓ Crawl complete — all classes baselined</span>
+              <button onClick={() => setShowPromote(true)} style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, fontFamily: T.mono, background: "#14532d", color: T.green, border: `1px solid ${T.green}`, cursor: "pointer" }}>
+                Promote to Walk →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {showPromote && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 8000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.green}40`, borderRadius: 14, padding: 28, width: 440, maxWidth: "92vw" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 8 }}>Promote to Walk Phase</div>
+            <p style={{ fontSize: 12, color: T.muted, lineHeight: 1.6, marginBottom: 20 }}>All exception classes baselined. Walk phase grants limited autonomous authority (≤10% discount, ≤€150 refund, ≤€500 folio charge). A Witness entry and Intent Mandate will be issued.</p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowPromote(false)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#1e2229", color: T.dim, border: `1px solid ${T.border}`, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              <button onClick={promote} disabled={promoting} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#14532d", color: T.green, border: `1px solid ${T.green}`, fontSize: 13, fontWeight: 700, cursor: promoting ? "not-allowed" : "pointer" }}>
+                {promoting ? "Promoting…" : "✓ Confirm Walk Promotion"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── OnboardingConsole — three-track starting screen ─────────────────────────
+function OnboardingConsole({ onLoadHotel }) {
+  const [requests, setRequests] = useState(null);
+  const [companies, setCompanies] = useState(null);
+  const [phaseMap, setPhaseMap] = useState({});
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false);
+  const [walkthroughSource, setWalkthroughSource] = useState("vda_native");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const loadAll = useCallback(async () => {
+    try {
+      const [reqRes, compRes] = await Promise.all([
+        fetch("/api/onboarding").then(r => r.json()),
+        fetch("/api/companies").then(r => r.json()),
+      ]);
+      setRequests(reqRes.requests || []);
+      const comps = Array.isArray(compRes) ? compRes : [];
+      setCompanies(comps);
+      if (comps.length > 0) {
+        const phaseResults = await Promise.all(
+          comps.map(c => fetch(`/api/dashboard/phases?companyId=${c.id}`).then(r => r.json()).catch(() => ({ phases: [] })))
+        );
+        const pm = {};
+        comps.forEach((c, i) => {
+          pm[c.id] = {};
+          (phaseResults[i].phases || []).forEach(p => { pm[c.id][p.agentId] = p.phase; });
+        });
+        setPhaseMap(pm);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll, refreshKey]);
+
+  const nativeReqs = (requests || []).filter(r => r.source === "vda_native");
+  const externalReqs = (requests || []).filter(r => r.source === "a2a_external");
+
+  const nativeStatusMap = {};
+  for (const req of nativeReqs) {
+    const card = req.agentCard || {};
+    const rawId = String(card.id || card.name || "").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    if (rawId) nativeStatusMap[rawId] = { status: req.status, requestId: req.id };
+  }
+
+  const walkthroughAgents = VDA_NATIVE_AGENTS.map(a => ({
+    ...a,
+    status: nativeStatusMap[a.slug]?.status || null,
+    requestId: nativeStatusMap[a.slug]?.requestId || null,
+  }));
+
+  const admittedCount = walkthroughAgents.filter(a => ["admitted", "onboarded"].includes(a.status || "")).length;
+  const track2Locked = admittedCount === 0;
+  const loading = requests === null || companies === null;
+
+  const statusColor = s => s === "admitted" || s === "onboarded" ? T.green : s === "rejected_co" ? T.red : s ? T.amber : T.dim;
+  const statusLabel = s => ({ pre_admitted: "Pending admission", admitted: "Admitted", onboarded: "Onboarded", rejected_co: "Rejected", received: "Received", analysing: "Analysing", sandbox: "Sandbox" })[s] || (s || "Not submitted");
+
+  const openWalkthrough = (src) => { setWalkthroughSource(src); setWalkthroughOpen(true); };
+
+  return (
+    <div style={{ minHeight: "100vh", background: T.bg, fontFamily: T.sans, color: T.text }}>
+      <style>{`
+        @keyframes co-spin { to { transform: rotate(360deg); } }
+        @keyframes console-fadein { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, padding: "0 32px", height: 58, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ background: T.orange, borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.mono, fontWeight: 900, fontSize: 13, color: "#fff" }}>VD</div>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: "-0.03em" }}>VDA-MD for Apaleo</div>
+            <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>CISO-First Onboarding Console · EU AI Act Article 17</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: admittedCount > 0 ? T.green : T.red, boxShadow: `0 0 8px ${admittedCount > 0 ? T.green : T.red}` }} />
+            <span style={{ fontSize: 11, fontFamily: T.mono, color: admittedCount > 0 ? T.green : T.red, fontWeight: 700 }}>
+              {admittedCount > 0 ? `${admittedCount} AGENT${admittedCount > 1 ? "S" : ""} ADMITTED` : "NO AGENTS ADMITTED"}
+            </span>
+          </div>
+          <button onClick={() => setRefreshKey(k => k + 1)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer" }}>↻ Refresh</button>
+        </div>
+      </div>
+
+      {/* Hero */}
+      <div style={{ padding: "24px 40px 0", maxWidth: 1400, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: T.red, background: `${T.red}18`, border: `1px solid ${T.red}40`, borderRadius: 4, padding: "2px 8px" }}>COMPLIANCE OFFICER</span>
+          <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Default view · Hotel roles unlock after agent admission</span>
+        </div>
+        <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 26, color: T.text, letterSpacing: "-0.04em", margin: "0 0 4px" }}>Agent Admission Console</h1>
+        <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 24px" }}>
+          Complete Track 1 (CISO agent admission) before hotel operations unlock. This screen is the EU AI Act Article 17 governance proof.
+        </p>
+      </div>
+
+      {/* Three-track grid */}
+      <div style={{ padding: "0 40px 48px", maxWidth: 1400, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, animation: "console-fadein 0.3s ease" }}>
+
+        {/* ── Track 1: VDA Native Agent Admission ─────── */}
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: T.red, background: `${T.red}18`, border: `1px solid ${T.red}30`, borderRadius: 3, padding: "2px 6px" }}>TRACK 1</span>
+              <span style={{ fontSize: 9, fontFamily: T.mono, color: T.dim }}>CISO FIRST</span>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>VDA Agent Admission</div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>Review governance files, run sandbox evaluation, confirm exception authority, then admit or reject each native agent.</div>
+            <div style={{ display: "flex", gap: 14, marginTop: 10 }}>
+              <span style={{ fontSize: 11, fontFamily: T.mono }}><span style={{ color: T.green, fontWeight: 700 }}>{admittedCount}</span><span style={{ color: T.dim }}> admitted</span></span>
+              <span style={{ fontSize: 11, fontFamily: T.mono }}><span style={{ color: T.amber, fontWeight: 700 }}>{walkthroughAgents.filter(a => a.status === "pre_admitted").length}</span><span style={{ color: T.dim }}> pending</span></span>
+              <span style={{ fontSize: 11, fontFamily: T.mono }}><span style={{ color: T.dim, fontWeight: 700 }}>{walkthroughAgents.filter(a => !a.status).length}</span><span style={{ color: T.dim }}> not started</span></span>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
+            {loading ? <div style={{ padding: "14px 20px", color: T.dim, fontSize: 12 }}>Loading…</div>
+              : walkthroughAgents.map(a => (
+                <div key={a.slug} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", borderBottom: `1px solid ${T.border}10` }}>
+                  <span style={{ fontSize: 16, flexShrink: 0 }}>{a.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
+                    <div style={{ fontSize: 10, fontFamily: T.mono, color: statusColor(a.status) }}>{statusLabel(a.status)}</div>
+                  </div>
+                  {(a.status === "admitted" || a.status === "onboarded") && <span style={{ fontSize: 12, color: T.green }}>✅</span>}
+                  {a.status === "rejected_co" && <span style={{ fontSize: 12, color: T.red }}>❌</span>}
+                </div>
+              ))}
+          </div>
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}` }}>
+            <button onClick={() => openWalkthrough("vda_native")} style={{ width: "100%", padding: "11px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, background: T.red, color: "#fff", border: "none", cursor: "pointer" }}>
+              Start CISO Walkthrough →
+            </button>
+          </div>
+        </div>
+
+        {/* ── Track 2: Hotel Activation ─────────────────── */}
+        <div style={{ background: T.card, border: `1px solid ${track2Locked ? T.border : T.green + "40"}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", opacity: track2Locked ? 0.6 : 1, transition: "opacity 0.3s" }}>
+          <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: T.green, background: `${T.green}18`, border: `1px solid ${T.green}30`, borderRadius: 3, padding: "2px 6px" }}>TRACK 2</span>
+              <span style={{ fontSize: 9, fontFamily: T.mono, color: T.dim }}>HOTEL GM</span>
+              {track2Locked && <span style={{ fontSize: 9, fontFamily: T.mono, color: T.red, background: `${T.red}18`, border: `1px solid ${T.red}30`, borderRadius: 3, padding: "2px 6px" }}>LOCKED</span>}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>Hotel Crawl → Walk → Run</div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
+              {track2Locked ? "Locked — admit at least one agent in Track 1 to unlock hotel activation." : "Activate admitted agents at each hotel property through the Crawl → Walk → Run lifecycle."}
+            </div>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
+            {loading ? <div style={{ padding: "14px 20px", color: T.dim, fontSize: 12 }}>Loading hotels…</div>
+              : track2Locked ? (
+                <div style={{ padding: "24px 20px", textAlign: "center", color: T.dim }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Locked until Track 1 complete</div>
+                  <div style={{ fontSize: 11 }}>Admit at least 1 agent to unlock hotel operations</div>
+                </div>
+              ) : (companies || []).map(company => {
+                const ag = phaseMap[company.id] || {};
+                const vals = Object.values(ag);
+                const crawl = vals.filter(p => p === "crawl").length;
+                const walk = vals.filter(p => p === "walk").length;
+                const run = vals.filter(p => p === "run").length;
+                const name = company.companyName || company.name || `Company ${company.id}`;
+                return (
+                  <div key={company.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 20px", borderBottom: `1px solid ${T.border}10` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                      <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginTop: 2 }}>
+                        {vals.length === 0 ? "No agents activated" : `${crawl ? `🟡 ${crawl}c ` : ""}${walk ? `🔵 ${walk}w ` : ""}${run ? `🟢 ${run}r` : ""}`}
+                      </div>
+                    </div>
+                    <button onClick={() => onLoadHotel(company)} style={{ padding: "5px 12px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#1e2229", border: `1px solid ${T.border}`, color: T.dim, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      Open Hub →
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+
+        {/* ── Track 3: External A2A Admission ──────────── */}
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: "#e879f9", background: "#e879f918", border: "1px solid #e879f930", borderRadius: 3, padding: "2px 6px" }}>TRACK 3</span>
+              <span style={{ fontSize: 9, fontFamily: T.mono, color: T.dim }}>CISO → HOTEL GM</span>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>External A2A Admission</div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>External agents requesting A2A admission via the A2A protocol. Same 6-stage CISO walkthrough applies.</div>
+            <div style={{ display: "flex", gap: 14, marginTop: 10 }}>
+              <span style={{ fontSize: 11, fontFamily: T.mono }}><span style={{ color: T.green, fontWeight: 700 }}>{externalReqs.filter(r => r.status === "onboarded").length}</span><span style={{ color: T.dim }}> onboarded</span></span>
+              <span style={{ fontSize: 11, fontFamily: T.mono }}><span style={{ color: T.amber, fontWeight: 700 }}>{externalReqs.filter(r => ["received","analysing","sandbox","awaiting_first_hitl"].includes(r.status)).length}</span><span style={{ color: T.dim }}> in progress</span></span>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
+            {loading ? <div style={{ padding: "14px 20px", color: T.dim, fontSize: 12 }}>Loading…</div>
+              : externalReqs.length === 0 ? (
+                <div style={{ padding: "24px 20px", textAlign: "center", color: T.dim }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🔗</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>No external agents pending</div>
+                  <div style={{ fontSize: 11 }}>Agents submit via A2A at /api/a2a/onboarding</div>
+                </div>
+              ) : externalReqs.slice(0, 10).map(req => {
+                const card = req.agentCard || {};
+                const name = card.name || req.externalAgentDid || req.id;
+                return (
+                  <div key={req.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", borderBottom: `1px solid ${T.border}10` }}>
+                    <span style={{ fontSize: 16 }}>🤖</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                      <div style={{ fontSize: 10, fontFamily: T.mono, color: statusColor(req.status) }}>{statusLabel(req.status)}</div>
+                    </div>
+                    {req.evalPassRate && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.blue }}>{Math.round(Number(req.evalPassRate) * 100)}%</span>}
+                  </div>
+                );
+              })}
+          </div>
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}` }}>
+            <button onClick={() => openWalkthrough("a2a_external")} style={{ width: "100%", padding: "11px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, background: "#150e1f", color: "#e879f9", border: "1px solid #e879f940", cursor: "pointer" }}>
+              Review A2A Agents →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {walkthroughOpen && (
+        <CISOWalkthrough
+          agents={walkthroughSource === "a2a_external"
+            ? externalReqs.map(r => ({ slug: r.agentCard?.name || r.id, name: r.agentCard?.name || r.id, icon: "🤖", status: r.status, requestId: r.id }))
+            : walkthroughAgents}
+          onClose={() => setWalkthroughOpen(false)}
+          onAdmitted={() => { setWalkthroughOpen(false); setRefreshKey(k => k + 1); }}
+          onRejected={() => { setWalkthroughOpen(false); setRefreshKey(k => k + 1); }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // DIRECTORY — persistent company list
 // ─────────────────────────────────────────────
@@ -10722,8 +11915,8 @@ function DashboardTab({ companyId, onOpenTab, role, setRole }) {
 // ROOT APP
 // ─────────────────────────────────────────────
 export default function VdaOS() {
-  // screen: "directory" | "wizard" | "hub"
-  const [screen, setScreen] = useState("directory");
+  // screen: "onboarding" | "directory" | "wizard" | "hub"
+  const [screen, setScreen] = useState("onboarding");
   const [setup, setSetup] = useState(null);
   const [tab, setTab] = useState("journey");
   const [log, setLog] = useState([]);
@@ -10850,7 +12043,7 @@ export default function VdaOS() {
   };
 
   const goToDirectory = () => {
-    setScreen("directory");
+    setScreen("onboarding");
     setSetup(null);
     setLog([]);
     setLogIsSeeded(false);
@@ -10905,7 +12098,20 @@ export default function VdaOS() {
       <style>{GLOBAL_CSS}</style>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;900&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;600&display=swap" />
 
-      {/* Directory */}
+      {/* Onboarding Console — CISO-first starting screen (Task #71) */}
+      {screen === "onboarding" && (
+        <OnboardingConsole
+          onLoadHotel={(company) => handleLoad({
+            id: company.id,
+            companyName: company.companyName || company.name || `Company ${company.id}`,
+            industry: "hospitality",
+            apaleoPropertyId: company.apaleoPropertyId || null,
+            websiteUrl: company.websiteUrl || null,
+          })}
+        />
+      )}
+
+      {/* Directory — legacy hotel picker (still reachable if screen="directory") */}
       {screen === "directory" && (
         <Directory
           onNew={() => setScreen("wizard")}
