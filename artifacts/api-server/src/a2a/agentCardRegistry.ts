@@ -61,7 +61,7 @@ const PLATFORM_PROVIDER = {
 const DEFAULT_INPUT_MODES = ["application/json", "text/plain"];
 const DEFAULT_OUTPUT_MODES = ["application/json"];
 
-const AGENT_DEFS: Record<string, { name: string; description: string; defaultSkills: AgentSkill[] }> = {
+export const AGENT_DEFS: Record<string, { name: string; description: string; defaultSkills: AgentSkill[] }> = {
   "availability-agent": {
     name: "VDA-MD Availability Agent",
     description: "Evaluates room availability and unit group capacity at citizenM properties using Apaleo PMS data, governed by the availability policy file.",

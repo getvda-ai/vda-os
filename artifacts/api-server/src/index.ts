@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { startCredentialRotationScheduler } from "./lib/credentialRotation.js";
 import { startGovernanceIntegrityCheck } from "./lib/governanceIntegrityCheck.js";
 import { seedOnboardingAgentGovernanceFiles } from "./onboarding/seedOnboardingAgent.js";
+import { seedVdaNativeAgents } from "./onboarding/seedVdaNativeAgents.js";
 import { backfillRoleBand } from "./lib/backfillRoleBand.js";
 import { seedPlatformGovernanceFiles } from "./routes/admin.js";
 
@@ -31,6 +32,9 @@ app.listen(port, (err) => {
   startGovernanceIntegrityCheck();
   seedOnboardingAgentGovernanceFiles().catch(err =>
     logger.warn({ err }, "Onboarding agent seed deferred")
+  );
+  seedVdaNativeAgents().catch(err =>
+    logger.warn({ err }, "VDA native agents seed deferred")
   );
   backfillRoleBand().catch(err =>
     logger.warn({ err }, "Role band backfill deferred")
