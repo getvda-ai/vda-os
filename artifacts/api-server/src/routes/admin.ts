@@ -353,14 +353,15 @@ interface SeedJob {
 const seedJobs = new Map<string, SeedJob>();
 
 // ─── POST /api/admin/seed-exception-authority-files ──────────────────────────
-// Returns { jobId } immediately. Starts background generation of 40 files
-// (8 agents × 5 hotels) + re-seeds the 8 companyId=0 baseline files.
-// regenerate=false skips files that already exist.
+// Returns { jobId } immediately. Body: { regenerate?: boolean } (default false).
+// regenerate=false skips existing files (idempotent). regenerate=true overwrites.
+// Covers 48 files: 8 agents × 6 scopes (companyId 0–5, where 0 = platform baseline).
 
-router.post("/admin/seed-exception-authority-files", async (_req, res) => {
+router.post("/admin/seed-exception-authority-files", async (req, res) => {
+  const { regenerate = false } = (req.body ?? {}) as { regenerate?: boolean };
   const jobId = `ea-seed-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const companyIds = Object.keys(COMPANIES_MAP).map(Number); // [1,2,3,4,5]
-  const total = NATIVE_AGENTS.length * companyIds.length; // 40
+  const companyIds = [0, ...Object.keys(COMPANIES_MAP).map(Number)]; // [0,1,2,3,4,5]
+  const total = NATIVE_AGENTS.length * companyIds.length; // 48
 
   const job: SeedJob = { completed: 0, total, errors: [], done: false };
   seedJobs.set(jobId, job);
@@ -441,9 +442,13 @@ router.post("/admin/seed-exception-authority-files", async (_req, res) => {
             .limit(1);
 
           if (existing[0]) {
-            await db.update(governanceFiles)
-              .set({ content, mustCount, mustNotCount, mayCount, wordCount, updatedAt: new Date() })
-              .where(eq(governanceFiles.id, existing[0].id));
+            if (!regenerate) {
+              logger.info({ agentId: agent.agentId, companyId }, "[seed-ea] Skipping existing (regenerate=false)");
+            } else {
+              await db.update(governanceFiles)
+                .set({ content, mustCount, mustNotCount, mayCount, wordCount, updatedAt: new Date() })
+                .where(eq(governanceFiles.id, existing[0].id));
+            }
           } else {
             await db.insert(governanceFiles).values({
               companyId,

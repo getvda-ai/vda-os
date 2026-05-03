@@ -1042,7 +1042,7 @@ router.post("/fm/generate-exception-authority", async (req, res) => {
       file: file[0] ?? null,
       complianceCheck,
       jurisdictionApplied,
-      sourceClauses,
+      sourceClauses: sourceClauses.map(c => ({ exceptionClass: c.exception_class, tracedToClause: c.traced_to_clause })),
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1098,7 +1098,7 @@ router.post("/fm/agent/suggest", async (req, res) => {
         ...clauses,
         meta: {},
         complianceWarnings: [],
-        sourceClauses: result.sourceClauses,
+        sourceClauses: result.sourceClauses.map(c => ({ exceptionClass: c.exception_class, tracedToClause: c.traced_to_clause })),
         jurisdictionApplied: result.jurisdictionApplied,
       });
     }
