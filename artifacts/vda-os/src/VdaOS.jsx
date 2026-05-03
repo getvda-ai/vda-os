@@ -6605,8 +6605,15 @@ function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
 
   useEffect(() => {
     if (!agentSlug) return;
-    setStage(loadCurrentStage(agentSlug));
-    setCompletions(loadStageCompletions(agentSlug));
+    const savedCompletions = loadStageCompletions(agentSlug);
+    // Clamp saved stage to the first incomplete stage so stale localStorage
+    // can never skip ahead of what has actually been completed.
+    const firstIncomplete = savedCompletions.indexOf(false);
+    const maxAllowedStage = firstIncomplete === -1 ? 6 : firstIncomplete + 1;
+    const savedStage = loadCurrentStage(agentSlug);
+    const clampedStage = Math.min(savedStage, maxAllowedStage);
+    setStage(clampedStage);
+    setCompletions(savedCompletions);
     setSandboxTs(null);
     setGovFiles(null);
     setGovContents({});

@@ -542,11 +542,13 @@ router.post("/onboarding/:id/run-sandbox", async (req, res) => {
       // Write a Witness entry for each scenario
       let witnessId: number | null = null;
       try {
+        // Narrow decision to the witness union type — .toUpperCase() returns string
+        const witnessDecision = (["PASS", "FAIL", "ESCALATE", "INFO"].includes(decision) ? decision : "ESCALATE") as "PASS" | "FAIL" | "ESCALATE" | "INFO";
         const witnessRow = await writeWitnessEntry({
           companyId: PLATFORM_COMPANY_ID,
           agent: agentSlug,
           decision: {
-            decision,
+            decision: witnessDecision,
             clauseApplied: clause || `Sandbox scenario: ${scenario.slice(0, 80)}`,
             actionProposed: `Sandbox evaluation — scenario ${passed ? "PASSED" : "FAILED"} (expected ${expected}, got ${decision})`,
             exceptionApplied: false,
