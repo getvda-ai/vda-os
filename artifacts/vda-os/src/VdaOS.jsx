@@ -5945,6 +5945,7 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [fallbackTypes, setFallbackTypes] = useState(new Set());
   const FILE_TYPES = ["AGENTS", "SOP", "SKILL", "EXCEPTION_AUTHORITY"];
   const FILE_LABELS = { AGENTS: "AGENTS.md", SOP: "SOP.md", SKILL: "SKILL.md", EXCEPTION_AUTHORITY: "EXCEPTION_AUTHORITY.md" };
 
@@ -5960,6 +5961,7 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
         let all = (d1.files || []).filter(f => f.agentId === agentSlug && FILE_TYPES.includes(f.fileType));
 
         // Fallback: if companyId > 0, also load platform files for types missing from this company
+        const newFallbackTypes = new Set();
         if (fetchCid > 0) {
           const presentTypes = new Set(all.map(f => f.fileType));
           const missingFromCompany = FILE_TYPES.filter(t => !presentTypes.has(t));
@@ -5968,10 +5970,12 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
               const r0 = await fetch("/api/fm/files/0");
               const d0 = await r0.json();
               const platformFiles = (d0.files || []).filter(f => f.agentId === agentSlug && missingFromCompany.includes(f.fileType));
+              platformFiles.forEach(f => newFallbackTypes.add(f.fileType));
               all = [...all, ...platformFiles];
             } catch {}
           }
         }
+        setFallbackTypes(newFallbackTypes);
 
         setFiles(all);
         if (all.length > 0) setActiveTab(all[0].id);
@@ -6013,6 +6017,7 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
 
   const presentTypes = new Set((files || []).map(f => f.fileType));
   const missingTypes = FILE_TYPES.filter(t => !presentTypes.has(t));
+  const hotelScopeMissingEA = (companyId || 0) > 0 && fallbackTypes.has("EXCEPTION_AUTHORITY");
   const canProceed = !loading && missingTypes.length === 0;
   const activeContent = contents[activeTab] || "";
   const mustCount = (activeContent.match(/\bMUST\b(?!\s+NOT)/g) || []).length;
@@ -6048,23 +6053,27 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
               {FILE_TYPES.map(ft => {
                 const f = (files || []).find(x => x.fileType === ft);
                 const missing = !f;
+                const isFallbackEA = ft === "EXCEPTION_AUTHORITY" && !missing && hotelScopeMissingEA;
                 return (
                   <button key={ft} onClick={() => f && setActiveTab(f.id)} style={{
                     background: "none", border: "none",
                     borderBottom: activeTab === f?.id ? `2px solid ${T.blue}` : "2px solid transparent",
-                    color: missing ? T.red : activeTab === f?.id ? T.text : T.dim,
+                    color: missing ? T.red : isFallbackEA ? T.amber : activeTab === f?.id ? T.text : T.dim,
                     padding: "10px 16px", cursor: f ? "pointer" : "default",
                     fontSize: 12, fontFamily: T.mono, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0,
                   }}>
-                    {missing ? "⚠ " : ""}{FILE_LABELS[ft]}
+                    {missing ? "⚠ " : isFallbackEA ? "⚡ " : ""}{FILE_LABELS[ft]}{isFallbackEA ? " (platform)" : ""}
                   </button>
                 );
               })}
             </div>
-            {missingTypes.length > 0 && (
-              <div style={{ padding: "8px 16px", background: "#1a0505", borderBottom: `1px solid ${T.red}40`, color: T.red, fontSize: 12, flexShrink: 0, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <span>Missing: {missingTypes.map(t => FILE_LABELS[t]).join(", ")}</span>
-                {missingTypes.includes("EXCEPTION_AUTHORITY") && (
+            {(missingTypes.length > 0 || hotelScopeMissingEA) && (
+              <div style={{ padding: "8px 16px", background: hotelScopeMissingEA && missingTypes.length === 0 ? "#1a1000" : "#1a0505", borderBottom: `1px solid ${hotelScopeMissingEA && missingTypes.length === 0 ? T.amber + "40" : T.red + "40"}`, color: hotelScopeMissingEA && missingTypes.length === 0 ? T.amber : T.red, fontSize: 12, flexShrink: 0, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                {missingTypes.length > 0 && <span>Missing: {missingTypes.map(t => FILE_LABELS[t]).join(", ")}</span>}
+                {hotelScopeMissingEA && missingTypes.length === 0 && (
+                  <span>EXCEPTION_AUTHORITY.md is platform-level — generate a hotel-specific version below.</span>
+                )}
+                {(missingTypes.includes("EXCEPTION_AUTHORITY") || hotelScopeMissingEA) && (
                   <button onClick={handleGenerateEA} disabled={generating} style={{
                     padding: "4px 12px", borderRadius: 5, fontSize: 11, fontFamily: T.mono, fontWeight: 700,
                     background: generating ? "#1a0f00" : "#1c1200", color: generating ? T.dim : T.amber,
@@ -6073,7 +6082,7 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
                     {generating ? "Generating…" : "⚡ Generate exception authority"}
                   </button>
                 )}
-                {!missingTypes.includes("EXCEPTION_AUTHORITY") && <span>— seed governance files before proceeding.</span>}
+                {!missingTypes.includes("EXCEPTION_AUTHORITY") && !hotelScopeMissingEA && <span>— seed governance files before proceeding.</span>}
                 {generateError && <span style={{ color: T.red, fontSize: 11 }}>{generateError}</span>}
               </div>
             )}
@@ -6462,13 +6471,26 @@ function WitnessReviewStage({ agentSlug, sandboxTimestamp, onNext }) {
 }
 
 // ─── Stage 5: Exception Authority Confirmation ──────────────────────────────
-function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId = 0, onNext }) {
+function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId = 0, requestId = null, onNext }) {
   const [checked, setChecked] = useState({});
   const [pendingQueries, setPendingQueries] = useState({}); // key → submitted reason
   const [reasonInputs, setReasonInputs] = useState({});    // key → current textarea text
   const [submitting, setSubmitting] = useState({});
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError] = useState(null);
+  const [serverRegenRequired, setServerRegenRequired] = useState(false);
+
+  useEffect(() => {
+    if (!requestId) return;
+    fetch(`/api/onboarding/${requestId}`)
+      .then(r => r.json())
+      .then(d => {
+        const flag = d?.impactDeltaReport?.cisoRegenRequired === true;
+        setServerRegenRequired(flag);
+      })
+      .catch(() => {});
+  }, [requestId]);
+
   const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
   const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
 
@@ -6492,7 +6514,7 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
   }, [exceptionContent]);
 
   const allKeys = FRONT_LINE.flatMap(b => (parsedBands[b] || []).map(c => `${b}--${c.cls}`));
-  const hasPendingQueries = Object.keys(pendingQueries).length > 0;
+  const hasPendingQueries = Object.keys(pendingQueries).length > 0 || serverRegenRequired;
   const allChecked = allKeys.length > 0 && allKeys.every(k => checked[k] || pendingQueries[k]);
   const canProceed = allChecked && !hasPendingQueries;
 
@@ -6534,6 +6556,10 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
       });
       setPendingQueries(p => ({ ...p, [k]: reason }));
       setReasonInputs(p => ({ ...p, [k]: "" }));
+      setServerRegenRequired(true);
+      if (requestId) {
+        fetch(`/api/onboarding/${requestId}/set-regen-flag`, { method: "POST" }).catch(() => {});
+      }
     } catch {}
     setSubmitting(p => ({ ...p, [k]: false }));
   };
@@ -6552,6 +6578,10 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
       setPendingQueries({});
       setChecked({});
       setReasonInputs({});
+      setServerRegenRequired(false);
+      if (requestId) {
+        fetch(`/api/onboarding/${requestId}/clear-regen-flag`, { method: "POST" }).catch(() => {});
+      }
     } catch (err) {
       setRegenError(err.message || "Regeneration failed");
     }
@@ -6821,7 +6851,7 @@ function AdmitOrRejectStage({ agentSlug, requestId, stageCompletions, onAdmitted
 }
 
 // ─── CISOWalkthrough — full-screen modal ─────────────────────────────────────
-function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
+function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmitted, onRejected }) {
   const [agentIdx, setAgentIdx] = useState(0);
   const agent = agents?.[agentIdx];
   const agentSlug = agent?.slug || "";
@@ -6986,7 +7016,7 @@ function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
               </div>
               {/* Stage body */}
               <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} companyId={0} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
+                {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} companyId={agent?.companyId ?? walkCompanyId} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
                 {stage === 2 && <SandboxEvaluation
                   requestId={requestId}
                   agentSource={agent?.source ?? null}
@@ -6996,7 +7026,7 @@ function CISOWalkthrough({ agents, onClose, onAdmitted, onRejected }) {
                 />}
                 {stage === 3 && <ApaleoCRUDReview agentSlug={agentSlug} govFiles={govFiles} govContents={govContents} onNext={() => completeStage(2)} />}
                 {stage === 4 && <WitnessReviewStage agentSlug={agentSlug} sandboxTimestamp={sandboxTs} onNext={() => completeStage(3)} />}
-                {stage === 5 && <ExceptionAuthorityConfirmation exceptionContent={exceptionContent} agentSlug={agentSlug} companyId={0} onNext={() => completeStage(4)} />}
+                {stage === 5 && <ExceptionAuthorityConfirmation exceptionContent={exceptionContent} agentSlug={agentSlug} companyId={agent?.companyId ?? walkCompanyId} requestId={requestId} onNext={() => completeStage(4)} />}
                 {stage === 6 && <AdmitOrRejectStage agentSlug={agentSlug} requestId={requestId} stageCompletions={completions} onAdmitted={s => { const c = [false,false,false,false,false,false]; setCompletions(c); setStage(1); onAdmitted?.(s); }} onRejected={(s, r) => onRejected?.(s, r)} />}
               </div>
             </>
@@ -7333,13 +7363,14 @@ function OnboardingConsole({ onLoadHotel }) {
   for (const req of nativeReqs) {
     const card = req.agentCard || {};
     const rawId = String(card.id || card.name || "").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-    if (rawId) nativeStatusMap[rawId] = { status: req.status, requestId: req.id };
+    if (rawId) nativeStatusMap[rawId] = { status: req.status, requestId: req.id, companyId: req.companyId || 0 };
   }
 
   const walkthroughAgents = VDA_NATIVE_AGENTS.map(a => ({
     ...a,
     status: nativeStatusMap[a.slug]?.status || null,
     requestId: nativeStatusMap[a.slug]?.requestId || null,
+    companyId: nativeStatusMap[a.slug]?.companyId ?? 0,
   }));
 
   const admittedCount = walkthroughAgents.filter(a => ["admitted", "onboarded"].includes(a.status || "")).length;
@@ -7530,6 +7561,7 @@ function OnboardingConsole({ onLoadHotel }) {
                   requestId: r.id,
                   evalPassRate: r.evalPassRate ?? null,
                   source: "a2a_external",
+                  companyId: r.companyId || 0,
                 };
               })
             : walkthroughAgents}

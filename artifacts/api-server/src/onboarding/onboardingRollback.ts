@@ -328,6 +328,48 @@ router.get("/onboarding/:id", async (req, res) => {
   }
 });
 
+// ─── POST /api/onboarding/:id/set-regen-flag ─────────────────────────────────
+// Persists cisoRegenRequired=true in impactDeltaReport so Stage 5 pending ceiling
+// queries survive a session reset and block Admit until regeneration completes.
+
+router.post("/onboarding/:id/set-regen-flag", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rows = await db
+      .select({ id: onboardingRequests.id, impactDeltaReport: onboardingRequests.impactDeltaReport })
+      .from(onboardingRequests).where(eq(onboardingRequests.id, id)).limit(1);
+    if (!rows[0]) { res.status(404).json({ error: "Not found" }); return; }
+    const existing = (rows[0].impactDeltaReport as Record<string, unknown>) ?? {};
+    await db.update(onboardingRequests)
+      .set({ impactDeltaReport: { ...existing, cisoRegenRequired: true }, updatedAt: new Date() })
+      .where(eq(onboardingRequests.id, id));
+    res.json({ ok: true, cisoRegenRequired: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to set regen flag" });
+  }
+});
+
+// ─── POST /api/onboarding/:id/clear-regen-flag ───────────────────────────────
+// Clears cisoRegenRequired from impactDeltaReport after successful regeneration.
+
+router.post("/onboarding/:id/clear-regen-flag", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rows = await db
+      .select({ id: onboardingRequests.id, impactDeltaReport: onboardingRequests.impactDeltaReport })
+      .from(onboardingRequests).where(eq(onboardingRequests.id, id)).limit(1);
+    if (!rows[0]) { res.status(404).json({ error: "Not found" }); return; }
+    const existing = (rows[0].impactDeltaReport as Record<string, unknown>) ?? {};
+    const { cisoRegenRequired: _removed, ...rest } = existing;
+    await db.update(onboardingRequests)
+      .set({ impactDeltaReport: Object.keys(rest).length ? rest : null, updatedAt: new Date() })
+      .where(eq(onboardingRequests.id, id));
+    res.json({ ok: true, cisoRegenRequired: false });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to clear regen flag" });
+  }
+});
+
 // ─── POST /api/onboarding/:id/restart ────────────────────────────────────────
 // CISO-triggered reset: sets status back to pre_admitted, clears eval artefacts,
 // writes a Witness entry so the restart is immutably recorded.
