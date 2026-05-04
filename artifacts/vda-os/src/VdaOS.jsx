@@ -6780,10 +6780,12 @@ function ApaleoCRUDReview({ agentSlug, govFiles, govContents, onNext }) {
   const [testing, setTesting] = useState(false);
   const skillContent = govContents?.[(govFiles || []).find(f => f.fileType === "SKILL")?.id] || "";
   const agentsContent = govContents?.[(govFiles || []).find(f => f.fileType === "AGENTS")?.id] || "";
-  const apiPaths = [...new Set((skillContent.match(/\/api\/v1\/[a-z\-\/{}]+/gi) || []).map(p => p.trim()))].slice(0, 20);
-  const writeOps = (agentsContent.match(/MUST\s+(?:create|update|post|submit|write|send|modify|delete|cancel)[^.\n]+/gi) || []).slice(0, 8);
-  const readPaths = apiPaths.filter(p => !p.match(/create|update|delete|cancel/i));
-  const writePaths = apiPaths.filter(p => p.match(/create|update|delete|cancel/i));
+  const mcpTools = [...new Set((skillContent.match(/\|\s+([A-Z][a-zA-Z]+)\s+\|/g) || []).map(m => m.replace(/\|\s+|\s+\|/g, "").trim()))].filter(t => t && t !== "Tool" && t !== "OAuth" && t.length > 2);
+  const readTools = mcpTools.filter(t => /^(List|Get|Fetch|Search|Report|Check)/i.test(t));
+  const writeTools = mcpTools.filter(t => /^(Create|Update|Post|Submit|Set|Cancel|Delete|Modify|Patch|Execute|Process|Send)/i.test(t));
+  const writeOps = (agentsContent.match(/MUST\s+(?:create|update|post|submit|write|send|modify|delete|cancel|process|execute)[^.\n]+/gi) || []).slice(0, 5).map(s => s.trim().slice(0, 55));
+  const readPaths = readTools.length > 0 ? readTools.map(t => `MCP: ${t}`) : ["GET /api/v1/reservations/{id}", "GET /api/v1/folios/{id}", "GET /api/v1/properties/{id}", "GET /api/v1/units"];
+  const writePaths = writeTools.length > 0 ? writeTools.map(t => `MCP: ${t}`) : writeOps;
 
   const testConnection = async () => {
     setTesting(true);
@@ -6810,7 +6812,7 @@ function ApaleoCRUDReview({ agentSlug, govFiles, govContents, onNext }) {
                 { label: "Connected", value: apaleoStatus.connected ? "Yes" : "No", color: apaleoStatus.connected ? T.green : T.red },
                 { label: "Properties", value: apaleoStatus.propertyCount ?? "—", color: T.blue },
                 { label: "MCP", value: apaleoStatus.mcpConfigured ? "Configured" : "Not configured", color: apaleoStatus.mcpConfigured ? T.green : T.amber },
-                { label: "Token Expiry", value: apaleoStatus.tokenExpiry ? new Date(apaleoStatus.tokenExpiry).toLocaleDateString() : "—", color: T.dim },
+                { label: "Token Expiry", value: apaleoStatus.tokenExpiry ? new Date(apaleoStatus.tokenExpiry).toLocaleDateString() : (apaleoStatus.connected ? "Active" : "—"), color: apaleoStatus.tokenExpiry ? T.green : (apaleoStatus.connected ? T.green : T.dim) },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", minWidth: 110 }}>
                   <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginBottom: 4 }}>{label}</div>
@@ -6858,7 +6860,7 @@ function WitnessReviewStage({ agentSlug, sandboxTimestamp, onNext }) {
     fetch("/api/agents/witness?companyId=0&limit=50")
       .then(r => r.json())
       .then(d => {
-        const all = d.entries || d.rows || [];
+        const all = Array.isArray(d) ? d : (d.entries || d.rows || []);
         const filtered = all
           .filter(e => e.agent === agentSlug || e.agentId === agentSlug)
           .filter(e => !sandboxTimestamp || new Date(e.createdAt || e.timestamp || 0).getTime() >= sandboxTimestamp)
@@ -6878,9 +6880,9 @@ function WitnessReviewStage({ agentSlug, sandboxTimestamp, onNext }) {
       "",
       "─── Witness Entries ───",
       ...(entries || []).map((e, i) => [
-        `\n[${i + 1}] Decision: ${e.decision?.decision || e.decision}`,
-        `    Clause: ${e.decision?.clauseApplied || "—"}`,
-        `    Action: ${e.decision?.actionProposed || "—"}`,
+        `\n[${i + 1}] Decision: ${String(e.decision || "—")}`,
+        `    Clause: ${e.clauseApplied || e.clause_applied || "—"}`,
+        `    Action: ${e.actionProposed || e.action_proposed || "—"}`,
         `    Time: ${e.createdAt || e.timestamp || "—"}`,
       ].join("\n")),
     ].join("\n");
@@ -6916,8 +6918,8 @@ function WitnessReviewStage({ agentSlug, sandboxTimestamp, onNext }) {
             Run Stage 2 sandbox to generate entries.
           </div>
         ) : entries.map((e, i) => {
-          const dec = e.decision?.decision || String(e.decision) || "—";
-          const col = dec === "PASS" ? T.green : dec === "FAIL" ? T.red : T.amber;
+          const dec = String(e.decision || "—");
+          const col = dec === "PASS" ? T.green : dec === "FAIL" ? T.red : dec === "ESCALATE" ? T.amber : T.dim;
           return (
             <div key={e.id ?? i} style={{ background: "#111318", border: `1px solid ${T.border}`, borderLeft: `3px solid ${col}`, borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 5 }}>
@@ -6925,8 +6927,8 @@ function WitnessReviewStage({ agentSlug, sandboxTimestamp, onNext }) {
                 <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>#{e.id}</span>
                 <span style={{ fontSize: 10, color: T.dim, marginLeft: "auto" }}>{e.createdAt ? new Date(e.createdAt).toLocaleTimeString() : "—"}</span>
               </div>
-              <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 4 }}>{e.decision?.actionProposed || "—"}</div>
-              <div style={{ fontSize: 11, fontFamily: T.mono, color: "#94a3b8", lineHeight: 1.4 }}>{e.decision?.clauseApplied || "—"}</div>
+              <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 4 }}>{e.actionProposed || e.action_proposed || "—"}</div>
+              <div style={{ fontSize: 11, fontFamily: T.mono, color: "#94a3b8", lineHeight: 1.4 }}>{e.clauseApplied || e.clause_applied || "—"}</div>
             </div>
           );
         })}
