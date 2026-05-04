@@ -5956,11 +5956,27 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
       try {
         // Fetch company-specific files, then merge in platform files for missing types
         const fetchCid = companyId || 0;
+
+        // Helper: from a raw file list, pick best match per FILE_TYPE.
+        // Priority: (1) agentId === agentSlug, (2) agentId === 'onboarding-agent' (shared platform doc)
+        const pickBestPerType = (list) => {
+          const byType = {};
+          for (const f of list) {
+            if (!FILE_TYPES.includes(f.fileType)) continue;
+            const prev = byType[f.fileType];
+            const rank = f.agentId === agentSlug ? 2 : f.agentId === "onboarding-agent" ? 1 : 0;
+            if (rank === 0) continue;
+            if (!prev || rank > (prev.agentId === agentSlug ? 2 : 1)) byType[f.fileType] = f;
+          }
+          return Object.values(byType);
+        };
+
         const r1 = await fetch(`/api/fm/files/${fetchCid}`);
         const d1 = await r1.json();
-        let all = (d1.files || []).filter(f => f.agentId === agentSlug && FILE_TYPES.includes(f.fileType));
+        const list1 = Array.isArray(d1) ? d1 : (d1.files || []);
+        let all = pickBestPerType(list1);
 
-        // Fallback: if companyId > 0, also load platform files for types missing from this company
+        // Fallback: if companyId > 0, also load platform files (companyId=0) for types still missing
         const newFallbackTypes = new Set();
         if (fetchCid > 0) {
           const presentTypes = new Set(all.map(f => f.fileType));
@@ -5969,7 +5985,8 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
             try {
               const r0 = await fetch("/api/fm/files/0");
               const d0 = await r0.json();
-              const platformFiles = (d0.files || []).filter(f => f.agentId === agentSlug && missingFromCompany.includes(f.fileType));
+              const list0 = Array.isArray(d0) ? d0 : (d0.files || []);
+              const platformFiles = pickBestPerType(list0).filter(f => missingFromCompany.includes(f.fileType));
               platformFiles.forEach(f => newFallbackTypes.add(f.fileType));
               all = [...all, ...platformFiles];
             } catch {}
@@ -6955,14 +6972,15 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
           const active = idx === agentIdx;
           return (
             <button key={a.slug} onClick={() => setAgentIdx(idx)} style={{
-              background: "none", border: "none",
+              background: active ? "#0d1017" : "none", border: "none",
               borderBottom: active ? `2px solid ${T.blue}` : "2px solid transparent",
               borderTop: "2px solid transparent",
-              color: active ? T.text : T.dim,
-              padding: "12px 14px", cursor: "pointer", fontSize: 11, fontWeight: active ? 700 : 400,
+              color: active ? "#f0f4ff" : "#8b949e",
+              padding: "12px 16px", cursor: "pointer", fontSize: 12, fontWeight: active ? 700 : 500,
               fontFamily: T.sans, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6,
+              letterSpacing: active ? "0.01em" : 0,
             }}>
-              <span style={{ color }}>{icon}</span>{a.name}
+              <span style={{ color, fontSize: 13 }}>{icon}</span>{a.name}
             </button>
           );
         })}
