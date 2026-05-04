@@ -3170,19 +3170,54 @@ router.post("/admin/seed-companies", async (_req, res) => {
 });
 
 // ─── POST /api/admin/enrich-c2md ─────────────────────────────────────────────
-// Runs the C2MD enrichment pass in parallel batches (up to 5 concurrent calls).
-// Idempotent: files already containing c2md_generated: true are skipped unless force=true.
-// Call this after seed to ensure all governance files have brand-adapted compliance English.
+// Triggers the C2MD enrichment pass for all citizenM governance files.
+// Responds IMMEDIATELY — enrichment runs in the background (fire-and-forget).
+// Idempotent: files with c2md_generated: true (and >800 chars) are skipped unless force=true.
+// C2MD is the core of VDA — every governance file MUST be enriched.
+
+// Canonical set: all 32 VDA-MD governance files across all 8 native agents.
+const CANONICAL_C2MD_FILENAMES = [
+  "Hospitality-Revenue-Book-rate-agent.AGENTS.md",
+  "Hospitality-Revenue-Book-rate-agent.SOP.md",
+  "Hospitality-Revenue-Book-rate-agent.SKILL.md",
+  "Hospitality-Operations-Stay-checkin-agent.AGENTS.md",
+  "Hospitality-Operations-Stay-checkin-agent.SOP.md",
+  "Hospitality-Operations-Stay-checkin-agent.SKILL.md",
+  "Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
+  "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
+  "Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
+  "Hospitality-Operations-Stay-folio-agent.AGENTS.md",
+  "Hospitality-Operations-Stay-folio-agent.SOP.md",
+  "Hospitality-Operations-Stay-folio-agent.SKILL.md",
+  "Hospitality-Operations-Stay-folio-charge-agent.AGENTS.md",
+  "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
+  "Hospitality-Operations-Stay-folio-charge-agent.SKILL.md",
+  "Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md",
+  "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
+  "Hospitality-Revenue-Pre-Book-availability-agent.SKILL.md",
+  "Hospitality-Revenue-Book-reservation-bot.AGENTS.md",
+  "Hospitality-Revenue-Book-reservation-bot.SOP.md",
+  "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
+  "Hospitality-Finance-Reconciliation-RevenueReconciliation.AGENTS.md",
+  "Hospitality-Finance-Reconciliation-RevenueReconciliation.SOP.md",
+  "Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
+  "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
+  "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
+  "Hospitality-Governance-Acquisition-sa4-agent.AGENTS.md",
+  "Hospitality-Governance-Acquisition-sa4-agent.SOP.md",
+  "Hospitality-Governance-Acquisition-sa4-agent.SKILL.md",
+  "Hospitality-Governance-IncidentResponse-ir4-agent.AGENTS.md",
+  "Hospitality-Governance-IncidentResponse-ir4-agent.SOP.md",
+  "Hospitality-Governance-IncidentResponse-ir4-agent.SKILL.md",
+];
 
 router.post("/admin/enrich-c2md", async (req, res) => {
   const force = Boolean((req.body as { force?: boolean }).force);
-  const log: string[] = [];
-  const errors: string[] = [];
 
   try {
     const allPropertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
     const companyRows = await db
-      .select({ id: companies.id, apaleoPropertyId: companies.apaleoPropertyId, brandContext: companies.brandContext })
+      .select({ id: companies.id, brandContext: companies.brandContext })
       .from(companies)
       .where(inArray(companies.apaleoPropertyId, allPropertyIds));
 
@@ -3193,45 +3228,12 @@ router.post("/admin/enrich-c2md", async (req, res) => {
     const companyIds = companyRows.map(c => c.id);
     const citizenMBrandContext = companyRows[0]?.brandContext ?? CITIZENM_PROPERTIES[0].brandContext;
 
-    const canonicalFilenames = [
-      "Hospitality-Revenue-Book-rate-agent.AGENTS.md",
-      "Hospitality-Revenue-Book-rate-agent.SOP.md",
-      "Hospitality-Revenue-Book-rate-agent.SKILL.md",
-      "Hospitality-Operations-Stay-checkin-agent.AGENTS.md",
-      "Hospitality-Operations-Stay-checkin-agent.SOP.md",
-      "Hospitality-Operations-Stay-checkin-agent.SKILL.md",
-      "Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
-      "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
-      "Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
-      "Hospitality-Operations-Stay-folio-agent.SOP.md",
-      "Hospitality-Operations-Stay-folio-charge-agent.AGENTS.md",
-      "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
-      "Hospitality-Operations-Stay-folio-charge-agent.SKILL.md",
-      "Hospitality-Revenue-Pre-Book-availability-agent.AGENTS.md",
-      "Hospitality-Revenue-Pre-Book-availability-agent.SOP.md",
-      "Hospitality-Revenue-Pre-Book-availability-agent.SKILL.md",
-      "Hospitality-Revenue-Book-reservation-bot.AGENTS.md",
-      "Hospitality-Revenue-Book-reservation-bot.SOP.md",
-      "Hospitality-Revenue-Book-reservation-bot.SKILL.md",
-      "Hospitality-Finance-Reconciliation-RevenueReconciliation.AGENTS.md",
-      "Hospitality-Finance-Reconciliation-RevenueReconciliation.SOP.md",
-      "Hospitality-Finance-Reconciliation-RevenueReconciliation.SKILL.md",
-      "Hospitality-Finance-Shared-O2C-folio-charge-authority.md",
-      "Hospitality-Operations-Post-Stay-checkout-gold-loyalty.EXCEPTION.md",
-      "Hospitality-Governance-Acquisition-sa4-agent.AGENTS.md",
-      "Hospitality-Governance-Acquisition-sa4-agent.SOP.md",
-      "Hospitality-Governance-Acquisition-sa4-agent.SKILL.md",
-      "Hospitality-Governance-IncidentResponse-ir4-agent.AGENTS.md",
-      "Hospitality-Governance-IncidentResponse-ir4-agent.SOP.md",
-      "Hospitality-Governance-IncidentResponse-ir4-agent.SKILL.md",
-    ];
-
     const allFiles = await db
       .select({ id: governanceFiles.id, companyId: governanceFiles.companyId, filename: governanceFiles.filename, content: governanceFiles.content })
       .from(governanceFiles)
       .where(and(
         inArray(governanceFiles.companyId, companyIds),
-        inArray(governanceFiles.filename, canonicalFilenames),
+        inArray(governanceFiles.filename, CANONICAL_C2MD_FILENAMES),
       ));
 
     const targets = force
@@ -3239,59 +3241,44 @@ router.post("/admin/enrich-c2md", async (req, res) => {
       : allFiles.filter(f => !f.content?.includes(C2MD_MARKER) || (f.content?.length ?? 0) <= 800);
 
     if (targets.length === 0) {
-      return res.json({ success: true, enriched: 0, skipped: allFiles.length, log: ["All files already enriched — pass force=true to re-enrich"] });
+      return res.json({ success: true, status: "already_enriched", enriched: 0, skipped: allFiles.length });
     }
 
-    log.push(`${targets.length} file(s) need enrichment across ${companyIds.length} hotel(s)`);
+    // Respond immediately — enrichment runs in background (can take 60–120s for full pass)
+    res.json({ success: true, status: "running_in_background", queued: targets.length, companies: companyIds.length });
 
-    // Generate enriched content once per unique filename (shared brand across hotels)
-    const templateFiles = buildGovernanceFiles(0, "citizenM");
-    const uniqueFilenames = [...new Set(targets.map(f => f.filename))];
-    const enrichedByFilename = new Map<string, string>();
+    // ── BACKGROUND ENRICHMENT ──────────────────────────────────────────────────
+    (async () => {
+      try {
+        const templateFiles = buildGovernanceFiles(0, "citizenM");
+        const uniqueFilenames = [...new Set(targets.map(f => f.filename))];
+        const enrichedByFilename = new Map<string, string>();
 
-    // Parallel batches of 5 to avoid API burst limits
-    const BATCH = 5;
-    for (let i = 0; i < uniqueFilenames.length; i += BATCH) {
-      const batch = uniqueFilenames.slice(i, i + BATCH);
-      await Promise.all(batch.map(async (filename) => {
-        const tmpl = templateFiles.find(t => t.filename === filename);
-        if (!tmpl) return;
-        try {
-          const enriched = await generateC2MDContent(filename, tmpl.content, citizenMBrandContext);
-          if (enriched && enriched.length > 400) {
-            enrichedByFilename.set(filename, enriched);
-            log.push(`✓ ${filename} — ${enriched.length} chars`);
-          } else {
-            errors.push(`✗ ${filename} — response too short`);
-          }
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          errors.push(`✗ ${filename} — ${msg}`);
+        const BATCH = 5;
+        for (let i = 0; i < uniqueFilenames.length; i += BATCH) {
+          const batch = uniqueFilenames.slice(i, i + BATCH);
+          await Promise.all(batch.map(async (filename) => {
+            const tmpl = templateFiles.find(t => t.filename === filename);
+            if (!tmpl) return;
+            try {
+              const enriched = await generateC2MDContent(filename, tmpl.content, citizenMBrandContext);
+              if (enriched && enriched.length > 400) enrichedByFilename.set(filename, enriched);
+            } catch { /* per-file errors silently absorbed */ }
+          }));
         }
-      }));
-    }
 
-    // Write enriched content to all target rows
-    let updatedCount = 0;
-    for (const file of targets) {
-      const enriched = enrichedByFilename.get(file.filename);
-      if (!enriched) continue;
-      const clauses = countClauses(enriched);
-      await db
-        .update(governanceFiles)
-        .set({
-          content: enriched,
-          mustCount: clauses.mustCount,
-          mustNotCount: clauses.mustNotCount,
-          mayCount: clauses.mayCount,
-          wordCount: clauses.wordCount,
-        })
-        .where(eq(governanceFiles.id, file.id));
-      updatedCount++;
-    }
+        for (const file of targets) {
+          const enriched = enrichedByFilename.get(file.filename);
+          if (!enriched) continue;
+          const clauses = countClauses(enriched);
+          await db
+            .update(governanceFiles)
+            .set({ content: enriched, mustCount: clauses.mustCount, mustNotCount: clauses.mustNotCount, mayCount: clauses.mayCount, wordCount: clauses.wordCount })
+            .where(eq(governanceFiles.id, file.id));
+        }
+      } catch { /* top-level error absorbed — enrichment is best-effort */ }
+    })();
 
-    log.push(`Wrote enriched content to ${updatedCount} file row(s) across ${companyIds.length} hotel(s)`);
-    return res.json({ success: errors.length === 0, enriched: updatedCount, skipped: allFiles.length - targets.length, uniqueCalls: enrichedByFilename.size, log, errors: errors.length ? errors : undefined });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ success: false, error: msg });
@@ -3359,14 +3346,72 @@ router.post("/admin/seed-company-governance", async (req, res) => {
     errors.push(`seed-company-governance failed: ${msg}`);
   }
 
-  return res.json({
+  res.json({
     success: errors.length === 0,
     companyId,
     companyName,
     filesSeeded,
     log,
     errors: errors.length > 0 ? errors : undefined,
+    enrichment: "running_in_background",
   });
+
+  // ── C2MD ENRICHMENT PASS (genesis, background) ────────────────────────────
+  // Runs after the response is sent so the wizard isn't blocked by AI calls.
+  // Idempotent: files already containing C2MD_MARKER (and >800 chars) are skipped.
+  // This is the core of VDA — every governance file MUST be C2MD-enriched at genesis.
+  (async () => {
+    try {
+      const [company] = await db
+        .select({ brandContext: companies.brandContext })
+        .from(companies)
+        .where(eq(companies.id, Number(companyId)));
+      const brandContext = company?.brandContext ?? "";
+
+      const templateFiles = buildGovernanceFiles(0, companyName);
+      const canonicalFilenames = templateFiles.map(f => f.filename);
+
+      const existingFiles = await db
+        .select({ id: governanceFiles.id, filename: governanceFiles.filename, content: governanceFiles.content })
+        .from(governanceFiles)
+        .where(and(
+          eq(governanceFiles.companyId, Number(companyId)),
+          inArray(governanceFiles.filename, canonicalFilenames),
+        ));
+
+      const targets = existingFiles.filter(
+        f => !f.content?.includes(C2MD_MARKER) || (f.content?.length ?? 0) <= 800
+      );
+
+      if (targets.length === 0) return; // all already enriched
+
+      const enrichedByFilename = new Map<string, string>();
+      const BATCH = 5;
+      const uniqueFilenames = [...new Set(targets.map(f => f.filename))];
+
+      for (let i = 0; i < uniqueFilenames.length; i += BATCH) {
+        const batch = uniqueFilenames.slice(i, i + BATCH);
+        await Promise.all(batch.map(async (filename) => {
+          const tmpl = templateFiles.find(t => t.filename === filename);
+          if (!tmpl) return;
+          try {
+            const enriched = await generateC2MDContent(filename, tmpl.content, brandContext);
+            if (enriched && enriched.length > 400) enrichedByFilename.set(filename, enriched);
+          } catch { /* best-effort — errors silently skipped */ }
+        }));
+      }
+
+      for (const file of targets) {
+        const enriched = enrichedByFilename.get(file.filename);
+        if (!enriched) continue;
+        const clauses = countClauses(enriched);
+        await db
+          .update(governanceFiles)
+          .set({ content: enriched, mustCount: clauses.mustCount, mustNotCount: clauses.mustNotCount, mayCount: clauses.mayCount, wordCount: clauses.wordCount })
+          .where(eq(governanceFiles.id, file.id));
+      }
+    } catch { /* fire-and-forget: genesis C2MD errors are silently absorbed */ }
+  })();
 });
 
 // ─── POST /api/admin/generate-soc2-sd ─────────────────────────────────────────
