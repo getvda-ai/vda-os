@@ -3,6 +3,7 @@
  * AI-driven, jurisdiction-aware EXCEPTION_AUTHORITY.md generation.
  * Shared by fileManager routes (generate endpoint) and admin seed endpoint.
  */
+import yaml from "js-yaml";
 import { callAI } from "../routes/ai-proxy.js";
 import { logger } from "./logger.js";
 
@@ -149,6 +150,7 @@ export interface GenerateExceptionAuthorityParams {
 export interface GenerateExceptionAuthorityResult {
   content: string;
   sourceClauses: SourceClause[];
+  missingTraceability: string[];
   jurisdictionApplied: string | null;
 }
 
@@ -237,39 +239,81 @@ Generate the complete EXCEPTION_AUTHORITY.md. Trace every exception class to the
   const sourceClauses = extractSourceClauses(content);
   const jurisdictionApplied = jurisdiction?.propertyCode ?? null;
 
-  logger.info({ agentId, companyId, sourceClauses: sourceClauses.length, jurisdictionApplied }, "[exceptionAuthorityGenerator] Generated OK");
+  // Post-generation validation: every exception_class in role_bands must have a source_clause entry
+  const missingTraceability: string[] = [];
+  try {
+    const bodyMatch = content.match(/^---[\s\S]*?---\s*\n([\s\S]*)$/);
+    if (bodyMatch) {
+      const bodyDoc = yaml.load(bodyMatch[1]) as Record<string, unknown> | null;
+      const roleBands = (bodyDoc?.role_bands ?? {}) as Record<string, { exceptions?: Array<{ exception_class?: string }> }>;
+      const tracedClasses = new Set(sourceClauses.map(c => c.exception_class));
+      for (const [band, bandDef] of Object.entries(roleBands)) {
+        for (const exc of bandDef?.exceptions ?? []) {
+          if (exc.exception_class && !tracedClasses.has(exc.exception_class)) {
+            missingTraceability.push(`${band}/${exc.exception_class}`);
+          }
+        }
+      }
+    }
+  } catch { /* parse error — skip validation */ }
 
-  return { content, sourceClauses, jurisdictionApplied };
+  if (missingTraceability.length > 0) {
+    logger.warn({ agentId, companyId, missingTraceability }, "[exceptionAuthorityGenerator] Some exception classes lack source_clause traceability");
+  }
+
+  logger.info({ agentId, companyId, sourceClauses: sourceClauses.length, missingTraceability: missingTraceability.length, jurisdictionApplied }, "[exceptionAuthorityGenerator] Generated OK");
+
+  return { content, sourceClauses, missingTraceability, jurisdictionApplied };
 }
 
-// ─── Helper: parse source_clauses from YAML front matter ─────────────────────
+// ─── Helper: parse source_clauses from YAML front matter using js-yaml ────────
+// Uses js-yaml for reliable multi-line YAML list parsing. Falls back to regex
+// line walk if the front matter is not valid YAML.
 
 function extractSourceClauses(content: string): SourceClause[] {
   try {
     const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
     if (!frontMatterMatch) return [];
+
+    // Primary path: js-yaml parse of the front matter block
+    const parsed = yaml.load(frontMatterMatch[1]) as Record<string, unknown> | null;
+    const rawClauses = parsed?.source_clauses;
+    if (Array.isArray(rawClauses)) {
+      return rawClauses
+        .filter(
+          (c): c is Record<string, string> =>
+            typeof c === "object" &&
+            c !== null &&
+            typeof (c as Record<string, unknown>).exception_class === "string" &&
+            typeof (c as Record<string, unknown>).traced_to_clause === "string"
+        )
+        .map(c => ({
+          exception_class: String(c.exception_class).trim(),
+          traced_to_clause: String(c.traced_to_clause).trim(),
+        }));
+    }
+
+    // Fallback: regex line-walk (handles malformed YAML where js-yaml fails)
     const fm = frontMatterMatch[1];
-    const scBlock = fm.match(/source_clauses:\s*\n((?:\s*-[^\n]+\n?)*)/);
+    const scBlock = fm.match(/source_clauses:\s*\n((?:[ \t][^\n]+\n?)*)/);
     if (!scBlock) return [];
 
     const clauses: SourceClause[] = [];
     const lines = scBlock[1].split("\n");
     let current: Partial<SourceClause> = {};
-
     for (const line of lines) {
-      const classMatch = line.match(/exception_class:\s*["']?([^"'\n]+)["']?\s*$/);
-      const clauseMatch = line.match(/traced_to_clause:\s*["']?([^"'\n]+)["']?\s*$/);
+      const classMatch = line.match(/exception_class:\s*["']?([^"'\n]+?)["']?\s*$/);
+      const clauseMatch = line.match(/traced_to_clause:\s*["']?([^"'\n]+?)["']?\s*$/);
       if (classMatch) {
-        if (current.exception_class) clauses.push(current as SourceClause);
+        if (current.exception_class && current.traced_to_clause) clauses.push(current as SourceClause);
         current = { exception_class: classMatch[1].trim() };
-      } else if (clauseMatch) {
+      } else if (clauseMatch && current.exception_class) {
         current.traced_to_clause = clauseMatch[1].trim();
         clauses.push(current as SourceClause);
         current = {};
       }
     }
     if (current.exception_class && current.traced_to_clause) clauses.push(current as SourceClause);
-
     return clauses;
   } catch {
     return [];

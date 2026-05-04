@@ -6095,7 +6095,7 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
                 try {
                   const fm = eaRawContent.match(/^---\s*\n([\s\S]*?)\n---/);
                   if (!fm) return [];
-                  const scBlock = fm[1].match(/source_clauses:\s*\n((?:\s*-[^\n]+\n?)*(?:\s+\w+:[^\n]+\n?)*)/);
+                  const scBlock = fm[1].match(/source_clauses:\s*\n((?:[ \t][^\n]+\n?)*)/);
                   if (!scBlock) return [];
                   const lines = scBlock[1].split("\n");
                   const result = [];
@@ -6103,11 +6103,17 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
                   for (const line of lines) {
                     const ecMatch = line.match(/exception_class:\s*["']?([^"'\n]+?)["']?\s*$/);
                     const tcMatch = line.match(/traced_to_clause:\s*["']?([^"'\n]+?)["']?\s*$/);
-                    if (ecMatch) { if (cur.ec) result.push(cur); cur = { ec: ecMatch[1].trim() }; }
-                    else if (tcMatch) { cur.tc = tcMatch[1].trim(); result.push(cur); cur = {}; }
+                    if (ecMatch) {
+                      if (cur.ec && cur.tc) result.push(cur);
+                      cur = { ec: ecMatch[1].trim() };
+                    } else if (tcMatch && cur.ec) {
+                      cur.tc = tcMatch[1].trim();
+                      result.push(cur);
+                      cur = {};
+                    }
                   }
-                  if (cur.ec) result.push(cur);
-                  return result.filter(r => r.ec);
+                  if (cur.ec && cur.tc) result.push(cur);
+                  return result.filter(r => r.ec && r.tc);
                 } catch { return []; }
               })();
               if (!isEATab || sourceClauses.length === 0) return null;
