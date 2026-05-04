@@ -5905,6 +5905,82 @@ function buildSeedLog(config, companyName) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RESET DEMO BUTTON
+// Clears all transient DB state + localStorage so the next demo starts fresh.
+// Governance files (AGENTS.md, SOP.md, SKILL.md, EXCEPTION_AUTHORITY.md) are
+// preserved — only onboarding progress, witness logs, credentials etc. are wiped.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NATIVE_AGENT_SLUGS = [
+  "rate-agent", "availability-agent", "reservation-bot", "check-in-agent",
+  "folio-agent", "folio-charge-agent", "checkout-agent", "revenue-reconciliation-agent",
+];
+
+function ResetDemoButton({ onReset }) {
+  const [status, setStatus] = useState(null); // null | "confirming" | "resetting" | "done" | "error"
+  const [errMsg, setErrMsg] = useState("");
+
+  const handleClick = () => {
+    if (status === "confirming") return doReset();
+    setStatus("confirming");
+    setTimeout(() => setStatus(s => s === "confirming" ? null : s), 5000);
+  };
+
+  const doReset = async () => {
+    setStatus("resetting");
+    try {
+      const r = await fetch("/api/admin/reset-demo", { method: "POST" });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || "Reset failed"); }
+      // Clear CISO walkthrough localStorage for all native agents
+      NATIVE_AGENT_SLUGS.forEach(slug => {
+        try { localStorage.removeItem(`vda_ciso_${slug}_stages`); } catch {}
+        try { localStorage.removeItem(`vda_ciso_${slug}_stage`); } catch {}
+      });
+      setStatus("done");
+      onReset?.();
+      setTimeout(() => setStatus(null), 3000);
+    } catch (err) {
+      setErrMsg(err.message || "Reset failed");
+      setStatus("error");
+      setTimeout(() => setStatus(null), 4000);
+    }
+  };
+
+  const label = status === "confirming" ? "⚠ Confirm reset? Click again"
+    : status === "resetting" ? "Resetting…"
+    : status === "done" ? "✓ Demo reset — ready for next user"
+    : status === "error" ? `Error: ${errMsg}`
+    : "↺ Reset Demo";
+
+  const bg = status === "confirming" ? `${T.amber}18`
+    : status === "done" ? `${T.green}18`
+    : status === "error" ? `${T.red}18`
+    : "transparent";
+
+  const borderColor = status === "confirming" ? `${T.amber}60`
+    : status === "done" ? `${T.green}60`
+    : status === "error" ? `${T.red}60`
+    : `${T.border}`;
+
+  const color = status === "confirming" ? T.amber
+    : status === "done" ? T.green
+    : status === "error" ? T.red
+    : T.dim;
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={status === "resetting"}
+      style={{ width: "100%", padding: "7px 0", borderRadius: 6, fontSize: 11, fontWeight: 600,
+        fontFamily: T.mono, background: bg, border: `1px solid ${borderColor}`, color,
+        cursor: status === "resetting" ? "not-allowed" : "pointer", transition: "all 0.2s",
+        letterSpacing: "0.02em", opacity: status === "resetting" ? 0.6 : 1 }}>
+      {label}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CISO-FIRST ONBOARDING CONSOLE — Task #71
 // Three-track starting screen: VDA Native Agent Admission / Hotel Activation /
 // External A2A Admission
@@ -7639,10 +7715,11 @@ function OnboardingConsole({ onLoadHotel }) {
                 </div>
               ))}
           </div>
-          <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}` }}>
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
             <button onClick={() => openWalkthrough("vda_native")} style={{ width: "100%", padding: "11px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, background: T.red, color: "#fff", border: "none", cursor: "pointer" }}>
               Start CISO Walkthrough →
             </button>
+            <ResetDemoButton onReset={() => setRefreshKey(k => k + 1)} />
           </div>
         </div>
 

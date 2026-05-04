@@ -643,4 +643,28 @@ router.post("/admin/seed-value-events", async (req, res) => {
   }
 });
 
+// ─── POST /api/admin/reset-demo ───────────────────────────────────────────────
+// Wipes all transient demo state so the next user starts from a clean slate.
+// Preserved: governance_files, governance_file_versions, companies, exception_baselines.
+// Cleared:   onboarding_requests, witness_entries, agent_credentials, hitl_tokens,
+//            a2a_tasks, activation_requests, agent_phases, agent_mandates, agent_value_events.
+router.post("/admin/reset-demo", async (_req, res) => {
+  try {
+    await db.delete(witnessEntries);
+    await db.delete(hitlTokens);
+    await db.delete(agentMandates);
+    await db.delete(agentCredentials);
+    await db.delete(agentValueEvents);
+    await db.delete(agentPhases);
+    await db.delete(activationRequests);
+    await db.delete(a2aTasks);
+    await db.delete(onboardingRequests);
+    logger.info("[reset-demo] All transient demo state cleared");
+    res.json({ ok: true, message: "Demo reset — all agent progress cleared. Governance files preserved." });
+  } catch (err) {
+    logger.error({ err }, "admin/reset-demo error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Reset failed" });
+  }
+});
+
 export default router;
