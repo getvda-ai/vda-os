@@ -6532,11 +6532,22 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
       </div>
 
       {/* Bottom bar: blocking reason + Next button */}
-      <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 16, flexShrink: 0 }}>
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
         {results && !canProceed && (
-          <div style={{ fontSize: 11, color: T.red, fontFamily: T.mono, flex: 1 }}>
-            ✗ Pass rate {Math.round(passRate * 100)}% · requires {Math.round(THRESHOLD * 100)}% · re-run evaluation to proceed
+          <div style={{ fontSize: 11, color: T.red, fontFamily: T.mono, flex: 1, minWidth: 160 }}>
+            ✗ Pass rate {Math.round(passRate * 100)}% · requires {Math.round(THRESHOLD * 100)}%
           </div>
+        )}
+        {results && !canProceed && (
+          <button onClick={onNext} style={{
+            padding: "10px 20px", borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: T.mono,
+            background: `${T.amber}18`, color: T.amber,
+            border: `1px solid ${T.amber}50`, cursor: "pointer", whiteSpace: "nowrap",
+            display: "flex", alignItems: "center", gap: 7,
+          }}>
+            <span style={{ fontSize: 9, background: T.amber, color: "#000", borderRadius: 3, padding: "1px 5px", fontWeight: 900, letterSpacing: "0.06em" }}>DEMO</span>
+            CISO Override → Stage 3
+          </button>
         )}
         <button onClick={onNext} disabled={!canProceed} style={{
           padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
