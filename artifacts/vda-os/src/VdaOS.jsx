@@ -7340,6 +7340,40 @@ function OnboardingConsole({ onLoadHotel }) {
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
   const [walkthroughSource, setWalkthroughSource] = useState("vda_native");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [apaleoStatus, setApaleoStatus] = useState(null);
+  const [apaleoPopoverOpen, setApaleoPopoverOpen] = useState(false);
+  const apaleoPopoverRef = React.useRef(null);
+
+  const fetchApaleoStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/apaleo/status");
+      const data = await res.json();
+      if (!res.ok) {
+        setApaleoStatus({ connected: false, error: data.error || `HTTP ${res.status}`, mcpConfigured: data.mcpConfigured ?? false });
+      } else {
+        setApaleoStatus(data);
+      }
+    } catch {
+      setApaleoStatus({ connected: false, error: "Network error" });
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchApaleoStatus();
+    const interval = setInterval(fetchApaleoStatus, 60_000);
+    return () => clearInterval(interval);
+  }, [fetchApaleoStatus]);
+
+  useEffect(() => {
+    if (!apaleoPopoverOpen) return;
+    const handler = (e) => {
+      if (apaleoPopoverRef.current && !apaleoPopoverRef.current.contains(e.target)) {
+        setApaleoPopoverOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [apaleoPopoverOpen]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -7415,9 +7449,128 @@ function OnboardingConsole({ onLoadHotel }) {
               {admittedCount > 0 ? `${admittedCount} AGENT${admittedCount > 1 ? "S" : ""} ADMITTED` : "NO AGENTS ADMITTED"}
             </span>
           </div>
+
+          {/* Apaleo connection status pill */}
+          <div ref={apaleoPopoverRef} style={{ position: "relative" }}>
+            <button
+              onClick={() => setApaleoPopoverOpen(o => !o)}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "4px 10px", borderRadius: 20,
+                border: `1px solid ${apaleoStatus === null ? T.border : apaleoStatus.connected ? `${T.green}50` : `${T.red}50`}`,
+                background: apaleoStatus === null ? "transparent" : apaleoStatus.connected ? `${T.green}12` : `${T.red}12`,
+                cursor: "pointer", transition: "background 0.2s",
+              }}
+            >
+              {apaleoStatus === null ? (
+                <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>Checking…</span>
+              ) : apaleoStatus.connected ? (
+                <>
+                  <span style={{ fontSize: 9 }}>🟢</span>
+                  <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.green }}>
+                    Apaleo Connected ({apaleoStatus.propertyCount ?? (apaleoStatus.propertiesReachable?.length ?? 0)} {(apaleoStatus.propertyCount ?? (apaleoStatus.propertiesReachable?.length ?? 0)) === 1 ? "property" : "properties"})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 9 }}>🔴</span>
+                  <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.red }}>Apaleo Disconnected</span>
+                </>
+              )}
+            </button>
+
+            {/* Popover */}
+            {apaleoPopoverOpen && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 10px)", right: 0,
+                width: 300, background: "#0d0e11", border: `1px solid ${T.border}`,
+                borderRadius: 10, padding: "14px 16px", zIndex: 200,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+              }}>
+                <div style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: T.text, marginBottom: 10, letterSpacing: "0.05em" }}>APALEO PMS STATUS</div>
+
+                {apaleoStatus && (
+                  <>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: T.dim }}>Connection</span>
+                        <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: apaleoStatus.connected ? T.green : T.red }}>
+                          {apaleoStatus.connected ? "Connected" : "Disconnected"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: T.dim }}>Token expiry</span>
+                        <span style={{ fontSize: 11, fontFamily: T.mono, color: T.text }}>
+                          {apaleoStatus.tokenExpiry
+                            ? new Date(apaleoStatus.tokenExpiry).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                            : "—"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: T.dim }}>MCP</span>
+                        <span style={{ fontSize: 11, fontFamily: T.mono, color: apaleoStatus.mcpConfigured ? T.green : T.amber }}>
+                          {apaleoStatus.mcpConfigured ? "Configured" : "Not configured"}
+                        </span>
+                      </div>
+                      {apaleoStatus.error && (
+                        <div style={{ fontSize: 10, fontFamily: T.mono, color: T.red, background: `${T.red}10`, border: `1px solid ${T.red}30`, borderRadius: 5, padding: "4px 8px", marginTop: 2 }}>
+                          {apaleoStatus.error}
+                        </div>
+                      )}
+                    </div>
+
+                    {apaleoStatus.propertiesReachable && apaleoStatus.propertiesReachable.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginBottom: 5, letterSpacing: "0.08em" }}>PROPERTIES</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 100, overflowY: "auto" }}>
+                          {apaleoStatus.propertiesReachable.map(pid => (
+                            <div key={pid} style={{ fontSize: 11, fontFamily: T.mono, color: T.text, background: `${T.green}0a`, border: `1px solid ${T.green}20`, borderRadius: 4, padding: "2px 7px" }}>
+                              {pid}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+
+                <button
+                  onClick={() => { fetchApaleoStatus(); setApaleoPopoverOpen(false); }}
+                  style={{ marginTop: 12, width: "100%", padding: "5px 0", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 10, fontFamily: T.mono, cursor: "pointer" }}
+                >
+                  ↻ Refresh now
+                </button>
+              </div>
+            )}
+          </div>
+
           <button onClick={() => setRefreshKey(k => k + 1)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer" }}>↻ Refresh</button>
         </div>
       </div>
+
+      {/* Apaleo disconnected warning banner */}
+      {apaleoStatus && !apaleoStatus.connected && (
+        <div style={{ background: `${T.red}15`, borderBottom: `1px solid ${T.red}40`, padding: "8px 32px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13 }}>⚠️</span>
+          <span style={{ fontSize: 11, fontFamily: T.mono, color: T.red, fontWeight: 700 }}>Apaleo PMS is unreachable.</span>
+          <span style={{ fontSize: 11, color: T.muted }}>
+            {apaleoStatus.error || "Check credentials."}{" "}
+            Set <code style={{ fontFamily: T.mono, fontSize: 10, background: `${T.red}20`, padding: "1px 4px", borderRadius: 3 }}>APALEO_CLIENT_ID</code> and{" "}
+            <code style={{ fontFamily: T.mono, fontSize: 10, background: `${T.red}20`, padding: "1px 4px", borderRadius: 3 }}>APALEO_CLIENT_SECRET</code> in your environment secrets.
+          </span>
+          <button
+            onClick={() => openWalkthrough("vda_native")}
+            style={{
+              marginLeft: 4, padding: "3px 10px", borderRadius: 5,
+              border: `1px solid ${T.red}60`, background: `${T.red}20`,
+              color: T.red, fontSize: 10, fontFamily: T.mono, fontWeight: 700,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >
+            Open credential setup →
+          </button>
+        </div>
+      )}
 
       {/* Hero */}
       <div style={{ padding: "24px 40px 0", maxWidth: 1400, margin: "0 auto" }}>
