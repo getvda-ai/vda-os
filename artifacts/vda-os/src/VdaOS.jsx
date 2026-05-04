@@ -9381,7 +9381,7 @@ function FileBadgeChip({ filename }) {
 }
 
 // ── WitnessLedger ────────────────────────────────────────────────────────────
-function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
+function WitnessLedger({ entries, runEntries, onRefresh, loading, onEntryClick }) {
   const listRef = useRef(null);
   // Summary stats computed from ALL displayed entries so every metric is consistent
   const allPassCount  = entries.filter(e => e.decision === "PASS").length;
@@ -9446,12 +9446,19 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
           const rawId = e.witnessEntryId ?? e.id;
           const sealId = rawId ? String(rawId).slice(0, 8) : `#${i + 1}`;
           return (
-            <div key={e.id || i} style={{
-              background: T.surface, border: `1px solid ${T.border}`,
-              borderLeft: `3px solid ${decColor}`,
-              borderRadius: 6, padding: "8px 10px",
-              animation: "slide-up 0.3s ease",
-            }}>
+            <div key={e.id || i}
+              onClick={() => onEntryClick?.(e)}
+              style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                borderLeft: `3px solid ${decColor}`,
+                borderRadius: 6, padding: "8px 10px",
+                animation: "slide-up 0.3s ease",
+                cursor: onEntryClick ? "pointer" : "default",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e2 => { if (onEntryClick) e2.currentTarget.style.background = "#1a1d23"; }}
+              onMouseLeave={e2 => { if (onEntryClick) e2.currentTarget.style.background = T.surface; }}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5 }}>
                 <span style={{
                   fontSize: 7, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.05em",
@@ -9494,6 +9501,9 @@ function WitnessLedger({ entries, runEntries, onRefresh, loading }) {
                 <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, marginLeft: "auto" }}>
                   {e.createdAt ? new Date(e.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : e.timestamp || ""}
                 </span>
+                {onEntryClick && (
+                  <span style={{ fontSize: 8, fontFamily: T.mono, color: decColor, opacity: 0.7, letterSpacing: "0.04em" }}>Full Disclosure →</span>
+                )}
               </div>
             </div>
           );
@@ -9592,7 +9602,7 @@ const JOURNEY_STEPS = [
 ];
 
 // ── JourneyTimeline ───────────────────────────────────────────────────────────
-function JourneyTimeline({ journeySteps, completedSteps, activeStepIdx, hasRun }) {
+function JourneyTimeline({ journeySteps, completedSteps, activeStepIdx, hasRun, onStepClick }) {
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
       {journeySteps.map((step, idx) => {
@@ -9758,13 +9768,20 @@ function JourneyTimeline({ journeySteps, completedSteps, activeStepIdx, hasRun }
                   {/* Witness seal + extras */}
                   <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                     {stepData.witnessEntryId && (
-                      <span style={{
-                        fontSize: 9, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.04em",
-                        background: `${decColor}10`, color: decColor, border: `1px solid ${decColor}32`,
-                        borderRadius: 4, padding: "2px 9px",
-                      }}>
-                        🕵️ Witness #{String(stepData.witnessEntryId).slice(0, 8)} sealed
-                      </span>
+                      <button
+                        onClick={() => onStepClick?.(stepData)}
+                        style={{
+                          fontSize: 9, fontFamily: T.mono, fontWeight: 800, letterSpacing: "0.04em",
+                          background: `${decColor}10`, color: decColor, border: `1px solid ${decColor}32`,
+                          borderRadius: 4, padding: "2px 9px",
+                          cursor: onStepClick ? "pointer" : "default",
+                          transition: "background 0.15s, border-color 0.15s",
+                        }}
+                        onMouseEnter={e => { if (onStepClick) { e.currentTarget.style.background = `${decColor}22`; e.currentTarget.style.borderColor = `${decColor}60`; }}}
+                        onMouseLeave={e => { e.currentTarget.style.background = `${decColor}10`; e.currentTarget.style.borderColor = `${decColor}32`; }}
+                      >
+                        🕵️ Witness #{String(stepData.witnessEntryId).slice(0, 8)} sealed{onStepClick ? " · Full Disclosure →" : ""}
+                      </button>
                     )}
                     {stepData.exceptionApplied && (
                       <span style={{ fontSize: 9, color: T.amber, fontFamily: T.mono, fontWeight: 700 }}>⚡ EXCEPTION APPLIED</span>
@@ -9805,6 +9822,9 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
   const [activeStepIdx,    setActiveStepIdx]       = useState(-1);  // -1 = none active
   const [showAdvanced,     setShowAdvanced]        = useState(false);
   const [showShowreel,     setShowShowreel]        = useState(false);
+  const [selectedDemoEntry, setSelectedDemoEntry]  = useState(null);
+  const [demoWitnessEntry,  setDemoWitnessEntry]   = useState(null);
+  const [demoWitnessLoading, setDemoWitnessLoading] = useState(false);
   const [agentParams, setAgentParams] = useState({
     availability:   { arrival: new Date().toISOString().split("T")[0], departure: new Date(Date.now() + 86400000).toISOString().split("T")[0], adults: "2" },
     rate:           { requestedRate: "162", barRate: "180" },
@@ -9815,6 +9835,20 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
     checkout:       { guestName: "Demo Guest", loyaltyTier: "Gold", lateCheckout: "13:00" },
     revenue:        { date: new Date().toISOString().split("T")[0] },
   });
+
+  const openDemoDisclosure = useCallback(async (entry) => {
+    setSelectedDemoEntry(entry);
+    setDemoWitnessEntry(null);
+    const wid = entry.witnessEntryId ?? entry.id;
+    if (wid) {
+      setDemoWitnessLoading(true);
+      try {
+        const res = await fetch(`/api/agents/witness/${wid}`);
+        if (res.ok) setDemoWitnessEntry(await res.json());
+      } catch { /* best effort */ }
+      finally { setDemoWitnessLoading(false); }
+    }
+  }, []);
 
   const hasCredentials = !!propertyId;
   const hasCompany     = !!companyId;
@@ -9963,8 +9997,10 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
 
   const completedCount = Object.keys(completedSteps).length;
 
+  const demoDc = (d) => d === "PASS" ? T.green : d === "FAIL" ? T.red : d === "ESCALATE" ? T.amber : T.dim;
+
   return (
-    <div style={{ padding: "24px 28px 48px", display: "flex", flexDirection: "column", gap: 22 }}>
+    <div style={{ padding: "24px 28px 48px", display: "flex", flexDirection: "column", gap: 22, position: "relative" }}>
 
       {/* ── Header ────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
@@ -10130,6 +10166,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
               completedSteps={completedSteps}
               activeStepIdx={activeStepIdx}
               hasRun={hasRun}
+              onStepClick={openDemoDisclosure}
             />
           </div>
         </div>
@@ -10157,6 +10194,7 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
               runEntries={streamEntries}
               onRefresh={fetchDbEntries}
               loading={loadingDbEntries}
+              onEntryClick={openDemoDisclosure}
             />
           </div>
         </div>
@@ -10284,6 +10322,234 @@ function LiveDemoTab({ config, companyName, propertyId, companyId, onLogEntry })
           onAllComplete={handleShowreelDone}
           onClose={handleShowreelClose}
         />
+      )}
+
+      {/* ── Witness Agent Full Disclosure — slide-over panel ──────────── */}
+      {selectedDemoEntry && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 9000, display: "flex", justifyContent: "flex-end" }}
+          onClick={e => { if (e.target === e.currentTarget) setSelectedDemoEntry(null); }}
+        >
+          <div style={{ width: "100%", maxWidth: 500, background: "#0d1117", borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* Header */}
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Witness Agent · Full Event Disclosure</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: demoDc(selectedDemoEntry.decision) }}>
+                  {selectedDemoEntry.agent} — {selectedDemoEntry.decision}
+                </div>
+              </div>
+              <button onClick={() => setSelectedDemoEntry(null)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>✕</button>
+            </div>
+
+            <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+              {/* Decision verdict row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {[["Agent", selectedDemoEntry.agent], ["Decision", selectedDemoEntry.decision]].map(([label, val]) => (
+                  <div key={label} style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, fontFamily: T.mono, color: label === "Decision" ? demoDc(val) : T.text }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Clause applied */}
+              {selectedDemoEntry.clauseApplied && (
+                <div>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Governance Clause Applied</div>
+                  <div style={{ fontSize: 12, color: T.amber, lineHeight: 1.7, background: "#111318", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.amber}30`, fontFamily: T.mono }}>"{selectedDemoEntry.clauseApplied}"</div>
+                </div>
+              )}
+
+              {/* Action proposed */}
+              {selectedDemoEntry.actionProposed && (
+                <div>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Action Taken</div>
+                  <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.7, background: "#111318", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}` }}>{selectedDemoEntry.actionProposed}</div>
+                </div>
+              )}
+
+              {/* Reasoning */}
+              {selectedDemoEntry.reasoning && (
+                <div>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Agent Reasoning</div>
+                  <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.7, background: "#111318", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}` }}>{selectedDemoEntry.reasoning}</div>
+                </div>
+              )}
+
+              {/* ── Compliance Record — always visible, derived from decision ── */}
+              {(() => {
+                const isEscalate = selectedDemoEntry.decision === "ESCALATE" || selectedDemoEntry.decision === "HITL";
+                const wid = selectedDemoEntry.witnessEntryId ?? selectedDemoEntry.id;
+                const euAct = [
+                  { id: "Art. 9",  title: "Risk Management System",      desc: "Continuous identification and mitigation of risks for high-risk AI systems throughout lifecycle." },
+                  { id: "Art. 13", title: "Transparency & Disclosure",    desc: "AI system outputs and decision logic must be interpretable and disclosed to affected persons." },
+                  ...(isEscalate ? [{ id: "Art. 14", title: "Human Oversight", desc: "Humans must be able to intervene, override, or halt AI system operation at any time." }] : []),
+                  { id: "Art. 17", title: "Quality Management System",    desc: "Written policies, audit trails, and governance structures covering the full AI system lifecycle." },
+                ];
+                const gdpr = [
+                  { id: "Art. 22",    title: "Automated Decision-Making", desc: "Data subjects have the right not to be subject to solely automated decisions with significant effects, or to receive an explanation and contest them." },
+                  { id: "Art. 5(1)(f)", title: "Integrity & Confidentiality", desc: "Personal data must be processed with appropriate security, including protection against unauthorised access." },
+                ];
+                const nistIds = ["AU-2", "SC-28", "AC-2", "SA-4", "IR-4"];
+                return (
+                  <div style={{ background: "#0a0e15", border: `1px solid #22c55e30`, borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}20`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>Compliance Record — VDA-MD v1.0</div>
+                      <div>
+                        {wid
+                          ? <span style={{ fontSize: 9, fontFamily: T.mono, color: T.green, background: T.green + "15", border: `1px solid ${T.green}30`, borderRadius: 3, padding: "1px 7px" }}>✓ Witness #{String(wid).slice(0, 8)} Sealed</span>
+                          : <span style={{ fontSize: 9, fontFamily: T.mono, color: T.amber, background: T.amber + "15", border: `1px solid ${T.amber}30`, borderRadius: 3, padding: "1px 7px" }}>⚠ Not yet sealed</span>
+                        }
+                      </div>
+                    </div>
+
+                    <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}15` }}>
+                      <div style={{ fontSize: 9, fontFamily: T.mono, color: "#22c55e", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>EU AI Act 2024 — Applicable Articles</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {euAct.map(a => (
+                          <div key={a.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: T.green, background: T.green + "12", border: `1px solid ${T.green}25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>✓ {a.id}</span>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{a.title}</div>
+                              <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{a.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}15` }}>
+                      <div style={{ fontSize: 9, fontFamily: T.mono, color: "#60a5fa", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>GDPR — Applicable Articles</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {gdpr.map(g => (
+                          <div key={g.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: "#60a5fa", background: "#60a5fa12", border: `1px solid #60a5fa25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>✓ {g.id}</span>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{g.title}</div>
+                              <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{g.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: "10px 14px 10px" }}>
+                      <div style={{ fontSize: 9, fontFamily: T.mono, color: "#a78bfa", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>NIST SP 800-53 Rev 5 — Control Evidence</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {nistIds.map(id => {
+                          const ctrl = NIST_CONTROLS[id];
+                          return (
+                            <div key={id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                              <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: "#a78bfa", background: "#a78bfa12", border: `1px solid #a78bfa25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>{id}</span>
+                              <div>
+                                {ctrl ? (
+                                  <>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{ctrl.title} <span style={{ fontSize: 9, color: T.dim, fontWeight: 400 }}>— {ctrl.family}</span></div>
+                                    <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{ctrl.description}</div>
+                                  </>
+                                ) : <div style={{ fontSize: 10, color: T.muted }}>{id}</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Immutable Witness DB Record — shown when sealed ── */}
+              {(selectedDemoEntry.witnessEntryId ?? selectedDemoEntry.id) && (
+                <div>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
+                    Immutable Witness Record #{String(selectedDemoEntry.witnessEntryId ?? selectedDemoEntry.id).slice(0, 8)}
+                  </div>
+                  {demoWitnessLoading ? (
+                    <div style={{ fontSize: 12, color: T.dim, padding: "10px 14px" }}>Loading immutable record…</div>
+                  ) : demoWitnessEntry ? (() => {
+                    const ad = demoWitnessEntry.apaleoData || {};
+                    const files = demoWitnessEntry.filesConsulted || [];
+                    const decObj = typeof demoWitnessEntry.decision === "object" ? demoWitnessEntry.decision : {};
+                    const decStr = decObj.decision || demoWitnessEntry.decision || "—";
+                    const decColor = demoDc(decStr);
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div style={{ background: "#0a0e15", border: `1px solid ${decColor}30`, borderRadius: 8, overflow: "hidden" }}>
+                          <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}20`, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: decColor, background: decColor + "18", padding: "2px 8px", borderRadius: 4 }}>{decStr}</span>
+                            <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>#{demoWitnessEntry.id} · {demoWitnessEntry.createdAt ? new Date(demoWitnessEntry.createdAt).toLocaleString("en-GB") : "—"}</span>
+                          </div>
+                          {[
+                            ["Agent",                demoWitnessEntry.agent],
+                            ["SOP File",             demoWitnessEntry.fileReferenced],
+                            ["Governance Clause",    decObj.clauseApplied || demoWitnessEntry.clauseApplied || "—"],
+                            ["Action Proposed",      decObj.actionProposed || demoWitnessEntry.actionProposed || "—"],
+                            ["Exception Applied",    (decObj.exceptionApplied ?? demoWitnessEntry.exceptionApplied) ? "Yes" : "No"],
+                            ["Escalation Target",    decObj.escalationTarget || demoWitnessEntry.escalationTarget || "—"],
+                            ["Cross-Domain",         demoWitnessEntry.crossDomainInheritance ? "Yes — Finance O2C authority applied" : "No"],
+                            ["Credential Verified",  demoWitnessEntry.credentialVerified ? "Yes — CISO admission credential" : "No"],
+                            ["Mandate ID",           demoWitnessEntry.mandateId || "—"],
+                            ["Gov. File Hash",       demoWitnessEntry.governanceFileHash ? demoWitnessEntry.governanceFileHash.slice(0, 16) + "…" : "—"],
+                          ].map(([k, v], i, arr) => (
+                            <div key={k} style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 8, padding: "7px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}15` : "none" }}>
+                              <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.05em", paddingTop: 1 }}>{k}</div>
+                              <div style={{ fontSize: 11, color: T.text, wordBreak: "break-word", lineHeight: 1.55, fontFamily: k.includes("Hash") || k.includes("ID") ? T.mono : "inherit" }}>{v}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {files.length > 0 && (
+                          <div style={{ background: "#0a0e15", border: `1px solid ${T.border}30`, borderRadius: 8, overflow: "hidden" }}>
+                            <div style={{ padding: "7px 14px", borderBottom: `1px solid ${T.border}20`, fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                              Governance Files Consulted ({files.length})
+                            </div>
+                            <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+                              {files.map((f, fi) => {
+                                const type = f.endsWith(".AGENTS.md") ? "AGENTS" : f.endsWith(".SOP.md") ? "SOP" : f.endsWith(".SKILL.md") ? "SKILL" : f.includes("EXCEPTION_AUTHORITY") ? "EXCEPTION" : "FILE";
+                                const tc = type === "AGENTS" ? T.blue : type === "SOP" ? T.amber : type === "SKILL" ? T.green : type === "EXCEPTION" ? "#a78bfa" : "#64748b";
+                                return (
+                                  <div key={fi} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: tc, background: tc + "18", padding: "1px 6px", borderRadius: 3, minWidth: 70, textAlign: "center" }}>{type}</span>
+                                    <span style={{ fontSize: 10, fontFamily: T.mono, color: T.muted }}>{f}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={{ background: "#0a0e15", border: `1px solid ${T.border}30`, borderRadius: 8, overflow: "hidden" }}>
+                          <div style={{ padding: "7px 14px", borderBottom: `1px solid ${T.border}20`, fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>Live Apaleo Evidence</div>
+                          <div style={{ padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 10 }}>
+                            {[
+                              { label: "Property",     value: ad.propertyId || ad.property || "—",              color: T.blue },
+                              { label: "MCP Used",     value: ad.usedMcp ? "Yes" : "No",                        color: ad.usedMcp ? T.green : T.dim },
+                              { label: "Tool Calls",   value: String(ad.toolCallsMade ?? ad.tool_calls_made ?? 0), color: T.amber },
+                              { label: "Input Tokens", value: ad.input_tokens ? ad.input_tokens.toLocaleString() : "—", color: T.dim },
+                              { label: "Output Tokens",value: ad.output_tokens ? ad.output_tokens.toLocaleString() : "—", color: T.dim },
+                            ].map(({ label, value, color }) => (
+                              <div key={label} style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", minWidth: 90 }}>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, marginBottom: 3, letterSpacing: "0.05em" }}>{label}</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, fontFamily: T.mono, color }}>{value}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })() : (
+                    <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, padding: "8px 0" }}>
+                      Could not load immutable record — entry may still be propagating.
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
