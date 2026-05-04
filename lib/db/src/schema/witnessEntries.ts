@@ -18,6 +18,7 @@ export const witnessEntries = pgTable("witness_entries", {
   credentialVerified: boolean("credential_verified").default(false),
   governanceFileHash: text("governance_file_hash"),
   eventCategory: varchar("event_category"),
+  mandateId: text("mandate_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

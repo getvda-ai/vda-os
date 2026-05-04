@@ -36,6 +36,8 @@ export interface WitnessEntryInput {
   credentialVerified?: boolean;
   governanceFileHash?: string | null;
   eventCategory?: string;
+  /** AP2 Intent Mandate ID that governed this decision — stored as a first-class column for queryable compliance evidence. */
+  mandateId?: string | null;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -148,6 +150,7 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
       credentialVerified: entry.credentialVerified ?? false,
       governanceFileHash: entry.governanceFileHash ?? null,
       eventCategory: entry.eventCategory ?? null,
+      mandateId: entry.mandateId ?? null,
     })
     .returning({ id: witnessEntries.id });
 

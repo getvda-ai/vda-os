@@ -59,7 +59,9 @@ async function handleTasksSend(
   params: unknown,
   companyId: number,
   agentId: string,
-  externalAgentDid: string | null
+  externalAgentDid: string | null,
+  mandateCtx: { mandateId: string | null; phase: string | null; withinCeiling: boolean; requiresHitl: boolean } | undefined,
+  vcVerified: boolean
 ): Promise<object> {
   const p = params as Record<string, unknown>;
   if (!p?.id || !p?.sessionId || !p?.message) {
@@ -151,8 +153,7 @@ async function handleTasksSend(
     return jsonRpcError(rpcId, A2A_ERRORS.GOVERNANCE_VIOLATION);
   }
 
-  // Mandate context — attached by requireValidMandate("annotate") middleware
-  const mandateCtx = (req as Request & { mandateCtx?: { mandateId: string | null; phase: string | null; withinCeiling: boolean; requiresHitl: boolean } }).mandateCtx;
+  // Mandate context — passed explicitly from a2aJsonRpcHandler (attached by requireValidMandate middleware)
 
   // Run governance pipeline with live Apaleo MCP data
   const mcpTools = A2A_AGENT_MCP_TOOLS[agentId] ?? [];
@@ -187,7 +188,8 @@ async function handleTasksSend(
     escalationTarget: decision.escalationTarget ?? undefined,
     fileReferenced: fileRef,
     filesConsulted: filesLoaded.length > 0 ? filesLoaded : governance.filesLoaded,
-    credentialVerified: true,
+    credentialVerified: vcVerified,
+    mandateId: mandateCtx?.mandateId ?? null,
     apaleoData: {
       event_type: decision.decision === "ESCALATE" ? "a2a_task_failed" : "a2a_task_completed",
       taskId: task.id,
@@ -324,7 +326,7 @@ export async function a2aJsonRpcHandler(req: Request, res: Response): Promise<vo
   let result: object;
   switch (method) {
     case "tasks/send":
-      result = await handleTasksSend(rpcId, params, companyId, agentId, externalAgentDid);
+      result = await handleTasksSend(rpcId, params, companyId, agentId, externalAgentDid, req.mandateCtx, req.vcVerified ?? false);
       break;
     case "tasks/get":
       result = await handleTasksGet(rpcId, params);

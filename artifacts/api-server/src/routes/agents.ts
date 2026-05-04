@@ -753,6 +753,7 @@ router.post("/agents/availability",
       crossDomainInheritance: hasCrossDomainFiles(availFilesLoaded),
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
+      mandateId: req.mandateCtx?.mandateId ?? null,
     });
     void writeValueEvent({ agentId: "availability-agent", agentName: "Availability Agent", companyId: Number(companyId), propertyCode: propertyId, action: "availability_check", revenueDelta: 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { arrival, departure, adults } });
     if (hasCrossDomainFiles(availFilesLoaded)) {
@@ -856,6 +857,7 @@ router.post("/agents/rate",
       crossDomainInheritance: hasCrossDomainFiles(filesLoaded),
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
+      mandateId: req.mandateCtx?.mandateId ?? null,
     });
     void writeValueEvent({ agentId: "rate-agent", agentName: "Rate Agent", companyId: Number(companyId), propertyCode: propertyId, action: "rate_override", revenueDelta: reqRate, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { barRate: bar, requestedRate: reqRate, discountPct } });
     if (hasCrossDomainFiles(filesLoaded)) {
@@ -1071,6 +1073,7 @@ router.post("/agents/reservation",
       crossDomainInheritance: hasCrossDomainFiles(resvFilesLoaded),
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
+      mandateId: req.mandateCtx?.mandateId ?? null,
     });
     {
       const nights = (arrival && departure)
@@ -1221,6 +1224,7 @@ router.post("/agents/checkin",
       crossDomainInheritance: hasCrossDomainFiles(checkinFilesLoaded),
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
+      mandateId: req.mandateCtx?.mandateId ?? null,
     });
     void writeValueEvent({ agentId: "check-in-agent", agentName: "Check-In Agent", companyId: Number(companyId), propertyCode: propertyId, action: "checkin_process", revenueDelta: 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { reservationId: resolvedReservationId, checkinExecuted } });
     if (hasCrossDomainFiles(checkinFilesLoaded)) {
@@ -1294,6 +1298,7 @@ router.post("/agents/folio",
       crossDomainInheritance: hasCrossDomainFiles(folioFilesLoaded),
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
+      mandateId: req.mandateCtx?.mandateId ?? null,
     });
     if (hasCrossDomainFiles(folioFilesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Agent");
@@ -1441,6 +1446,7 @@ router.post("/agents/folio-charge",
       crossDomainInheritance: hasCrossDomainFiles(folioChargeFilesLoaded),
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
+      mandateId: req.mandateCtx?.mandateId ?? null,
     });
     void writeValueEvent({ agentId: "folio-charge-agent", agentName: "Folio Charge Agent", companyId: Number(companyId), propertyCode: propertyId, action: "folio_charge", revenueDelta: decision.decision === "PASS" && chargePosted ? chargeAmount : 0, currency, decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { folioId: resolvedFolioId, chargeAmount, serviceType, chargePosted } });
     if (hasCrossDomainFiles(folioChargeFilesLoaded)) {
@@ -1588,6 +1594,7 @@ router.post("/agents/checkout",
       crossDomainInheritance: hasCrossDomainFiles(checkoutFilesLoaded),
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
+      mandateId: req.mandateCtx?.mandateId ?? null,
     });
     void writeValueEvent({ agentId: "checkout-agent", agentName: "Checkout Agent", companyId: Number(companyId), propertyCode: propertyId, action: "checkout_process", revenueDelta: 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { reservationId, checkoutExecuted, loyaltyTier } });
     if (hasCrossDomainFiles(checkoutFilesLoaded)) {
@@ -1715,6 +1722,7 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
       crossDomainInheritance: hasCrossDomainFiles(revFilesLoaded),
       credentialVerified: req.vcVerified,
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
+      mandateId: req.mandateCtx?.mandateId ?? null,
     });
     if (hasCrossDomainFiles(revFilesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Revenue Reconciliation Agent");

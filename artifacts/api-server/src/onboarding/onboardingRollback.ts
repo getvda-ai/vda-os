@@ -704,7 +704,7 @@ router.post("/onboarding/:id/run-sandbox", async (req, res) => {
             framework: "VDA-MD v1.0 for Apaleo",
           },
         });
-        witnessId = (witnessRow as { id?: number })?.id ?? null;
+        witnessId = typeof witnessRow === "number" ? witnessRow : null;
       } catch (wErr) {
         logger.warn({ wErr }, "Failed to write witness entry for sandbox scenario");
       }
