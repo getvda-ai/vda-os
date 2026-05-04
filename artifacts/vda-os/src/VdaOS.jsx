@@ -7117,10 +7117,15 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
               <div style={{ padding: "14px 24px", borderBottom: `1px solid ${T.border}`, background: "#050608", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
                 <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.1em" }}>STAGE {stage} OF 6</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{STAGES[stage - 1]?.icon} {STAGES[stage - 1]?.label}</span>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-                  {STAGES.map((s, i) => (
-                    <div key={s.id} style={{ width: 8, height: 8, borderRadius: "50%", background: completions[i] ? T.green : stage === s.id ? T.blue : T.border }} />
-                  ))}
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+                  {stage > 1 && (
+                    <button onClick={() => setStage(stage - 1)} style={{ padding: "5px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer" }}>← Back</button>
+                  )}
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {STAGES.map((s, i) => (
+                      <div key={s.id} style={{ width: 8, height: 8, borderRadius: "50%", background: completions[i] ? T.green : stage === s.id ? T.blue : T.border }} />
+                    ))}
+                  </div>
                 </div>
               </div>
               {/* Stage body */}
