@@ -6535,7 +6535,7 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
     if (!reason) return;
     setSubmitting(p => ({ ...p, [k]: true }));
     try {
-      await fetch("/api/agents/witness", {
+      const r = await fetch("/api/agents/witness", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6560,6 +6560,10 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
           credentialVerified: true,
         }),
       });
+      if (!r.ok) {
+        const errBody = await r.json().catch(() => ({}));
+        throw new Error(errBody?.error || `Witness write failed (${r.status})`);
+      }
       setPendingQueries(p => ({ ...p, [k]: reason }));
       setReasonInputs(p => ({ ...p, [k]: "" }));
       setServerRegenRequired(true);

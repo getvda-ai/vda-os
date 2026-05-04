@@ -1729,6 +1729,38 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
   }
 });
 
+// ─── Witness Stream — Write Entry (CISO queries, manual entries) ─────────────
+// POST body matches WitnessEntryInput: { companyId, agent, decision, fileReferenced, apaleoData, credentialVerified? }
+
+router.post("/agents/witness", async (req, res) => {
+  try {
+    const body = req.body as {
+      companyId: unknown;
+      agent: unknown;
+      decision: unknown;
+      fileReferenced: unknown;
+      apaleoData: unknown;
+      credentialVerified?: boolean;
+      eventCategory?: string;
+    };
+    if (typeof body.companyId !== "number" || !body.agent || !body.decision || !body.fileReferenced) {
+      return res.status(400).json({ error: "companyId, agent, decision, fileReferenced required" });
+    }
+    const witnessId = await writeWitnessEntry({
+      companyId: body.companyId,
+      agent: String(body.agent),
+      decision: body.decision as Parameters<typeof writeWitnessEntry>[0]["decision"],
+      fileReferenced: String(body.fileReferenced),
+      apaleoData: (body.apaleoData as Record<string, unknown>) ?? {},
+      credentialVerified: body.credentialVerified ?? false,
+      eventCategory: body.eventCategory,
+    });
+    return res.json({ ok: true, witnessId });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
 // ─── Witness Stream — List Entries ────────────────────────────────────────────
 
 router.get("/agents/witness", async (req, res) => {

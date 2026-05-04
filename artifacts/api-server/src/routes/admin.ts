@@ -442,7 +442,9 @@ router.post("/admin/seed-exception-authority-files", async (req, res) => {
             .limit(1);
 
           if (existing[0]) {
-            if (!regenerate) {
+            // companyId=0 (platform baseline) always regenerated to keep source_clauses enriched.
+            // Hotel-scope files (companyId>0) are skipped when regenerate=false.
+            if (!regenerate && companyId !== 0) {
               logger.info({ agentId: agent.agentId, companyId }, "[seed-ea] Skipping existing (regenerate=false)");
             } else {
               await db.update(governanceFiles)
