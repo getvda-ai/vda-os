@@ -322,7 +322,7 @@ router.post("/admin/onboarding/quick-submit", async (req, res) => {
   try {
     const result = await startOnboarding({
       sessionId: crypto.randomUUID(),
-      agentCard: agentCard as Parameters<typeof startOnboarding>[0]["agentCard"],
+      agentCard: agentCard as unknown as Parameters<typeof startOnboarding>[0]["agentCard"],
       externalAgentDid: agentCard.id,
       rpcId: null,
       companyId: companyId ?? null,

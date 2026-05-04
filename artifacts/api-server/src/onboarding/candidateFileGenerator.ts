@@ -19,6 +19,8 @@ export interface CandidateFiles {
   sop_md: string;
   skill_md: string;
   exception_md: string | null;
+  /** Jurisdiction-aware EXCEPTION_AUTHORITY.md — generated in phase-3 after the three-file set. */
+  exception_authority_md?: string | null;
   files_to_modify: FileModification[];
 }
 

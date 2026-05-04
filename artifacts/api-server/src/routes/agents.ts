@@ -1731,8 +1731,18 @@ Sample reservations: ${JSON.stringify(reservations.slice(0, 3).map((r) => ({ id:
 
 // ─── Witness Stream — Write Entry (CISO queries, manual entries) ─────────────
 // POST body matches WitnessEntryInput: { companyId, agent, decision, fileReferenced, apaleoData, credentialVerified? }
+// Auth: if OPERATOR_WRITE_KEY env var is set, callers must supply matching X-Operator-Key header.
+// When OPERATOR_WRITE_KEY is unset (development/demo), all calls are allowed.
+// In production, set OPERATOR_WRITE_KEY to protect witness log integrity.
 
 router.post("/agents/witness", async (req, res) => {
+  const operatorKey = process.env.OPERATOR_WRITE_KEY;
+  if (operatorKey) {
+    const supplied = req.headers["x-operator-key"];
+    if (!supplied || supplied !== operatorKey) {
+      return res.status(401).json({ error: "X-Operator-Key header required or invalid" });
+    }
+  }
   try {
     const body = req.body as {
       companyId: unknown;
