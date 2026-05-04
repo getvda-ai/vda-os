@@ -11,7 +11,8 @@ import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents, agentMandates } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { issueMandate } from "../lib/mandateIssuer.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 import { generateExceptionAuthorityFile, COMPANIES_MAP, JURISDICTION_CONTEXT } from "../lib/exceptionAuthorityGenerator.js";
 import { startOnboarding } from "../onboarding/onboardingOrchestrator.js";
@@ -639,6 +640,75 @@ router.post("/admin/seed-value-events", async (req, res) => {
     return res.json({ ok: true, seeded: rows.length, companyId: targetCompanyId });
   } catch (err) {
     logger.error({ err }, "admin/seed-value-events error");
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Seed failed" });
+  }
+});
+
+// ─── POST /api/admin/seed-mandates ───────────────────────────────────────────
+// Issues AP2 Intent Mandates for all native VDA agents in all companies
+// based on their current agent_phases phase. Idempotent: skips agents that
+// already have an active (non-revoked, non-expired) mandate.
+
+const VDA_NATIVE_AGENTS = [
+  "rate-agent","availability-agent","reservation-bot","check-in-agent",
+  "folio-agent","folio-charge-agent","checkout-agent","revenue-reconciliation-agent",
+];
+
+router.post("/admin/seed-mandates", async (req, res) => {
+  try {
+    const targetCompanyIds = req.body?.companyIds
+      ? (req.body.companyIds as number[])
+      : await db.select({ id: companies.id }).from(companies).then(rows => rows.map(r => r.id));
+
+    const now = new Date();
+    const issued: Array<{ agentId: string; companyId: number; phase: string; mandateId: string }> = [];
+    const skipped: Array<{ agentId: string; companyId: number; reason: string }> = [];
+
+    for (const companyId of targetCompanyIds) {
+      // Check for existing active mandates
+      const existing = await db
+        .select({ agentId: agentMandates.agentId, validUntil: agentMandates.validUntil })
+        .from(agentMandates)
+        .where(and(eq(agentMandates.companyId, companyId), eq(agentMandates.revoked, false)));
+      const activeAgents = new Set(
+        existing.filter(m => new Date(m.validUntil) > now).map(m => m.agentId)
+      );
+
+      // Get phase for each agent at this company
+      const phases = await db
+        .select({ agentId: agentPhases.agentId, phase: agentPhases.phase })
+        .from(agentPhases)
+        .where(and(eq(agentPhases.companyId, companyId), inArray(agentPhases.agentId, VDA_NATIVE_AGENTS)));
+
+      const phaseMap: Record<string, string> = {};
+      for (const p of phases) phaseMap[p.agentId] = p.phase;
+
+      for (const agentId of VDA_NATIVE_AGENTS) {
+        if (activeAgents.has(agentId)) {
+          skipped.push({ agentId, companyId, reason: "active mandate exists" });
+          continue;
+        }
+        // Default to "walk" if no phase row yet (for demo purposes)
+        const phase = phaseMap[agentId] ?? "walk";
+        if (phase === "crawl") {
+          // Crawl mandates have no standing authority — only issue if explicitly requested
+          skipped.push({ agentId, companyId, reason: "crawl phase — no standing mandate" });
+          continue;
+        }
+        try {
+          const agentDid = `did:key:vda-${agentId}-${companyId}`;
+          const mandate = await issueMandate({ agentId, companyId, agentDid, phase });
+          issued.push({ agentId, companyId, phase, mandateId: mandate.mandateId });
+        } catch (err) {
+          skipped.push({ agentId, companyId, reason: err instanceof Error ? err.message : "issue failed" });
+        }
+      }
+    }
+
+    logger.info({ issued: issued.length, skipped: skipped.length }, "[seed-mandates] Mandates seeded");
+    return res.json({ ok: true, issued: issued.length, skipped: skipped.length, details: issued });
+  } catch (err) {
+    logger.error({ err }, "admin/seed-mandates error");
     return res.status(500).json({ error: err instanceof Error ? err.message : "Seed failed" });
   }
 });

@@ -6226,7 +6226,7 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
   const ceilingRows = CEILING_BANDS.map(b => ({ band: BAND_LABELS[b], ceiling: parseCeiling(b) })).filter(r => r.ceiling !== null);
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+    <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
         {loading ? (
           <div style={{ padding: 24, color: T.dim, fontSize: 13 }}>Loading governance files…</div>
@@ -7224,7 +7224,7 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
               </div>
               {/* Stage body */}
               <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} companyId={agent?.companyId ?? walkCompanyId} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
+                {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} companyId={agent?.companyId || walkCompanyId || 0} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
                 {stage === 2 && <SandboxEvaluation
                   requestId={requestId}
                   agentSource={agent?.source ?? null}
