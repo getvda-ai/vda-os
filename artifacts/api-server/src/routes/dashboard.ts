@@ -796,8 +796,10 @@ router.get("/dashboard/value-ledger/events", async (req, res) => {
 
 async function handleGetMandates(req: Request, res: Response) {
   try {
-    const companyId = Number(req.query.companyId);
-    if (!companyId) return res.status(400).json({ error: "companyId required" });
+    const companyIdRaw = req.query.companyId;
+    if (companyIdRaw == null || companyIdRaw === "") return res.status(400).json({ error: "companyId required" });
+    const companyId = Number(companyIdRaw);
+    if (!Number.isFinite(companyId)) return res.status(400).json({ error: "companyId must be a number" });
 
     const mandates = await db
       .select()

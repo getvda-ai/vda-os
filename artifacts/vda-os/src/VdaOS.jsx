@@ -6602,36 +6602,124 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
                   </div>
                   {witnessLoading ? (
                     <div style={{ fontSize: 12, color: T.dim, padding: "10px 14px" }}>Loading witness entry…</div>
-                  ) : witnessEntry ? (
-                    <div style={{ background: "#0a0e15", border: `1px solid ${T.blue}30`, borderRadius: 8, overflow: "hidden" }}>
-                      {[
-                        ["Agent", witnessEntry.agent],
-                        ["Decision", witnessEntry.decision],
-                        ["File Referenced", witnessEntry.fileReferenced],
-                        ["Clause Applied", witnessEntry.clauseApplied],
-                        ["Action Proposed", witnessEntry.actionProposed],
-                        ["Exception Applied", witnessEntry.exceptionApplied ? "Yes" : "No"],
-                        ["Escalation Target", witnessEntry.escalationTarget || "—"],
-                        ["Cross-Domain Inheritance", witnessEntry.crossDomainInheritance ? "Yes" : "No"],
-                        ["Credential Verified", witnessEntry.credentialVerified ? "Yes" : "No"],
-                        ["Event Category", witnessEntry.eventCategory || "—"],
-                        ["Governance File Hash", witnessEntry.governanceFileHash ? witnessEntry.governanceFileHash.slice(0, 16) + "…" : "—"],
-                        ["Files Consulted", (witnessEntry.filesConsulted || []).join(", ") || "—"],
-                        ["Timestamp", witnessEntry.createdAt ? new Date(witnessEntry.createdAt).toLocaleString("en-GB") : "—"],
-                      ].map(([k, v], i, arr) => (
-                        <div key={k} style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 8, padding: "7px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}20` : "none" }}>
-                          <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.06em" }}>{k}</div>
-                          <div style={{ fontSize: 11, color: T.text, wordBreak: "break-word", lineHeight: 1.5 }}>{v}</div>
+                  ) : witnessEntry ? (() => {
+                    const ad = witnessEntry.apaleoData || {};
+                    const files = witnessEntry.filesConsulted || [];
+                    const decObj = typeof witnessEntry.decision === "object" ? witnessEntry.decision : {};
+                    const decStr = decObj.decision || witnessEntry.decision || "—";
+                    const decColor = decStr === "PASS" ? T.green : decStr === "FAIL" ? T.red : T.amber;
+                    const euAct = ad.eu_ai_act || [];
+                    const nist = ad.nist_controls || [];
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+
+                        {/* ── Core Decision Record ── */}
+                        <div style={{ background: "#0a0e15", border: `1px solid ${decColor}30`, borderRadius: 8, overflow: "hidden" }}>
+                          <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}20`, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: decColor, background: decColor + "18", padding: "2px 8px", borderRadius: 4 }}>{decStr}</span>
+                            <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>Witness #{witnessEntry.id} · {witnessEntry.createdAt ? new Date(witnessEntry.createdAt).toLocaleString("en-GB") : "—"}</span>
+                          </div>
+                          {[
+                            ["Agent", witnessEntry.agent],
+                            ["SOP File", witnessEntry.fileReferenced],
+                            ["Governance Clause", decObj.clauseApplied || witnessEntry.clauseApplied || "—"],
+                            ["Action Proposed", decObj.actionProposed || witnessEntry.actionProposed || "—"],
+                            ["Agent Reasoning", decObj.reasoning || witnessEntry.reasoning || "—"],
+                            ["Exception Applied", (decObj.exceptionApplied ?? witnessEntry.exceptionApplied) ? "Yes" : "No"],
+                            ["Escalation Target", decObj.escalationTarget || witnessEntry.escalationTarget || "—"],
+                            ["Cross-Domain Inheritance", witnessEntry.crossDomainInheritance ? "Yes — Finance O2C authority applied" : "No"],
+                            ["Credential Verified", witnessEntry.credentialVerified ? "Yes — CISO admission credential" : "No"],
+                          ].map(([k, v], i, arr) => (
+                            <div key={k} style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 8, padding: "7px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}15` : "none" }}>
+                              <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.05em", paddingTop: 1 }}>{k}</div>
+                              <div style={{ fontSize: 11, color: T.text, wordBreak: "break-word", lineHeight: 1.55 }}>{v}</div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                      {witnessEntry.apaleoData && (
-                        <div style={{ padding: "10px 14px", borderTop: `1px solid ${T.border}20` }}>
-                          <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.06em", marginBottom: 6 }}>Apaleo / Compliance Data</div>
-                          <pre style={{ fontSize: 10, color: T.muted, fontFamily: T.mono, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{JSON.stringify(witnessEntry.apaleoData, null, 2)}</pre>
+
+                        {/* ── Governance Files Consulted ── */}
+                        {files.length > 0 && (
+                          <div style={{ background: "#0a0e15", border: `1px solid ${T.border}30`, borderRadius: 8, overflow: "hidden" }}>
+                            <div style={{ padding: "7px 14px", borderBottom: `1px solid ${T.border}20`, fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                              Governance Files Consulted ({files.length})
+                            </div>
+                            <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+                              {files.map((f, i) => {
+                                const type = f.endsWith(".AGENTS.md") ? "AGENTS" : f.endsWith(".SOP.md") ? "SOP" : f.endsWith(".SKILL.md") ? "SKILL" : f.includes("EXCEPTION_AUTHORITY") ? "EXCEPTION_AUTHORITY" : f.includes("shared-O2C") || f.includes("Shared-O2C") ? "SHARED_SERVICES" : "FILE";
+                                const typeColor = type === "AGENTS" ? T.blue : type === "SOP" ? T.amber : type === "SKILL" ? T.green : type === "EXCEPTION_AUTHORITY" ? "#a78bfa" : "#64748b";
+                                return (
+                                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: typeColor, background: typeColor + "18", padding: "1px 6px", borderRadius: 3, minWidth: 80, textAlign: "center" }}>{type}</span>
+                                    <span style={{ fontSize: 10, fontFamily: T.mono, color: T.muted }}>{f}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── Live Apaleo Evidence ── */}
+                        <div style={{ background: "#0a0e15", border: `1px solid ${T.border}30`, borderRadius: 8, overflow: "hidden" }}>
+                          <div style={{ padding: "7px 14px", borderBottom: `1px solid ${T.border}20`, fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                            Live Apaleo Evidence
+                          </div>
+                          <div style={{ padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 10 }}>
+                            {[
+                              { label: "Property", value: ad.property || "BER", color: T.blue },
+                              { label: "MCP Used", value: ad.mcp_used ? "Yes" : "No", color: ad.mcp_used ? T.green : T.dim },
+                              { label: "Tool Calls", value: String(ad.tool_calls_made ?? 0), color: T.amber },
+                              { label: "Input Tokens", value: ad.input_tokens ? ad.input_tokens.toLocaleString() : "—", color: T.dim },
+                              { label: "Output Tokens", value: ad.output_tokens ? ad.output_tokens.toLocaleString() : "—", color: T.dim },
+                            ].map(({ label, value, color }) => (
+                              <div key={label} style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 12px", minWidth: 90 }}>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, marginBottom: 3, letterSpacing: "0.05em" }}>{label}</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, fontFamily: T.mono, color }}>{value}</div>
+                              </div>
+                            ))}
+                          </div>
+                          {(ad.apaleo_tools || []).length > 0 && (
+                            <div style={{ padding: "0 14px 10px", display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {ad.apaleo_tools.map(t => (
+                                <span key={t} style={{ fontSize: 10, fontFamily: T.mono, color: T.blue, background: T.blue + "12", padding: "2px 8px", borderRadius: 4, border: `1px solid ${T.blue}25` }}>{t}</span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ) : (
+
+                        {/* ── Compliance Framework ── */}
+                        {(euAct.length > 0 || nist.length > 0) && (
+                          <div style={{ background: "#0a0e15", border: `1px solid ${T.border}30`, borderRadius: 8, overflow: "hidden" }}>
+                            <div style={{ padding: "7px 14px", borderBottom: `1px solid ${T.border}20`, fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                              Compliance Framework — {ad.framework || "VDA-MD v1.0"}
+                            </div>
+                            <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                              {euAct.length > 0 && (
+                                <div>
+                                  <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, marginBottom: 5, letterSpacing: "0.06em" }}>EU AI ACT</div>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                    {euAct.map(a => (
+                                      <span key={a} style={{ fontSize: 10, fontFamily: T.mono, color: T.green, background: T.green + "12", padding: "2px 8px", borderRadius: 4, border: `1px solid ${T.green}25` }}>✓ {a}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {nist.length > 0 && (
+                                <div>
+                                  <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, marginBottom: 5, letterSpacing: "0.06em" }}>NIST SP 800-53</div>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                    {nist.map(n => (
+                                      <span key={n} style={{ fontSize: 10, fontFamily: T.mono, color: "#a78bfa", background: "#a78bfa12", padding: "2px 8px", borderRadius: 4, border: `1px solid #a78bfa25` }}>{n}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
+                    );
+                  })() : (
                     <div style={{ fontSize: 11, color: T.dim, padding: "8px 14px" }}>Witness entry #{selectedResult.witnessId} — could not load details.</div>
                   )}
                 </div>
@@ -10513,7 +10601,7 @@ function MandateRegistry({ companyId }) {
   const [expanded, setExpanded] = useState(null);
 
   const fetchMandates = useCallback(async () => {
-    if (!companyId) return;
+    if (companyId == null) return;
     setLoading(true);
     try {
       const r = await fetch(`/api/mandates?companyId=${companyId}`);

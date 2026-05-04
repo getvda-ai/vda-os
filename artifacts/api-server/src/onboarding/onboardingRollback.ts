@@ -625,22 +625,35 @@ router.post("/onboarding/:id/run-sandbox", async (req, res) => {
       let decision = "ESCALATE";
       let clause = "";
       let reasoning = "";
+      let scenarioFilesLoaded: string[] = [];
+      let scenarioToolCallsMade = 0;
+      let scenarioUsedMcp = false;
+      let scenarioInputTokens = 0;
+      let scenarioOutputTokens = 0;
 
       try {
         const agentConfig = SANDBOX_AGENT_CONFIG[agentSlug];
         const task = agentConfig ? agentConfig.task(scenario) : `Property: ${SANDBOX_PROPERTY_ID}. Evaluate: ${scenario}`;
         const tools = agentConfig?.tools ?? [];
 
-        const { decision: govDecision } = await evaluateWithPolicyAndMcp(
+        const evalResult = await evaluateWithPolicyAndMcp(
           agentName,
           policyKey,
           task,
           tools,
           PLATFORM_COMPANY_ID
         );
+        const govDecision = evalResult.decision;
         decision = (govDecision.decision ?? "ESCALATE").toUpperCase();
         clause = govDecision.clauseApplied ?? "";
         reasoning = govDecision.reasoning ?? "";
+
+        // Capture full compliance trace for witness record
+        scenarioFilesLoaded = evalResult.filesLoaded ?? [];
+        scenarioToolCallsMade = evalResult.toolCallsMade ?? 0;
+        scenarioUsedMcp = evalResult.usedMcp ?? false;
+        scenarioInputTokens = evalResult.inputTokens ?? 0;
+        scenarioOutputTokens = evalResult.outputTokens ?? 0;
       } catch (err) {
         logger.warn({ err, scenario, agentSlug }, "Sandbox scenario eval failed");
         decision = "ESCALATE";
@@ -649,12 +662,15 @@ router.post("/onboarding/:id/run-sandbox", async (req, res) => {
       }
 
       const passed = decision === expected;
+      const hasCrossDomain = scenarioFilesLoaded.some(
+        f => f.toLowerCase().includes("shared-o2c") || f.toLowerCase().includes("finance-o2c")
+      );
 
       // Write a Witness entry for each scenario
       let witnessId: number | null = null;
       try {
-        // Narrow decision to the witness union type — .toUpperCase() returns string
         const witnessDecision = (["PASS", "FAIL", "ESCALATE", "INFO"].includes(decision) ? decision : "ESCALATE") as "PASS" | "FAIL" | "ESCALATE" | "INFO";
+        const sopFile = scenarioFilesLoaded.find(f => f.endsWith(".SOP.md")) ?? "SOP.md";
         const witnessRow = await writeWitnessEntry({
           companyId: PLATFORM_COMPANY_ID,
           agent: agentSlug,
@@ -666,17 +682,27 @@ router.post("/onboarding/:id/run-sandbox", async (req, res) => {
             escalationTarget: null,
             reasoning,
           },
-          fileReferenced: "SOP.md",
+          fileReferenced: sopFile,
+          filesConsulted: scenarioFilesLoaded,
+          crossDomainInheritance: hasCrossDomain,
+          credentialVerified: true,
           apaleoData: {
             event_type: "ciso_sandbox_scenario",
             onboarding_id: id,
+            property: SANDBOX_PROPERTY_ID,
             scenario: scenario.slice(0, 120),
-            input: input.slice(0, 200),
             expected,
             actual: decision,
             passed,
+            mcp_used: scenarioUsedMcp,
+            tool_calls_made: scenarioToolCallsMade,
+            apaleo_tools: agentConfig?.tools ?? [],
+            input_tokens: scenarioInputTokens,
+            output_tokens: scenarioOutputTokens,
+            eu_ai_act: ["Art. 13 — Transparency", "Art. 14 — Human Oversight", "Art. 17 — Risk Management"],
+            nist_controls: ["AC-2 Account Management", "AU-2 Event Logging"],
+            framework: "VDA-MD v1.0 for Apaleo",
           },
-          credentialVerified: true,
         });
         witnessId = (witnessRow as { id?: number })?.id ?? null;
       } catch (wErr) {

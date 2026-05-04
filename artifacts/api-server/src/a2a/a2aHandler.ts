@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import {
-  evaluateWithPolicy,
+  evaluateWithPolicyAndMcp,
   getGovernancePolicyFromFM,
 } from "../routes/agents.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
@@ -17,6 +17,21 @@ import {
 import { AGENT_ID_TO_POLICY_KEY } from "./agentCardRegistry.js";
 import { A2A_ERRORS, jsonRpcError, jsonRpcResult } from "./a2aErrors.js";
 import { logger } from "../lib/logger.js";
+
+// ─── Per-agent read-only MCP tools for A2A governance evaluation ──────────────
+// Mirrors the read-only tool sets from agents.ts — write tools (CreateBooking,
+// CheckIn, CheckOut, CreateFolioCharge) are never called in A2A eval mode;
+// external agents only receive a governance PASS/FAIL/ESCALATE decision.
+const A2A_AGENT_MCP_TOOLS: Record<string, string[]> = {
+  "availability-agent":           ["GetAvailableUnitGroups", "ListRatePlans", "ListOffers"],
+  "rate-agent":                   ["ListRatePlans", "GetReport"],
+  "reservation-bot":              ["GetAvailableUnitGroups", "ListRatePlans", "GetGuestProfile"],
+  "check-in-agent":               ["GetReservation", "ListFolios", "GetGuestProfile", "ListPaymentAccounts"],
+  "folio-agent":                  ["GetFolio", "ListFolios", "ListInvoices"],
+  "folio-charge-agent":           ["GetFolio", "ListFolios", "ListPaymentAccounts", "ListInvoices"],
+  "checkout-agent":               ["GetReservation", "ListFolios", "ListInvoices"],
+  "revenue-reconciliation-agent": ["GetReport", "ListRatePlans", "ListFolios", "ListInvoices"],
+};
 
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
   "availability-agent":           "Availability Agent",
@@ -136,25 +151,30 @@ async function handleTasksSend(
     return jsonRpcError(rpcId, A2A_ERRORS.GOVERNANCE_VIOLATION);
   }
 
-  // Run governance pipeline
-  let decision;
+  // Mandate context — attached by requireValidMandate("annotate") middleware
+  const mandateCtx = (req as Request & { mandateCtx?: { mandateId: string | null; phase: string | null; withinCeiling: boolean; requiresHitl: boolean } }).mandateCtx;
+
+  // Run governance pipeline with live Apaleo MCP data
+  const mcpTools = A2A_AGENT_MCP_TOOLS[agentId] ?? [];
+  let evalResult: Awaited<ReturnType<typeof evaluateWithPolicyAndMcp>>;
   try {
-    decision = await evaluateWithPolicy(
+    evalResult = await evaluateWithPolicyAndMcp(
       agentName,
       policyKey,
-      `A2A external request${priorContext}`,
-      instruction,
+      `A2A external request${priorContext}\n\nInstruction: ${instruction}`,
+      mcpTools,
       companyId
     );
   } catch (err) {
     await updateTask(task.id, { statusState: "failed", errorMessage: String(err) });
-    logger.error({ err, taskId: task.id }, "[A2A] evaluateWithPolicy threw");
+    logger.error({ err, taskId: task.id }, "[A2A] evaluateWithPolicyAndMcp threw");
     return jsonRpcError(rpcId, { code: -32603, message: "Internal error during governance evaluation" });
   }
 
-  const fileRef = fileReferenced(governance.filesLoaded);
+  const { decision, toolCallsMade, usedMcp, filesLoaded } = evalResult;
+  const fileRef = fileReferenced(filesLoaded.length > 0 ? filesLoaded : governance.filesLoaded);
 
-  // Write governance decision witness entry
+  // Write governance decision witness entry (includes mandate + MCP compliance trace)
   await writeGovernanceEvent({
     companyId,
     agent: agentId,
@@ -166,9 +186,21 @@ async function handleTasksSend(
     exceptionApplied: decision.exceptionApplied,
     escalationTarget: decision.escalationTarget ?? undefined,
     fileReferenced: fileRef,
-    filesConsulted: governance.filesLoaded,
+    filesConsulted: filesLoaded.length > 0 ? filesLoaded : governance.filesLoaded,
     credentialVerified: true,
-    apaleoData: { event_type: decision.decision === "ESCALATE" ? "a2a_task_failed" : "a2a_task_completed", taskId: task.id, sessionId, externalAgentDid },
+    apaleoData: {
+      event_type: decision.decision === "ESCALATE" ? "a2a_task_failed" : "a2a_task_completed",
+      taskId: task.id,
+      sessionId,
+      externalAgentDid,
+      mcp_used: usedMcp,
+      tool_calls_made: toolCallsMade,
+      apaleo_tools: mcpTools,
+      mandate_id: mandateCtx?.mandateId ?? null,
+      mandate_phase: mandateCtx?.phase ?? null,
+      mandate_within_ceiling: mandateCtx?.withinCeiling ?? true,
+      mandate_requires_hitl: mandateCtx?.requiresHitl ?? false,
+    },
   });
 
   if (decision.decision === "ESCALATE") {

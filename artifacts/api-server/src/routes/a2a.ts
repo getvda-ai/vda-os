@@ -3,6 +3,7 @@ import { getAgentCard, getAllAgentCards, getPlatformCard, getOnboardingAgentCard
 import { a2aJsonRpcHandler } from "../a2a/a2aHandler.js";
 import { listTasksForCompany, listTasksForSession } from "../a2a/taskStore.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
+import { requireValidMandate } from "../lib/mandateValidator.js";
 import { startOnboarding } from "../onboarding/onboardingOrchestrator.js";
 import { A2A_ERRORS, jsonRpcError, jsonRpcResult } from "../a2a/a2aErrors.js";
 import { logger } from "../lib/logger.js";
@@ -155,9 +156,16 @@ router.post("/a2a/onboarding",
 );
 
 // ─── Standard A2A JSON-RPC endpoint — 8 governed agents (per-company) ─────────
+// Middleware chain:
+//   1. requireAgentCredential — W3C VC bearer token check (agent identity)
+//   2. requireValidMandate (annotate) — attaches AP2 mandate context to req
+//      without blocking; the A2A handler embeds mandate ctx in the witness entry
+//   3. a2aJsonRpcHandler — §2.1 governance pipeline (evaluateWithPolicyAndMcp)
 
-router.post("/a2a/:companyId/:agentId", (req, res, next) => {
-  requireAgentCredential(String(req.params.agentId))(req, res, next);
-}, a2aJsonRpcHandler);
+router.post("/a2a/:companyId/:agentId",
+  (req, res, next) => requireAgentCredential(String(req.params.agentId))(req, res, next),
+  (req, res, next) => requireValidMandate(String(req.params.agentId), undefined, undefined, "annotate")(req, res, next),
+  a2aJsonRpcHandler
+);
 
 export default router;
