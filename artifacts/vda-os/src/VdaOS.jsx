@@ -6012,6 +6012,98 @@ function saveCurrentStage(slug, s) {
 }
 
 // ─── Stage 1: Governance File Review ────────────────────────────────────────
+function RenderMd({ content }) {
+  const lines = (content || "").split("\n");
+  const els = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // YAML front-matter block — render as a dim code block
+    if (i === 0 && line.trim() === "---") {
+      const fmLines = [];
+      i++;
+      while (i < lines.length && lines[i].trim() !== "---") { fmLines.push(lines[i]); i++; }
+      els.push(<div key="fm" style={{ background: "#0d0f14", border: `1px solid ${T.border}`, borderRadius: 6, padding: "10px 14px", marginBottom: 16, fontSize: 10, fontFamily: T.mono, color: T.dim, whiteSpace: "pre-wrap" }}>{fmLines.join("\n")}</div>);
+      i++; continue;
+    }
+    // H1
+    if (/^# /.test(line)) {
+      els.push(<h1 key={i} style={{ fontSize: 17, fontWeight: 800, color: T.text, fontFamily: T.sans, margin: "0 0 12px", paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>{line.slice(2)}</h1>);
+      i++; continue;
+    }
+    // H2
+    if (/^## /.test(line)) {
+      els.push(<h2 key={i} style={{ fontSize: 13, fontWeight: 700, color: T.blue, fontFamily: T.mono, margin: "20px 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>{line.slice(3)}</h2>);
+      i++; continue;
+    }
+    // H3
+    if (/^### /.test(line)) {
+      els.push(<h3 key={i} style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: T.mono, margin: "14px 0 6px" }}>{line.slice(4)}</h3>);
+      i++; continue;
+    }
+    // Code fence
+    if (/^```/.test(line)) {
+      const codeLines = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) { codeLines.push(lines[i]); i++; }
+      els.push(<pre key={i} style={{ background: "#0d0f14", border: `1px solid ${T.border}`, borderRadius: 6, padding: "10px 14px", margin: "8px 0 12px", fontSize: 11, fontFamily: T.mono, color: "#a0c4ff", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowX: "auto" }}>{codeLines.join("\n")}</pre>);
+      i++; continue;
+    }
+    // Blank line
+    if (line.trim() === "") { els.push(<div key={i} style={{ height: 6 }} />); i++; continue; }
+    // List item
+    if (/^[-*] /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) {
+        items.push(lines[i].slice(2));
+        i++;
+      }
+      els.push(
+        <ul key={i} style={{ margin: "4px 0 10px", paddingLeft: 18, listStyle: "none" }}>
+          {items.map((it, j) => (
+            <li key={j} style={{ fontSize: 12, fontFamily: T.mono, color: "#c0c6d8", lineHeight: 1.7, display: "flex", alignItems: "flex-start", gap: 6 }}>
+              <span style={{ color: T.green, flexShrink: 0, marginTop: 2 }}>▸</span>
+              <span dangerouslySetInnerHTML={{ __html: it.replace(/\*\*(.+?)\*\*/g, `<strong style="color:${T.text}">$1</strong>`).replace(/`(.+?)`/g, `<code style="background:#1a1f2e;padding:1px 5px;border-radius:3px;font-size:11px;color:#a0c4ff">$1</code>`) }} />
+            </li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+    // Numbered list
+    if (/^\d+\. /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\. /.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\. /, ""));
+        i++;
+      }
+      els.push(
+        <ol key={i} style={{ margin: "4px 0 10px", paddingLeft: 20 }}>
+          {items.map((it, j) => (
+            <li key={j} style={{ fontSize: 12, fontFamily: T.mono, color: "#c0c6d8", lineHeight: 1.7 }}>
+              <span dangerouslySetInnerHTML={{ __html: it.replace(/\*\*(.+?)\*\*/g, `<strong style="color:${T.text}">$1</strong>`).replace(/`(.+?)`/g, `<code style="background:#1a1f2e;padding:1px 5px;border-radius:3px;font-size:11px;color:#a0c4ff">$1</code>`) }} />
+            </li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      els.push(<hr key={i} style={{ border: "none", borderTop: `1px solid ${T.border}`, margin: "14px 0" }} />);
+      i++; continue;
+    }
+    // Paragraph / inline text
+    const html = line
+      .replace(/\*\*(.+?)\*\*/g, `<strong style="color:${T.text}">$1</strong>`)
+      .replace(/\*(.+?)\*/g, `<em style="color:${T.dim}">$1</em>`)
+      .replace(/`(.+?)`/g, `<code style="background:#1a1f2e;padding:1px 5px;border-radius:3px;font-size:11px;color:#a0c4ff">$1</code>`);
+    els.push(<p key={i} style={{ fontSize: 12, fontFamily: T.mono, color: "#c0c6d8", lineHeight: 1.8, margin: "0 0 4px" }} dangerouslySetInnerHTML={{ __html: html }} />);
+    i++;
+  }
+  return <div style={{ padding: "18px 22px" }}>{els}</div>;
+}
+
 function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded }) {
   const [files, setFiles] = useState(null);
   const [contents, setContents] = useState({});
@@ -6224,8 +6316,10 @@ function GovernanceFileReview({ agentSlug, companyId = 0, onNext, onFilesLoaded 
                 </div>
               );
             })()}
-            <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", fontSize: 12, fontFamily: T.mono, lineHeight: 1.8, color: "#c0c6d8", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-              {activeContent || "(select a file tab above)"}
+            <div style={{ flex: 1, overflow: "auto" }}>
+              {activeContent
+                ? <RenderMd content={activeContent} />
+                : <div style={{ padding: "16px 20px", fontSize: 12, fontFamily: T.mono, color: T.dim }}>(select a file tab above)</div>}
             </div>
           </>
         )}
