@@ -6383,13 +6383,18 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
   const isExternal = agentSource === "a2a_external";
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState(null);
-  const [threshold, setThreshold] = useState(null); // loaded from backend policy
+  const [threshold, setThreshold] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedResult, setSelectedResult] = useState(null);
+  const [witnessEntry, setWitnessEntry] = useState(null);
+  const [witnessLoading, setWitnessLoading] = useState(false);
+
   const passRate = results ? results.filter(r => r.passed).length / results.length
     : isExternal && existingPassRate != null ? Number(existingPassRate)
     : null;
-  const THRESHOLD = threshold ?? 0.6; // fallback only if policy not yet loaded
+  const THRESHOLD = threshold ?? 0.6;
   const canProceed = passRate !== null && passRate >= THRESHOLD;
+  const failCount = results ? results.filter(r => !r.passed).length : 0;
 
   const runSandbox = async () => {
     if (!requestId) { setError("No onboarding request ID — submit this agent via POST /api/onboarding/submit first."); return; }
@@ -6408,12 +6413,26 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
     finally { setRunning(false); }
   };
 
+  const openDisclosure = async (r) => {
+    setSelectedResult(r);
+    setWitnessEntry(null);
+    if (r.witnessId) {
+      setWitnessLoading(true);
+      try {
+        const res = await fetch(`/api/agents/witness/${r.witnessId}`);
+        if (res.ok) setWitnessEntry(await res.json());
+      } catch { /* best effort */ }
+      finally { setWitnessLoading(false); }
+    }
+  };
+
   const dc = (d) => d === "PASS" ? T.green : d === "FAIL" ? T.red : T.amber;
+  const resultBg = (r) => r.passed ? "#0a1a0a" : "#1a0808";
+  const resultBorder = (r) => r.passed ? `${T.green}25` : `${T.red}25`;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
-        {/* External agents: show read-only orchestrator eval result — no re-run */}
         {isExternal ? (
           <>
             <div style={{ padding: "10px 14px", background: "#0f1824", border: `1px solid ${T.blue}40`, borderRadius: 8, fontSize: 12, color: T.blue, marginBottom: 16 }}>
@@ -6459,23 +6478,46 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
 
             {results && (
               <div style={{ marginTop: 20 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20, padding: "14px 18px", background: canProceed ? "#0d1f0d" : "#1a0a0a", border: `1px solid ${canProceed ? T.green : T.red}40`, borderRadius: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, padding: "14px 18px", background: canProceed ? "#0d1f0d" : "#1a0a0a", border: `1px solid ${canProceed ? T.green : T.red}40`, borderRadius: 10 }}>
                   <div style={{ fontSize: 32, fontWeight: 700, fontFamily: T.mono, color: canProceed ? T.green : T.red }}>{Math.round(passRate * 100)}%</div>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: canProceed ? T.green : T.red }}>Pass Rate {canProceed ? "✓" : "✗"}</div>
                     <div style={{ fontSize: 11, color: T.dim }}>{results.filter(r => r.passed).length}/{results.length} scenarios matched · threshold {Math.round(THRESHOLD * 100)}%</div>
                   </div>
                 </div>
+
+                {/* Blocking reason — only shown when failed */}
+                {!canProceed && (
+                  <div style={{ padding: "10px 14px", background: "#1a0808", border: `1px solid ${T.red}40`, borderRadius: 8, fontSize: 12, color: T.red, marginBottom: 16, lineHeight: 1.6 }}>
+                    <strong>Stage blocked:</strong> {failCount} of {results.length} scenario{failCount !== 1 ? "s" : ""} produced an unexpected decision — pass rate {Math.round(passRate * 100)}% is below the required {Math.round(THRESHOLD * 100)}% threshold.
+                    {" "}Click any failing row below to inspect the full witness disclosure, then re-run the evaluation once the governance files are in order.
+                  </div>
+                )}
+
+                <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, marginBottom: 8, letterSpacing: "0.06em" }}>
+                  CLICK ANY ROW TO INSPECT FULL WITNESS EVENT DISCLOSURE
+                </div>
                 <div style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "8px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: T.mono }}>
                     <span>Scenario</span><span>Expected</span><span>Actual</span><span>Result</span>
                   </div>
                   {results.map((r, i) => (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "10px 16px", borderBottom: i < results.length - 1 ? `1px solid ${T.border}20` : "none", alignItems: "start" }}>
+                    <div key={i} onClick={() => openDisclosure(r)}
+                      style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px", gap: 8, padding: "10px 16px",
+                        borderBottom: i < results.length - 1 ? `1px solid ${T.border}20` : "none", alignItems: "start",
+                        cursor: "pointer", transition: "background 0.15s",
+                        background: selectedResult === r ? resultBg(r) : "transparent",
+                        borderLeft: selectedResult === r ? `3px solid ${r.passed ? T.green : T.red}` : "3px solid transparent",
+                      }}
+                      onMouseEnter={e => { if (selectedResult !== r) e.currentTarget.style.background = "#1a1d23"; }}
+                      onMouseLeave={e => { if (selectedResult !== r) e.currentTarget.style.background = "transparent"; }}
+                    >
                       <div>
                         <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5, marginBottom: 3 }}>{r.scenario}</div>
-                        {r.clause && <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, lineHeight: 1.4 }}>"{r.clause.slice(0, 80)}{r.clause.length > 80 ? "…" : ""}"</div>}
-                        {r.witnessId && <div style={{ fontSize: 10, fontFamily: T.mono, color: "#374151", marginTop: 2 }}>Witness #{r.witnessId}</div>}
+                        {r.clause && <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, lineHeight: 1.4 }}>"{r.clause.slice(0, 100)}{r.clause.length > 100 ? "…" : ""}"</div>}
+                        <div style={{ fontSize: 10, fontFamily: T.mono, color: r.witnessId ? T.blue : "#374151", marginTop: 3 }}>
+                          {r.witnessId ? `🔍 Witness #${r.witnessId} — click to inspect` : "No witness ID"}
+                        </div>
                       </div>
                       <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: dc(r.expected) }}>{r.expected}</span>
                       <span style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: dc(r.decision) }}>{r.decision}</span>
@@ -6488,13 +6530,116 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
           </>
         )}
       </div>
-      <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+
+      {/* Bottom bar: blocking reason + Next button */}
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 16, flexShrink: 0 }}>
+        {results && !canProceed && (
+          <div style={{ fontSize: 11, color: T.red, fontFamily: T.mono, flex: 1 }}>
+            ✗ Pass rate {Math.round(passRate * 100)}% · requires {Math.round(THRESHOLD * 100)}% · re-run evaluation to proceed
+          </div>
+        )}
         <button onClick={onNext} disabled={!canProceed} style={{
           padding: "10px 28px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: T.mono,
           background: canProceed ? T.blue : "#1e2229", color: canProceed ? "#fff" : T.dim,
-          border: "none", cursor: canProceed ? "pointer" : "not-allowed",
+          border: "none", cursor: canProceed ? "pointer" : "not-allowed", whiteSpace: "nowrap",
         }}>Next → Stage 3</button>
       </div>
+
+      {/* Witness Disclosure Slide-over */}
+      {selectedResult && (
+        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 50, display: "flex", justifyContent: "flex-end" }}
+          onClick={e => { if (e.target === e.currentTarget) setSelectedResult(null); }}>
+          <div style={{ width: "100%", maxWidth: 480, background: "#0d1117", borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* Header */}
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Witness Agent · Full Event Disclosure</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: selectedResult.passed ? T.green : T.red }}>
+                  {selectedResult.passed ? "✓ PASS" : "✗ FAIL"} — Scenario {results.indexOf(selectedResult) + 1} of {results.length}
+                </div>
+              </div>
+              <button onClick={() => setSelectedResult(null)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>✕</button>
+            </div>
+
+            <div style={{ flex: 1, overflow: "auto", padding: "16px 20px" }}>
+              {/* Scenario */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Scenario</div>
+                <div style={{ fontSize: 12, color: T.text, lineHeight: 1.7, background: "#111318", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}` }}>{selectedResult.scenario}</div>
+              </div>
+
+              {/* Decision verdict */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+                {[["Expected", selectedResult.expected], ["Actual", selectedResult.decision], ["Result", selectedResult.passed ? "PASS" : "FAIL"]].map(([label, val]) => (
+                  <div key={label} style={{ background: "#111318", border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, fontFamily: T.mono, color: dc(val) }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Clause applied */}
+              {selectedResult.clause && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Governance Clause Applied</div>
+                  <div style={{ fontSize: 12, color: T.amber, lineHeight: 1.7, background: "#111318", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.amber}30`, fontFamily: T.mono }}>"{selectedResult.clause}"</div>
+                </div>
+              )}
+
+              {/* Reasoning */}
+              {selectedResult.reasoning && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Agent Reasoning</div>
+                  <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.7, background: "#111318", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}` }}>{selectedResult.reasoning}</div>
+                </div>
+              )}
+
+              {/* Full Witness Entry from DB */}
+              {selectedResult.witnessId && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
+                    Witness Agent Record #{selectedResult.witnessId}
+                  </div>
+                  {witnessLoading ? (
+                    <div style={{ fontSize: 12, color: T.dim, padding: "10px 14px" }}>Loading witness entry…</div>
+                  ) : witnessEntry ? (
+                    <div style={{ background: "#0a0e15", border: `1px solid ${T.blue}30`, borderRadius: 8, overflow: "hidden" }}>
+                      {[
+                        ["Agent", witnessEntry.agent],
+                        ["Decision", witnessEntry.decision],
+                        ["File Referenced", witnessEntry.fileReferenced],
+                        ["Clause Applied", witnessEntry.clauseApplied],
+                        ["Action Proposed", witnessEntry.actionProposed],
+                        ["Exception Applied", witnessEntry.exceptionApplied ? "Yes" : "No"],
+                        ["Escalation Target", witnessEntry.escalationTarget || "—"],
+                        ["Cross-Domain Inheritance", witnessEntry.crossDomainInheritance ? "Yes" : "No"],
+                        ["Credential Verified", witnessEntry.credentialVerified ? "Yes" : "No"],
+                        ["Event Category", witnessEntry.eventCategory || "—"],
+                        ["Governance File Hash", witnessEntry.governanceFileHash ? witnessEntry.governanceFileHash.slice(0, 16) + "…" : "—"],
+                        ["Files Consulted", (witnessEntry.filesConsulted || []).join(", ") || "—"],
+                        ["Timestamp", witnessEntry.createdAt ? new Date(witnessEntry.createdAt).toLocaleString("en-GB") : "—"],
+                      ].map(([k, v], i, arr) => (
+                        <div key={k} style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 8, padding: "7px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}20` : "none" }}>
+                          <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.06em" }}>{k}</div>
+                          <div style={{ fontSize: 11, color: T.text, wordBreak: "break-word", lineHeight: 1.5 }}>{v}</div>
+                        </div>
+                      ))}
+                      {witnessEntry.apaleoData && (
+                        <div style={{ padding: "10px 14px", borderTop: `1px solid ${T.border}20` }}>
+                          <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.06em", marginBottom: 6 }}>Apaleo / Compliance Data</div>
+                          <pre style={{ fontSize: 10, color: T.muted, fontFamily: T.mono, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{JSON.stringify(witnessEntry.apaleoData, null, 2)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: T.dim, padding: "8px 14px" }}>Witness entry #{selectedResult.witnessId} — could not load details.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1791,6 +1791,26 @@ router.get("/agents/witness", async (req, res) => {
   }
 });
 
+// ─── Witness: Single Entry by ID ─────────────────────────────────────────────
+// Returns the full witness entry for a given numeric ID.
+// Used by the CISO Sandbox scenario disclosure panel.
+
+router.get("/agents/witness/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: "id must be a number" });
+    const [entry] = await db
+      .select()
+      .from(witnessEntries)
+      .where(eq(witnessEntries.id, id))
+      .limit(1);
+    if (!entry) return res.status(404).json({ error: "Witness entry not found" });
+    return res.json(entry);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
 // ─── Witness: Framework Integrity Metrics ────────────────────────────────────
 // Returns four operator-facing metric counts for the Framework Integrity Panel.
 // Metric 1 — integrity_check_passed in last 24 h (FRAMEWORK_INTEGRITY / PASS)
