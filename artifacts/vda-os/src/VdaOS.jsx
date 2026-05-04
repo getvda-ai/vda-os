@@ -6594,59 +6594,119 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
                 </div>
               )}
 
-              {/* Full Witness Entry from DB */}
+              {/* ── Compliance Record — always visible, derived from decision ── */}
+              {(() => {
+                const isEscalate = selectedResult.decision === "ESCALATE" || selectedResult.decision === "HITL";
+                const euAct = [
+                  { id: "Art. 9", title: "Risk Management System", desc: "Continuous identification and mitigation of risks for high-risk AI systems throughout lifecycle." },
+                  { id: "Art. 13", title: "Transparency & Disclosure", desc: "AI system outputs and decision logic must be interpretable and disclosed to affected persons." },
+                  ...(isEscalate ? [{ id: "Art. 14", title: "Human Oversight", desc: "Humans must be able to intervene, override, or halt AI system operation at any time." }] : []),
+                  { id: "Art. 17", title: "Quality Management System", desc: "Written policies, audit trails, and governance structures covering the full AI system lifecycle." },
+                ];
+                const gdpr = [
+                  { id: "Art. 22", title: "Automated Decision-Making", desc: "Data subjects have the right not to be subject to solely automated decisions with significant effects, or to receive an explanation and contest them." },
+                  { id: "Art. 5(1)(f)", title: "Integrity & Confidentiality", desc: "Personal data must be processed with appropriate security, including protection against unauthorised access." },
+                ];
+                const nistIds = ["AU-2", "SC-28", "AC-2", "SA-4", "IR-4"];
+                return (
+                  <div style={{ marginBottom: 16, background: "#0a0e15", border: `1px solid #22c55e30`, borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}20`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>Compliance Record — VDA-MD v1.0</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {selectedResult.witnessId
+                          ? <span style={{ fontSize: 9, fontFamily: T.mono, color: T.green, background: T.green + "15", border: `1px solid ${T.green}30`, borderRadius: 3, padding: "1px 7px" }}>✓ Witness #{selectedResult.witnessId} Sealed</span>
+                          : <span style={{ fontSize: 9, fontFamily: T.mono, color: T.amber, background: T.amber + "15", border: `1px solid ${T.amber}30`, borderRadius: 3, padding: "1px 7px" }}>⚠ Re-run sandbox to seal</span>
+                        }
+                      </div>
+                    </div>
+
+                    <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}15` }}>
+                      <div style={{ fontSize: 9, fontFamily: T.mono, color: "#22c55e", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>EU AI Act 2024 — Applicable Articles</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {euAct.map(a => (
+                          <div key={a.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: T.green, background: T.green + "12", border: `1px solid ${T.green}25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>✓ {a.id}</span>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{a.title}</div>
+                              <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{a.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}15` }}>
+                      <div style={{ fontSize: 9, fontFamily: T.mono, color: "#60a5fa", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>GDPR — Applicable Articles</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {gdpr.map(g => (
+                          <div key={g.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: "#60a5fa", background: "#60a5fa12", border: `1px solid #60a5fa25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>✓ {g.id}</span>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{g.title}</div>
+                              <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{g.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: "10px 14px 10px" }}>
+                      <div style={{ fontSize: 9, fontFamily: T.mono, color: "#a78bfa", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>NIST SP 800-53 Rev 5 — Control Evidence</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {nistIds.map(id => {
+                          const ctrl = NIST_CONTROLS[id];
+                          return (
+                            <div key={id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                              <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: "#a78bfa", background: "#a78bfa12", border: `1px solid #a78bfa25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>{id}</span>
+                              <div>
+                                {ctrl ? (
+                                  <>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{ctrl.title} <span style={{ fontSize: 9, color: T.dim, fontWeight: 400 }}>— {ctrl.family}</span></div>
+                                    <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{ctrl.description}</div>
+                                  </>
+                                ) : <div style={{ fontSize: 10, color: T.muted }}>{id}</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Witness DB Record — additional detail when sealed ── */}
               {selectedResult.witnessId && (
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
-                    Witness Agent Record #{selectedResult.witnessId}
+                    Immutable Witness Record #{selectedResult.witnessId}
                   </div>
                   {witnessLoading ? (
-                    <div style={{ fontSize: 12, color: T.dim, padding: "10px 14px" }}>Loading witness entry…</div>
+                    <div style={{ fontSize: 12, color: T.dim, padding: "10px 14px" }}>Loading…</div>
                   ) : witnessEntry ? (() => {
                     const ad = witnessEntry.apaleoData || {};
                     const files = witnessEntry.filesConsulted || [];
                     const decObj = typeof witnessEntry.decision === "object" ? witnessEntry.decision : {};
                     const decStr = decObj.decision || witnessEntry.decision || "—";
                     const decColor = decStr === "PASS" ? T.green : decStr === "ESCALATE" ? T.amber : decStr === "REJECT" ? T.red : T.dim;
-                    const isEscalate = decStr === "ESCALATE" || decStr === "HITL";
-                    const isException = !!(decObj.exceptionApplied ?? witnessEntry.exceptionApplied);
-                    // EU AI Act — always derive from decision; use stored values if present
-                    const euAct = (ad.eu_ai_act || []).length > 0 ? ad.eu_ai_act : [
-                      { id: "Art. 9", title: "Risk Management System", desc: "Continuous identification and mitigation of risks for high-risk AI systems throughout lifecycle." },
-                      { id: "Art. 13", title: "Transparency & Disclosure", desc: "AI system outputs and decision logic must be interpretable and disclosed to affected persons." },
-                      ...(isEscalate ? [{ id: "Art. 14", title: "Human Oversight", desc: "Humans must be able to intervene, override, or halt AI system operation at any time." }] : []),
-                      { id: "Art. 17", title: "Quality Management System", desc: "Written policies, audit trails, and governance structures covering the full AI system lifecycle." },
-                      ...(isException ? [{ id: "Art. 9(8)", title: "Exception Risk Control", desc: "Exception handling paths must maintain equivalent risk control to baseline rules." }] : []),
-                    ];
-                    // NIST SP 800-53 — always derive; use stored values if present
-                    const nistIds = (ad.nist_controls || []).length > 0 ? ad.nist_controls : ["AU-2", "SC-28", "AC-2", "SA-4", "IR-4"];
-                    // GDPR — always applicable to automated guest decisions
-                    const gdpr = [
-                      { id: "Art. 22", title: "Automated Decision-Making", desc: "Data subjects have the right not to be subject to solely automated decisions with significant effects, or to receive an explanation and contest them." },
-                      { id: "Art. 5(1)(f)", title: "Integrity & Confidentiality", desc: "Personal data must be processed with appropriate security, including protection against unauthorised access." },
-                    ];
                     return (
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-
-                        {/* ── Core Decision Record ── */}
                         <div style={{ background: "#0a0e15", border: `1px solid ${decColor}30`, borderRadius: 8, overflow: "hidden" }}>
                           <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}20`, display: "flex", alignItems: "center", gap: 8 }}>
                             <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: decColor, background: decColor + "18", padding: "2px 8px", borderRadius: 4 }}>{decStr}</span>
-                            <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>Witness #{witnessEntry.id} · {witnessEntry.createdAt ? new Date(witnessEntry.createdAt).toLocaleString("en-GB") : "—"}</span>
+                            <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>#{witnessEntry.id} · {witnessEntry.createdAt ? new Date(witnessEntry.createdAt).toLocaleString("en-GB") : "—"}</span>
                           </div>
                           {[
                             ["Agent", witnessEntry.agent],
                             ["SOP File", witnessEntry.fileReferenced],
                             ["Governance Clause", decObj.clauseApplied || witnessEntry.clauseApplied || "—"],
                             ["Action Proposed", decObj.actionProposed || witnessEntry.actionProposed || "—"],
-                            ["Agent Reasoning", decObj.reasoning || witnessEntry.reasoning || "—"],
                             ["Exception Applied", (decObj.exceptionApplied ?? witnessEntry.exceptionApplied) ? "Yes" : "No"],
                             ["Escalation Target", decObj.escalationTarget || witnessEntry.escalationTarget || "—"],
                             ["Cross-Domain Inheritance", witnessEntry.crossDomainInheritance ? "Yes — Finance O2C authority applied" : "No"],
                             ["Credential Verified", witnessEntry.credentialVerified ? "Yes — CISO admission credential" : "No"],
                             ["Mandate ID", witnessEntry.mandateId || "—"],
                             ["Gov. File Hash", witnessEntry.governanceFileHash ? witnessEntry.governanceFileHash.slice(0, 16) + "…" : "—"],
-                            ["Scenario Run ID", witnessEntry.scenarioRunId || "—"],
                           ].map(([k, v], i, arr) => (
                             <div key={k} style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 8, padding: "7px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}15` : "none" }}>
                               <div style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, letterSpacing: "0.05em", paddingTop: 1 }}>{k}</div>
@@ -6654,20 +6714,18 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
                             </div>
                           ))}
                         </div>
-
-                        {/* ── Governance Files Consulted ── */}
                         {files.length > 0 && (
                           <div style={{ background: "#0a0e15", border: `1px solid ${T.border}30`, borderRadius: 8, overflow: "hidden" }}>
                             <div style={{ padding: "7px 14px", borderBottom: `1px solid ${T.border}20`, fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                               Governance Files Consulted ({files.length})
                             </div>
                             <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
-                              {files.map((f, i) => {
-                                const type = f.endsWith(".AGENTS.md") ? "AGENTS" : f.endsWith(".SOP.md") ? "SOP" : f.endsWith(".SKILL.md") ? "SKILL" : f.includes("EXCEPTION_AUTHORITY") ? "EXCEPTION_AUTHORITY" : f.includes("shared-O2C") || f.includes("Shared-O2C") ? "SHARED_SERVICES" : "FILE";
-                                const typeColor = type === "AGENTS" ? T.blue : type === "SOP" ? T.amber : type === "SKILL" ? T.green : type === "EXCEPTION_AUTHORITY" ? "#a78bfa" : "#64748b";
+                              {files.map((f, fi) => {
+                                const type = f.endsWith(".AGENTS.md") ? "AGENTS" : f.endsWith(".SOP.md") ? "SOP" : f.endsWith(".SKILL.md") ? "SKILL" : f.includes("EXCEPTION_AUTHORITY") ? "EXCEPTION" : "FILE";
+                                const tc = type === "AGENTS" ? T.blue : type === "SOP" ? T.amber : type === "SKILL" ? T.green : type === "EXCEPTION" ? "#a78bfa" : "#64748b";
                                 return (
-                                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: typeColor, background: typeColor + "18", padding: "1px 6px", borderRadius: 3, minWidth: 80, textAlign: "center" }}>{type}</span>
+                                  <div key={fi} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: tc, background: tc + "18", padding: "1px 6px", borderRadius: 3, minWidth: 70, textAlign: "center" }}>{type}</span>
                                     <span style={{ fontSize: 10, fontFamily: T.mono, color: T.muted }}>{f}</span>
                                   </div>
                                 );
@@ -6675,12 +6733,8 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
                             </div>
                           </div>
                         )}
-
-                        {/* ── Live Apaleo Evidence ── */}
                         <div style={{ background: "#0a0e15", border: `1px solid ${T.border}30`, borderRadius: 8, overflow: "hidden" }}>
-                          <div style={{ padding: "7px 14px", borderBottom: `1px solid ${T.border}20`, fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                            Live Apaleo Evidence
-                          </div>
+                          <div style={{ padding: "7px 14px", borderBottom: `1px solid ${T.border}20`, fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>Live Apaleo Evidence</div>
                           <div style={{ padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 10 }}>
                             {[
                               { label: "Property", value: ad.property || "BER", color: T.blue },
@@ -6695,88 +6749,10 @@ function SandboxEvaluation({ requestId, agentSource, existingPassRate, onNext, o
                               </div>
                             ))}
                           </div>
-                          {(ad.apaleo_tools || []).length > 0 && (
-                            <div style={{ padding: "0 14px 10px", display: "flex", flexWrap: "wrap", gap: 6 }}>
-                              {ad.apaleo_tools.map(t => (
-                                <span key={t} style={{ fontSize: 10, fontFamily: T.mono, color: T.blue, background: T.blue + "12", padding: "2px 8px", borderRadius: 4, border: `1px solid ${T.blue}25` }}>{t}</span>
-                              ))}
-                            </div>
-                          )}
                         </div>
-
-                        {/* ── Compliance Record ── always shown ── */}
-                        <div style={{ background: "#0a0e15", border: `1px solid #22c55e30`, borderRadius: 8, overflow: "hidden" }}>
-                          <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}20`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                            <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>Compliance Record — {ad.framework || "VDA-MD v1.0"}</div>
-                            <span style={{ fontSize: 9, fontFamily: T.mono, color: T.green, background: T.green + "15", border: `1px solid ${T.green}30`, borderRadius: 3, padding: "1px 7px" }}>✓ Sealed</span>
-                          </div>
-
-                          {/* EU AI Act */}
-                          <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}15` }}>
-                            <div style={{ fontSize: 9, fontFamily: T.mono, color: "#22c55e", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>EU AI Act 2024 — Applicable Articles</div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                              {euAct.map(a => {
-                                const art = typeof a === "string" ? { id: a, title: "", desc: "" } : a;
-                                return (
-                                  <div key={art.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                                    <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: T.green, background: T.green + "12", border: `1px solid ${T.green}25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>✓ {art.id}</span>
-                                    <div>
-                                      {art.title && <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{art.title}</div>}
-                                      {art.desc && <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{art.desc}</div>}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* GDPR */}
-                          <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}15` }}>
-                            <div style={{ fontSize: 9, fontFamily: T.mono, color: "#60a5fa", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>GDPR — Applicable Articles</div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                              {gdpr.map(g => (
-                                <div key={g.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                                  <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: "#60a5fa", background: "#60a5fa12", border: `1px solid #60a5fa25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>✓ {g.id}</span>
-                                  <div>
-                                    <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{g.title}</div>
-                                    <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{g.desc}</div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* NIST SP 800-53 */}
-                          <div style={{ padding: "10px 14px 10px" }}>
-                            <div style={{ fontSize: 9, fontFamily: T.mono, color: "#a78bfa", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>NIST SP 800-53 Rev 5 — Control Evidence</div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                              {nistIds.map(id => {
-                                const ctrl = NIST_CONTROLS[id];
-                                return (
-                                  <div key={id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                                    <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: "#a78bfa", background: "#a78bfa12", border: `1px solid #a78bfa25`, borderRadius: 3, padding: "2px 7px", whiteSpace: "nowrap", marginTop: 1 }}>{id}</span>
-                                    <div>
-                                      {ctrl ? (
-                                        <>
-                                          <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginBottom: 1 }}>{ctrl.title} <span style={{ fontSize: 9, color: T.dim, fontWeight: 400 }}>— {ctrl.family}</span></div>
-                                          <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.5 }}>{ctrl.description}</div>
-                                        </>
-                                      ) : (
-                                        <div style={{ fontSize: 10, color: T.muted }}>{id}</div>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </div>
-
                       </div>
                     );
-                  })() : (
-                    <div style={{ fontSize: 11, color: T.dim, padding: "8px 14px" }}>Witness entry #{selectedResult.witnessId} — could not load details.</div>
-                  )}
+                  })() : null}
                 </div>
               )}
             </div>

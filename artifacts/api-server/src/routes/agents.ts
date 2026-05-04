@@ -1300,6 +1300,7 @@ router.post("/agents/folio",
       governanceFileHash: req.vcPayload?.governanceFileHash ?? null,
       mandateId: req.mandateCtx?.mandateId ?? null,
     });
+    void writeValueEvent({ agentId: "folio-agent", agentName: "Folio Agent", companyId: Number(companyId), propertyCode: propertyId, action: "folio_read", revenueDelta: 0, currency: "EUR", decisionOutcome: decision.decision, witnessToken: witnessId, sourceData: { folioId, reservationId } });
     if (hasCrossDomainFiles(folioFilesLoaded)) {
       void emitCrossDomainGovernanceEvent(Number(companyId), "Folio Agent");
     }

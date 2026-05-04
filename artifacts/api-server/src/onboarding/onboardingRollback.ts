@@ -696,7 +696,7 @@ router.post("/onboarding/:id/run-sandbox", async (req, res) => {
             passed,
             mcp_used: scenarioUsedMcp,
             tool_calls_made: scenarioToolCallsMade,
-            apaleo_tools: agentConfig?.tools ?? [],
+            apaleo_tools: SANDBOX_AGENT_CONFIG[agentSlug]?.tools ?? [],
             input_tokens: scenarioInputTokens,
             output_tokens: scenarioOutputTokens,
             eu_ai_act: ["Art. 13 — Transparency", "Art. 14 — Human Oversight", "Art. 17 — Risk Management"],
