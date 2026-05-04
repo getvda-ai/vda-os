@@ -7032,6 +7032,7 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError] = useState(null);
   const [serverRegenRequired, setServerRegenRequired] = useState(false);
+  const [selfContent, setSelfContent] = useState(null);
 
   useEffect(() => {
     if (!requestId) return;
@@ -7044,15 +7045,41 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
       .catch(() => {});
   }, [requestId]);
 
+  // Self-fetch EXCEPTION_AUTHORITY content when prop is not supplied by Stage 1
+  useEffect(() => {
+    if (exceptionContent || !agentSlug) return;
+    const cid = companyId || 0;
+    const tryFetch = async (fetchCid) => {
+      try {
+        const r = await fetch(`/api/fm/files/${fetchCid}`);
+        const d = await r.json();
+        const list = Array.isArray(d) ? d : (d.files || []);
+        const f = list.find(x => x.agentId === agentSlug && x.fileType === "EXCEPTION_AUTHORITY");
+        if (!f) return null;
+        const fr = await fetch(`/api/fm/file/${f.id}`);
+        const fd = await fr.json();
+        return fd.content || null;
+      } catch { return null; }
+    };
+    (async () => {
+      let content = await tryFetch(cid);
+      // Fallback to platform (companyId=0) if hotel didn't have one
+      if (!content && cid > 0) content = await tryFetch(0);
+      if (content) setSelfContent(content);
+    })();
+  }, [agentSlug, companyId, exceptionContent]);
+
   const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
   const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
 
+  const effectiveContent = exceptionContent || selfContent;
+
   const parsedBands = useMemo(() => {
-    if (!exceptionContent) return {};
+    if (!effectiveContent) return {};
     const out = {};
     for (const band of FRONT_LINE) {
       const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override|$)`, "m");
-      const block = (exceptionContent.match(re) || [""])[0];
+      const block = (effectiveContent.match(re) || [""])[0];
       const classes = [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => {
         const s = block.slice(m.index);
         const auth = (s.match(/authority:\s*["']?([^"'\n]+)["']?/) || [])[1]?.trim() || "—";
@@ -7064,7 +7091,7 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
       if (classes.length > 0) out[band] = classes;
     }
     return out;
-  }, [exceptionContent]);
+  }, [effectiveContent]);
 
   const allKeys = FRONT_LINE.flatMap(b => (parsedBands[b] || []).map(c => `${b}--${c.cls}`));
   const hasPendingQueries = Object.keys(pendingQueries).length > 0 || serverRegenRequired;
