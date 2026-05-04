@@ -1503,6 +1503,79 @@ MUST NOT call any tool not listed in this manifest.
 `,
     },
 
+    {
+      filename: "Hospitality-Operations-Stay-folio-agent.SOP.md",
+      filepath: "governance/Hospitality-Operations-Stay-folio-agent.SOP.md",
+      fileType: "SOP",
+      axis: "horizontal",
+      stage: "stay",
+      journeyStage: "Stay",
+      owner: "Operations Director",
+      domain: "Folio Management",
+      agentId: "folio-agent",
+      normalisationLevel: 3,
+      vendor: "VDA-MD for Apaleo",
+      baseline: true,
+      nistControl: "AU-2",
+      content: `---
+file_type: SOP
+agent_id: folio-agent
+industry: Hospitality
+domain: Folio Management
+journey_stage_axis: Stay
+value_stream_axis: O2C
+authored_by: Operations Director
+consulted: CFO, Finance Director, Front Office Manager
+informed: General Manager, CISO
+approved_by: CFO
+approved_date: 2026-03-01
+expires: 2026-12-31
+risk_level: MEDIUM
+c2md_confidence: 0.94
+nist_control: AU-2, AC-6
+apaleo_api: Folio API
+vendor: VDA-MD for Apaleo
+baseline: true
+normalisation_level: 3
+property_code: ${companyId}
+property_name: ${companyName}
+---
+
+# Folio Agent — Standard Operating Procedure (SOP)
+
+## Purpose
+
+Define the decision rules and escalation boundaries for the Folio Agent's read-only folio analysis function at ${companyName}. This agent retrieves and surfaces folio data to support citizen-facing resolution — it MUST NOT post charges or initiate settlement.
+
+## Trigger Conditions
+
+MUST activate when a citizen or Ambassador queries folio balance, payment method, or outstanding charges during the Stay journey stage.
+MUST activate when another agent (e.g. Folio Charge Agent) requests folio state verification before a write action.
+MUST NOT activate for post-checkout folio enquiries — route to Revenue Reconciliation Agent.
+
+## Decision Rules
+
+MUST retrieve current folio state via GetFolio or ListFolios before surfacing any balance information to a citizen.
+MUST verify reservation status via GetReservation before any folio retrieval.
+MUST flag discrepancies between expected and actual folio balance to the Operations Director.
+MUST NOT surface raw folio IDs or internal Apaleo system references directly to citizens.
+MUST NOT attempt any write action — including CreateFolioCharge, PostPayment, or CheckOut.
+MUST escalate to the Folio Charge Agent when a citizen requests a charge, correction, or credit.
+
+## Escalation Procedure
+
+1. If folio balance is disputed: surface the discrepancy summary and escalate to Operations Director via HITL.
+2. If a write action is required: hand off to Folio Charge Agent with folio ID and the citizen's stated intent.
+3. If Apaleo Folio API returns an error: log the error, notify Front Office Manager, and do not surface raw error detail to the citizen.
+
+## citizenM Operational Notes
+
+- All folio interactions use the Apaleo Folio API under the \`folios.read\` OAuth scope. Write access is not granted to this agent.
+- citizenM Ambassadors are the primary human reviewers of disputed folio balances — this agent surfaces structured summaries, not raw ledger entries.
+- Citizens value transparency: folio summaries MUST be expressed in plain language (charge descriptions, not internal line-item codes).
+`,
+    },
+
     // ──────────────────────────────────────────────────────────────────────────
     // AVAILABILITY AGENT — Revenue · Pre-Book
     // ──────────────────────────────────────────────────────────────────────────
@@ -2832,6 +2905,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
         "Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
         "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
         "Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
+        "Hospitality-Operations-Stay-folio-agent.SOP.md",
         "Hospitality-Operations-Stay-folio-charge-agent.AGENTS.md",
         "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
         "Hospitality-Operations-Stay-folio-charge-agent.SKILL.md",
@@ -3000,6 +3074,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
       "Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
       "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
       "Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
+      "Hospitality-Operations-Stay-folio-agent.SOP.md",
       "Hospitality-Operations-Stay-folio-charge-agent.AGENTS.md",
       "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       "Hospitality-Operations-Stay-folio-charge-agent.SKILL.md",
@@ -3128,6 +3203,7 @@ router.post("/admin/enrich-c2md", async (req, res) => {
       "Hospitality-Operations-Post-Stay-checkout-agent.AGENTS.md",
       "Hospitality-Operations-Post-Stay-checkout-agent.SOP.md",
       "Hospitality-Operations-Post-Stay-checkout-agent.SKILL.md",
+      "Hospitality-Operations-Stay-folio-agent.SOP.md",
       "Hospitality-Operations-Stay-folio-charge-agent.AGENTS.md",
       "Hospitality-Operations-Stay-folio-charge-agent.SOP.md",
       "Hospitality-Operations-Stay-folio-charge-agent.SKILL.md",

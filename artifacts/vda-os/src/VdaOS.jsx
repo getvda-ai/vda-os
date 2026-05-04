@@ -8098,6 +8098,7 @@ function OnboardingConsole({ onLoadHotel }) {
                 };
               })
             : walkthroughAgents}
+          companyId={walkthroughSource === "vda_native" ? (companies?.[0]?.id ?? 0) : 0}
           source={walkthroughSource}
           onClose={() => setWalkthroughOpen(false)}
           onAdmitted={() => { setWalkthroughOpen(false); setRefreshKey(k => k + 1); }}
