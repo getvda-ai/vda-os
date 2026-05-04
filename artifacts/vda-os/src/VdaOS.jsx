@@ -7078,7 +7078,7 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
     if (!effectiveContent) return {};
     const out = {};
     for (const band of FRONT_LINE) {
-      const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override|$)`, "m");
+      const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override)`);
       const block = (effectiveContent.match(re) || [""])[0];
       const classes = [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => {
         const s = block.slice(m.index);
@@ -7654,7 +7654,7 @@ function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
   const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
   const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
   const parseBandClasses = (band) => {
-    const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override|$)`, "m");
+    const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override)`);
     const block = (authContent.match(re) || [""])[0];
     return [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => m[1]);
   };
