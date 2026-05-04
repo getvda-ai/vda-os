@@ -706,7 +706,13 @@ router.post("/onboarding/:id/run-sandbox", async (req, res) => {
         });
         witnessId = typeof witnessRow === "number" ? witnessRow : null;
       } catch (wErr) {
-        logger.warn({ wErr }, "Failed to write witness entry for sandbox scenario");
+        // Use Pino's `err` key so the error serialiser captures .message + .stack.
+        // Also include errMsg as a plain string fallback for log aggregators that
+        // strip the structured err object.
+        logger.warn(
+          { err: wErr, errMsg: wErr instanceof Error ? wErr.message : String(wErr) },
+          "Failed to write witness entry for sandbox scenario"
+        );
       }
 
       results.push({ scenario, input, expected, decision, clause, reasoning, passed, witnessId });

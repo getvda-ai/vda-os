@@ -131,30 +131,55 @@ async function createOperationalHitlToken(
 // ─── Writer ────────────────────────────────────────────────────────────────────
 
 export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<number> {
-  const [row] = await db
-    .insert(witnessEntries)
-    .values({
-      companyId: entry.companyId,
-      agent: entry.agent,
-      decision: entry.decision.decision,
-      fileReferenced: entry.fileReferenced,
-      clauseApplied: entry.decision.clauseApplied,
-      actionProposed: entry.decision.actionProposed,
-      exceptionApplied: entry.decision.exceptionApplied,
-      escalationTarget: entry.decision.escalationTarget,
-      reasoning: entry.decision.reasoning,
-      apaleoData: entry.apaleoData,
-      scenarioRunId: entry.scenarioRunId ?? null,
-      filesConsulted: entry.filesConsulted ?? null,
-      crossDomainInheritance: entry.crossDomainInheritance ?? false,
-      credentialVerified: entry.credentialVerified ?? false,
-      governanceFileHash: entry.governanceFileHash ?? null,
-      eventCategory: entry.eventCategory ?? null,
-      mandateId: entry.mandateId ?? null,
-    })
-    .returning({ id: witnessEntries.id });
+  // Defensive: normalise filesConsulted — pass null rather than an empty array
+  // to avoid any ORM-level quirks with empty text[] parameters.
+  const filesConsulted =
+    Array.isArray(entry.filesConsulted) && entry.filesConsulted.length > 0
+      ? entry.filesConsulted
+      : null;
 
-  const witnessId = row.id;
+  let insertedRow: { id: number } | undefined;
+  try {
+    const result = await db
+      .insert(witnessEntries)
+      .values({
+        companyId: entry.companyId,
+        agent: entry.agent,
+        decision: entry.decision.decision,
+        fileReferenced: entry.fileReferenced,
+        clauseApplied: entry.decision.clauseApplied,
+        actionProposed: entry.decision.actionProposed,
+        exceptionApplied: entry.decision.exceptionApplied,
+        escalationTarget: entry.decision.escalationTarget,
+        reasoning: entry.decision.reasoning,
+        apaleoData: entry.apaleoData,
+        scenarioRunId: entry.scenarioRunId ?? null,
+        filesConsulted,
+        crossDomainInheritance: entry.crossDomainInheritance ?? false,
+        credentialVerified: entry.credentialVerified ?? false,
+        governanceFileHash: entry.governanceFileHash ?? null,
+        eventCategory: entry.eventCategory ?? null,
+        mandateId: entry.mandateId ?? null,
+      })
+      .returning({ id: witnessEntries.id });
+    insertedRow = result[0];
+  } catch (insertErr) {
+    // Re-throw with a readable message so callers get a useful string in their logs.
+    const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
+    throw new Error(
+      `witness_entries DB insert failed — agent='${entry.agent}' companyId=${entry.companyId}: ${msg}`
+    );
+  }
+
+  if (!insertedRow) {
+    // Should never happen: a successful PostgreSQL INSERT … RETURNING always
+    // yields exactly one row. Guard anyway to prevent a silent TypeError.
+    throw new Error(
+      `witness_entries insert returned no row — agent='${entry.agent}' companyId=${entry.companyId}`
+    );
+  }
+
+  const witnessId = insertedRow.id;
 
   // Fire-and-forget: create an operational HITL card for runtime ESCALATE decisions.
   // Guards:
