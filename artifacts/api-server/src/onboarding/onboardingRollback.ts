@@ -11,6 +11,7 @@ import { deregisterDynamicAgent } from "./onboardingOrchestrator.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 import { evaluateWithPolicy } from "../routes/agents.js";
 import { AGENT_ID_TO_POLICY_KEY } from "../a2a/agentCardRegistry.js";
+import { issueMandate } from "../lib/mandateIssuer.js";
 
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
   "availability-agent":           "Availability Agent",
@@ -218,6 +219,23 @@ router.post("/onboarding/:id/admit", async (req, res) => {
       reasoning: `Gate 0 cleared: CO technical admission approved. Agent may now be activated for crawl by a Hotel GM.`,
       fileReferenced: "VDA-MD Onboarding Protocol — Gate 0: CO Admission",
       apaleoData: { event_type: "co_agent_admitted", onboarding_request_id: id, decided_by, agent_name: card?.name },
+    });
+
+    // Issue a crawl-phase AP2 Intent Mandate for the newly admitted agent (non-blocking)
+    const companyId = rows[0].companyId ?? 0;
+    const rawDid = (rows[0].externalAgentDid as string | null) ?? "";
+    // Extract slug from DID (e.g. "did:vda:hospitality:rate-agent" → "rate-agent")
+    const agentSlug = rawDid.includes(":") ? rawDid.split(":").pop()! : rawDid;
+    void issueMandate({
+      agentId: agentSlug,
+      companyId,
+      agentDid: rawDid || `did:key:vda-${agentSlug}-${companyId}`,
+      phase: "crawl",
+      onboardingId: id,
+    }).then(m => {
+      logger.info({ mandateId: m.mandateId, agentSlug, companyId }, "[Mandate] Crawl-phase mandate issued at admission");
+    }).catch(mandateErr => {
+      logger.warn({ mandateErr, agentSlug, companyId }, "[Mandate] Failed to issue crawl mandate at admission — non-fatal");
     });
 
     // Return the updated onboarding record

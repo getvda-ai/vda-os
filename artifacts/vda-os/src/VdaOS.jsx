@@ -7431,6 +7431,168 @@ function Track2CompanyRow({ company, name, admittedAgents, agentPhases, onOpenHu
   );
 }
 
+// ─── ValueLedgerPanel — AP2 ROI dashboard overlay ────────────────────────────
+function ValueLedgerPanel({ companies, onClose }) {
+  const [ledger, setLedger] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [seeding, setSeeding] = useState(false);
+  const [seedMsg, setSeedMsg] = useState(null);
+  const [selectedCompanyId, setSelectedCompanyId] = useState(
+    companies && companies.length > 0 ? companies[0].id : 0
+  );
+
+  const fetchLedger = useCallback(async () => {
+    try {
+      const [ledRes, evRes] = await Promise.all([
+        fetch(`/api/dashboard/value-ledger?companyId=${selectedCompanyId}`).then(r => r.json()),
+        fetch(`/api/dashboard/value-ledger/events?companyId=${selectedCompanyId}&limit=15`).then(r => r.json()),
+      ]);
+      setLedger(ledRes);
+      setEvents(evRes.events || []);
+    } catch {}
+  }, [selectedCompanyId]);
+
+  useEffect(() => { fetchLedger(); }, [fetchLedger]);
+
+  const seedData = async () => {
+    setSeeding(true); setSeedMsg(null);
+    try {
+      const r = await fetch("/api/admin/seed-value-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: selectedCompanyId }),
+      });
+      const d = await r.json();
+      setSeedMsg(d.message || "Seeded");
+      await fetchLedger();
+    } catch { setSeedMsg("Seed failed"); }
+    setSeeding(false);
+  };
+
+  const agentShort = id => ({
+    "availability-agent": "Availability",
+    "rate-agent": "Rate",
+    "reservation-bot": "Reservation Bot",
+    "check-in-agent": "Check-In",
+    "folio-agent": "Folio",
+    "folio-charge-agent": "Folio Charge",
+    "checkout-agent": "Checkout",
+    "revenue-reconciliation-agent": "Revenue Rec.",
+  }[id] || id);
+
+  const fmt = n => {
+    if (n == null) return "—";
+    const abs = Math.abs(n);
+    const sign = n < 0 ? "-" : "";
+    if (abs >= 1000) return `${sign}€${(abs / 1000).toFixed(1)}k`;
+    return `${sign}€${abs.toFixed(0)}`;
+  };
+
+  const totals = ledger?.totals;
+  const agents = ledger?.agents || [];
+  const maxRev = Math.max(...agents.map(a => Math.abs(a.totalRevenue || 0)), 1);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 500, display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "40px 24px" }}>
+      <div style={{ width: "100%", maxWidth: 900, background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, overflow: "hidden" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 28px 16px", borderBottom: `1px solid ${T.border}`, background: "#070809" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: T.green, background: `${T.green}18`, border: `1px solid ${T.green}30`, borderRadius: 3, padding: "2px 6px" }}>AP2 VALUE LEDGER</span>
+              <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>30-day rolling window</span>
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: T.text, letterSpacing: "-0.03em" }}>Agent ROI Dashboard</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {companies && companies.length > 1 && (
+              <select
+                value={selectedCompanyId}
+                onChange={e => setSelectedCompanyId(Number(e.target.value))}
+                style={{ padding: "4px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: "#111", color: T.text, fontSize: 11, fontFamily: T.mono }}
+              >
+                {companies.map(c => <option key={c.id} value={c.id}>{c.companyName || c.name || `Company ${c.id}`}</option>)}
+              </select>
+            )}
+            <button onClick={seedData} disabled={seeding} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.green}40`, background: `${T.green}12`, color: T.green, fontSize: 11, fontFamily: T.mono, fontWeight: 700, cursor: seeding ? "not-allowed" : "pointer", opacity: seeding ? 0.6 : 1 }}>
+              {seeding ? "Seeding…" : "↺ Seed Demo Data"}
+            </button>
+            <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: "50%", border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+          </div>
+        </div>
+
+        {seedMsg && (
+          <div style={{ padding: "8px 28px", background: `${T.green}12`, borderBottom: `1px solid ${T.green}30`, fontSize: 11, fontFamily: T.mono, color: T.green }}>{seedMsg}</div>
+        )}
+
+        {/* Platform Totals */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+          {[
+            { label: "Total Revenue Delta", value: totals ? fmt(totals.totalRevenue) : "—", color: (totals?.totalRevenue ?? 0) >= 0 ? T.green : T.red },
+            { label: "Governance Cost", value: totals ? fmt(totals.totalCostEur) : "—", color: T.amber },
+            { label: "Net Value", value: totals ? fmt(totals.netValue) : "—", color: (totals?.netValue ?? 0) >= 0 ? T.green : T.red },
+            { label: "ROI Multiple", value: totals?.roiMultiple != null ? `${totals.roiMultiple}×` : "—", color: T.blue },
+          ].map((item, i) => (
+            <div key={i} style={{ padding: "18px 24px", borderRight: i < 3 ? `1px solid ${T.border}` : "none" }}>
+              <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, letterSpacing: "0.08em", marginBottom: 6 }}>{item.label.toUpperCase()}</div>
+              <div style={{ fontSize: 26, fontWeight: 900, fontFamily: T.mono, color: item.color, letterSpacing: "-0.02em" }}>{item.value}</div>
+              {totals && <div style={{ fontSize: 10, color: T.dim, marginTop: 4 }}>{totals.passEvents ?? 0} PASS / {totals.totalEvents ?? 0} decisions</div>}
+            </div>
+          ))}
+        </div>
+
+        {/* Per-agent bars */}
+        <div style={{ padding: "20px 28px" }}>
+          <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 14 }}>PER-AGENT BREAKDOWN</div>
+          {agents.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "30px 0", color: T.dim }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>📊</div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>No value events yet</div>
+              <div style={{ fontSize: 11 }}>Click "Seed Demo Data" to populate the ledger with realistic baseline data.</div>
+            </div>
+          ) : agents.map(a => {
+            const barPct = Math.min(100, (Math.abs(a.totalRevenue || 0) / maxRev) * 100);
+            const passRate = a.totalEvents > 0 ? Math.round((a.passEvents / a.totalEvents) * 100) : 0;
+            return (
+              <div key={a.agentId} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{agentShort(a.agentId)}</span>
+                  <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, fontFamily: T.mono, color: T.dim }}>{passRate}% pass · {a.totalEvents} decisions</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, fontFamily: T.mono, color: (a.totalRevenue || 0) >= 0 ? T.green : T.red, minWidth: 60, textAlign: "right" }}>{fmt(a.totalRevenue)}</span>
+                  </div>
+                </div>
+                <div style={{ height: 6, background: `${T.border}60`, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${barPct}%`, background: (a.totalRevenue || 0) >= 0 ? T.green : T.red, borderRadius: 3, transition: "width 0.5s ease" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Recent Events */}
+        {events.length > 0 && (
+          <div style={{ borderTop: `1px solid ${T.border}`, padding: "16px 28px 20px" }}>
+            <div style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 10 }}>RECENT EVENTS</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 200, overflowY: "auto" }}>
+              {events.map(ev => (
+                <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", background: "#0a0b0d", borderRadius: 6, border: `1px solid ${T.border}30` }}>
+                  <span style={{ fontSize: 9, fontFamily: T.mono, color: ev.decisionOutcome === "PASS" ? T.green : T.red, fontWeight: 700, minWidth: 35 }}>{ev.decisionOutcome}</span>
+                  <span style={{ fontSize: 11, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentShort(ev.agentId)} · {ev.action}</span>
+                  <span style={{ fontSize: 11, fontFamily: T.mono, color: Number(ev.revenueDelta) >= 0 ? T.green : T.red, fontWeight: 700 }}>{fmt(Number(ev.revenueDelta))}</span>
+                  <span style={{ fontSize: 9, fontFamily: T.mono, color: T.dim }}>{ev.propertyCode || ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
 // ─── OnboardingConsole — three-track starting screen ─────────────────────────
 function OnboardingConsole({ onLoadHotel }) {
   const [requests, setRequests] = useState(null);
@@ -7441,6 +7603,7 @@ function OnboardingConsole({ onLoadHotel }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [apaleoStatus, setApaleoStatus] = useState(null);
   const [apaleoPopoverOpen, setApaleoPopoverOpen] = useState(false);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   const apaleoPopoverRef = React.useRef(null);
 
   const fetchApaleoStatus = useCallback(async () => {
@@ -7526,14 +7689,14 @@ function OnboardingConsole({ onLoadHotel }) {
   const openWalkthrough = (src) => { setWalkthroughSource(src); setWalkthroughOpen(true); };
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, fontFamily: T.sans, color: T.text }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: T.bg, fontFamily: T.sans, color: T.text, overflow: "hidden" }}>
       <style>{`
         @keyframes co-spin { to { transform: rotate(360deg); } }
         @keyframes console-fadein { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
 
       {/* Header */}
-      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, padding: "0 32px", height: 58, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, padding: "0 32px", height: 58, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ background: T.orange, borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.mono, fontWeight: 900, fontSize: 13, color: "#fff" }}>VD</div>
           <div>
@@ -7643,13 +7806,19 @@ function OnboardingConsole({ onLoadHotel }) {
             )}
           </div>
 
+          <button onClick={() => setLedgerOpen(true)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.green}40`, background: `${T.green}0d`, color: T.green, fontSize: 11, fontFamily: T.mono, fontWeight: 700, cursor: "pointer" }}>📊 Value Ledger</button>
           <button onClick={() => setRefreshKey(k => k + 1)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer" }}>↻ Refresh</button>
         </div>
       </div>
 
+      {ledgerOpen && <ValueLedgerPanel companies={companies || []} onClose={() => setLedgerOpen(false)} />}
+
+      {/* Scrollable content area — fills remaining viewport below header */}
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
+
       {/* Apaleo disconnected warning banner */}
       {apaleoStatus && !apaleoStatus.connected && (
-        <div style={{ background: `${T.red}15`, borderBottom: `1px solid ${T.red}40`, padding: "8px 32px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ background: `${T.red}15`, borderBottom: `1px solid ${T.red}40`, padding: "8px 32px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flexShrink: 0 }}>
           <span style={{ fontSize: 13 }}>⚠️</span>
           <span style={{ fontSize: 11, fontFamily: T.mono, color: T.red, fontWeight: 700 }}>Apaleo PMS is unreachable.</span>
           <span style={{ fontSize: 11, color: T.muted }}>
@@ -7672,22 +7841,22 @@ function OnboardingConsole({ onLoadHotel }) {
       )}
 
       {/* Hero */}
-      <div style={{ padding: "24px 40px 0", maxWidth: 1400, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+      <div style={{ padding: "16px 40px 0", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
           <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: T.red, background: `${T.red}18`, border: `1px solid ${T.red}40`, borderRadius: 4, padding: "2px 8px" }}>COMPLIANCE OFFICER</span>
           <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>Default view · Hotel roles unlock after agent admission</span>
         </div>
-        <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 26, color: T.text, letterSpacing: "-0.04em", margin: "0 0 4px" }}>Agent Admission Console</h1>
-        <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, margin: "0 0 24px" }}>
+        <h1 style={{ fontFamily: T.sans, fontWeight: 900, fontSize: 22, color: T.text, letterSpacing: "-0.04em", margin: "0 0 2px" }}>Agent Admission Console</h1>
+        <p style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, margin: "0 0 12px" }}>
           Complete Track 1 (CISO agent admission) before hotel operations unlock. This screen is the EU AI Act Article 17 governance proof.
         </p>
       </div>
 
       {/* Three-track grid */}
-      <div style={{ padding: "0 40px 48px", maxWidth: 1400, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, animation: "console-fadein 0.3s ease" }}>
+      <div style={{ padding: "0 40px 20px", maxWidth: 1400, margin: "0 auto", width: "100%", boxSizing: "border-box", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, animation: "console-fadein 0.3s ease", flex: 1, minHeight: 0 }}>
 
         {/* ── Track 1: VDA Native Agent Admission ─────── */}
-        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: T.red, background: `${T.red}18`, border: `1px solid ${T.red}30`, borderRadius: 3, padding: "2px 6px" }}>TRACK 1</span>
@@ -7724,7 +7893,7 @@ function OnboardingConsole({ onLoadHotel }) {
         </div>
 
         {/* ── Track 2: Hotel Activation ─────────────────── */}
-        <div style={{ background: T.card, border: `1px solid ${track2Locked ? T.border : T.green + "40"}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", opacity: track2Locked ? 0.6 : 1, transition: "opacity 0.3s" }}>
+        <div style={{ background: T.card, border: `1px solid ${track2Locked ? T.border : T.green + "40"}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0, opacity: track2Locked ? 0.6 : 1, transition: "opacity 0.3s" }}>
           <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: T.green, background: `${T.green}18`, border: `1px solid ${T.green}30`, borderRadius: 3, padding: "2px 6px" }}>TRACK 2</span>
@@ -7764,7 +7933,7 @@ function OnboardingConsole({ onLoadHotel }) {
         </div>
 
         {/* ── Track 3: External A2A Admission ──────────── */}
-        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", color: "#e879f9", background: "#e879f918", border: "1px solid #e879f930", borderRadius: 3, padding: "2px 6px" }}>TRACK 3</span>
@@ -7807,6 +7976,8 @@ function OnboardingConsole({ onLoadHotel }) {
           </div>
         </div>
       </div>
+
+      </div>{/* end scrollable content area */}
 
       {walkthroughOpen && (
         <CISOWalkthrough
