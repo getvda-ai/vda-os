@@ -10,7 +10,7 @@ import { Router, type IRouter } from "express";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
-import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents } from "@workspace/db";
+import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents, agentMandates } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 import { generateExceptionAuthorityFile, COMPANIES_MAP, JURISDICTION_CONTEXT } from "../lib/exceptionAuthorityGenerator.js";

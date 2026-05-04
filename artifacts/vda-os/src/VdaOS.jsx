@@ -6961,34 +6961,39 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
     <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 9000, display: "flex", flexDirection: "column", fontFamily: T.sans }}>
       <style>{`@keyframes co-spin { to { transform: rotate(360deg); } }`}</style>
 
-      {/* Top agent-tab bar */}
-      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "stretch", overflowX: "auto", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", padding: "0 20px", borderRight: `1px solid ${T.border}`, flexShrink: 0, gap: 8 }}>
+      {/* Top agent-tab bar — label + scrollable tabs + pinned action buttons */}
+      <div style={{ background: "#050608", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "stretch", flexShrink: 0, minWidth: 0 }}>
+        {/* Pinned label */}
+        <div style={{ display: "flex", alignItems: "center", padding: "0 16px", borderRight: `1px solid ${T.border}`, flexShrink: 0, gap: 8 }}>
           <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: "#f87171", letterSpacing: "0.1em" }}>CISO WALKTHROUGH</span>
           <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>EU AI Act Art. 17</span>
         </div>
-        {(agents || []).map((a, idx) => {
-          const { icon, color } = badgeOf(a);
-          const active = idx === agentIdx;
-          return (
-            <button key={a.slug} onClick={() => setAgentIdx(idx)} style={{
-              background: active ? "#0d1017" : "none", border: "none",
-              borderBottom: active ? `2px solid ${T.blue}` : "2px solid transparent",
-              borderTop: "2px solid transparent",
-              color: active ? "#f0f4ff" : "#8b949e",
-              padding: "12px 16px", cursor: "pointer", fontSize: 12, fontWeight: active ? 700 : 500,
-              fontFamily: T.sans, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6,
-              letterSpacing: active ? "0.01em" : 0,
-            }}>
-              <span style={{ color, fontSize: 13 }}>{icon}</span>{a.name}
-            </button>
-          );
-        })}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", flexShrink: 0 }}>
-          <button onClick={handleRestart} disabled={restarting} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#150505", border: `1px solid ${T.red}50`, color: T.red, cursor: "pointer" }}>
-            {restarting ? "Restarting…" : "↺ Restart this agent"}
+        {/* Scrollable agent tabs */}
+        <div style={{ flex: 1, display: "flex", alignItems: "stretch", overflowX: "auto", minWidth: 0 }}>
+          {(agents || []).map((a, idx) => {
+            const { icon, color } = badgeOf(a);
+            const active = idx === agentIdx;
+            return (
+              <button key={a.slug} onClick={() => setAgentIdx(idx)} style={{
+                background: active ? "#0d1017" : "none", border: "none",
+                borderBottom: active ? `2px solid ${T.blue}` : "2px solid transparent",
+                borderTop: "2px solid transparent",
+                color: active ? "#f0f4ff" : "#8b949e",
+                padding: "12px 16px", cursor: "pointer", fontSize: 12, fontWeight: active ? 700 : 500,
+                fontFamily: T.sans, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6,
+                letterSpacing: active ? "0.01em" : 0, flexShrink: 0,
+              }}>
+                <span style={{ color, fontSize: 13 }}>{icon}</span>{a.name}
+              </button>
+            );
+          })}
+        </div>
+        {/* Pinned action buttons — always visible */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 12px", flexShrink: 0, borderLeft: `1px solid ${T.border}` }}>
+          <button onClick={handleRestart} disabled={restarting} style={{ padding: "5px 12px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#150505", border: `1px solid ${T.red}50`, color: T.red, cursor: "pointer" }}>
+            {restarting ? "…" : "↺ Restart"}
           </button>
-          <button onClick={onClose} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#1e2229", border: `1px solid ${T.border}`, color: T.dim, cursor: "pointer" }}>✕ Close</button>
+          <button onClick={onClose} style={{ padding: "5px 12px", borderRadius: 6, fontSize: 11, fontFamily: T.mono, fontWeight: 700, background: "#1e2229", border: `1px solid ${T.border}`, color: "#c9d1d9", cursor: "pointer" }}>← Home</button>
         </div>
       </div>
 
