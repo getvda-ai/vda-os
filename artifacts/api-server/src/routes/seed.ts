@@ -3285,31 +3285,29 @@ router.post("/admin/enrich-c2md", async (req, res) => {
   }
 });
 
-// ─── POST /api/admin/seed-company-governance ─────────────────────────────────
-// Seeds 23 VDA-MD canonical governance files for a single company (wizard flow).
-// Idempotent — existing canonical files are updated, legacy files archived.
+// ─── seedCompanyGovernance (exported) ─────────────────────────────────────────
+// Seeds all canonical VDA-MD AGENTS/SOP/SKILL files for a company.
+// Idempotent — existing files are updated, new ones inserted.
+// Also fires a background C2MD enrichment pass (fire-and-forget).
+// Used by: POST /api/admin/seed-company-governance AND startup genesis for companyId=0.
 
-router.post("/admin/seed-company-governance", async (req, res) => {
-  const { companyId, companyName } = req.body as { companyId: number; companyName: string };
-
-  if (!companyId || !companyName) {
-    return res.status(400).json({ error: "companyId and companyName required" });
-  }
-
+export async function seedCompanyGovernance(
+  companyId: number,
+  companyName: string,
+): Promise<{ filesSeeded: number; log: string[]; errors: string[] }> {
   const log: string[] = [];
   const errors: string[] = [];
   let filesSeeded = 0;
 
   try {
-    const fileDefs = buildGovernanceFiles(Number(companyId), companyName);
+    const fileDefs = buildGovernanceFiles(companyId, companyName);
 
-    // Unarchive any existing canonical files for this company
     const canonicalFilenames = fileDefs.map(f => f.filename);
     await db
       .update(governanceFiles)
       .set({ isArchived: false })
       .where(and(
-        eq(governanceFiles.companyId, Number(companyId)),
+        eq(governanceFiles.companyId, companyId),
         inArray(governanceFiles.filename, canonicalFilenames)
       ));
 
@@ -3319,7 +3317,7 @@ router.post("/admin/seed-company-governance", async (req, res) => {
           .select({ id: governanceFiles.id })
           .from(governanceFiles)
           .where(and(
-            eq(governanceFiles.companyId, Number(companyId)),
+            eq(governanceFiles.companyId, companyId),
             eq(governanceFiles.filename, fileDef.filename)
           ));
 
@@ -3346,26 +3344,15 @@ router.post("/admin/seed-company-governance", async (req, res) => {
     errors.push(`seed-company-governance failed: ${msg}`);
   }
 
-  res.json({
-    success: errors.length === 0,
-    companyId,
-    companyName,
-    filesSeeded,
-    log,
-    errors: errors.length > 0 ? errors : undefined,
-    enrichment: "running_in_background",
-  });
-
-  // ── C2MD ENRICHMENT PASS (genesis, background) ────────────────────────────
-  // Runs after the response is sent so the wizard isn't blocked by AI calls.
+  // ── C2MD ENRICHMENT PASS (background, fire-and-forget) ──────────────────
   // Idempotent: files already containing C2MD_MARKER (and >800 chars) are skipped.
-  // This is the core of VDA — every governance file MUST be C2MD-enriched at genesis.
+  // For companyId=0 (platform) brandContext is "" — brand-neutral baseline content.
   (async () => {
     try {
       const [company] = await db
         .select({ brandContext: companies.brandContext })
         .from(companies)
-        .where(eq(companies.id, Number(companyId)));
+        .where(eq(companies.id, companyId));
       const brandContext = company?.brandContext ?? "";
 
       const templateFiles = buildGovernanceFiles(0, companyName);
@@ -3375,7 +3362,7 @@ router.post("/admin/seed-company-governance", async (req, res) => {
         .select({ id: governanceFiles.id, filename: governanceFiles.filename, content: governanceFiles.content })
         .from(governanceFiles)
         .where(and(
-          eq(governanceFiles.companyId, Number(companyId)),
+          eq(governanceFiles.companyId, companyId),
           inArray(governanceFiles.filename, canonicalFilenames),
         ));
 
@@ -3383,7 +3370,7 @@ router.post("/admin/seed-company-governance", async (req, res) => {
         f => !f.content?.includes(C2MD_MARKER) || (f.content?.length ?? 0) <= 800
       );
 
-      if (targets.length === 0) return; // all already enriched
+      if (targets.length === 0) return;
 
       const enrichedByFilename = new Map<string, string>();
       const BATCH = 5;
@@ -3397,7 +3384,7 @@ router.post("/admin/seed-company-governance", async (req, res) => {
           try {
             const enriched = await generateC2MDContent(filename, tmpl.content, brandContext);
             if (enriched && enriched.length > 400) enrichedByFilename.set(filename, enriched);
-          } catch { /* best-effort — errors silently skipped */ }
+          } catch { /* best-effort */ }
         }));
       }
 
@@ -3410,8 +3397,39 @@ router.post("/admin/seed-company-governance", async (req, res) => {
           .set({ content: enriched, mustCount: clauses.mustCount, mustNotCount: clauses.mustNotCount, mayCount: clauses.mayCount, wordCount: clauses.wordCount })
           .where(eq(governanceFiles.id, file.id));
       }
-    } catch { /* fire-and-forget: genesis C2MD errors are silently absorbed */ }
+    } catch { /* fire-and-forget */ }
   })();
+
+  return { filesSeeded, log, errors };
+}
+
+// ─── POST /api/admin/seed-company-governance ─────────────────────────────────
+// Seeds 23 VDA-MD canonical governance files for a single company (wizard flow).
+// Idempotent — existing canonical files are updated, legacy files archived.
+// NOTE: companyId=0 (platform) is valid — guards must use == null, not !companyId.
+
+router.post("/admin/seed-company-governance", async (req, res) => {
+  const { companyId, companyName } = req.body as { companyId: number; companyName: string };
+
+  if (companyId == null || !companyName) {
+    return res.status(400).json({ error: "companyId and companyName required" });
+  }
+
+  try {
+    const { filesSeeded, log, errors } = await seedCompanyGovernance(Number(companyId), companyName);
+    return res.json({
+      success: errors.length === 0,
+      companyId,
+      companyName,
+      filesSeeded,
+      log,
+      errors: errors.length > 0 ? errors : undefined,
+      enrichment: "running_in_background",
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: msg });
+  }
 });
 
 // ─── POST /api/admin/generate-soc2-sd ─────────────────────────────────────────

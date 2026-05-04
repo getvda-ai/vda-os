@@ -6,6 +6,7 @@ import { seedOnboardingAgentGovernanceFiles } from "./onboarding/seedOnboardingA
 import { seedVdaNativeAgents } from "./onboarding/seedVdaNativeAgents.js";
 import { backfillRoleBand } from "./lib/backfillRoleBand.js";
 import { seedPlatformGovernanceFiles } from "./routes/admin.js";
+import { seedCompanyGovernance } from "./routes/seed.js";
 
 const rawPort = process.env["PORT"];
 
@@ -41,5 +42,10 @@ app.listen(port, (err) => {
   );
   seedPlatformGovernanceFiles().catch(err =>
     logger.warn({ err }, "Platform governance files seed deferred")
+  );
+  // Seed all canonical VDA-MD AGENTS/SOP/SKILL files at companyId=0 (platform).
+  // The CISO sandbox evaluates against companyId=0 — these files MUST exist at genesis.
+  seedCompanyGovernance(0, "citizenM").catch(err =>
+    logger.warn({ err }, "Platform VDA-MD canonical governance seed deferred")
   );
 });
