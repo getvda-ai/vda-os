@@ -7286,7 +7286,7 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
   const agent = agents?.[agentIdx];
   const agentSlug = agent?.slug || "";
   const requestId = agent?.requestId || null;
-  const [stage, setStage] = useState(() => loadCurrentStage(agentSlug));
+  const [stage, setStage] = useState(1);
   const [completions, setCompletions] = useState(() => loadStageCompletions(agentSlug));
   const [sandboxTs, setSandboxTs] = useState(null);
   const [govFiles, setGovFiles] = useState(null);
@@ -7295,14 +7295,10 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
 
   useEffect(() => {
     if (!agentSlug) return;
+    // Always start at stage 1 when the walkthrough opens — "Start" means start from the beginning.
+    // Restore completions so prior stage checkmarks are visible, but never skip to a later stage.
     const savedCompletions = loadStageCompletions(agentSlug);
-    // Clamp saved stage to the first incomplete stage so stale localStorage
-    // can never skip ahead of what has actually been completed.
-    const firstIncomplete = savedCompletions.indexOf(false);
-    const maxAllowedStage = firstIncomplete === -1 ? 6 : firstIncomplete + 1;
-    const savedStage = loadCurrentStage(agentSlug);
-    const clampedStage = Math.min(savedStage, maxAllowedStage);
-    setStage(clampedStage);
+    setStage(1);
     setCompletions(savedCompletions);
     setSandboxTs(null);
     setGovFiles(null);
