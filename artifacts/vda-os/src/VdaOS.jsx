@@ -7979,7 +7979,8 @@ function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
     fetch("/api/fm/files/0")
       .then(r => r.json())
       .then(async d => {
-        const f = (d.files || []).find(x => x.agentId === agentSlug && x.fileType === "EXCEPTION_AUTHORITY");
+        const list = Array.isArray(d) ? d : (d.files || []);
+        const f = list.find(x => x.agentId === agentSlug && x.fileType === "EXCEPTION_AUTHORITY");
         if (!f) return;
         const r = await fetch(`/api/fm/file/${f.id}`);
         const fd = await r.json();
