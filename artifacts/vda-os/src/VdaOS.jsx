@@ -7968,8 +7968,14 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
 // ─── PreCrawlConfirmation — Track 2 band-confirmation before crawl ────────────
 function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
   const [authContent, setAuthContent] = useState("");
+  const [fileId, setFileId] = useState(null);
   const [checked, setChecked] = useState({});
-  const [open, setOpen] = useState({});
+  const [openBand, setOpenBand] = useState({});
+  const [openEx, setOpenEx] = useState({});
+  const [editingKey, setEditingKey] = useState(null);
+  const [editFields, setEditFields] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const [enabling, setEnabling] = useState(false);
   const [error, setError] = useState(null);
   const LS_KEY = `vda_crawl_${agentSlug}_${companyId}_confirmed`;
@@ -7982,6 +7988,7 @@ function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
         const list = Array.isArray(d) ? d : (d.files || []);
         const f = list.find(x => x.agentId === agentSlug && x.fileType === "EXCEPTION_AUTHORITY");
         if (!f) return;
+        setFileId(f.id);
         const r = await fetch(`/api/fm/file/${f.id}`);
         const fd = await r.json();
         setAuthContent(fd.content || "");
@@ -7991,10 +7998,98 @@ function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
 
   const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
   const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
-  const parseBandClasses = (band) => {
+  const BAND_COLOR = { ambassador: "#3b82f6", senior_ambassador: "#8b5cf6", hotel_gm: "#f59e0b" };
+  const AUTH_META = {
+    autonomous:    { label: "Autonomous",    color: T.green,  bg: "#0d2e1a" },
+    hitl_required: { label: "HITL Required", color: T.amber,  bg: "#2a1e07" },
+  };
+
+  const parseBandExceptions = (band) => {
     const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n  [a-z_]+:|\\nmust_not_override|$)`);
     const block = (authContent.match(re) || [""])[0];
-    return [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => m[1]);
+    const entries = block.split(/(?=\n\s{6}-\s+exception_class:)/).filter(e => /exception_class:/.test(e));
+    return entries.map(raw => {
+      const get = (key) => {
+        const m = raw.match(new RegExp(`${key}:\\s*(.+)`));
+        return m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
+      };
+      const conds = [];
+      const condBlock = raw.match(/conditions:\s*\n([\s\S]*?)(?=\n\s{8}[a-z]|\n\s{6}-\s+exception_class:|$)/);
+      if (condBlock) {
+        for (const m of condBlock[1].matchAll(/^\s{10}-\s+(.+)/gm)) conds.push(m[1].trim());
+      }
+      return {
+        exception_class: get("exception_class"),
+        description:     get("description"),
+        ceiling:         get("ceiling"),
+        ceiling_type:    get("ceiling_type"),
+        authority:       get("authority"),
+        escalate_to:     get("escalate_to"),
+        must_log:        get("must_log"),
+        conditions:      conds,
+      };
+    }).filter(e => e.exception_class);
+  };
+
+  const allExceptions = {};
+  for (const b of FRONT_LINE) allExceptions[b] = parseBandExceptions(b);
+
+  const serializeException = (f) => {
+    const lines = [
+      `      - exception_class: ${f.exception_class}`,
+      `        description: ${f.description || ""}`,
+      `        ceiling: ${f.ceiling || "null"}`,
+      `        ceiling_type: ${f.ceiling_type || "none"}`,
+    ];
+    if (f.conditions && f.conditions.length > 0) {
+      lines.push(`        conditions:`);
+      for (const c of f.conditions) lines.push(`          - ${c}`);
+    }
+    lines.push(`        authority: ${f.authority || "autonomous"}`);
+    if (f.escalate_to) lines.push(`        escalate_to: ${f.escalate_to}`);
+    lines.push(`        must_log: ${f.must_log || "true"}`);
+    return lines.join("\n");
+  };
+
+  const saveEdit = async () => {
+    if (!fileId || !editingKey) return;
+    setSaving(true); setSaveError(null);
+    const [band, idxStr] = editingKey.split("::");
+    const idx = parseInt(idxStr, 10);
+    const exList = allExceptions[band];
+    const original = exList[idx];
+    const updated = { ...original, ...editFields };
+
+    const oldSerial = serializeException(original);
+    const newSerial = serializeException(updated);
+    const newContent = authContent.includes(oldSerial)
+      ? authContent.replace(oldSerial, newSerial)
+      : authContent;
+
+    try {
+      const r = await fetch(`/api/fm/file/${fileId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: newContent, companyId: 0 }),
+      });
+      if (!r.ok) { const d = await r.json(); setSaveError(d.error || "Save failed"); }
+      else { setAuthContent(newContent); setEditingKey(null); setEditFields({}); }
+    } catch { setSaveError("Network error"); }
+    finally { setSaving(false); }
+  };
+
+  const startEdit = (band, idx) => {
+    const ex = allExceptions[band]?.[idx];
+    if (!ex) return;
+    setEditingKey(`${band}::${idx}`);
+    setEditFields({
+      description:  ex.description,
+      ceiling:      ex.ceiling,
+      ceiling_type: ex.ceiling_type,
+      authority:    ex.authority,
+      escalate_to:  ex.escalate_to,
+      conditions:   ex.conditions.join("\n"),
+    });
   };
 
   const toggleCheck = b => {
@@ -8019,6 +8114,12 @@ function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
     finally { setEnabling(false); }
   };
 
+  const inputStyle = {
+    width: "100%", background: "#0a0c10", border: `1px solid ${T.border}`,
+    borderRadius: 5, color: T.text, fontSize: 11, fontFamily: T.mono,
+    padding: "5px 8px", boxSizing: "border-box", outline: "none",
+  };
+
   return (
     <div style={{ background: "#0d0f14", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
       <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: "#111318", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -8027,21 +8128,123 @@ function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
       </div>
       <div style={{ padding: 14 }}>
         {FRONT_LINE.map(band => {
-          const classes = parseBandClasses(band);
-          const isOpen = !!open[band];
+          const exList = allExceptions[band] || [];
+          const isBandOpen = !!openBand[band];
+          const bandColor = BAND_COLOR[band];
           return (
             <div key={band} style={{ marginBottom: 8, background: "#0a0c10", border: `1px solid ${T.border}`, borderRadius: 8 }}>
-              <button onClick={() => setOpen(p => ({ ...p, [band]: !p[band] }))} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "9px 12px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+              <button onClick={() => setOpenBand(p => ({ ...p, [band]: !p[band] }))} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "9px 12px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
                 <input type="checkbox" checked={!!checked[band]} onChange={() => toggleCheck(band)} onClick={e => e.stopPropagation()} style={{ flexShrink: 0, accentColor: T.blue }} />
                 <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.text }}>{BAND_LABEL[band]}</span>
-                <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>{classes.length} classes</span>
-                <span style={{ color: T.dim, fontSize: 11 }}>{isOpen ? "▲" : "▼"}</span>
+                <span style={{ fontSize: 10, fontFamily: T.mono, color: bandColor, background: `${bandColor}18`, border: `1px solid ${bandColor}40`, borderRadius: 4, padding: "1px 7px" }}>{exList.length} {exList.length === 1 ? "class" : "classes"}</span>
+                <span style={{ color: T.dim, fontSize: 11 }}>{isBandOpen ? "▲" : "▼"}</span>
               </button>
-              {isOpen && classes.length > 0 && (
-                <div style={{ padding: "0 12px 10px", borderTop: `1px solid ${T.border}20` }}>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
-                    {classes.map(c => <span key={c} style={{ fontSize: 10, fontFamily: T.mono, color: "#94a3b8", background: "#111318", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 7px" }}>{c}</span>)}
-                  </div>
+
+              {isBandOpen && (
+                <div style={{ borderTop: `1px solid ${T.border}20`, padding: "8px 10px 10px" }}>
+                  {exList.length === 0 && <div style={{ fontSize: 11, color: T.dim, padding: "4px 2px" }}>No exceptions defined for this band.</div>}
+                  {exList.map((ex, idx) => {
+                    const exKey = `${band}::${idx}`;
+                    const isExOpen = !!openEx[exKey];
+                    const isEditing = editingKey === exKey;
+                    const auth = AUTH_META[ex.authority] || AUTH_META.autonomous;
+                    return (
+                      <div key={exKey} style={{ marginBottom: 6, background: "#111318", border: `1px solid ${T.border}`, borderRadius: 7, overflow: "hidden" }}>
+                        <button
+                          onClick={() => { setOpenEx(p => ({ ...p, [exKey]: !p[exKey] })); if (editingKey === exKey) { setEditingKey(null); setEditFields({}); } }}
+                          style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "7px 10px", display: "flex", alignItems: "center", gap: 8, textAlign: "left" }}
+                        >
+                          <span style={{ fontSize: 10, fontFamily: T.mono, color: bandColor, background: `${bandColor}15`, border: `1px solid ${bandColor}35`, borderRadius: 4, padding: "2px 7px", flexShrink: 0 }}>{ex.exception_class}</span>
+                          <span style={{ flex: 1, fontSize: 11, color: T.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.description}</span>
+                          {ex.ceiling && ex.ceiling !== "null" && (
+                            <span style={{ fontSize: 10, fontFamily: T.mono, color: T.text, background: "#1e2229", border: `1px solid ${T.border}`, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>
+                              ≤ {ex.ceiling} {ex.ceiling_type?.replace(/_/g, " ")}
+                            </span>
+                          )}
+                          <span style={{ fontSize: 10, color: auth.color, background: auth.bg, border: `1px solid ${auth.color}40`, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>{auth.label}</span>
+                          <span style={{ color: T.dim, fontSize: 10, flexShrink: 0 }}>{isExOpen ? "▲" : "▼"}</span>
+                        </button>
+
+                        {isExOpen && !isEditing && (
+                          <div style={{ padding: "0 10px 10px", borderTop: `1px solid ${T.border}15` }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px", marginTop: 8 }}>
+                              {[
+                                ["Authority",    ex.authority?.replace(/_/g, " ") || "—"],
+                                ["Ceiling",      ex.ceiling && ex.ceiling !== "null" ? `${ex.ceiling} ${(ex.ceiling_type || "").replace(/_/g, " ")}` : "None"],
+                                ["Escalate To",  ex.escalate_to?.replace(/_/g, " ") || "—"],
+                                ["Must Log",     ex.must_log || "—"],
+                              ].map(([k, v]) => (
+                                <div key={k}>
+                                  <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>{k}</div>
+                                  <div style={{ fontSize: 11, color: T.text, fontFamily: T.mono }}>{v}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {ex.description && (
+                              <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>Description</div>
+                                <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>{ex.description}</div>
+                              </div>
+                            )}
+                            {ex.conditions.length > 0 && (
+                              <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Conditions</div>
+                                {ex.conditions.map((c, ci) => (
+                                  <div key={ci} style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 3 }}>
+                                    <span style={{ color: T.blue, fontSize: 10, flexShrink: 0, marginTop: 1 }}>•</span>
+                                    <span style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.4 }}>{c}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button
+                              onClick={() => startEdit(band, idx)}
+                              style={{ marginTop: 10, padding: "4px 12px", borderRadius: 5, fontSize: 10, fontFamily: T.mono, fontWeight: 700, background: "#1a1f2a", border: `1px solid ${T.border}`, color: T.blue, cursor: "pointer" }}
+                            >✏ Edit Exception</button>
+                          </div>
+                        )}
+
+                        {isExOpen && isEditing && (
+                          <div style={{ padding: "0 10px 10px", borderTop: `1px solid ${T.border}15` }}>
+                            <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", marginBottom: 3 }}>Ceiling Value</div>
+                                <input value={editFields.ceiling ?? ""} onChange={e => setEditFields(p => ({ ...p, ceiling: e.target.value }))} style={inputStyle} placeholder="e.g. 9" />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", marginBottom: 3 }}>Ceiling Type</div>
+                                <input value={editFields.ceiling_type ?? ""} onChange={e => setEditFields(p => ({ ...p, ceiling_type: e.target.value }))} style={inputStyle} placeholder="e.g. percent_below_bar" />
+                              </div>
+                              <div style={{ gridColumn: "1 / -1" }}>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", marginBottom: 3 }}>Authority</div>
+                                <select value={editFields.authority ?? "autonomous"} onChange={e => setEditFields(p => ({ ...p, authority: e.target.value }))} style={{ ...inputStyle, appearance: "none" }}>
+                                  <option value="autonomous">autonomous</option>
+                                  <option value="hitl_required">hitl_required</option>
+                                </select>
+                              </div>
+                              <div style={{ gridColumn: "1 / -1" }}>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", marginBottom: 3 }}>Escalate To</div>
+                                <input value={editFields.escalate_to ?? ""} onChange={e => setEditFields(p => ({ ...p, escalate_to: e.target.value }))} style={inputStyle} placeholder="e.g. senior_ambassador" />
+                              </div>
+                              <div style={{ gridColumn: "1 / -1" }}>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", marginBottom: 3 }}>Description</div>
+                                <textarea value={editFields.description ?? ""} onChange={e => setEditFields(p => ({ ...p, description: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+                              </div>
+                              <div style={{ gridColumn: "1 / -1" }}>
+                                <div style={{ fontSize: 9, fontFamily: T.mono, color: T.dim, textTransform: "uppercase", marginBottom: 3 }}>Conditions (one per line)</div>
+                                <textarea value={editFields.conditions ?? ""} onChange={e => setEditFields(p => ({ ...p, conditions: e.target.value }))} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+                              </div>
+                            </div>
+                            {saveError && <div style={{ fontSize: 11, color: T.red, marginTop: 6 }}>{saveError}</div>}
+                            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                              <button onClick={saveEdit} disabled={saving} style={{ flex: 1, padding: "5px 0", borderRadius: 5, fontSize: 11, fontWeight: 700, background: saving ? "#1e2229" : "#0f2922", color: saving ? T.dim : T.green, border: `1px solid ${saving ? T.dim : T.green}40`, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "Saving…" : "✓ Save"}</button>
+                              <button onClick={() => { setEditingKey(null); setEditFields({}); setSaveError(null); }} style={{ padding: "5px 14px", borderRadius: 5, fontSize: 11, background: "#1e2229", border: `1px solid ${T.border}`, color: T.dim, cursor: "pointer" }}>Cancel</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
