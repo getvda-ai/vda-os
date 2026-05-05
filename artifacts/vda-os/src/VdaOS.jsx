@@ -7045,10 +7045,12 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
       .catch(() => {});
   }, [requestId]);
 
-  // Self-fetch EXCEPTION_AUTHORITY content when prop is not supplied by Stage 1
+  // Self-fetch platform (company 0) EXCEPTION_AUTHORITY which has the role_bands format.
+  // Runs whenever prop is missing OR prop is in source_clauses format (not role_bands).
   useEffect(() => {
-    if (exceptionContent || !agentSlug) return;
-    const cid = companyId || 0;
+    if (!agentSlug) return;
+    const propHasRoleBands = exceptionContent && exceptionContent.includes("role_bands:");
+    if (propHasRoleBands) return; // prop already in the right format — nothing to fetch
     const tryFetch = async (fetchCid) => {
       try {
         const r = await fetch(`/api/fm/files/${fetchCid}`);
@@ -7058,13 +7060,15 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
         if (!f) return null;
         const fr = await fetch(`/api/fm/file/${f.id}`);
         const fd = await fr.json();
-        return fd.content || null;
+        const c = fd.content || null;
+        return c && c.includes("role_bands:") ? c : null;
       } catch { return null; }
     };
     (async () => {
-      let content = await tryFetch(cid);
-      // Fallback to platform (companyId=0) if hotel didn't have one
-      if (!content && cid > 0) content = await tryFetch(0);
+      // Always prefer the platform file (company 0) which has canonical role_bands format
+      let content = await tryFetch(0);
+      // Only fall back to company-specific if platform had nothing
+      if (!content && (companyId || 0) > 0) content = await tryFetch(companyId);
       if (content) setSelfContent(content);
     })();
   }, [agentSlug, companyId, exceptionContent]);
@@ -7072,7 +7076,10 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
   const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
   const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
 
-  const effectiveContent = exceptionContent || selfContent;
+  // Use prop if it has role_bands format; otherwise use self-fetched platform file
+  const effectiveContent = (exceptionContent && exceptionContent.includes("role_bands:"))
+    ? exceptionContent
+    : (selfContent || exceptionContent);
 
   const parsedBands = useMemo(() => {
     if (!effectiveContent) return {};
