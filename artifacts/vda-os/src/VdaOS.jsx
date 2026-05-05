@@ -7047,10 +7047,13 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
 
   // Self-fetch platform (company 0) EXCEPTION_AUTHORITY which has the role_bands format.
   // Runs whenever prop is missing OR prop is in source_clauses format (not role_bands).
+  // True when the prop is already in the canonical role_bands format (no fetch needed).
+  // Using a boolean dep (not the raw string) so React detects a dep-type change after
+  // hot-module updates, which forces the effect to re-run in already-mounted components.
+  const propHasRoleBands = !!(exceptionContent && exceptionContent.includes("role_bands:"));
+
   useEffect(() => {
-    if (!agentSlug) return;
-    const propHasRoleBands = exceptionContent && exceptionContent.includes("role_bands:");
-    if (propHasRoleBands) return; // prop already in the right format — nothing to fetch
+    if (!agentSlug || propHasRoleBands) return;
     const tryFetch = async (fetchCid) => {
       try {
         const r = await fetch(`/api/fm/files/${fetchCid}`);
@@ -7065,27 +7068,25 @@ function ExceptionAuthorityConfirmation({ exceptionContent, agentSlug, companyId
       } catch { return null; }
     };
     (async () => {
-      // Always prefer the platform file (company 0) which has canonical role_bands format
+      // Always prefer platform file (company 0) — canonical role_bands format
       let content = await tryFetch(0);
-      // Only fall back to company-specific if platform had nothing
+      // Fall back to company-specific only if platform had nothing
       if (!content && (companyId || 0) > 0) content = await tryFetch(companyId);
       if (content) setSelfContent(content);
     })();
-  }, [agentSlug, companyId, exceptionContent]);
+  }, [agentSlug, companyId, propHasRoleBands]);
 
   const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
   const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
 
-  // Use prop if it has role_bands format; otherwise use self-fetched platform file
-  const effectiveContent = (exceptionContent && exceptionContent.includes("role_bands:"))
-    ? exceptionContent
-    : (selfContent || exceptionContent);
+  // Prefer the self-fetched canonical role_bands file; fall back to prop only if it has role_bands
+  const effectiveContent = selfContent || (propHasRoleBands ? exceptionContent : null);
 
   const parsedBands = useMemo(() => {
     if (!effectiveContent) return {};
     const out = {};
     for (const band of FRONT_LINE) {
-      const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override)`);
+      const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n  [a-z_]+:|\\nmust_not_override|$)`);
       const block = (effectiveContent.match(re) || [""])[0];
       const classes = [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => {
         const s = block.slice(m.index);
@@ -7661,7 +7662,7 @@ function PreCrawlConfirmation({ agentSlug, companyId, onCrawlEnabled }) {
   const FRONT_LINE = ["ambassador", "senior_ambassador", "hotel_gm"];
   const BAND_LABEL = { ambassador: "Ambassador", senior_ambassador: "Senior Ambassador", hotel_gm: "Hotel GM" };
   const parseBandClasses = (band) => {
-    const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n\\s+[a-z_]+:\\n|\\nmust_not_override)`);
+    const re = new RegExp(`${band}:[\\s\\S]*?exceptions:[\\s\\S]*?(?=\\n  [a-z_]+:|\\nmust_not_override|$)`);
     const block = (authContent.match(re) || [""])[0];
     return [...block.matchAll(/exception_class:\s*["']?([^"'\n\s]+)["']?/g)].map(m => m[1]);
   };
