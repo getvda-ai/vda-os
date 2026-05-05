@@ -206,10 +206,10 @@ router.post("/onboarding/:id/admit", async (req, res) => {
       .set({ status: "admitted", updatedAt: new Date() })
       .where(eq(onboardingRequests.id, id));
 
-    // Write governance witness entry for the admission decision
+    // Write governance witness entry — capture the ID for the admission receipt
     const { writeGovernanceEvent } = await import("../lib/writeGovernanceEvent.js");
     const card = rows[0].agentCard as Record<string, unknown>;
-    await writeGovernanceEvent({
+    const witnessId = await writeGovernanceEvent({
       companyId: rows[0].companyId ?? 0,
       agent: "onboarding-agent",
       eventCategory: "AGENT_LIFECYCLE",
@@ -221,27 +221,50 @@ router.post("/onboarding/:id/admit", async (req, res) => {
       apaleoData: { event_type: "co_agent_admitted", onboarding_request_id: id, decided_by, agent_name: card?.name },
     });
 
-    // Issue a crawl-phase AP2 Intent Mandate for the newly admitted agent (non-blocking)
+    // Issue a crawl-phase AP2 Intent Mandate — await so we can return the mandate ID in the receipt
     const companyId = rows[0].companyId ?? 0;
     const rawDid = (rows[0].externalAgentDid as string | null) ?? "";
-    // Extract slug from DID (e.g. "did:vda:hospitality:rate-agent" → "rate-agent")
     const agentSlug = rawDid.includes(":") ? rawDid.split(":").pop()! : rawDid;
-    void issueMandate({
-      agentId: agentSlug,
-      companyId,
-      agentDid: rawDid || `did:key:vda-${agentSlug}-${companyId}`,
-      phase: "crawl",
-      onboardingId: id,
-    }).then(m => {
-      logger.info({ mandateId: m.mandateId, agentSlug, companyId }, "[Mandate] Crawl-phase mandate issued at admission");
-    }).catch(mandateErr => {
+    let mandateId: string | null = null;
+    let mandateValidUntil: string | null = null;
+    let mandateSignature: string | null = null;
+    try {
+      const m = await issueMandate({
+        agentId: agentSlug,
+        companyId,
+        agentDid: rawDid || `did:key:vda-${agentSlug}-${companyId}`,
+        phase: "crawl",
+        onboardingId: id,
+      });
+      mandateId = m.mandateId;
+      mandateValidUntil = m.validUntil.toISOString();
+      mandateSignature = m.signature;
+      logger.info({ mandateId, agentSlug, companyId }, "[Mandate] Crawl-phase mandate issued at CISO admission");
+    } catch (mandateErr) {
       logger.warn({ mandateErr, agentSlug, companyId }, "[Mandate] Failed to issue crawl mandate at admission — non-fatal");
-    });
+    }
 
-    // Return the updated onboarding record
+    // Return the updated onboarding record plus admission receipt artefacts
     const updated = await db.select().from(onboardingRequests).where(eq(onboardingRequests.id, id)).limit(1);
-    logger.info({ id, decided_by }, "[Onboarding] Agent admitted by CO");
-    res.json({ ok: true, status: "admitted", onboardingRequestId: id, record: updated[0] ?? null });
+    logger.info({ id, decided_by, witnessId, mandateId }, "[Onboarding] Agent admitted by CO");
+    res.json({
+      ok: true,
+      status: "admitted",
+      onboardingRequestId: id,
+      record: updated[0] ?? null,
+      receipt: {
+        witnessId,
+        mandateId,
+        mandatePhase: "crawl",
+        mandateValidUntil,
+        mandateSignature,
+        agentDid: rawDid || `did:key:vda-${agentSlug}-${companyId}`,
+        decidedBy: decided_by,
+        admittedAt: new Date().toISOString(),
+        framework: "VDA-MD v1.0 for Apaleo",
+        euAiActClause: "Art. 17 Risk Management — CISO Gate 0 cleared",
+      },
+    });
   } catch (err) {
     logger.error({ err }, "Onboarding admit error");
     res.status(500).json({ error: "Failed to admit agent" });

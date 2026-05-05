@@ -7544,7 +7544,15 @@ function AdmitOrRejectStage({ agentSlug, requestId, stageCompletions, onAdmitted
   const [rejectReason, setRejectReason] = useState("");
   const [rejecting, setRejecting] = useState(false);
   const [error, setError] = useState(null);
+  const [receipt, setReceipt] = useState(null);
+  const [copiedField, setCopiedField] = useState(null);
   const STAGE_LABELS = ["Governance Files", "Sandbox Evaluation", "Apaleo CRUD", "Witness Review", "Exception Authority"];
+
+  const copyToClipboard = (text, field) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(f => f === field ? null : f), 2000);
+  };
 
   const handleAdmit = async () => {
     if (!requestId) { setError("No onboarding request ID"); return; }
@@ -7557,20 +7565,7 @@ function AdmitOrRejectStage({ agentSlug, requestId, stageCompletions, onAdmitted
       });
       const d = await r.json();
       if (!r.ok) { setError(d.error || "Admission failed"); }
-      else {
-        await fetch("/api/agents/witness", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            companyId: 0, agent: "onboarding-agent",
-            decision: { decision: "PASS", clauseApplied: "VDA-MD Onboarding §6 — CISO walkthrough completed, agent admitted", actionProposed: `${agentSlug} admitted to VDA framework`, exceptionApplied: false, escalationTarget: null, reasoning: "CISO completed all 6 walkthrough stages and admitted agent" },
-            fileReferenced: "AGENTS.md",
-            apaleoData: { event_type: "ciso_walkthrough_completed", agentId: agentSlug, onboarding_id: requestId },
-            credentialVerified: true,
-          }),
-        }).catch(() => {});
-        onAdmitted?.(agentSlug);
-      }
+      else { setReceipt(d.receipt ?? {}); }
     } catch { setError("Network error"); }
     finally { setAdmitting(false); }
   };
@@ -7594,6 +7589,114 @@ function AdmitOrRejectStage({ agentSlug, requestId, stageCompletions, onAdmitted
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflow: "auto", padding: "24px 28px" }}>
+
+        {/* ── Admission Receipt (shown after successful admit) ── */}
+        {receipt && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {/* Success header */}
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.green, marginBottom: 4 }}>Agent Admitted to Framework</div>
+              <div style={{ fontSize: 12, color: T.muted }}>{agentSlug} · VDA-MD v1.0 for Apaleo · EU AI Act Art. 17</div>
+            </div>
+
+            {/* Receipt card */}
+            <div style={{ background: "#07100a", border: `1px solid ${T.green}40`, borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
+              <div style={{ background: "#0a1a0d", borderBottom: `1px solid ${T.green}20`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10, fontFamily: T.mono, fontWeight: 700, color: T.green, letterSpacing: "0.1em" }}>ADMISSION RECEIPT</span>
+                <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginLeft: "auto" }}>{receipt.admittedAt ? new Date(receipt.admittedAt).toLocaleString() : new Date().toLocaleString()}</span>
+              </div>
+
+              {/* Witness Entry */}
+              {receipt.witnessId && (
+                <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.green}10` }}>
+                  <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginBottom: 4, letterSpacing: "0.06em" }}>WITNESS AGENT ENTRY</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: T.mono, fontSize: 13, fontWeight: 700, color: T.green }}>#{receipt.witnessId}</span>
+                    <span style={{ fontSize: 11, color: T.muted }}>— Governance event recorded immutably</span>
+                    <button onClick={() => copyToClipboard(String(receipt.witnessId), "witnessId")} style={{ marginLeft: "auto", padding: "3px 10px", borderRadius: 4, fontSize: 10, fontFamily: T.mono, background: "none", color: copiedField === "witnessId" ? T.green : T.dim, border: `1px solid ${T.border}`, cursor: "pointer" }}>
+                      {copiedField === "witnessId" ? "✓ copied" : "copy"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* AP2 Mandate */}
+              {receipt.mandateId ? (
+                <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.green}10` }}>
+                  <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginBottom: 4, letterSpacing: "0.06em" }}>AP2 INTENT MANDATE — CRAWL PHASE</div>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: T.mono, fontSize: 11, color: "#c4b5fd", wordBreak: "break-all", lineHeight: 1.5 }}>{receipt.mandateId}</div>
+                      {receipt.mandateValidUntil && (
+                        <div style={{ fontSize: 10, color: T.dim, marginTop: 3, fontFamily: T.mono }}>
+                          Valid until: <span style={{ color: T.amber }}>{new Date(receipt.mandateValidUntil).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                          {" "}· Phase: <span style={{ color: "#c4b5fd" }}>crawl</span>
+                          {" "}· 7-day window (frequent review)
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={() => copyToClipboard(receipt.mandateId, "mandateId")} style={{ flexShrink: 0, padding: "3px 10px", borderRadius: 4, fontSize: 10, fontFamily: T.mono, background: "none", color: copiedField === "mandateId" ? T.green : T.dim, border: `1px solid ${T.border}`, cursor: "pointer" }}>
+                      {copiedField === "mandateId" ? "✓ copied" : "copy"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.green}10` }}>
+                  <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginBottom: 4, letterSpacing: "0.06em" }}>AP2 INTENT MANDATE</div>
+                  <div style={{ fontSize: 11, color: T.amber, fontFamily: T.mono }}>Mandate issuance pending — will be issued at first agent activation</div>
+                </div>
+              )}
+
+              {/* Signature */}
+              {receipt.mandateSignature && (
+                <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.green}10` }}>
+                  <div style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, marginBottom: 4, letterSpacing: "0.06em" }}>HMAC-SHA256 SIGNATURE</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: T.mono, fontSize: 10, color: "#64748b", wordBreak: "break-all", flex: 1 }}>{receipt.mandateSignature.slice(0, 48)}…</span>
+                    <button onClick={() => copyToClipboard(receipt.mandateSignature, "sig")} style={{ flexShrink: 0, padding: "3px 10px", borderRadius: 4, fontSize: 10, fontFamily: T.mono, background: "none", color: copiedField === "sig" ? T.green : T.dim, border: `1px solid ${T.border}`, cursor: "pointer" }}>
+                      {copiedField === "sig" ? "✓ copied" : "copy"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Agent DID + decided by */}
+              <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+                {receipt.agentDid && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim, flexShrink: 0 }}>DID</span>
+                    <span style={{ fontFamily: T.mono, fontSize: 10, color: "#94a3b8", flex: 1, wordBreak: "break-all" }}>{receipt.agentDid}</span>
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 16 }}>
+                  <div>
+                    <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>Decided by </span>
+                    <span style={{ fontSize: 10, fontFamily: T.mono, color: T.text }}>{receipt.decidedBy ?? "CISO (dashboard)"}</span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 10, fontFamily: T.mono, color: T.dim }}>Framework </span>
+                    <span style={{ fontSize: 10, fontFamily: T.mono, color: "#c4b5fd" }}>{receipt.framework ?? "VDA-MD v1.0"}</span>
+                  </div>
+                </div>
+                {receipt.euAiActClause && (
+                  <div style={{ fontSize: 10, fontFamily: T.mono, color: "#60a5fa" }}>{receipt.euAiActClause}</div>
+                )}
+              </div>
+            </div>
+
+            <button onClick={() => onAdmitted?.(agentSlug)} style={{
+              width: "100%", padding: "14px 0", borderRadius: 10, fontSize: 14, fontWeight: 700,
+              background: "#14532d", color: T.green, border: `1px solid ${T.green}`,
+              cursor: "pointer",
+            }}>
+              Done — Close Walkthrough
+            </button>
+          </div>
+        )}
+
+        {/* ── Normal stage view (hidden once admitted) ── */}
+        {!receipt && (<>
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 11, fontFamily: T.mono, fontWeight: 700, color: T.dim, letterSpacing: "0.1em", marginBottom: 12 }}>STAGE COMPLETION</div>
           {STAGE_LABELS.map((label, i) => (
@@ -7638,6 +7741,7 @@ function AdmitOrRejectStage({ agentSlug, requestId, stageCompletions, onAdmitted
             opacity: admitting || !requestId ? 0.5 : 1,
           }}>❌ Reject</button>
         </div>
+        </>)}
       </div>
       {rejectOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center" }}>
