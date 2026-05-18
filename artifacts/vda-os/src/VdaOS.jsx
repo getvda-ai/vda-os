@@ -6482,7 +6482,7 @@ const SANDBOX_EVAL_DEFAULT = {
 };
 
 // ─── Stage 2: Sandbox Evaluation ────────────────────────────────────────────
-function SandboxEvaluation({ requestId, agentSlug, agentName, agentSource, existingPassRate, onNext, onSandboxRun }) {
+function SandboxEvaluation({ requestId, agentSlug, agentName, agentSource, existingPassRate, onNext, onSandboxRun, onAutoRegistered }) {
   const isExternal = agentSource === "a2a_external";
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState(null);
@@ -6492,6 +6492,27 @@ function SandboxEvaluation({ requestId, agentSlug, agentName, agentSource, exist
   const [witnessEntry, setWitnessEntry] = useState(null);
   const [witnessLoading, setWitnessLoading] = useState(false);
   const [simStep, setSimStep] = useState(-1);
+  const [autoReg, setAutoReg] = useState("idle");
+  const [autoRegError, setAutoRegError] = useState(null);
+
+  const doAutoRegister = async () => {
+    setAutoReg("registering");
+    setAutoRegError(null);
+    try {
+      const r = await fetch("/api/admin/onboarding/quick-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentSlug, agentName }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Registration failed");
+      setAutoReg("done");
+      onAutoRegistered?.(d.onboardingId);
+    } catch (err) {
+      setAutoRegError(err.message || "Registration failed");
+      setAutoReg("error");
+    }
+  };
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -6573,9 +6594,31 @@ function SandboxEvaluation({ requestId, agentSlug, agentName, agentSource, exist
               Each actual decision is compared to an expected outcome (PASS / FAIL / ESCALATE).
               ≥{Math.round(THRESHOLD * 100)}% match rate required to proceed.
             </p>
-            {!requestId && (
+            {!requestId && isExternal && (
               <div style={{ padding: "10px 14px", background: "#1a0505", border: `1px solid ${T.red}40`, borderRadius: 8, color: T.red, fontSize: 12, marginBottom: 16 }}>
-                No onboarding request found for this agent. Submit via POST /api/onboarding/submit with source=vda_native.
+                No onboarding request found for this agent. Submit via POST /api/onboarding/submit with source=a2a_external.
+              </div>
+            )}
+            {!requestId && !isExternal && (
+              <div style={{ padding: "14px 16px", background: "#0d0d1a", border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 4 }}>Agent not yet registered</div>
+                <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6, marginBottom: 12 }}>
+                  This agent has no active onboarding request. Register it now to proceed with the sandbox evaluation.
+                </div>
+                {autoReg === "error" && (
+                  <div style={{ fontSize: 11, color: T.red, marginBottom: 10 }}>{autoRegError}</div>
+                )}
+                {autoReg === "done" ? (
+                  <div style={{ fontSize: 11, color: T.green }}>✓ Agent registered — loading sandbox evaluation…</div>
+                ) : (
+                  <button
+                    onClick={doAutoRegister}
+                    disabled={autoReg === "registering"}
+                    style={{ padding: "8px 16px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: autoReg === "registering" ? T.dim : "#3b1fa8", color: "#fff", border: "none", cursor: autoReg === "registering" ? "not-allowed" : "pointer" }}
+                  >
+                    {autoReg === "registering" ? "Registering…" : "⊕ Register Agent"}
+                  </button>
+                )}
               </div>
             )}
             {/* ── Progress terminal (shown while running) ── */}
@@ -7770,12 +7813,14 @@ function AdmitOrRejectStage({ agentSlug, requestId, stageCompletions, onAdmitted
 }
 
 // ─── CISOWalkthrough — full-screen modal ─────────────────────────────────────
-function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmitted, onRejected }) {
+function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmitted, onRejected, onRefreshNeeded }) {
   const [agentIdx, setAgentIdx] = useState(0);
   const agent = agents?.[agentIdx];
   const agentSlug = agent?.slug || "";
-  const requestId = agent?.requestId || null;
+  const [localRequestId, setLocalRequestId] = useState(agent?.requestId || null);
   const [stage, setStage] = useState(1);
+
+  useEffect(() => { setLocalRequestId(agent?.requestId || null); }, [agentIdx, agent?.requestId]);
   const [completions, setCompletions] = useState(() => loadStageCompletions(agentSlug));
   const [sandboxTs, setSandboxTs] = useState(null);
   const [govFiles, setGovFiles] = useState(null);
@@ -7808,7 +7853,7 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
         companyId: 0, agent: "onboarding-agent",
         decision: { decision: "INFO", clauseApplied: `VDA-MD Onboarding §walkthrough — stage ${idx + 1} completed`, actionProposed: `CISO stage ${idx + 1} completed for ${agentSlug}`, exceptionApplied: false, escalationTarget: null, reasoning: `CISO completed stage ${idx + 1} of walkthrough` },
         fileReferenced: "AGENTS.md",
-        apaleoData: { event_type: "ciso_stage_completed", stage: idx + 1, agentId: agentSlug, onboarding_id: requestId || null },
+        apaleoData: { event_type: "ciso_stage_completed", stage: idx + 1, agentId: agentSlug, onboarding_id: localRequestId || null },
         credentialVerified: true,
       }),
     }).catch(() => {});
@@ -7816,8 +7861,8 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
 
   const handleRestart = async () => {
     setRestarting(true);
-    if (requestId) {
-      await fetch(`/api/onboarding/${requestId}/restart`, { method: "POST" }).catch(() => {});
+    if (localRequestId) {
+      await fetch(`/api/onboarding/${localRequestId}/restart`, { method: "POST" }).catch(() => {});
     }
     const cleared = [false, false, false, false, false, false];
     setCompletions(cleared); setStage(1); setSandboxTs(null);
@@ -7944,18 +7989,19 @@ function CISOWalkthrough({ agents, companyId: walkCompanyId = 0, onClose, onAdmi
               <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                 {stage === 1 && <GovernanceFileReview agentSlug={agentSlug} companyId={agent?.companyId || walkCompanyId || 0} onNext={() => completeStage(0)} onFilesLoaded={(f, c) => { setGovFiles(f); setGovContents(c); }} />}
                 {stage === 2 && <SandboxEvaluation
-                  requestId={requestId}
+                  requestId={localRequestId}
                   agentSlug={agentSlug}
                   agentName={agent?.name || agentSlug}
                   agentSource={agent?.source ?? null}
                   existingPassRate={agent?.evalPassRate ?? null}
                   onNext={() => completeStage(1)}
                   onSandboxRun={ts => setSandboxTs(ts)}
+                  onAutoRegistered={newId => { setLocalRequestId(newId); onRefreshNeeded?.(); }}
                 />}
                 {stage === 3 && <ApaleoCRUDReview agentSlug={agentSlug} govFiles={govFiles} govContents={govContents} onNext={() => completeStage(2)} />}
                 {stage === 4 && <WitnessReviewStage agentSlug={agentSlug} sandboxTimestamp={sandboxTs} onNext={() => completeStage(3)} />}
-                {stage === 5 && <ExceptionAuthorityConfirmation exceptionContent={exceptionContent} agentSlug={agentSlug} companyId={agent?.companyId ?? walkCompanyId} requestId={requestId} onNext={() => completeStage(4)} />}
-                {stage === 6 && <AdmitOrRejectStage agentSlug={agentSlug} requestId={requestId} stageCompletions={completions} onAdmitted={s => { const c = [false,false,false,false,false,false]; setCompletions(c); setStage(1); onAdmitted?.(s); }} onRejected={(s, r) => onRejected?.(s, r)} />}
+                {stage === 5 && <ExceptionAuthorityConfirmation exceptionContent={exceptionContent} agentSlug={agentSlug} companyId={agent?.companyId ?? walkCompanyId} requestId={localRequestId} onNext={() => completeStage(4)} />}
+                {stage === 6 && <AdmitOrRejectStage agentSlug={agentSlug} requestId={localRequestId} stageCompletions={completions} onAdmitted={s => { const c = [false,false,false,false,false,false]; setCompletions(c); setStage(1); onAdmitted?.(s); }} onRejected={(s, r) => onRejected?.(s, r)} />}
               </div>
             </>
           )}
@@ -8908,10 +8954,10 @@ function OnboardingConsole({ onLoadHotel }) {
               ))}
           </div>
           <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
-            <button onClick={() => openWalkthrough("vda_native")} style={{ width: "100%", padding: "11px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, background: T.red, color: "#fff", border: "none", cursor: "pointer" }}>
-              Start CISO Walkthrough →
+            <button onClick={() => openWalkthrough("vda_native")} disabled={loading} style={{ width: "100%", padding: "11px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, background: loading ? "#3a1818" : T.red, color: loading ? T.dim : "#fff", border: "none", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}>
+              {loading ? "Loading…" : "Start CISO Walkthrough →"}
             </button>
-            <ResetDemoButton onReset={() => setRefreshKey(k => k + 1)} />
+            <ResetDemoButton onReset={() => { setWalkthroughOpen(false); setRefreshKey(k => k + 1); }} />
           </div>
         </div>
 
@@ -9027,6 +9073,7 @@ function OnboardingConsole({ onLoadHotel }) {
           onClose={() => setWalkthroughOpen(false)}
           onAdmitted={() => { setWalkthroughOpen(false); setRefreshKey(k => k + 1); }}
           onRejected={() => { setWalkthroughOpen(false); setRefreshKey(k => k + 1); }}
+          onRefreshNeeded={() => setRefreshKey(k => k + 1)}
         />
       )}
     </div>
