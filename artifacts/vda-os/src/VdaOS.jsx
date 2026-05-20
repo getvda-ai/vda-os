@@ -8733,7 +8733,8 @@ function OnboardingConsole({ onLoadHotel }) {
   useEffect(() => { loadAll(); }, [loadAll, refreshKey]);
 
   useEffect(() => {
-    if (!companies || companies.length === 0) return;
+    if (!companies || companies.length === 0) { setPortfolioRevenue(null); return; }
+    let cancelled = false;
     Promise.all(
       companies.map(c =>
         fetch(`/api/dashboard/value-ledger?companyId=${c.id}`)
@@ -8741,9 +8742,11 @@ function OnboardingConsole({ onLoadHotel }) {
           .catch(() => null)
       )
     ).then(results => {
+      if (cancelled) return;
       const total = results.reduce((sum, d) => sum + (d?.totals?.totalRevenue ?? 0), 0);
       setPortfolioRevenue(total);
     });
+    return () => { cancelled = true; };
   }, [companies]);
 
   const nativeReqs = (requests || []).filter(r => r.source === "vda_native");
