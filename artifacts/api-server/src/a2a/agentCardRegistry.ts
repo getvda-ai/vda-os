@@ -50,6 +50,10 @@ export interface AgentCard {
   };
   /** AP2 Intent Mandate currently active for this agent+property. null = no mandate issued yet. */
   intentMandate: AgentCardMandate | null;
+  /** True = this agent includes UCP 2026 offer blocks in PASS responses. */
+  ucpCapable?: boolean;
+  /** UCP counter-offer negotiation endpoint URL. Present when ucpCapable is true. */
+  negotiationEndpoint?: string;
 }
 
 const DOCS_URL = "https://vda-md.citizenm.com/docs/agents";
@@ -203,6 +207,12 @@ export async function getAgentCard(companyId: number, agentId: string): Promise<
       }
     : null;
 
+  const ucpAgents = ["availability-agent", "rate-agent"];
+  const ucpFields = ucpAgents.includes(agentId) ? {
+    ucpCapable: true,
+    negotiationEndpoint: `${REPLIT_URL}/api/ucp/negotiate`,
+  } : {};
+
   return {
     name: def.name,
     description: def.description,
@@ -216,6 +226,7 @@ export async function getAgentCard(companyId: number, agentId: string): Promise<
     skills,
     authentication: { schemes: ["bearer"] },
     intentMandate: activeMandate,
+    ...ucpFields,
   };
 }
 

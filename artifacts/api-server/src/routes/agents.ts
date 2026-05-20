@@ -23,6 +23,7 @@ import {
   listCredentialsFromFiles,
 } from "../lib/agentCredentialIssuer.js";
 import { verifyC2PAManifest, type C2PAManifest } from "../lib/c2paManifest.js";
+import { buildAvailabilityOffer, buildRateOffer } from "../lib/ucpOffer.js";
 import { getActiveMandate } from "../lib/mandateIssuer.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
 import { getRoleBandAuthority, getRejectedClasses, getRejectedOrBaselinedClasses } from "../lib/exceptionAuthorityReader.js";
@@ -820,6 +821,14 @@ router.post("/agents/availability",
     return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, arrival, departure, usedMcp, toolCallsMade, filesLoaded: availFilesLoaded,
+      ...(decision.decision === "PASS" ? {
+        ucpOffer: buildAvailabilityOffer({
+          propertyId,
+          arrival,
+          departure,
+          mandateId: req.mandateCtx?.mandateId ?? null,
+        }),
+      } : {}),
     });
   } catch (err: unknown) {
     return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
@@ -924,6 +933,16 @@ router.post("/agents/rate",
     return res.json({
       ...decision, witnessEntryId: witnessId,
       propertyId, requestedRate: reqRate, barRate: bar, discountPct, usedMcp, toolCallsMade, filesLoaded,
+      ...(decision.decision === "PASS" ? {
+        ucpOffer: buildRateOffer({
+          propertyId,
+          requestedRate: reqRate,
+          barRate: bar,
+          ratePlanId: ratePlanId ?? null,
+          discountPct,
+          mandateId: req.mandateCtx?.mandateId ?? null,
+        }),
+      } : {}),
     });
   } catch (err: unknown) {
     return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });

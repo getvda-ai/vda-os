@@ -15,6 +15,7 @@ import dashboardRouter from "./dashboard";
 import adminRouter from "./admin";
 import euAiActRouter from "./euAiAct";
 import gdprRouter from "./gdpr";
+import ucpRouter from "./ucp";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(dashboardRouter);
 router.use(adminRouter);
 router.use(euAiActRouter);
 router.use(gdprRouter);
+router.use(ucpRouter);
 
 export default router;
