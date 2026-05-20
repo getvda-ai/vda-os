@@ -290,21 +290,26 @@ async function handleGetWitnessLog(args: Record<string, unknown>, vcCompanyId: n
   const limitArg = Number(args["limit"]    ?? 20);
   const limit    = Math.min(isNaN(limitArg) ? 20 : limitArg, 100);
 
+  // witnessEntries.agent stores display names (e.g. "Rate Agent"), not slugs.
+  // Use the canonical name from AGENT_DEFS; fall back to the slug as-is.
+  const agentDisplayName = AGENT_DEFS[agentId]?.name ?? agentId;
+
   const entries = await db
     .select()
     .from(witnessEntries)
     .where(and(
       eq(witnessEntries.companyId, vcCompanyId),
-      eq(witnessEntries.agent,     agentId),
+      eq(witnessEntries.agent,     agentDisplayName),
     ))
     .orderBy(desc(witnessEntries.createdAt))
     .limit(limit);
 
   return JSON.stringify({
-    agent_id:   agentId,
-    company_id: vcCompanyId,
-    count:      entries.length,
-    entries:    entries.map(e => ({
+    agent_id:          agentId,
+    agent_display_name: agentDisplayName,
+    company_id:        vcCompanyId,
+    count:             entries.length,
+    entries:           entries.map(e => ({
       id:                  e.id,
       decision:            e.decision,
       action_proposed:     e.actionProposed,
@@ -312,7 +317,6 @@ async function handleGetWitnessLog(args: Record<string, unknown>, vcCompanyId: n
       file_referenced:     e.fileReferenced,
       exception_applied:   e.exceptionApplied,
       escalation_target:   e.escalationTarget,
-      mandate_id:          e.mandateId,
       event_category:      e.eventCategory,
       credential_verified: e.credentialVerified,
       files_consulted:     e.filesConsulted,

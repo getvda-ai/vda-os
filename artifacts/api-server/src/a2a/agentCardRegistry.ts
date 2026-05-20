@@ -41,6 +41,8 @@ export interface AgentCard {
   capabilities: {
     streaming: boolean;
     pushNotifications: boolean;
+    mcpGovernanceServer?: boolean;
+    mcpGovernanceEndpoint?: string;
   };
   skills: AgentSkill[];
   authentication: {
