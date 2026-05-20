@@ -113,22 +113,41 @@ export async function buildC2PAManifest(
 }
 
 /**
- * Verifies a C2PA manifest's Ed25519 signature using the embedded signer_did.
+ * Verifies a C2PA manifest's Ed25519 signature against the key encoded in
+ * `signature.signer_did`.
  *
- * Returns true only when the signature is mathematically valid over the canonical
- * body — does NOT validate the signer_did against a trust list.
+ * The `did:key:z6Mk…` DID scheme encodes the raw public key as a multibase
+ * fingerprint, so no trust-registry lookup or network call is needed — the
+ * public key is derived entirely from the DID string embedded in the manifest.
+ * This means old manifests signed before a key rotation verify correctly
+ * because we always use the key that *actually signed* the manifest, not the
+ * current platform key.
+ *
+ * Returns true only when the signature is mathematically valid.
  */
 export async function verifyC2PAManifest(manifest: C2PAManifest): Promise<boolean> {
   try {
-    const { getPlatformIssuer: _get } = await import("./agentCredentialIssuer.js");
-    const { key: platformKey } = await _get();
+    const { Ed25519VerificationKey2020 } = await import(
+      "@digitalbazaar/ed25519-verification-key-2020" as string
+    ) as { Ed25519VerificationKey2020: { fromFingerprint(opts: { fingerprint: string }): Promise<{ verifier(): { verify(opts: { data: Uint8Array; signature: Uint8Array }): Promise<boolean> } }> } };
+
+    const signerDid = manifest.signature?.signer_did;
+    if (typeof signerDid !== "string" || !signerDid.startsWith("did:key:")) {
+      logger.warn({ signerDid }, "[C2PA] Manifest signer_did is not a did:key — cannot verify");
+      return false;
+    }
+
+    const fingerprint = signerDid.replace("did:key:", "");
+    const verificationKey = await Ed25519VerificationKey2020.fromFingerprint({ fingerprint });
 
     const { signature: sig, ...body } = manifest;
     const canonical = Buffer.from(canonicalJson(body), "utf-8");
-
-    const verifier = platformKey.verifier();
     const sigBytes = Buffer.from(sig.value, "base64url");
-    return verifier.verify({ data: canonical as unknown as Uint8Array, signature: sigBytes as unknown as Uint8Array });
+
+    return verificationKey.verifier().verify({
+      data: canonical as unknown as Uint8Array,
+      signature: sigBytes as unknown as Uint8Array,
+    });
   } catch (err) {
     logger.warn({ err }, "[C2PA] Manifest signature verification failed");
     return false;

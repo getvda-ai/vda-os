@@ -7,12 +7,17 @@
  * automatically (fire-and-forget) so a human can act on it in the dashboard.
  */
 
-import { db, witnessEntries, hitlTokens, agentPhases } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { db, witnessEntries, hitlTokens, agentPhases, agentCredentials } from "@workspace/db";
+import { and, eq, desc } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { buildC2PAManifest } from "./c2paManifest.js";
 
-const PLATFORM_MODEL_ID = "claude-sonnet-4-6";
+/**
+ * Versioned model identifier embedded in every C2PA manifest.
+ * `claude-sonnet-4-6` is Anthropic's API handle for claude-3-5-sonnet-20241022.
+ * Update this constant when the platform model changes.
+ */
+const PLATFORM_MODEL_ID = "claude-sonnet-4-6 (claude-3-5-sonnet-20241022)";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -150,9 +155,34 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
   // Ed25519 key before inserting.  Per CAITA / Utah HB 276 / Washington HB 1170
   // requirements, EVERY witness entry MUST carry a signed provenance manifest.
   // Any failure is a hard error — the write is aborted so no entry exists without proof.
+
+  // Resolve agent DID — caller may supply it directly; otherwise look up the
+  // most recently issued (non-revoked) credential for this agent + company.
+  let resolvedAgentDid: string | null = entry.agentDid ?? null;
+  if (!resolvedAgentDid && entry.companyId > 0) {
+    try {
+      const [cred] = await db
+        .select({ did: agentCredentials.did })
+        .from(agentCredentials)
+        .where(and(
+          eq(agentCredentials.agentId, toAgentSlug(entry.agent)),
+          eq(agentCredentials.companyId, entry.companyId),
+          eq(agentCredentials.revoked, false),
+        ))
+        .orderBy(desc(agentCredentials.issuedAt))
+        .limit(1);
+      resolvedAgentDid = cred?.did ?? null;
+    } catch (didErr) {
+      logger.warn(
+        { err: didErr, agent: entry.agent, companyId: entry.companyId },
+        "[C2PA] Could not resolve agent DID — manifest will omit agent_did"
+      );
+    }
+  }
+
   const c2paManifest = await buildC2PAManifest({
     modelId: entry.modelId ?? PLATFORM_MODEL_ID,
-    agentDid: entry.agentDid ?? null,
+    agentDid: resolvedAgentDid,
     governanceFileHash: entry.governanceFileHash ?? null,
     filesConsulted,
     decision: entry.decision.decision,

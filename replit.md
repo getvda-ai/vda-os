@@ -568,3 +568,34 @@ psql $DATABASE_URL -c "SELECT agent_id, company_id, role_band, exception_class, 
 5. Restart the API server workflow to pick up the new bundle
 6. Run `cd artifacts/api-server && npx tsc --noEmit` — confirm zero type errors
 7. Smoke test the new endpoint with `curl`
+
+## C2PA Provenance Conformance (Task #63)
+
+Every Witness Agent decision record written by `writeWitnessEntry` carries a **C2PA v2.1-style signed provenance manifest** in the `c2pa_manifest` JSONB column of `witness_entries`.
+
+### Conformance scope
+- **Standards**: C2PA v2.1 JSON decision records, CAITA (California AI Transparency Act), Utah HB 276, Washington HB 1170
+- **NOT in scope**: Binary file embedding (images/PDFs), public C2PA registry submission, full Content Credentials UI spec
+
+### Manifest contents (per decision record)
+| Field | Value |
+|-------|-------|
+| `@context` | `https://c2pa.org/statements/v1` |
+| `spec_version` | `2.1` |
+| `claim_generator` | `vda-md/1.0 VDA-MD Governance Platform (Apaleo)` |
+| `model_id` | `claude-sonnet-4-6 (claude-3-5-sonnet-20241022)` |
+| `platform_did` | `did:key:z6Mk…` — deterministic from persisted issuer keypair |
+| `agent_did` | `did:key:z6Mk…` — resolved from active agent credential, or null |
+| `governance_file_hash` | SHA-256 of AGENTS + SKILL governance files |
+| `files_consulted` | array of governance filenames consulted |
+| `decision` | PASS / FAIL / ESCALATE |
+| `clause_applied` | verbatim clause cited by the agent |
+| `signature.algorithm` | `Ed25519` |
+| `signature.signer_did` | platform `did:key:…` at signing time |
+| `signature.value` | base64url Ed25519 signature over canonical manifest JSON |
+
+### Key rotation safety
+`verifyC2PAManifest()` reconstructs the public key from `signature.signer_did` (encoded directly in the `did:key:z6Mk…` DID), so manifests signed before a key rotation still verify correctly — the verifier does not depend on the current platform key.
+
+### Provenance endpoint
+`GET /api/witness/:token/provenance` — returns full manifest + live cryptographic verification result (`verified: boolean`). Suitable for direct submission to a compliance auditor.
