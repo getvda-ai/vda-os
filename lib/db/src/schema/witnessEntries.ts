@@ -19,6 +19,7 @@ export const witnessEntries = pgTable("witness_entries", {
   governanceFileHash: text("governance_file_hash"),
   eventCategory: varchar("event_category"),
   mandateId: text("mandate_id"),
+  c2paManifest: jsonb("c2pa_manifest"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

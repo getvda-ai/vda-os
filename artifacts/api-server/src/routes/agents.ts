@@ -1876,6 +1876,33 @@ router.get("/agents/witness/:id", async (req, res) => {
   }
 });
 
+// ─── Witness: C2PA Provenance by ID ──────────────────────────────────────────
+// Returns the C2PA v2.1 manifest embedded in a witness entry.
+// Suitable for submission to a compliance auditor or export to a Content
+// Credentials viewer.  Returns 404 when the entry has no manifest (entries
+// written before C2PA was deployed, or when manifest generation failed).
+
+router.get("/agents/witness/:id/provenance", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: "id must be a number" });
+    const [entry] = await db
+      .select({ id: witnessEntries.id, c2paManifest: witnessEntries.c2paManifest, createdAt: witnessEntries.createdAt })
+      .from(witnessEntries)
+      .where(eq(witnessEntries.id, id))
+      .limit(1);
+    if (!entry) return res.status(404).json({ error: "Witness entry not found" });
+    if (!entry.c2paManifest) return res.status(404).json({ error: "No C2PA manifest for this entry" });
+    return res.json({
+      witness_entry_id: entry.id,
+      created_at: entry.createdAt,
+      manifest: entry.c2paManifest,
+    });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
 // ─── Witness: Framework Integrity Metrics ────────────────────────────────────
 // Returns four operator-facing metric counts for the Framework Integrity Panel.
 // Metric 1 — integrity_check_passed in last 24 h (FRAMEWORK_INTEGRITY / PASS)

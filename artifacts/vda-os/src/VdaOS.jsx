@@ -5698,8 +5698,47 @@ const CATEGORY_FILTER_OPTIONS = [
   { value: "A2A_PROTOCOL",       label: "A2A Protocol" },
 ];
 
+function C2PAProvenancePanel({ manifest }) {
+  if (!manifest) return null;
+  const assertion = manifest.assertions?.[0]?.data ?? {};
+  const sig = manifest.signature ?? {};
+  const truncate = (s, n = 20) => typeof s === "string" && s.length > n ? s.slice(0, n) + "…" : (s ?? "—");
+  return (
+    <div style={{ marginTop: 8, background: "#0a0e14", border: "1px solid #1e3a5f", borderRadius: 6, padding: "10px 12px", fontFamily: "monospace", fontSize: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 9, letterSpacing: "0.1em", color: "#38bdf8", fontWeight: 700, textTransform: "uppercase" }}>C2PA v{manifest.spec_version ?? "2.1"} Provenance</span>
+        <span style={{ background: "#052e16", border: "1px solid #16a34a", borderRadius: 3, padding: "1px 6px", fontSize: 9, color: "#4ade80", fontWeight: 700 }}>✓ Ed25519 Signed</span>
+        <span style={{ marginLeft: "auto", color: "#4b5563", fontSize: 9 }}>{manifest.claim_generator}</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
+        {[
+          ["Model", assertion.model_id],
+          ["Decision", assertion.decision],
+          ["Gov Hash", truncate(assertion.governance_file_hash, 22)],
+          ["Timestamp", manifest.created_at ? new Date(manifest.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"],
+          ["Platform DID", truncate(manifest.platform_did, 24)],
+          ["Agent DID", truncate(manifest.agent_did, 24)],
+          ["Signer", truncate(sig.signer_did, 24)],
+          ["Signature", truncate(sig.value, 20)],
+        ].map(([k, v]) => (
+          <div key={k} style={{ display: "flex", gap: 6 }}>
+            <span style={{ color: "#4b5563", minWidth: 68, flexShrink: 0 }}>{k}:</span>
+            <span style={{ color: "#94a3b8", wordBreak: "break-all" }}>{v ?? "—"}</span>
+          </div>
+        ))}
+      </div>
+      {Array.isArray(assertion.files_consulted) && assertion.files_consulted.length > 0 && (
+        <div style={{ marginTop: 6, color: "#4b5563" }}>
+          Files: <span style={{ color: "#64748b" }}>{assertion.files_consulted.join(", ")}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WitnessAgentTab({ log, config, companyName, isSeeded, companyId }) {
   const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [expandedC2PA, setExpandedC2PA] = useState({});
 
   const filteredLog = categoryFilter === "ALL"
     ? log
@@ -5815,6 +5854,24 @@ function WitnessAgentTab({ log, config, companyName, isSeeded, companyId }) {
                   <span style={{ color: T.dim, letterSpacing: "0.06em", fontSize: 10 }}>REASONING › </span>
                   {e.reasoning}
                 </div>
+              )}
+              {/* Row 5: C2PA Provenance toggle */}
+              <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 8, paddingTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                {e.c2paManifest ? (
+                  <button
+                    onClick={() => setExpandedC2PA(prev => ({ ...prev, [e.id]: !prev[e.id] }))}
+                    style={{ background: expandedC2PA[e.id] ? "#0c1f35" : "transparent", border: "1px solid #1e3a5f", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 10, color: "#38bdf8", fontFamily: T.mono, display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    <span>{expandedC2PA[e.id] ? "▾" : "▸"}</span>
+                    <span>C2PA Provenance</span>
+                    <span style={{ background: "#052e16", border: "1px solid #16a34a", borderRadius: 2, padding: "0 4px", color: "#4ade80", fontSize: 9 }}>✓ Signed</span>
+                  </button>
+                ) : (
+                  <span style={{ fontSize: 9, color: "#374151", fontFamily: T.mono }}>○ No C2PA manifest (pre-deployment entry)</span>
+                )}
+              </div>
+              {expandedC2PA[e.id] && e.c2paManifest && (
+                <C2PAProvenancePanel manifest={e.c2paManifest} />
               )}
             </div>
           ))}

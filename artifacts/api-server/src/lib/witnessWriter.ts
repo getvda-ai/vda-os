@@ -10,6 +10,9 @@
 import { db, witnessEntries, hitlTokens, agentPhases } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { buildC2PAManifest } from "./c2paManifest.js";
+
+const PLATFORM_MODEL_ID = "claude-sonnet-4-6";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,6 +41,10 @@ export interface WitnessEntryInput {
   eventCategory?: string;
   /** AP2 Intent Mandate ID that governed this decision — stored as a first-class column for queryable compliance evidence. */
   mandateId?: string | null;
+  /** DID of the agent issuing this decision — embedded in the C2PA manifest when provided. */
+  agentDid?: string | null;
+  /** AI model that produced the decision — defaults to platform model if omitted. */
+  modelId?: string | null;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -138,6 +145,29 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
       ? entry.filesConsulted
       : null;
 
+  // ── C2PA Manifest generation ─────────────────────────────────────────────────
+  // Build a C2PA v2.1-style provenance manifest and sign it with the platform's
+  // Ed25519 key before inserting.  Errors are caught and logged non-fatally —
+  // a missing manifest must never block the witness write itself.
+  let c2paManifest: Record<string, unknown> | null = null;
+  try {
+    c2paManifest = await buildC2PAManifest({
+      modelId: entry.modelId ?? PLATFORM_MODEL_ID,
+      agentDid: entry.agentDid ?? null,
+      governanceFileHash: entry.governanceFileHash ?? null,
+      filesConsulted,
+      decision: entry.decision.decision,
+      clauseApplied: entry.decision.clauseApplied,
+      agentName: entry.agent,
+      companyId: entry.companyId,
+    }) as unknown as Record<string, unknown>;
+  } catch (manifestErr) {
+    logger.warn(
+      { err: manifestErr, agent: entry.agent, companyId: entry.companyId },
+      "[C2PA] Manifest generation failed — writing witness entry without provenance"
+    );
+  }
+
   let insertedRow: { id: number } | undefined;
   try {
     const result = await db
@@ -160,6 +190,7 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
         governanceFileHash: entry.governanceFileHash ?? null,
         eventCategory: entry.eventCategory ?? null,
         mandateId: entry.mandateId ?? null,
+        c2paManifest,
       })
       .returning({ id: witnessEntries.id });
     insertedRow = result[0];
