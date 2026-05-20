@@ -9,7 +9,7 @@ import type {
   ReservationStatus,
 } from "../lib/apaleo-types.js";
 import { callAI, callAIFull, callAIFullWithUsage } from "./ai-proxy.js";
-import { db, governanceFiles, witnessEntries } from "@workspace/db";
+import { db, governanceFiles, witnessEntries, type MandateAuthorization } from "@workspace/db";
 import { writeWitnessEntry, type AgentDecision, type WitnessEntryInput } from "../lib/witnessWriter.js";
 import { writeGovernanceEvent } from "../lib/writeGovernanceEvent.js";
 import { writeValueEvent } from "../lib/valueEventWriter.js";
@@ -28,16 +28,35 @@ import { getRoleBandAuthority, getRejectedClasses, getRejectedOrBaselinedClasses
 
 const router = Router();
 
+// ─── AP2 Mandate: exception class → mandate action mapping ───────────────────
+// Maps EXCEPTION_AUTHORITY.md exception class names to AP2 Intent Mandate action names.
+// Used by buildAuthorityFragment to prefer mandate ceilings over Markdown parse.
+const EXCEPTION_CLASS_TO_MANDATE_ACTION: Record<string, string> = {
+  "charge_ceiling_autonomous":        "folio_charge",
+  "late_checkout_fee_waiver":         "late_checkout_fee_waiver",
+  "late_checkout_loyalty_extension":  "late_checkout_fee_waiver",
+  "rate_discount_autonomous":         "discount",
+  "rate_override":                    "rate_override",
+  "refund_autonomous":                "refund",
+};
+
 /**
  * Null-safety guard: checks that EXCEPTION_AUTHORITY.md exists for the agent.
- * If missing, writes a COMPLIANCE_BOUNDARY/FAIL event and returns an ESCALATE decision.
- * Caller MUST handle a non-null return by not proceeding with the LLM call.
+ * If a valid AP2 Intent Mandate exists, the file is treated as documentation only
+ * and the guard passes. The mandate is the authority source of truth (AP2 Task #61).
+ * Only escalates if BOTH the mandate AND the EXCEPTION_AUTHORITY.md file are missing.
  */
 async function guardAuthority(
   agentSlug: string,
   agentDisplayName: string,
   companyId: number,
 ): Promise<AgentDecision | null> {
+  // AP2: if an active mandate exists, EXCEPTION_AUTHORITY.md is documentation only
+  const mandate = await getActiveMandate(agentSlug, companyId).catch(() => null);
+  if (mandate && !mandate.revoked && new Date(mandate.validUntil) >= new Date()) {
+    return null; // Mandate is the authority source — no need to check file
+  }
+
   const auth = await getRoleBandAuthority(agentSlug, companyId, "hotel_gm");
   if (!auth) {
     void writeGovernanceEvent({
@@ -46,13 +65,13 @@ async function guardAuthority(
       eventCategory: "COMPLIANCE_BOUNDARY",
       decision: "FAIL",
       fileReferenced: `EXCEPTION_AUTHORITY.md (${agentSlug})`,
-      clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md missing — agent cannot determine authority boundaries",
+      clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md missing and no AP2 mandate — agent cannot determine authority boundaries",
       actionProposed: "ESCALATE — governance authority file not found for " + agentSlug,
       apaleoData: { event_type: "missing_exception_authority", agent_slug: agentSlug },
     });
     return {
       decision: "ESCALATE",
-      reasoning: `§1 violation — EXCEPTION_AUTHORITY.md missing for this agent. Cannot determine exception authority.`,
+      reasoning: `§1 violation — EXCEPTION_AUTHORITY.md missing and no AP2 mandate for this agent. Cannot determine exception authority.`,
       actionProposed: "Escalate to compliance officer — missing governance authority definition for " + agentSlug,
       exceptionApplied: false,
       clauseApplied: "VDA-MD §10: EXCEPTION_AUTHORITY.md missing — agent cannot determine authority boundaries",
@@ -63,8 +82,15 @@ async function guardAuthority(
 }
 
 /**
- * Build a runtime authority fragment string from EXCEPTION_AUTHORITY.md for injection into LLM prompts.
- * Replaces all hardcoded ceiling/authority strings in scenario runner prompts (§1 compliance).
+ * Build a runtime authority fragment string for injection into LLM prompts.
+ *
+ * AP2 (Task #61): Checks the active Intent Mandate first. If the mandate covers
+ * the requested exception class, returns a mandate-derived authority fragment.
+ * Falls back to EXCEPTION_AUTHORITY.md for exception classes not in the mandate
+ * (e.g., availability holds, reservation creates, folio reads).
+ *
+ * The EXCEPTION_AUTHORITY.md file remains as human-readable governance documentation
+ * but is no longer the primary authority source for mandate-covered actions.
  */
 async function buildAuthorityFragment(
   agentSlug: string,
@@ -72,6 +98,29 @@ async function buildAuthorityFragment(
   roleBand: string,
   exceptionClass?: string,
 ): Promise<string> {
+  // AP2: check active mandate first for mandate-covered exception classes
+  if (exceptionClass) {
+    const mandateAction = EXCEPTION_CLASS_TO_MANDATE_ACTION[exceptionClass];
+    if (mandateAction) {
+      const mandate = await getActiveMandate(agentSlug, companyId).catch(() => null);
+      if (mandate && !mandate.revoked && new Date(mandate.validUntil) >= new Date()) {
+        const auths = (mandate.authorizations ?? []) as MandateAuthorization[];
+        const auth = auths.find(a => a.action === mandateAction);
+        if (auth) {
+          const ceilingStr = auth.ceiling != null
+            ? `${auth.ceiling}${auth.currency ? ` ${auth.currency}` : auth.unit ? ` ${auth.unit}` : ""}`
+            : "unlimited";
+          return `Authority source: AP2 Intent Mandate [${mandate.mandateId}] — phase: ${mandate.phase}, action: ${mandateAction}, ceiling: ${ceilingStr}`;
+        }
+        // Action is mapped but not in this mandate (e.g., crawl phase has no auths)
+        if (mandate.phase === "crawl" || auths.length === 0) {
+          return `Authority source: AP2 Intent Mandate [${mandate.mandateId}] — phase: crawl (no standing authority for ${mandateAction}; HITL pre-approval required)`;
+        }
+      }
+    }
+  }
+
+  // Fall back to EXCEPTION_AUTHORITY.md (covers unmapped classes + no-mandate state)
   const bandAuth = await getRoleBandAuthority(agentSlug, companyId, roleBand);
   if (!bandAuth) {
     return `Authority source: EXCEPTION_AUTHORITY.md (file not found for ${agentSlug} — governance escalation required)`;

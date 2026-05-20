@@ -158,13 +158,15 @@ router.post("/a2a/onboarding",
 // ─── Standard A2A JSON-RPC endpoint — 8 governed agents (per-company) ─────────
 // Middleware chain:
 //   1. requireAgentCredential — W3C VC bearer token check (agent identity)
-//   2. requireValidMandate (annotate) — attaches AP2 mandate context to req
-//      without blocking; the A2A handler embeds mandate ctx in the witness entry
+//   2. requireValidMandate (enforce) — AP2 mandate existence + expiry check
+//      Returns 403 if no mandate or mandate is revoked.
+//      Returns 402 if mandate is expired.
+//      Action-level ceiling enforcement occurs inside agents.ts per-route middleware.
 //   3. a2aJsonRpcHandler — §2.1 governance pipeline (evaluateWithPolicyAndMcp)
 
 router.post("/a2a/:companyId/:agentId",
   (req, res, next) => requireAgentCredential(String(req.params.agentId))(req, res, next),
-  (req, res, next) => requireValidMandate(String(req.params.agentId), undefined, undefined, "annotate")(req, res, next),
+  (req, res, next) => requireValidMandate(String(req.params.agentId), undefined, undefined, "enforce")(req, res, next),
   a2aJsonRpcHandler
 );
 
