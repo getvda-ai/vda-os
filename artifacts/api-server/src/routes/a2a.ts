@@ -182,12 +182,12 @@ const A2A_CEILING_REQUIRED_AGENTS = new Set([
 ]);
 
 router.post("/a2a/:companyId/:agentId",
+  (req, res, next) => requireAgentCredential(String(req.params.agentId))(req, res, next),
   x402Middleware({
     cost: 1,
     operation: "governance_decision",
     description: "A2A governance decision via agent task submission",
   }),
-  (req, res, next) => requireAgentCredential(String(req.params.agentId))(req, res, next),
   async (req, res, next) => {
     const agentId = String(req.params.agentId);
     const body    = req.body as Record<string, unknown>;
