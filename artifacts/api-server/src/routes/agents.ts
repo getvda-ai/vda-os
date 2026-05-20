@@ -936,6 +936,7 @@ router.post("/agents/rate",
       ...(decision.decision === "PASS" ? {
         ucpOffer: buildRateOffer({
           propertyId,
+          companyId: Number(companyId),
           requestedRate: reqRate,
           barRate: bar,
           ratePlanId: ratePlanId ?? null,

@@ -11,7 +11,41 @@
  * Conformance: UCP v2026.1 JSON offer schema.
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHmac } from "node:crypto";
+
+// ─── Offer Token (HMAC-signed BAR binding) ────────────────────────────────────
+//
+// Rate offers include a `serverToken` — an HMAC-SHA256 of the authoritative
+// offer fields (offerId, barRate, propertyId, companyId, validUntil).
+// The negotiate endpoint verifies this token before trusting the client-supplied
+// barRate. This prevents callers from manipulating barRate to bypass discount ceilings.
+//
+// Secret: OFFER_HMAC_SECRET env var (falls back to a dev-only constant).
+const OFFER_HMAC_SECRET = process.env.OFFER_HMAC_SECRET ?? "vda-ucp-offer-hmac-dev-secret";
+
+export function signOffer(
+  offerId: string,
+  barRate: number,
+  propertyId: string,
+  companyId: number,
+  validUntil: string
+): string {
+  return createHmac("sha256", OFFER_HMAC_SECRET)
+    .update(JSON.stringify({ offerId, barRate, propertyId, companyId, validUntil }))
+    .digest("base64url");
+}
+
+export function verifyOfferToken(
+  offerId: string,
+  barRate: number,
+  propertyId: string,
+  companyId: number,
+  validUntil: string,
+  token: string
+): boolean {
+  const expected = signOffer(offerId, barRate, propertyId, companyId, validUntil);
+  return expected === token;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,6 +92,14 @@ export interface UcpOffer {
   terms: UcpOfferTerms;
   /** True = caller may submit a counter-offer to POST /api/ucp/negotiate. */
   negotiable: boolean;
+  /**
+   * HMAC-SHA256 token binding offerId, barRate, propertyId, companyId, and validUntil.
+   * Present only on negotiable offers (lodging.rate_override).
+   * The negotiate endpoint requires this token to prevent barRate manipulation.
+   * Include the full offer (or at minimum offerId + serverToken + barRate + validUntil)
+   * in `originalOffer` when submitting a counter-offer.
+   */
+  serverToken?: string;
 }
 
 // ─── Builder Options ──────────────────────────────────────────────────────────
@@ -71,6 +113,7 @@ export interface BuildAvailabilityOfferOpts {
 
 export interface BuildRateOfferOpts {
   propertyId: string;
+  companyId: number;
   requestedRate: number;
   barRate: number;
   ratePlanId: string | null;
@@ -143,12 +186,18 @@ export function buildAvailabilityOffer(opts: BuildAvailabilityOfferOpts): UcpOff
  * which validates the counter against the Rate Agent's active mandate ceilings.
  */
 export function buildRateOffer(opts: BuildRateOfferOpts): UcpOffer {
+  const offerId = randomUUID();
   const validUntil = new Date(Date.now() + 30 * 60_000).toISOString();
+
+  // Cryptographically bind the authoritative barRate to this offer.
+  // The negotiate endpoint verifies this token so callers cannot manipulate
+  // barRate to bypass discount-ceiling checks.
+  const serverToken = signOffer(offerId, opts.barRate, opts.propertyId, opts.companyId, validUntil);
 
   return {
     "@context": "https://ucp.spec/v2026",
     specVersion: "2026.1",
-    offerId: randomUUID(),
+    offerId,
     item: {
       type: "lodging.rate_override",
       propertyId: opts.propertyId,
@@ -177,6 +226,7 @@ export function buildRateOffer(opts: BuildRateOfferOpts): UcpOffer {
       mandateId: opts.mandateId,
     },
     negotiable: true,
+    serverToken,
   };
 }
 

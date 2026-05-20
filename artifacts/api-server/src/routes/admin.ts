@@ -13,6 +13,7 @@ import path from "path";
 import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents, agentMandates } from "@workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { issueMandate } from "../lib/mandateIssuer.js";
+import { buildRateOffer } from "../lib/ucpOffer.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 import { generateExceptionAuthorityFile, COMPANIES_MAP, JURISDICTION_CONTEXT } from "../lib/exceptionAuthorityGenerator.js";
 import { startOnboarding } from "../onboarding/onboardingOrchestrator.js";
@@ -710,6 +711,40 @@ router.post("/admin/seed-mandates", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "admin/seed-mandates error");
     return res.status(500).json({ error: err instanceof Error ? err.message : "Seed failed" });
+  }
+});
+
+// ─── POST /api/admin/ucp-test-offer ───────────────────────────────────────────
+// Test-only helper: generates a properly signed UCP rate offer for E2E tests.
+// Returns a ucpOffer with a valid serverToken so tests can exercise the full
+// negotiate flow without needing a live LLM/Apaleo rate agent call.
+router.post("/admin/ucp-test-offer", async (req, res) => {
+  try {
+    const { propertyId = "MUC", companyId = 1, barRate = 150, requestedRate, ratePlanId = null } = req.body as {
+      propertyId?: string;
+      companyId?: number;
+      barRate?: number;
+      requestedRate?: number;
+      ratePlanId?: string | null;
+    };
+
+    const effective = Number(requestedRate ?? barRate);
+    const bar = Number(barRate);
+    const discountPct = bar > 0 ? Math.round(((bar - effective) / bar) * 100) : 0;
+
+    const offer = buildRateOffer({
+      propertyId,
+      companyId: Number(companyId),
+      requestedRate: effective,
+      barRate: bar,
+      ratePlanId: ratePlanId ?? null,
+      discountPct,
+      mandateId: null,
+    });
+
+    return res.json({ offer: { ...offer, barRate: bar } });
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Failed to build test offer" });
   }
 });
 
