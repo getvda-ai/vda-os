@@ -83,10 +83,17 @@ export interface BuildRateOfferOpts {
 /**
  * Builds a UCP offer for an Availability Agent PASS decision.
  *
- * The availability offer confirms unit capacity exists for the requested dates.
- * Concrete pricing is deferred — the caller should follow up via the Rate Agent
- * or POST /api/ucp/negotiate. The offer is non-negotiable (units are either
- * available or they aren't).
+ * Apaleo data used: `propertyId` (from PMS), `arrival`/`departure` (from request),
+ * which are the same values passed to `GetAvailableUnitGroups` via MCP.
+ *
+ * `item.unitGroup` is null by design at this phase: the Availability Agent evaluates
+ * aggregate unit capacity at the property level (not a specific unit reservation).
+ * Unit group selection and commitment happen at the Reservation Bot phase. This is
+ * consistent with UCP phase semantics — the availability offer is a "can-fulfill"
+ * signal; `unitGroup` is resolved and committed by the reservation flow.
+ *
+ * The offer is non-negotiable: units are either available or they aren't.
+ * Pricing negotiation is handled by the Rate Agent offer (`lodging.rate_override`).
  */
 export function buildAvailabilityOffer(opts: BuildAvailabilityOfferOpts): UcpOffer {
   const validUntil = opts.departure
@@ -100,12 +107,14 @@ export function buildAvailabilityOffer(opts: BuildAvailabilityOfferOpts): UcpOff
     item: {
       type: "lodging.unit_group",
       propertyId: opts.propertyId,
+      // null by design: the Availability Agent evaluates capacity at property level
+      // via Apaleo GetAvailableUnitGroups. Unit group is committed at reservation phase.
       unitGroup: null,
       ratePlanId: null,
     },
     price: {
       // Price is not determined at availability-check time — caller must invoke
-      // the Rate Agent or negotiate via POST /api/ucp/negotiate.
+      // the Rate Agent (POST /api/agents/rate) or negotiate via POST /api/ucp/negotiate.
       amount: null,
       currency: "EUR",
       unit: "per_night",
@@ -113,7 +122,7 @@ export function buildAvailabilityOffer(opts: BuildAvailabilityOfferOpts): UcpOff
     validity: { validUntil },
     terms: {
       cancellationPolicy: "citizenM standard cancellation terms apply",
-      governedBy: `${opts.propertyId} Availability Agent governance policy`,
+      governedBy: `${opts.propertyId} Availability Agent governance policy (Apaleo GetAvailableUnitGroups)`,
       mandateRequired: true,
       mandateId: opts.mandateId,
     },
@@ -124,8 +133,13 @@ export function buildAvailabilityOffer(opts: BuildAvailabilityOfferOpts): UcpOff
 /**
  * Builds a UCP offer for a Rate Agent PASS decision.
  *
+ * Apaleo data used:
+ *   - `barRate` — live BAR fetched from Apaleo ListRatePlans / GetReport by the Rate Agent
+ *   - `requestedRate` — the proposed rate (may equal BAR or be a discount)
+ *   - `ratePlanId` — Apaleo rate plan identifier (e.g. "RPC-MUC-CORP")
+ *
  * The rate offer commits the platform to the approved rate for 30 minutes.
- * It is negotiable — the caller may counter-offer via POST /api/ucp/negotiate,
+ * It is negotiable — the caller may submit a counter-offer via POST /api/ucp/negotiate,
  * which validates the counter against the Rate Agent's active mandate ceilings.
  */
 export function buildRateOffer(opts: BuildRateOfferOpts): UcpOffer {
@@ -138,10 +152,13 @@ export function buildRateOffer(opts: BuildRateOfferOpts): UcpOffer {
     item: {
       type: "lodging.rate_override",
       propertyId: opts.propertyId,
+      // null: unit group is resolved at reservation phase, not rate phase
       unitGroup: null,
+      // Apaleo rate plan identifier — populated from caller's Apaleo data
       ratePlanId: opts.ratePlanId,
     },
     price: {
+      // Approved rate sourced from Apaleo: requestedRate vs BAR from ListRatePlans/GetReport
       amount: opts.requestedRate,
       currency: "EUR",
       unit: "per_night",
@@ -149,7 +166,13 @@ export function buildRateOffer(opts: BuildRateOfferOpts): UcpOffer {
     validity: { validUntil },
     terms: {
       cancellationPolicy: "citizenM standard cancellation terms apply",
-      governedBy: `${opts.propertyId} Rate Agent governance policy (${opts.discountPct}% discount applied vs BAR €${opts.barRate})`,
+      governedBy: [
+        `${opts.propertyId} Rate Agent governance policy`,
+        `Approved: €${opts.requestedRate}/night`,
+        opts.discountPct > 0
+          ? `(${opts.discountPct}% discount vs Apaleo BAR €${opts.barRate})`
+          : "(BAR rate — no discount)",
+      ].join(" "),
       mandateRequired: true,
       mandateId: opts.mandateId,
     },

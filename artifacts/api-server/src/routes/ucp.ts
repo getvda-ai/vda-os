@@ -12,12 +12,17 @@ import { Router } from "express";
 import { getActiveMandate, checkMandateCeiling } from "../lib/mandateIssuer.js";
 import { buildRateOffer, type UcpOffer } from "../lib/ucpOffer.js";
 import { logger } from "../lib/logger.js";
+import { verifyAgentCredentialMiddleware } from "../lib/verifyAgentCredential.js";
 
 const router = Router();
 
 // ─── POST /api/ucp/negotiate ──────────────────────────────────────────────────
 /**
  * Counter-offer negotiation against the Rate Agent's active mandate.
+ *
+ * Authentication: Authorization: Bearer <vcBase64url>
+ *   Any valid VDA-MD agent VC is accepted. The VC's company_id must match
+ *   the companyId in the request body (tenant binding enforced by middleware).
  *
  * Request body:
  * {
@@ -39,7 +44,7 @@ const router = Router();
  *   mandateId?: string
  * }
  */
-router.post("/ucp/negotiate", async (req, res) => {
+router.post("/ucp/negotiate", verifyAgentCredentialMiddleware, async (req, res) => {
   try {
     const { offerType, companyId, propertyId, counter } = req.body as {
       offerType?: string;
