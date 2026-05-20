@@ -120,7 +120,13 @@ async function buildAuthorityFragment(
     }
   }
 
-  // Fall back to EXCEPTION_AUTHORITY.md (covers unmapped classes + no-mandate state)
+  // Mandate-covered class with no active mandate — must NOT fall back to EXCEPTION_AUTHORITY.md.
+  // The mandate is the sole authority source for mandate-covered ceilings.
+  if (exceptionClass && EXCEPTION_CLASS_TO_MANDATE_ACTION[exceptionClass]) {
+    return `Authority source: none — no active AP2 Intent Mandate for action "${EXCEPTION_CLASS_TO_MANDATE_ACTION[exceptionClass]}" (HITL pre-approval required before proceeding)`;
+  }
+
+  // Non-mandate-covered classes only: fall back to EXCEPTION_AUTHORITY.md
   const bandAuth = await getRoleBandAuthority(agentSlug, companyId, roleBand);
   if (!bandAuth) {
     return `Authority source: EXCEPTION_AUTHORITY.md (file not found for ${agentSlug} — governance escalation required)`;

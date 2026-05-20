@@ -24,18 +24,59 @@ const MANDATE_VALIDITY_DAYS: Record<string, number> = {
 };
 
 // ─── Sign a mandate payload ───────────────────────────────────────────────────
-// Uses HMAC-SHA256 over the canonical mandate JSON using the platform issuer
-// key's private key material. This is a simplified signing scheme for platform-
-// managed mandates; cross-party exchange would use a full Ed25519 signature.
+// Uses a proper Ed25519 detached signature over the canonical mandate JSON.
+// Signing uses the platform issuer's private key; verification uses the public key only.
+// Signature is encoded as 128-char lowercase hex (64 bytes × 2).
+//
+// Legacy: pre-migration mandates were signed with HMAC-SHA256 (64-char hex).
+// verifyMandateSignature detects the format and routes to the correct verifier.
+
+const CANONICAL_KEYS = [
+  "mandateId", "agentId", "companyId", "agentDid", "issuerDid",
+  "phase", "authorizations", "linkedGovernanceHash", "issuedAt", "validUntil",
+];
+
+function canonicalize(payload: Record<string, unknown>): Uint8Array {
+  const ordered: Record<string, unknown> = {};
+  for (const k of CANONICAL_KEYS) ordered[k] = payload[k];
+  return new TextEncoder().encode(JSON.stringify(ordered));
+}
 
 async function signMandatePayload(payload: Record<string, unknown>): Promise<string> {
   const issuer = await getPlatformIssuer();
-  // Export private key bytes from the Ed25519 keypair for HMAC derivation.
-  // @digitalbazaar/ed25519-verification-key-2020 exports `privateKeyMultibase` (z-prefixed multibase).
-  const exported = await issuer.key.export({ privateKey: true }) as { privateKeyMultibase?: string; privateKeyBase58?: string };
-  const keyMaterial = exported.privateKeyMultibase ?? exported.privateKeyBase58 ?? issuer.did;
-  const canonical = JSON.stringify(payload, Object.keys(payload).sort());
-  return createHmac("sha256", keyMaterial).update(canonical).digest("hex");
+  const signer = issuer.key.signer() as { sign(args: { data: Uint8Array }): Promise<Uint8Array> };
+  const sigBytes = await signer.sign({ data: canonicalize(payload) });
+  return Buffer.from(sigBytes).toString("hex");
+}
+
+// Legacy HMAC verifier — used only during migration for pre-Ed25519 mandates
+async function verifyLegacyHmac(mandate: typeof agentMandates.$inferSelect): Promise<boolean> {
+  try {
+    const issuer = await getPlatformIssuer();
+    const exported = await issuer.key.export({ privateKey: true }) as { privateKeyMultibase?: string; privateKeyBase58?: string };
+    const keyMaterial = exported.privateKeyMultibase ?? exported.privateKeyBase58 ?? issuer.did;
+    const payload: Record<string, unknown> = {
+      mandateId:            mandate.mandateId,
+      agentId:              mandate.agentId,
+      companyId:            mandate.companyId,
+      agentDid:             mandate.agentDid,
+      issuerDid:            mandate.issuerDid,
+      phase:                mandate.phase,
+      authorizations:       mandate.authorizations,
+      linkedGovernanceHash: mandate.linkedGovernanceHash ?? "NO_GOVERNANCE_FILES",
+      issuedAt:             toIso(mandate.issuedAt),
+      validUntil:           toIso(mandate.validUntil),
+    };
+    const canonical = JSON.stringify(payload, Object.keys(payload).sort());
+    const expected = createHmac("sha256", keyMaterial).update(canonical).digest("hex");
+    return expected === mandate.signature;
+  } catch {
+    return false;
+  }
+}
+
+function toIso(v: unknown): string {
+  return v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString();
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -64,18 +105,6 @@ export interface IssuedMandateResult {
 export async function issueMandate(input: IssueMandateInput): Promise<IssuedMandateResult> {
   const { agentId, companyId, agentDid, phase, onboardingId } = input;
 
-  // Revoke existing active mandates
-  await db
-    .update(agentMandates)
-    .set({ revoked: true, revokedAt: new Date(), revokedReason: `replaced — phase promotion to ${phase}` })
-    .where(
-      and(
-        eq(agentMandates.agentId, agentId),
-        eq(agentMandates.companyId, companyId),
-        eq(agentMandates.revoked, false)
-      )
-    );
-
   const issuer = await getPlatformIssuer();
   const governanceHash = await computeGovernanceHash(companyId, agentId);
   const authorizations: MandateAuthorization[] = PHASE_AUTHORIZATION_TIERS[phase] ?? [];
@@ -101,24 +130,35 @@ export async function issueMandate(input: IssueMandateInput): Promise<IssuedMand
 
   const signature = await signMandatePayload(payload);
 
-  const [row] = await db
-    .insert(agentMandates)
-    .values({
-      mandateId,
-      agentId,
-      companyId,
-      agentDid,
-      issuerDid: issuer.did,
-      phase,
-      authorizations,
-      linkedGovernanceHash: governanceHash,
-      signature,
-      issuedAt: now,
-      validUntil,
-      revoked: false,
-      onboardingId: onboardingId ?? null,
-    })
-    .returning({ id: agentMandates.id });
+  const insertValues = {
+    mandateId,
+    agentId,
+    companyId,
+    agentDid,
+    issuerDid: issuer.did,
+    phase,
+    authorizations,
+    linkedGovernanceHash: governanceHash,
+    signature,
+    issuedAt: now,
+    validUntil,
+    revoked: false,
+    onboardingId: onboardingId ?? null,
+  };
+
+  const [row] = await db.transaction(async (tx) => {
+    await tx
+      .update(agentMandates)
+      .set({ revoked: true, revokedAt: new Date(), revokedReason: `replaced — phase promotion to ${phase}` })
+      .where(
+        and(
+          eq(agentMandates.agentId, agentId),
+          eq(agentMandates.companyId, companyId),
+          eq(agentMandates.revoked, false)
+        )
+      );
+    return tx.insert(agentMandates).values(insertValues).returning({ id: agentMandates.id });
+  });
 
   logger.info({ mandateId, agentId, companyId, phase, authCount: authorizations.length }, "[Mandate] Intent mandate issued");
 
@@ -200,18 +240,24 @@ export async function getMandateWithStatus(
  * computes the expected HMAC using the platform issuer key.  Returns false
  * (fail-closed) on any error including key unavailability.
  *
- * Note: mandates use HMAC-SHA256 over the platform Ed25519 key material —
- * equivalent tamper-detection for platform-internal authority grants.
- * Cross-party exchange would use a full Ed25519 detached signature.
+ * Uses the Ed25519 public key via `issuer.key.verifier()` — private key material
+ * is never involved in verification.  Returns false (fail-closed) on any error.
+ *
+ * Format detection:
+ *   128-char hex → new Ed25519 signature (verify with public key)
+ *   64-char hex  → legacy HMAC-SHA256 signature (verify with HMAC for backward compat)
  */
 export async function verifyMandateSignature(
   mandate: typeof agentMandates.$inferSelect
 ): Promise<boolean> {
   try {
-    const toDate = (v: unknown): Date =>
-      v instanceof Date ? v : new Date(String(v));
+    // Legacy HMAC-SHA256 mandates (pre-Ed25519 migration): 64-char hex
+    if (/^[0-9a-f]{64}$/.test(mandate.signature)) {
+      return verifyLegacyHmac(mandate);
+    }
 
-    const payload = {
+    // Ed25519 mandates: 128-char hex
+    const payload: Record<string, unknown> = {
       mandateId:            mandate.mandateId,
       agentId:              mandate.agentId,
       companyId:            mandate.companyId,
@@ -220,22 +266,142 @@ export async function verifyMandateSignature(
       phase:                mandate.phase,
       authorizations:       mandate.authorizations,
       linkedGovernanceHash: mandate.linkedGovernanceHash ?? "NO_GOVERNANCE_FILES",
-      issuedAt:             toDate(mandate.issuedAt).toISOString(),
-      validUntil:           toDate(mandate.validUntil).toISOString(),
+      issuedAt:             toIso(mandate.issuedAt),
+      validUntil:           toIso(mandate.validUntil),
     };
 
-    const expectedSig = await signMandatePayload(payload);
-    const valid = expectedSig === mandate.signature;
+    const issuer = await getPlatformIssuer();
+    const verifier = issuer.key.verifier() as {
+      verify(args: { data: Uint8Array; signature: Uint8Array }): Promise<boolean>;
+    };
+    const valid = await verifier.verify({
+      data:      canonicalize(payload),
+      signature: Buffer.from(mandate.signature, "hex"),
+    });
+
     if (!valid) {
       logger.warn(
         { mandateId: mandate.mandateId, agentId: mandate.agentId },
-        "[Mandate] Signature mismatch — possible tampering"
+        "[Mandate] Ed25519 signature mismatch — possible tampering"
       );
     }
     return valid;
   } catch (err) {
     logger.warn({ err, mandateId: mandate.mandateId }, "[Mandate] Signature verification error (fail-closed)");
     return false;
+  }
+}
+
+/**
+ * Re-issue any active mandates that still carry legacy HMAC-SHA256 signatures.
+ * Called once at server startup — idempotent and safe to run repeatedly.
+ * After migration all active mandates have proper Ed25519 signatures.
+ */
+export async function reissueMandatesIfLegacy(): Promise<void> {
+  const legacyPattern = /^[0-9a-f]{64}$/;
+  const now = new Date();
+
+  const rows = await db
+    .select()
+    .from(agentMandates)
+    .where(eq(agentMandates.revoked, false));
+
+  const legacy = rows.filter(
+    r => legacyPattern.test(r.signature) && new Date(r.validUntil) > now
+  );
+
+  if (legacy.length === 0) {
+    logger.debug("[Mandate] No legacy HMAC mandates found — Ed25519 migration not required");
+    return;
+  }
+
+  logger.info({ count: legacy.length }, "[Mandate] Re-issuing legacy HMAC-signed mandates with Ed25519");
+
+  for (const m of legacy) {
+    try {
+      await issueMandate({
+        agentId:      m.agentId,
+        companyId:    m.companyId,
+        agentDid:     m.agentDid,
+        phase:        m.phase,
+        onboardingId: m.onboardingId ?? undefined,
+      });
+    } catch (err) {
+      logger.warn({ err, agentId: m.agentId, companyId: m.companyId },
+        "[Mandate] Failed to re-issue legacy mandate — skipping");
+    }
+  }
+
+  logger.info({ count: legacy.length }, "[Mandate] Ed25519 mandate migration complete");
+
+  // Orphan recovery: verify every processed pair now has an active mandate.
+  // If not (e.g. prior run revoked without inserting), re-issue once more.
+  const orphans: typeof legacy = [];
+  for (const m of legacy) {
+    const { status } = await getMandateWithStatus(m.agentId, m.companyId);
+    if (status !== "active") orphans.push(m);
+  }
+
+  if (orphans.length > 0) {
+    logger.warn({ count: orphans.length }, "[Mandate] Orphaned agents detected after migration — re-issuing");
+    for (const m of orphans) {
+      try {
+        await issueMandate({
+          agentId:      m.agentId,
+          companyId:    m.companyId,
+          agentDid:     m.agentDid,
+          phase:        m.phase,
+          onboardingId: m.onboardingId ?? undefined,
+        });
+        logger.info({ agentId: m.agentId, companyId: m.companyId }, "[Mandate] Orphan recovered — Ed25519 mandate issued");
+      } catch (err) {
+        logger.error({ err, agentId: m.agentId, companyId: m.companyId },
+          "[Mandate] Orphan recovery failed — agent has no active mandate");
+      }
+    }
+  }
+}
+
+/**
+ * Startup health check: find every (agentId, companyId) pair that has mandate history
+ * but no currently active mandate, and re-issue one. Fixes agents left orphaned by
+ * any prior non-transactional revoke+insert failure.
+ */
+export async function recoverOrphanedMandates(): Promise<void> {
+  const pairs = await db
+    .selectDistinct({ agentId: agentMandates.agentId, companyId: agentMandates.companyId })
+    .from(agentMandates);
+
+  const orphans: Array<{ agentId: string; companyId: number; agentDid: string; phase: string; onboardingId: string | null }> = [];
+
+  for (const { agentId, companyId } of pairs) {
+    const { status } = await getMandateWithStatus(agentId, companyId);
+    if (status !== "active") {
+      const [latest] = await db
+        .select()
+        .from(agentMandates)
+        .where(and(eq(agentMandates.agentId, agentId), eq(agentMandates.companyId, companyId)))
+        .orderBy(desc(agentMandates.issuedAt))
+        .limit(1);
+      if (latest) {
+        orphans.push({ agentId, companyId, agentDid: latest.agentDid, phase: latest.phase, onboardingId: latest.onboardingId ?? null });
+      }
+    }
+  }
+
+  if (orphans.length === 0) {
+    logger.debug("[Mandate] Orphan check: all agents have active mandates");
+    return;
+  }
+
+  logger.warn({ count: orphans.length }, "[Mandate] Orphan recovery: agents with no active mandate — re-issuing");
+  for (const o of orphans) {
+    try {
+      await issueMandate({ agentId: o.agentId, companyId: o.companyId, agentDid: o.agentDid, phase: o.phase, onboardingId: o.onboardingId ?? undefined });
+      logger.info({ agentId: o.agentId, companyId: o.companyId }, "[Mandate] Orphan recovered — Ed25519 mandate issued");
+    } catch (err) {
+      logger.error({ err, agentId: o.agentId, companyId: o.companyId }, "[Mandate] Orphan recovery failed");
+    }
   }
 }
 

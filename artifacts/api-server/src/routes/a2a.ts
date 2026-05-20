@@ -161,23 +161,48 @@ router.post("/a2a/onboarding",
 //   2. requireValidMandate (enforce) — AP2 mandate existence + signature + ceiling check
 //      Returns 403 if no mandate, revoked, expired, or signature invalid.
 //      Returns 402 (with escalationToken) if mandate ceiling is breached.
-//      A2A callers may declare their action intent via JSON-RPC params.metadata:
-//        { mandateAction: "folio_charge", mandateValue: 250 }
-//      If metadata is absent, only mandate existence + signature is checked;
-//      action-level ceiling enforcement then falls to per-route middleware in agents.ts.
+//
+//      Ceiling-checked agents (monetary authority): MUST include action intent metadata.
+//        params.metadata: { mandateAction: "folio_charge", mandateValue: 250 }
+//      Omitting metadata for ceiling-checked agents returns 400 — callers cannot bypass
+//      ceiling enforcement by omission.
+//
+//      Non-ceiling agents (availability, reservation, check-in, folio, revenue):
+//        Only mandate existence + signature is checked; no monetary ceiling applies.
 //   3. a2aJsonRpcHandler — §2.1 governance pipeline (evaluateWithPolicyAndMcp)
+
+// Agents that have monetary ceilings in their mandate authorizations.
+// These agents REQUIRE params.metadata.mandateAction + mandateValue in A2A requests
+// so ceiling enforcement cannot be bypassed by omitting metadata.
+const A2A_CEILING_REQUIRED_AGENTS = new Set([
+  "folio-charge-agent",  // folio_charge ceiling: €500 (walk phase)
+  "checkout-agent",      // refund ceiling: €150 (walk phase)
+  "rate-agent",          // discount ceiling: 10% (walk phase)
+]);
 
 router.post("/a2a/:companyId/:agentId",
   (req, res, next) => requireAgentCredential(String(req.params.agentId))(req, res, next),
   async (req, res, next) => {
-    const body   = req.body as Record<string, unknown>;
-    const params = ((body?.params  ?? {}) as Record<string, unknown>);
-    const meta   = ((params?.metadata ?? {}) as Record<string, unknown>);
-    const action = typeof meta?.mandateAction === "string" ? meta.mandateAction : undefined;
-    const rawVal = action ? Number(meta?.mandateValue) : NaN;
-    const val    = !isNaN(rawVal) && rawVal > 0 ? rawVal : undefined;
+    const agentId = String(req.params.agentId);
+    const body    = req.body as Record<string, unknown>;
+    const params  = ((body?.params  ?? {}) as Record<string, unknown>);
+    const meta    = ((params?.metadata ?? {}) as Record<string, unknown>);
+    const action  = typeof meta?.mandateAction === "string" ? meta.mandateAction : undefined;
+    const rawVal  = action ? Number(meta?.mandateValue) : NaN;
+    const val     = !isNaN(rawVal) && rawVal > 0 ? rawVal : undefined;
+
+    // Ceiling-checked agents must declare action intent — omission is not allowed
+    if (A2A_CEILING_REQUIRED_AGENTS.has(agentId) && !action) {
+      return res.status(400).json({
+        error:   "Mandate action metadata required",
+        message: `Agent '${agentId}' requires params.metadata.mandateAction and params.metadata.mandateValue in every A2A request`,
+        hint:    `Include { "mandateAction": "<action>", "mandateValue": <number> } in params.metadata`,
+        agent:   agentId,
+      });
+    }
+
     return requireValidMandate(
-      String(req.params.agentId),
+      agentId,
       action,
       val !== undefined ? (_: Record<string, unknown>) => val : undefined,
       "enforce"

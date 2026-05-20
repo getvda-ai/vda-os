@@ -260,8 +260,21 @@ export function requireValidMandate(
       return next();
 
     } catch (err) {
-      // Non-fatal: mandate system failure must not block agent operations
-      logger.warn({ err, agentId, action }, "[Mandate] Validator error (non-fatal) — proceeding without mandate check");
+      logger.error({ err, agentId, action, mode }, "[Mandate] Validator error");
+      req.mandateCtx = { mandateId: null, phase: null, withinCeiling: false, requiresHitl: true };
+      if (mode === "enforce") {
+        // Fail-closed: mandate validation errors must not silently allow operations
+        return res.status(503).json({
+          decision:          "ESCALATE",
+          hitlRequired:      true,
+          mandateViolation:  false,
+          violationReason:   "mandate_validation_unavailable",
+          escalationToken:   randomUUID(),
+          escalationReason:  "Mandate validation service unavailable — request blocked pending recovery",
+          riskFlags:         ["ap2_mandate_validation_error"],
+        });
+      }
+      // Annotate mode: proceed with empty (no-mandate) context
       req.mandateCtx = { mandateId: null, phase: null, withinCeiling: true, requiresHitl: false };
       return next();
     }
