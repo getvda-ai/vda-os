@@ -185,17 +185,21 @@ router.post("/a2a/:companyId/:agentId",
   async (req, res, next) => {
     const agentId = String(req.params.agentId);
     const body    = req.body as Record<string, unknown>;
+    const method  = typeof body?.method === "string" ? body.method : "";
+    const isSend  = method === "tasks/send";
     const params  = ((body?.params  ?? {}) as Record<string, unknown>);
     const meta    = ((params?.metadata ?? {}) as Record<string, unknown>);
     const action  = typeof meta?.mandateAction === "string" ? meta.mandateAction : undefined;
-    const rawVal  = action ? Number(meta?.mandateValue) : NaN;
+    const rawVal  = Number(meta?.mandateValue);
     const val     = !isNaN(rawVal) && rawVal > 0 ? rawVal : undefined;
 
-    // Ceiling-checked agents must declare action intent — omission is not allowed
-    if (A2A_CEILING_REQUIRED_AGENTS.has(agentId) && !action) {
+    // Ceiling-checked agents on write operations must declare both action AND a valid
+    // numeric value — omitting either allows ceiling bypass.
+    // Read/control methods (tasks/get, tasks/cancel) are exempt from this requirement.
+    if (isSend && A2A_CEILING_REQUIRED_AGENTS.has(agentId) && (!action || val === undefined)) {
       return res.status(400).json({
         error:   "Mandate action metadata required",
-        message: `Agent '${agentId}' requires params.metadata.mandateAction and params.metadata.mandateValue in every A2A request`,
+        message: `Agent '${agentId}' requires params.metadata.mandateAction (string) and params.metadata.mandateValue (positive number) in tasks/send requests`,
         hint:    `Include { "mandateAction": "<action>", "mandateValue": <number> } in params.metadata`,
         agent:   agentId,
       });
@@ -203,8 +207,8 @@ router.post("/a2a/:companyId/:agentId",
 
     return requireValidMandate(
       agentId,
-      action,
-      val !== undefined ? (_: Record<string, unknown>) => val : undefined,
+      isSend ? action : undefined,
+      isSend && val !== undefined ? (_: Record<string, unknown>) => val : undefined,
       "enforce"
     )(req, res, next);
   },
