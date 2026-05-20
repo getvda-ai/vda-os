@@ -22,6 +22,7 @@ import {
   getActiveCredential,
   listCredentialsFromFiles,
 } from "../lib/agentCredentialIssuer.js";
+import { getActiveMandate } from "../lib/mandateIssuer.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
 import { getRoleBandAuthority, getRejectedClasses, getRejectedOrBaselinedClasses } from "../lib/exceptionAuthorityReader.js";
 
@@ -2760,6 +2761,46 @@ router.get("/agents/credentials/active", async (req, res) => {
     const { secretKeyMultibase: _sk, ...safe } = cred;
     void _sk;
     return res.json(safe);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+/**
+ * GET /api/agents/:agentId/mandate?companyId=N
+ * Returns the active (non-revoked, non-expired) AP2 Intent Mandate for a specific agent.
+ * Returns 404 if no valid mandate exists (agent operates in HITL-required mode).
+ */
+router.get("/agents/:agentId/mandate", async (req, res) => {
+  try {
+    const agentId = String(req.params.agentId);
+    const companyId = Number(req.query["companyId"]);
+    if (!agentId || !companyId) {
+      return res.status(400).json({ error: "agentId (path) and companyId (query) are required" });
+    }
+    const mandate = await getActiveMandate(agentId, companyId);
+    if (!mandate) {
+      return res.status(404).json({
+        error: "No active mandate found",
+        agentId,
+        companyId,
+        note: "Agent operates in HITL-required mode — no standing spending authority",
+      });
+    }
+    return res.json({
+      mandateId: mandate.mandateId,
+      agentId: mandate.agentId,
+      companyId: mandate.companyId,
+      agentDid: mandate.agentDid,
+      issuerDid: mandate.issuerDid,
+      phase: mandate.phase,
+      authorizations: mandate.authorizations,
+      linkedGovernanceHash: mandate.linkedGovernanceHash,
+      signature: mandate.signature,
+      issuedAt: mandate.issuedAt instanceof Date ? mandate.issuedAt.toISOString() : String(mandate.issuedAt),
+      validUntil: mandate.validUntil instanceof Date ? mandate.validUntil.toISOString() : String(mandate.validUntil),
+      revoked: mandate.revoked,
+    });
   } catch (err: unknown) {
     return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }

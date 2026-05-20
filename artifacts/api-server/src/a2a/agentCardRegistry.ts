@@ -47,7 +47,7 @@ export interface AgentCard {
     schemes: string[];
   };
   /** AP2 Intent Mandate currently active for this agent+property. null = no mandate issued yet. */
-  activeMandate: AgentCardMandate | null;
+  intentMandate: AgentCardMandate | null;
 }
 
 const DOCS_URL = "https://vda-md.citizenm.com/docs/agents";
@@ -213,7 +213,7 @@ export async function getAgentCard(companyId: number, agentId: string): Promise<
     capabilities: { streaming: true, pushNotifications: false },
     skills,
     authentication: { schemes: ["bearer"] },
-    activeMandate,
+    intentMandate: activeMandate,
   };
 }
 
@@ -238,7 +238,7 @@ export function getOnboardingAgentCard(): AgentCard {
     capabilities: { streaming: true, pushNotifications: false },
     skills: def.defaultSkills,
     authentication: { schemes: ["bearer"] },
-    activeMandate: null,
+    intentMandate: null,
   };
 }
 
@@ -259,7 +259,7 @@ export function getPlatformCard(): AgentCard {
       description: AGENT_DEFS[id].description,
     })),
     authentication: { schemes: ["bearer"] },
-    activeMandate: null,
+    intentMandate: null,
   };
 }
 
