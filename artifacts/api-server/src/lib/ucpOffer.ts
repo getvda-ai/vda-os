@@ -11,7 +11,7 @@
  * Conformance: UCP v2026.1 JSON offer schema.
  */
 
-import { randomUUID, createHmac } from "node:crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 
 // ─── Offer Token (HMAC-signed BAR binding) ────────────────────────────────────
 //
@@ -20,8 +20,32 @@ import { randomUUID, createHmac } from "node:crypto";
 // The negotiate endpoint verifies this token before trusting the client-supplied
 // barRate. This prevents callers from manipulating barRate to bypass discount ceilings.
 //
-// Secret: OFFER_HMAC_SECRET env var (falls back to a dev-only constant).
-const OFFER_HMAC_SECRET = process.env.OFFER_HMAC_SECRET ?? "vda-ucp-offer-hmac-dev-secret";
+// Secret: OFFER_HMAC_SECRET env var (required in production).
+// If unset in non-production environments a random per-process secret is generated
+// so tokens are still unpredictable and tamper-proof, but they do not survive
+// server restarts (acceptable for dev/test sessions).
+function resolveHmacSecret(): string {
+  const envSecret = process.env.OFFER_HMAC_SECRET;
+  if (envSecret) return envSecret;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "OFFER_HMAC_SECRET environment variable must be set in production. " +
+      "Generate with: openssl rand -base64 32"
+    );
+  }
+
+  // Non-production: generate a random per-process secret.
+  // Tokens cannot be forged externally but are ephemeral (invalid after restart).
+  const generated = randomUUID() + randomUUID();
+  console.warn(
+    "[ucpOffer] OFFER_HMAC_SECRET is not set. Using a random per-process secret. " +
+    "UCP offer tokens will expire on server restart. Set OFFER_HMAC_SECRET for persistent sessions."
+  );
+  return generated;
+}
+
+const OFFER_HMAC_SECRET = resolveHmacSecret();
 
 export function signOffer(
   offerId: string,
@@ -44,7 +68,12 @@ export function verifyOfferToken(
   token: string
 ): boolean {
   const expected = signOffer(offerId, barRate, propertyId, companyId, validUntil);
-  return expected === token;
+  // Constant-time comparison prevents HMAC timing oracle attacks.
+  try {
+    return timingSafeEqual(Buffer.from(expected, "utf8"), Buffer.from(token, "utf8"));
+  } catch {
+    return false;
+  }
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
