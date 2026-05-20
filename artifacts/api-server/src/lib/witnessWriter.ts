@@ -147,26 +147,19 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
 
   // ── C2PA Manifest generation ─────────────────────────────────────────────────
   // Build a C2PA v2.1-style provenance manifest and sign it with the platform's
-  // Ed25519 key before inserting.  Errors are caught and logged non-fatally —
-  // a missing manifest must never block the witness write itself.
-  let c2paManifest: Record<string, unknown> | null = null;
-  try {
-    c2paManifest = await buildC2PAManifest({
-      modelId: entry.modelId ?? PLATFORM_MODEL_ID,
-      agentDid: entry.agentDid ?? null,
-      governanceFileHash: entry.governanceFileHash ?? null,
-      filesConsulted,
-      decision: entry.decision.decision,
-      clauseApplied: entry.decision.clauseApplied,
-      agentName: entry.agent,
-      companyId: entry.companyId,
-    }) as unknown as Record<string, unknown>;
-  } catch (manifestErr) {
-    logger.warn(
-      { err: manifestErr, agent: entry.agent, companyId: entry.companyId },
-      "[C2PA] Manifest generation failed — writing witness entry without provenance"
-    );
-  }
+  // Ed25519 key before inserting.  Per CAITA / Utah HB 276 / Washington HB 1170
+  // requirements, EVERY witness entry MUST carry a signed provenance manifest.
+  // Any failure is a hard error — the write is aborted so no entry exists without proof.
+  const c2paManifest = await buildC2PAManifest({
+    modelId: entry.modelId ?? PLATFORM_MODEL_ID,
+    agentDid: entry.agentDid ?? null,
+    governanceFileHash: entry.governanceFileHash ?? null,
+    filesConsulted,
+    decision: entry.decision.decision,
+    clauseApplied: entry.decision.clauseApplied,
+    agentName: entry.agent,
+    companyId: entry.companyId,
+  }) as unknown as Record<string, unknown>;
 
   let insertedRow: { id: number } | undefined;
   try {

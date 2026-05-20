@@ -22,6 +22,7 @@ import {
   getActiveCredential,
   listCredentialsFromFiles,
 } from "../lib/agentCredentialIssuer.js";
+import { verifyC2PAManifest, type C2PAManifest } from "../lib/c2paManifest.js";
 import { getActiveMandate } from "../lib/mandateIssuer.js";
 import { requireAgentCredential } from "../lib/verifyAgentCredential.js";
 import { getRoleBandAuthority, getRejectedClasses, getRejectedOrBaselinedClasses } from "../lib/exceptionAuthorityReader.js";
@@ -1882,22 +1883,52 @@ router.get("/agents/witness/:id", async (req, res) => {
 // Credentials viewer.  Returns 404 when the entry has no manifest (entries
 // written before C2PA was deployed, or when manifest generation failed).
 
+async function fetchAndVerifyC2PAManifest(id: number): Promise<{
+  witness_entry_id: number;
+  created_at: Date;
+  manifest: C2PAManifest;
+  verified: boolean;
+} | { error: string; status: number }> {
+  const [entry] = await db
+    .select({ id: witnessEntries.id, c2paManifest: witnessEntries.c2paManifest, createdAt: witnessEntries.createdAt })
+    .from(witnessEntries)
+    .where(eq(witnessEntries.id, id))
+    .limit(1);
+  if (!entry) return { error: "Witness entry not found", status: 404 };
+  if (!entry.c2paManifest) return { error: "No C2PA manifest for this entry", status: 404 };
+  const manifest = entry.c2paManifest as unknown as C2PAManifest;
+  const verified = await verifyC2PAManifest(manifest);
+  return { witness_entry_id: entry.id, created_at: entry.createdAt, manifest, verified };
+}
+
+// ─── Witness: C2PA Provenance by ID (spec path: /witness/:token/provenance) ──
+// Canonical provenance endpoint matching the VDA-MD API contract.
+// :token is the numeric witness entry ID returned by writeWitnessEntry.
+// Returns the full C2PA manifest plus live Ed25519 signature verification result.
+// Suitable for submission to a compliance auditor.
+
+router.get("/witness/:token/provenance", async (req, res) => {
+  try {
+    const id = parseInt(req.params.token, 10);
+    if (isNaN(id)) return res.status(400).json({ error: "token must be a number" });
+    const result = await fetchAndVerifyC2PAManifest(id);
+    if ("error" in result) return res.status(result.status).json({ error: result.error });
+    return res.json(result);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  }
+});
+
+// ─── Witness: C2PA Provenance by ID (agents sub-path alias) ──────────────────
+// Alias under the agents namespace for backward compatibility.
+
 router.get("/agents/witness/:id/provenance", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: "id must be a number" });
-    const [entry] = await db
-      .select({ id: witnessEntries.id, c2paManifest: witnessEntries.c2paManifest, createdAt: witnessEntries.createdAt })
-      .from(witnessEntries)
-      .where(eq(witnessEntries.id, id))
-      .limit(1);
-    if (!entry) return res.status(404).json({ error: "Witness entry not found" });
-    if (!entry.c2paManifest) return res.status(404).json({ error: "No C2PA manifest for this entry" });
-    return res.json({
-      witness_entry_id: entry.id,
-      created_at: entry.createdAt,
-      manifest: entry.c2paManifest,
-    });
+    const result = await fetchAndVerifyC2PAManifest(id);
+    if ("error" in result) return res.status(result.status).json({ error: result.error });
+    return res.json(result);
   } catch (err: unknown) {
     return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
   }
