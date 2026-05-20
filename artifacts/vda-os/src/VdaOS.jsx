@@ -7,6 +7,7 @@ import HotelGMView         from "./dashboard/HotelGMView.jsx";
 import RegionalGMView      from "./dashboard/RegionalGMView.jsx";
 import OperationsChiefView   from "./dashboard/OperationsChiefView.jsx";
 import ComplianceOfficerView from "./dashboard/ComplianceOfficerView.jsx";
+import BillingAdminPanel     from "./dashboard/BillingAdminPanel.jsx";
 import DemoShowreel          from "./demo/DemoShowreel.jsx";
 
 // ─────────────────────────────────────────────
@@ -14090,6 +14091,7 @@ const DASHBOARD_ROLES = [
   { id: "regional_gm",         label: "Regional GM",         description: "5-property cluster",           color: "#a855f7" },
   { id: "operations_chief",    label: "Operations Chief",    description: "Chain governance",             color: "#34d399" },
   { id: "compliance_officer",  label: "Compliance Officer",  description: "Governance sign-off · Gate 2", color: "#f87171" },
+  { id: "platform_admin",      label: "Platform Admin",      description: "x402 billing · credit wallets", color: "#22d47a" },
 ];
 
 // Roles that are locked until at least one agent has been activated (admitted + crawl started).
@@ -14263,6 +14265,7 @@ function DashboardTab({ companyId, onOpenTab, role, setRole }) {
       {role === "regional_gm"       && <RegionalGMView       companyId={viewCompanyId} onSelectCompany={handleSelectCompany} />}
       {role === "operations_chief"  && <OperationsChiefView  />}
       {role === "compliance_officer" && <ComplianceOfficerView />}
+      {role === "platform_admin"    && <BillingAdminPanel />}
     </div>
   );
 }

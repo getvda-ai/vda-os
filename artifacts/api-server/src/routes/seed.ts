@@ -2866,6 +2866,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
             websiteUrl: prop.websiteUrl,
             brandContext: prop.brandContext,
             filesCount: 23,
+            x402Exempt: true,
           })
           .where(eq(companies.id, companyId));
         existing.push({ apaleoPropertyId: prop.apaleoPropertyId, companyName: prop.companyName, companyId });
@@ -2882,6 +2883,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
             savedAt: Date.now(),
             uploadedFiles: null,
             apaleoPropertyId: prop.apaleoPropertyId,
+            x402Exempt: true,
           })
           .returning({ id: companies.id });
 

@@ -7,6 +7,7 @@ import { requireValidMandate } from "../lib/mandateValidator.js";
 import { startOnboarding } from "../onboarding/onboardingOrchestrator.js";
 import { A2A_ERRORS, jsonRpcError, jsonRpcResult } from "../a2a/a2aErrors.js";
 import { logger } from "../lib/logger.js";
+import { x402Middleware } from "../lib/x402Middleware.js";
 
 const router = Router();
 
@@ -181,6 +182,11 @@ const A2A_CEILING_REQUIRED_AGENTS = new Set([
 ]);
 
 router.post("/a2a/:companyId/:agentId",
+  x402Middleware({
+    cost: 1,
+    operation: "governance_decision",
+    description: "A2A governance decision via agent task submission",
+  }),
   (req, res, next) => requireAgentCredential(String(req.params.agentId))(req, res, next),
   async (req, res, next) => {
     const agentId = String(req.params.agentId);

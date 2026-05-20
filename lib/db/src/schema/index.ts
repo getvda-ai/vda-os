@@ -11,3 +11,4 @@ export * from "./exceptionBaselines";
 export * from "./activationRequests";
 export * from "./agentValueEvents";
 export * from "./agentMandates";
+export * from "./companyCredits";
