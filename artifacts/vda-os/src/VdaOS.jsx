@@ -8673,6 +8673,7 @@ function OnboardingConsole({ onLoadHotel }) {
   const [apaleoStatus, setApaleoStatus] = useState(null);
   const [apaleoPopoverOpen, setApaleoPopoverOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [portfolioRevenue, setPortfolioRevenue] = useState(null);
   const apaleoPopoverRef = React.useRef(null);
 
   const fetchApaleoStatus = useCallback(async () => {
@@ -8730,6 +8731,20 @@ function OnboardingConsole({ onLoadHotel }) {
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll, refreshKey]);
+
+  useEffect(() => {
+    if (!companies || companies.length === 0) return;
+    Promise.all(
+      companies.map(c =>
+        fetch(`/api/dashboard/value-ledger?companyId=${c.id}`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      )
+    ).then(results => {
+      const total = results.reduce((sum, d) => sum + (d?.totals?.totalRevenue ?? 0), 0);
+      setPortfolioRevenue(total);
+    });
+  }, [companies]);
 
   const nativeReqs = (requests || []).filter(r => r.source === "vda_native");
   const externalReqs = (requests || []).filter(r => r.source === "a2a_external");
@@ -8875,6 +8890,13 @@ function OnboardingConsole({ onLoadHotel }) {
             )}
           </div>
 
+          {portfolioRevenue != null && portfolioRevenue > 0 && (
+            <div title="Total attributed revenue across all properties — 30-day rolling" style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 5, border: `1px solid ${T.green}28`, background: `${T.green}0a`, fontSize: 11, fontFamily: T.mono, color: T.green, letterSpacing: "0.01em" }}>
+              <span style={{ fontSize: 10, color: T.dim }}>PORTFOLIO</span>
+              <span style={{ fontWeight: 700 }}>{portfolioRevenue >= 1000 ? `€${(portfolioRevenue / 1000).toFixed(1)}k` : `€${portfolioRevenue.toFixed(0)}`}</span>
+              <span style={{ fontSize: 10, color: T.dim }}>attributed</span>
+            </div>
+          )}
           <button onClick={() => setLedgerOpen(true)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.green}40`, background: `${T.green}0d`, color: T.green, fontSize: 11, fontFamily: T.mono, fontWeight: 700, cursor: "pointer" }}>📊 Value Ledger</button>
           <button onClick={() => setRefreshKey(k => k + 1)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer" }}>↻ Refresh</button>
         </div>
