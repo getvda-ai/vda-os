@@ -252,7 +252,12 @@ export function getPlatformCard(): AgentCard {
     documentationUrl: DOCS_URL,
     inputModes: DEFAULT_INPUT_MODES,
     outputModes: DEFAULT_OUTPUT_MODES,
-    capabilities: { streaming: true, pushNotifications: false },
+    capabilities: {
+      streaming: true,
+      pushNotifications: false,
+      mcpGovernanceServer: true,
+      mcpGovernanceEndpoint: `${REPLIT_URL}/api/mcp/governance`,
+    },
     skills: AGENT_IDS.map(id => ({
       id,
       name: AGENT_DEFS[id].name,
