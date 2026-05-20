@@ -719,6 +719,9 @@ router.post("/admin/seed-mandates", async (req, res) => {
 // Returns a ucpOffer with a valid serverToken so tests can exercise the full
 // negotiate flow without needing a live LLM/Apaleo rate agent call.
 router.post("/admin/ucp-test-offer", async (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({ error: "Not found" });
+  }
   try {
     const { propertyId = "MUC", companyId = 1, barRate = 150, requestedRate, ratePlanId = null } = req.body as {
       propertyId?: string;

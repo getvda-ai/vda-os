@@ -122,6 +122,11 @@ export interface UcpOffer {
   /** True = caller may submit a counter-offer to POST /api/ucp/negotiate. */
   negotiable: boolean;
   /**
+   * Top-level shorthand: true = an active Intent Mandate is required to transact.
+   * Mirrors terms.mandateRequired for external UCP consumers that check the root schema.
+   */
+  mandateRequired: boolean;
+  /**
    * HMAC-SHA256 token binding offerId, barRate, propertyId, companyId, and validUntil.
    * Present only on negotiable offers (lodging.rate_override).
    * The negotiate endpoint requires this token to prevent barRate manipulation.
@@ -199,6 +204,7 @@ export function buildAvailabilityOffer(opts: BuildAvailabilityOfferOpts): UcpOff
       mandateId: opts.mandateId,
     },
     negotiable: false,
+    mandateRequired: true,
   };
 }
 
@@ -255,6 +261,7 @@ export function buildRateOffer(opts: BuildRateOfferOpts): UcpOffer {
       mandateId: opts.mandateId,
     },
     negotiable: true,
+    mandateRequired: true,
     serverToken,
   };
 }
@@ -298,6 +305,6 @@ export function buildUcpServiceDescriptor(baseUrl: string): UcpServiceDescriptor
     },
     negotiationEndpoint: `${baseUrl}/api/ucp/negotiate`,
     authSchemes: ["bearer"],
-    documentation: `${baseUrl}/api/well-known/agent.json`,
+    documentation: `${baseUrl}/.well-known/agent.json`,
   };
 }
