@@ -158,15 +158,31 @@ router.post("/a2a/onboarding",
 // ─── Standard A2A JSON-RPC endpoint — 8 governed agents (per-company) ─────────
 // Middleware chain:
 //   1. requireAgentCredential — W3C VC bearer token check (agent identity)
-//   2. requireValidMandate (enforce) — AP2 mandate existence + expiry check
-//      Returns 403 if no mandate or mandate is revoked.
-//      Returns 402 if mandate is expired.
-//      Action-level ceiling enforcement occurs inside agents.ts per-route middleware.
+//   2. requireValidMandate (enforce) — AP2 mandate existence + signature + ceiling check
+//      Returns 403 if no mandate, revoked, expired, or signature invalid.
+//      Returns 402 (with escalationToken) if mandate ceiling is breached.
+//      A2A callers may declare their action intent via JSON-RPC params.metadata:
+//        { mandateAction: "folio_charge", mandateValue: 250 }
+//      If metadata is absent, only mandate existence + signature is checked;
+//      action-level ceiling enforcement then falls to per-route middleware in agents.ts.
 //   3. a2aJsonRpcHandler — §2.1 governance pipeline (evaluateWithPolicyAndMcp)
 
 router.post("/a2a/:companyId/:agentId",
   (req, res, next) => requireAgentCredential(String(req.params.agentId))(req, res, next),
-  (req, res, next) => requireValidMandate(String(req.params.agentId), undefined, undefined, "enforce")(req, res, next),
+  async (req, res, next) => {
+    const body   = req.body as Record<string, unknown>;
+    const params = ((body?.params  ?? {}) as Record<string, unknown>);
+    const meta   = ((params?.metadata ?? {}) as Record<string, unknown>);
+    const action = typeof meta?.mandateAction === "string" ? meta.mandateAction : undefined;
+    const rawVal = action ? Number(meta?.mandateValue) : NaN;
+    const val    = !isNaN(rawVal) && rawVal > 0 ? rawVal : undefined;
+    return requireValidMandate(
+      String(req.params.agentId),
+      action,
+      val !== undefined ? (_: Record<string, unknown>) => val : undefined,
+      "enforce"
+    )(req, res, next);
+  },
   a2aJsonRpcHandler
 );
 

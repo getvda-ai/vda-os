@@ -135,6 +135,7 @@ export async function issueMandate(input: IssueMandateInput): Promise<IssuedMand
 /**
  * Get the active (non-revoked, non-expired) mandate for an agent.
  * Returns null if no valid mandate exists (agent must operate in HITL-required mode).
+ * @deprecated Prefer getMandateWithStatus for new code — it surfaces explicit revoked/expired states.
  */
 export async function getActiveMandate(agentId: string, companyId: number) {
   const now = new Date();
@@ -152,8 +153,90 @@ export async function getActiveMandate(agentId: string, companyId: number) {
     .limit(1);
 
   if (!row) return null;
-  if (new Date(row.validUntil) < now) return null;  // Expired
+  if (new Date(row.validUntil) < now) return null;
   return row;
+}
+
+// ─── Status-aware mandate retrieval ──────────────────────────────────────────
+
+export type MandateStatus = "active" | "revoked" | "expired" | "not_found";
+
+export interface MandateWithStatus {
+  status: MandateStatus;
+  mandate?: typeof agentMandates.$inferSelect;
+}
+
+/**
+ * Retrieve the most recent mandate for an agent and surface its explicit lifecycle status.
+ * Unlike getActiveMandate, this never collapses revoked/expired into null — callers can
+ * distinguish between the four states and return differentiated HTTP responses.
+ */
+export async function getMandateWithStatus(
+  agentId: string,
+  companyId: number
+): Promise<MandateWithStatus> {
+  const [row] = await db
+    .select()
+    .from(agentMandates)
+    .where(
+      and(
+        eq(agentMandates.agentId, agentId),
+        eq(agentMandates.companyId, companyId)
+      )
+    )
+    .orderBy(desc(agentMandates.issuedAt))
+    .limit(1);
+
+  if (!row) return { status: "not_found" };
+  if (row.revoked) return { status: "revoked", mandate: row };
+  if (new Date(row.validUntil) < new Date()) return { status: "expired", mandate: row };
+  return { status: "active", mandate: row };
+}
+
+/**
+ * Verify the HMAC-SHA256 signature on a stored mandate row.
+ *
+ * Re-constructs the canonical payload that was signed at issuance time and
+ * computes the expected HMAC using the platform issuer key.  Returns false
+ * (fail-closed) on any error including key unavailability.
+ *
+ * Note: mandates use HMAC-SHA256 over the platform Ed25519 key material —
+ * equivalent tamper-detection for platform-internal authority grants.
+ * Cross-party exchange would use a full Ed25519 detached signature.
+ */
+export async function verifyMandateSignature(
+  mandate: typeof agentMandates.$inferSelect
+): Promise<boolean> {
+  try {
+    const toDate = (v: unknown): Date =>
+      v instanceof Date ? v : new Date(String(v));
+
+    const payload = {
+      mandateId:            mandate.mandateId,
+      agentId:              mandate.agentId,
+      companyId:            mandate.companyId,
+      agentDid:             mandate.agentDid,
+      issuerDid:            mandate.issuerDid,
+      phase:                mandate.phase,
+      authorizations:       mandate.authorizations,
+      linkedGovernanceHash: mandate.linkedGovernanceHash ?? "NO_GOVERNANCE_FILES",
+      issuedAt:             toDate(mandate.issuedAt).toISOString(),
+      validUntil:           toDate(mandate.validUntil).toISOString(),
+    };
+
+    const expectedSig = await signMandatePayload(payload);
+    const valid = expectedSig === mandate.signature;
+    if (!valid) {
+      logger.warn(
+        { mandateId: mandate.mandateId, agentId: mandate.agentId },
+        "[Mandate] Signature mismatch — possible tampering"
+      );
+    }
+    return valid;
+  } catch (err) {
+    logger.warn({ err, mandateId: mandate.mandateId }, "[Mandate] Signature verification error (fail-closed)");
+    return false;
+  }
 }
 
 /**
