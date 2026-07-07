@@ -18,3 +18,9 @@ id = "bz6QMQcUVhXDtZJt7JV-9"
 uri = "file://vda-md-architecture-description.txt"
 type = "text"
 title = "VDA-MD Architecture Description"
+
+[[outputs]]
+id = "4qvPiNL3kJ9Y-_eO8pXC1"
+uri = "file://VDA-MD-SYSTEM-BLUEPRINT.md"
+type = "text"
+title = "VDA-MD System Blueprint"
