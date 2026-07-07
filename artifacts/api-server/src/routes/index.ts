@@ -17,6 +17,7 @@ import euAiActRouter from "./euAiAct";
 import gdprRouter from "./gdpr";
 import ucpRouter from "./ucp";
 import billingRouter from "./billing";
+import sopsRouter from "./sops";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(euAiActRouter);
 router.use(gdprRouter);
 router.use(ucpRouter);
 router.use(billingRouter);
+router.use(sopsRouter);
 
 export default router;

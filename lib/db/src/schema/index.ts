@@ -12,3 +12,5 @@ export * from "./activationRequests";
 export * from "./agentValueEvents";
 export * from "./agentMandates";
 export * from "./companyCredits";
+export * from "./sopDocuments";
+export * from "./sopClauses";
