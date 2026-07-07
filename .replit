@@ -32,4 +32,4 @@ packages = ["zip"]
 [userenv]
 
 [userenv.shared]
-OFFER_HMAC_SECRET = "THDhjjDYbFKHUxaDSw3kuMv/vRsk8ERv+73q/oYI1hk="
+OFFER_HMAC_SECRET = "qfbiKGM7vNa-i8p08Q4e8yyPd6AbufGZ03WKTjYDubI"
