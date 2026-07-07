@@ -14,7 +14,7 @@ const T = {
   border:    "#1e2229",
   borderHi:  "#2e3340",
   text:      "#f5f5f7",
-  dim:       "#9ca3af",
+  dim:       "#ffffff",
   muted:     "#6b7280",
   green:     "#22c55e",
   red:       "#ef4444",
