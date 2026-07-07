@@ -146,6 +146,16 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
       { id: "register_agent_card", name: "Register Agent Card", description: "ADD new agent to A2A Agent Card runtime registry" },
     ],
   },
+  "stay-agent": {
+    name: "VDA-MD Stay Agent",
+    description: "Governs a citizenM guest's on-property journey from check-in through in-stay to check-out at Apaleo-powered properties, bounded by the stay-agent governance files and AP2 mandate ceilings, with Ambassador/MoD human-in-the-loop.",
+    defaultSkills: [
+      { id: "stay-decision", name: "Stay Decision", description: "Return a governed PASS/FAIL/ESCALATE decision for a check-in, in-stay, or check-out exception, citing the policy and SOP clauses applied" },
+      { id: "checkin", name: "Check-in", description: "Early check-in, room upgrade, registration/ID capture, pre-auth validation, key issuance" },
+      { id: "in-stay", name: "In-stay", description: "Folio charge posting, service requests, room move/re-key, stay extension, goodwill credit" },
+      { id: "checkout", name: "Check-out", description: "Late check-out, refund/folio adjustment, folio settlement, damage charge, chargeback-risk flag" },
+    ],
+  },
 };
 
 export const AGENT_IDS = Object.keys(AGENT_DEFS);
@@ -291,4 +301,5 @@ export const AGENT_ID_TO_POLICY_KEY: Record<string, string> = {
   "folio-charge-agent":           "folio_charge",
   "checkout-agent":               "checkout",
   "revenue-reconciliation-agent": "revenue",
+  "stay-agent":                   "stay",
 };

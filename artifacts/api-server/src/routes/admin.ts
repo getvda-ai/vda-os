@@ -17,9 +17,29 @@ import { buildRateOffer } from "../lib/ucpOffer.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
 import { generateExceptionAuthorityFile, COMPANIES_MAP, JURISDICTION_CONTEXT } from "../lib/exceptionAuthorityGenerator.js";
 import { startOnboarding } from "../onboarding/onboardingOrchestrator.js";
+import { seedStayAgentGovernance } from "../lib/seedStayAgent.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
+
+// ─── POST /api/admin/seed-stay-agent ─────────────────────────────────────────
+// Idempotent: seeds the Stay Agent's four governance files (AGENTS/SOP/SKILL/
+// EXCEPTION_AUTHORITY) into governance_files for the given company. Binds the
+// demo tenant so the check-in→check-out decision engine passes preflight.
+router.post("/admin/seed-stay-agent", async (req, res) => {
+  try {
+    const companyId = Number(req.body?.companyId ?? 0);
+    if (Number.isNaN(companyId) || companyId < 0) {
+      res.status(400).json({ error: "companyId must be a non-negative integer" });
+      return;
+    }
+    const seeded = await seedStayAgentGovernance(companyId);
+    res.json({ ok: true, companyId, seeded });
+  } catch (err) {
+    logger.error({ err }, "admin/seed-stay-agent error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to seed stay-agent governance" });
+  }
+});
 
 // ─── File reader helper ───────────────────────────────────────────────────────
 
