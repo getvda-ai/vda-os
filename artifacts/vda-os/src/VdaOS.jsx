@@ -8746,7 +8746,7 @@ function ValueLedgerPanel({ companies, onClose }) {
 }
 
 // ─── OnboardingConsole — three-track starting screen ─────────────────────────
-function OnboardingConsole({ onLoadHotel }) {
+function OnboardingConsole({ onLoadHotel, onShowHITL }) {
   const [requests, setRequests] = useState(null);
   const [companies, setCompanies] = useState(null);
   const [phaseMap, setPhaseMap] = useState({});
@@ -8985,6 +8985,11 @@ function OnboardingConsole({ onLoadHotel }) {
           )}
           <button onClick={() => setLedgerOpen(true)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.green}40`, background: `${T.green}0d`, color: T.green, fontSize: 11, fontFamily: T.mono, fontWeight: 700, cursor: "pointer" }}>📊 Value Ledger</button>
           <button onClick={() => setRefreshKey(k => k + 1)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer" }}>↻ Refresh</button>
+          {onShowHITL && (
+            <button onClick={onShowHITL} style={{ padding: "6px 16px", borderRadius: 6, border: `1px solid rgba(249,115,22,0.5)`, background: `rgba(249,115,22,0.1)`, color: "#f97316", fontSize: 12, fontFamily: T.sans, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+              🧑‍⚖️ HITL Demo
+            </button>
+          )}
         </div>
       </div>
 
@@ -14469,7 +14474,27 @@ export default function VdaOS() {
             apaleoPropertyId: company.apaleoPropertyId || null,
             websiteUrl: company.websiteUrl || null,
           })}
+          onShowHITL={() => setScreen("hitl-demo")}
         />
+      )}
+
+      {/* HITL Demo — standalone, no hub required */}
+      {screen === "hitl-demo" && (
+        <div style={{ minHeight: "100vh", background: "#07080a" }}>
+          <div style={{ background: "#050608", borderBottom: "1px solid #1e2229", padding: "0 18px", height: 52, display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 0, zIndex: 100 }}>
+            <button
+              onClick={() => setScreen("onboarding")}
+              style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer", padding: "4px 8px", borderRadius: 4 }}
+              onMouseEnter={e => e.currentTarget.style.color = "#f97316"}
+              onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
+            >
+              ← Back
+            </button>
+            <div style={{ width: 1, height: 20, background: "#1e2229" }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#f5f5f7", fontFamily: "'Outfit', sans-serif" }}>🧑‍⚖️ HITL Decisions — citizenM Demo</span>
+          </div>
+          <HITLDemo companyId={null} companyName="citizenM" />
+        </div>
       )}
 
       {/* Directory — legacy hotel picker (still reachable if screen="directory") */}
