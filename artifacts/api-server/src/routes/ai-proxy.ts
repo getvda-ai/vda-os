@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   anthropic,
+  AI_BACKEND,
   type Message,
   type MessageParam,
   type Tool,
@@ -15,11 +16,36 @@ const MODEL_MAP: Record<string, string> = {
   "claude-haiku-4-20250514": "claude-haiku-4-5",
 };
 
+/**
+ * Canonical → Vertex Model Garden model IDs. Vertex uses `<model>@<version>`
+ * publisher IDs, not the gateway aliases the rest of the codebase passes around.
+ * Each is overridable by env so the deployment can pin whatever is enabled in
+ * its Model Garden / region without a code change.
+ */
+const VERTEX_MODEL_MAP: Record<string, string> = {
+  "claude-opus-4-6": process.env.VERTEX_CLAUDE_OPUS || "claude-opus-4-1@20250805",
+  "claude-opus-4-5": process.env.VERTEX_CLAUDE_OPUS || "claude-opus-4-1@20250805",
+  "claude-opus-4-1": process.env.VERTEX_CLAUDE_OPUS || "claude-opus-4-1@20250805",
+  "claude-sonnet-4-6": process.env.VERTEX_CLAUDE_SONNET || "claude-sonnet-4-5@20250929",
+  "claude-sonnet-4-5": process.env.VERTEX_CLAUDE_SONNET || "claude-sonnet-4-5@20250929",
+  "claude-haiku-4-5": process.env.VERTEX_CLAUDE_HAIKU || "claude-haiku-4-5@20251001",
+};
+
 export function resolveModel(requested: string): string {
-  if (MODEL_MAP[requested]) return MODEL_MAP[requested];
-  const supported = ["claude-sonnet-4-6", "claude-sonnet-4-5", "claude-opus-4-6", "claude-opus-4-5", "claude-opus-4-1", "claude-haiku-4-5"];
-  if (supported.includes(requested)) return requested;
-  return "claude-sonnet-4-6";
+  // Normalise to a canonical gateway alias first.
+  let canonical: string;
+  if (MODEL_MAP[requested]) canonical = MODEL_MAP[requested];
+  else {
+    const supported = ["claude-sonnet-4-6", "claude-sonnet-4-5", "claude-opus-4-6", "claude-opus-4-5", "claude-opus-4-1", "claude-haiku-4-5"];
+    canonical = supported.includes(requested) ? requested : "claude-sonnet-4-6";
+  }
+  // On Vertex, translate the canonical alias into a Model Garden publisher ID.
+  if (AI_BACKEND === "vertex") {
+    // If the caller already passed a Vertex-style `<model>@<version>` id, honour it.
+    if (requested.includes("@")) return requested;
+    return VERTEX_MODEL_MAP[canonical] || VERTEX_MODEL_MAP["claude-sonnet-4-6"];
+  }
+  return canonical;
 }
 
 function toCacheableSystem(system: string | undefined) {
