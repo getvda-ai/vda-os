@@ -8,6 +8,7 @@ import RegionalGMView      from "./dashboard/RegionalGMView.jsx";
 import OperationsChiefView   from "./dashboard/OperationsChiefView.jsx";
 import ComplianceOfficerView from "./dashboard/ComplianceOfficerView.jsx";
 import BillingAdminPanel     from "./dashboard/BillingAdminPanel.jsx";
+import HITLDemo              from "./demo/HITLDemo.jsx";
 import DemoShowreel          from "./demo/DemoShowreel.jsx";
 
 // ─────────────────────────────────────────────
@@ -14440,6 +14441,7 @@ export default function VdaOS() {
   const tabs = setup ? [
     { id: "dashboard",   label: "Dashboard",        icon: "📊" },
     { id: "onboarding",  label: onboardingLabel,    icon: "🏨" },
+    { id: "hitl-demo",   label: "HITL Decisions",   icon: "🧑‍⚖️" },
     { id: "journey",     label: "Journey Map",      icon: "🗺" },
     { id: "demo",        label: "Live Demo",        icon: "🚀" },
     { id: "c2md",        label: "C2MD Studio",      icon: "🔬" },
@@ -14570,10 +14572,10 @@ export default function VdaOS() {
             </div>
           )}
 
-          {/* Nav — primary bar: Dashboard + Agent Onboarding always visible + Advanced toggle */}
+          {/* Nav — primary bar: Dashboard + Agent Onboarding + HITL always visible + Advanced toggle */}
           <div style={{ background: "#08090c", borderBottom: `1px solid ${T.border}`, padding: "0 28px", display: "flex", gap: 0, alignItems: "stretch" }}>
-            {/* Dashboard + Onboarding — always visible in primary bar */}
-            {tabs.filter(t => t.id === "dashboard" || t.id === "onboarding").map(t => (
+            {/* Dashboard + Onboarding + HITL — always visible in primary bar */}
+            {tabs.filter(t => t.id === "dashboard" || t.id === "onboarding" || t.id === "hitl-demo").map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
                 padding: "12px 18px", background: "none", border: "none",
                 borderBottom: `2px solid ${tab === t.id ? T.orange : "transparent"}`,
@@ -14635,6 +14637,7 @@ export default function VdaOS() {
 
           {/* Content */}
           {tab === "dashboard"   && <DashboardTab companyId={setup.id} onOpenTab={setTab} role={globalRole} setRole={setGlobalRole} />}
+          {tab === "hitl-demo"   && <HITLDemo companyId={setup.id} companyName={setup.companyName} />}
           {tab === "journey"     && <JourneyMapTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} apaleoStats={apaleoStats} />}
           {tab === "demo"        && <LiveDemoTab config={config} companyName={setup.companyName} propertyId={apaleoPropertyId} companyId={setup.id} onLogEntry={addLog} />}
           {tab === "c2md"        && <C2MDStudioTab config={config} companyName={setup.companyName} brandContext={setup.brandContext} cache={c2mdCache} setCache={setC2mdCache} companyId={setup.id} onSaveToFM={(content, filename, fileType) => {
