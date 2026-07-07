@@ -654,7 +654,7 @@ export default function HITLDemo({ companyId, companyName }) {
               {/* Reason input with suggested reasons */}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 10, fontFamily: T.mono, color: T.muted, letterSpacing: "0.07em", marginBottom: 6 }}>
-                  YOUR REASON <span style={{ color: "#4b5563" }}>(optional — logged to Witness Agent)</span>
+                  YOUR REASON <span style={{ color: "#ffffff" }}>(optional — logged to Witness Agent)</span>
                 </div>
                 <textarea
                   value={reasonText}
@@ -782,7 +782,7 @@ function StatPill({ label, value, color }) {
 function Section({ title, children }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "#6b7280", letterSpacing: "0.07em", marginBottom: 6 }}>
+      <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: "#ffffff", letterSpacing: "0.07em", marginBottom: 6 }}>
         {title}
       </div>
       {children}
