@@ -28,3 +28,8 @@ timeoutMs = 20000
 [nix]
 channel = "stable-25_05"
 packages = ["zip"]
+
+[userenv]
+
+[userenv.shared]
+OFFER_HMAC_SECRET = "THDhjjDYbFKHUxaDSw3kuMv/vRsk8ERv+73q/oYI1hk="
