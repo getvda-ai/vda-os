@@ -50,6 +50,12 @@ export interface WitnessEntryInput {
   agentDid?: string | null;
   /** AI model that produced the decision — defaults to platform model if omitted. */
   modelId?: string | null;
+  /**
+   * Suppress the automatic generic operational HITL token on ESCALATE. Set by
+   * callers (e.g. the Stay Agent) that create their own richly-routed card with
+   * a role_band + full payload, to avoid duplicate cards.
+   */
+  suppressAutoHitl?: boolean;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -249,7 +255,8 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
   if (
     entry.decision.decision === "ESCALATE" &&
     entry.companyId > 0 &&
-    !entry.scenarioRunId
+    !entry.scenarioRunId &&
+    !entry.suppressAutoHitl
   ) {
     void createOperationalHitlToken(witnessId, entry);
   }

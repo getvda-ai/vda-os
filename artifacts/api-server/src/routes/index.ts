@@ -18,6 +18,7 @@ import gdprRouter from "./gdpr";
 import ucpRouter from "./ucp";
 import billingRouter from "./billing";
 import sopsRouter from "./sops";
+import stayRouter from "./stay";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(gdprRouter);
 router.use(ucpRouter);
 router.use(billingRouter);
 router.use(sopsRouter);
+router.use(stayRouter);
 
 export default router;
