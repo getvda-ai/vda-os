@@ -244,6 +244,26 @@ interface LlmDecision {
   noSopCoverage: boolean;
 }
 
+/** Robustly extract the first balanced JSON object from an LLM response
+ *  (handles ```json fences, leading/trailing prose, and braces inside strings). */
+function extractJsonObject(text: string): string {
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  const start = cleaned.indexOf("{");
+  if (start === -1) return cleaned;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) return cleaned.slice(start, i + 1); }
+  }
+  return cleaned.slice(start); // unbalanced (truncated) — let JSON.parse throw
+}
+
 async function llmEvaluate(params: {
   policyText: string;
   clauses: CitedClause[];
@@ -287,10 +307,9 @@ Respond ONLY with this JSON (no extra text):
 
   const user = `Request context:\n${JSON.stringify(input.exceptionContext, null, 2)}\n\nLive Apaleo snapshot:\n${JSON.stringify(snapshot, null, 2)}`;
 
-  const resp = await callAIWithUsage({ max_tokens: 1024, system, messages: [{ role: "user", content: user }] });
+  const resp = await callAIWithUsage({ max_tokens: 2048, system, messages: [{ role: "user", content: user }] });
   try {
-    const m = resp.text.match(/\{[\s\S]*\}/);
-    const parsed = JSON.parse(m ? m[0] : resp.text) as Partial<LlmDecision>;
+    const parsed = JSON.parse(extractJsonObject(resp.text)) as Partial<LlmDecision>;
     return {
       decision: (parsed.decision as LlmDecision["decision"]) ?? "ESCALATE",
       clauseApplied: parsed.clauseApplied ?? "Unable to determine governing clause",
