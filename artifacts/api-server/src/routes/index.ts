@@ -19,6 +19,7 @@ import ucpRouter from "./ucp";
 import billingRouter from "./billing";
 import sopsRouter from "./sops";
 import stayRouter from "./stay";
+import phaseRouter from "./phase";
 
 const router: IRouter = Router();
 
@@ -42,5 +43,6 @@ router.use(ucpRouter);
 router.use(billingRouter);
 router.use(sopsRouter);
 router.use(stayRouter);
+router.use(phaseRouter);
 
 export default router;
