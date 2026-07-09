@@ -60,6 +60,17 @@ export async function executeStayAction(payload: Record<string, unknown>): Promi
       return { status: "SANDBOX_NO_WRITE", tool, args, note: `Write tool ${tool} is not exposed by the connected Apaleo MCP surface — intended mutation recorded.` };
     }
     const result = await callMcpTool(tool, args);
+    // An MCP tool can return a structured error result without throwing. That is
+    // NOT a successful mutation — record the intended write and mark it so, rather
+    // than claiming EXECUTED.
+    const isError = (result as { isError?: boolean } | null)?.isError === true;
+    if (isError) {
+      const detail = ((result as { content?: Array<{ text?: string }> })?.content ?? [])
+        .map((c) => c.text ?? "")
+        .join(" ")
+        .slice(0, 300);
+      return { status: "SANDBOX_NO_WRITE", tool, args, result, note: `Apaleo MCP rejected the write: ${detail}` };
+    }
     return { status: "EXECUTED", tool, args, result };
   } catch (err) {
     logger.warn({ err, tool, args }, "[stayExecutor] MCP write failed — marking SANDBOX_NO_WRITE");

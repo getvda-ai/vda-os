@@ -275,7 +275,12 @@ router.post("/baselines/:id/revoke", async (req, res) => {
           reasoning: `Baseline ${id} revoked by ${revokedBy}: ${revokedReason}`,
         },
         fileReferenced: `baseline:${id}`,
-        apaleoData: { baseline_id: id, revoked_by: revokedBy, revoked_reason: revokedReason },
+        apaleoData: {
+          baseline_id: id,
+          revoked_by: revokedBy,
+          revoked_reason: revokedReason,
+          art17: { event: "BASELINE_REVOKED", baseline_id: id, revoked_by: revokedBy, revoked_reason: revokedReason },
+        },
         eventCategory: "BASELINE_REVOKED",
         suppressAutoHitl: true,
       });
