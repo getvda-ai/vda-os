@@ -23,6 +23,7 @@ import { writeWitnessEntry, type AgentDecision } from "./witnessWriter.js";
 import { apaleoFetch, buildQueryString } from "./apaleo.js";
 import { matchBaseline } from "./stayBaselines.js";
 import { executeStayAction } from "./stayExecutor.js";
+import { isVdaWitnessEnabled, sealDecision, extractRecordId } from "./vdaWitness.js";
 import { logger } from "./logger.js";
 
 export type StayStage = "check_in" | "in_stay" | "check_out";
@@ -90,6 +91,7 @@ export interface StayDecisionResult {
   apaleo_ref?: StayApaleoRef;
   apaleo_execution?: unknown;
   apaleo_charge_id?: string | null;
+  vda_witness?: unknown;
 }
 
 const BAND_ORDER = ["ambassador", "mod", "compliance_officer"] as const;
@@ -576,7 +578,71 @@ async function finalize(
         result,
       });
     }
+
+    // Independent external seal into the deployed VDA Witness (fire-and-forget).
+    if (isVdaWitnessEnabled()) {
+      void sealIntoVdaWitness(result, opts, witnessId).catch((err) =>
+        logger.warn({ err }, "[stayEngine] VDA Witness seal failed"),
+      );
+    }
   } catch (err) {
     logger.error({ err }, "[stayEngine] finalize (witness) failed");
   }
+}
+
+/** Seal a governed decision into the external VDA Witness and link it locally. */
+async function sealIntoVdaWitness(
+  result: StayDecisionResult,
+  opts: { companyId: number; roleBand: string; phase: string; eventCategory: string; fileReferenced: string },
+  witnessId: number,
+): Promise<void> {
+  const sealed = await sealDecision({
+    decision: {
+      agent: AGENT_NAME,
+      verdict: result.outcome,
+      reasoning: result.reasoning,
+      actionProposed: result.proposed_action,
+      inputs: {
+        stage: result.stage,
+        exception_class: result.exception_class,
+        ceiling_band: result.ceiling_band,
+        company_id: opts.companyId,
+        governance_source: result.governance_source,
+        apaleo_charge_id: result.apaleo_charge_id ?? null,
+      },
+    },
+    governingRule: {
+      ruleId: opts.fileReferenced,
+      ruleText: result.clause_applied,
+      governanceRef: "stay-agent",
+    },
+    chainKey: `stay-agent-${opts.companyId}`,
+    decisionId: `stay-${opts.companyId}-${witnessId}`,
+  });
+  const recordId = extractRecordId(sealed);
+  result.vda_witness = { record_id: recordId ?? null, sealed };
+
+  // Append-only link entry so the external seal is queryable from the Witness tail.
+  await writeWitnessEntry({
+    companyId: opts.companyId,
+    agent: AGENT_NAME,
+    decision: {
+      decision: "INFO",
+      clauseApplied: `Sealed into VDA Witness${recordId ? ` (record ${recordId})` : ""} — independently verifiable (Ed25519 + hash-chain) at witness.getvda.ai.`,
+      actionProposed: "External tamper-evident seal",
+      exceptionApplied: false,
+      escalationTarget: null,
+      reasoning: `Governed decision (local witness #${witnessId}) sealed into the external VDA Witness evidence chain.`,
+      exceptionClass: result.exception_class,
+    },
+    fileReferenced: opts.fileReferenced,
+    apaleoData: {
+      vda_witness_record: sealed,
+      local_witness_id: witnessId,
+      art17: { event: "vda_witness_sealed", external_record_id: recordId ?? null, local_witness_id: witnessId },
+    },
+    eventCategory: "vda_witness_sealed",
+    suppressAutoHitl: true,
+  });
+  logger.info({ witnessId, recordId }, "[stayEngine] decision sealed into VDA Witness");
 }

@@ -20,6 +20,7 @@ import billingRouter from "./billing";
 import sopsRouter from "./sops";
 import stayRouter from "./stay";
 import phaseRouter from "./phase";
+import vdaWitnessRouter from "./vdaWitness";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(billingRouter);
 router.use(sopsRouter);
 router.use(stayRouter);
 router.use(phaseRouter);
+router.use(vdaWitnessRouter);
 
 export default router;
