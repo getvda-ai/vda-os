@@ -55,6 +55,13 @@
   a{color:var(--accent)}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap}
   .toolbar button{font-size:12px}
+  #witnessView{max-width:1180px;margin:0 auto;padding:18px}
+  .wt{width:100%;border-collapse:collapse;font-size:12px;display:block;overflow-x:auto}
+  .wt th{text-align:left;color:var(--dim);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .wt td{padding:6px 8px;border-bottom:1px solid #1a1d25;vertical-align:top}
+  .wclause{color:#cdd5e6;max-width:340px}
+  .mono{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--accent)}
+  #reportOut{max-height:300px;overflow:auto;background:#0c0e13;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:11px;white-space:pre-wrap;margin-bottom:12px;display:none}
 </style>
 </head>
 <body>
@@ -62,6 +69,10 @@
   <h1>citizenM · Stay Agent</h1>
   <span class="tag" id="phaseTag">phase —</span>
   <span class="tag" id="aiTag">Vertex · Gemini</span>
+  <div class="seg" id="tabSeg" style="margin-left:6px">
+    <button data-tab="ops" class="on">Operations</button>
+    <button data-tab="witness">Witness</button>
+  </div>
   <div class="spacer"></div>
   <label class="mini">company <input id="company" value="1" style="width:56px" /></label>
   <div class="seg" id="roleSeg">
@@ -71,7 +82,7 @@
   <button id="refresh">↻</button>
 </header>
 
-<main>
+<main id="opsView">
   <div class="col">
     <div class="panel">
       <h2>Decision Queue <span class="count" id="qCount">0</span> <span class="spacer" style="flex:1"></span></h2>
@@ -115,6 +126,21 @@
     </div>
   </div>
 </main>
+
+<section id="witnessView" style="display:none">
+  <div class="panel">
+    <h2>Witness Stream — immutable governed decision log
+      <span class="count" id="wfCount">0</span>
+      <span class="spacer" style="flex:1"></span>
+      <span class="tag" id="vwStatus">VDA Witness · —</span>
+      <button id="vwReport" style="font-size:12px">Art.12 report</button>
+    </h2>
+    <div class="body">
+      <pre id="reportOut"></pre>
+      <div id="wtable"><div class="muted">Loading…</div></div>
+    </div>
+  </div>
+</section>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -227,9 +253,79 @@ $("#runDecision").addEventListener("click", async () => {
 $("#ingestSops").addEventListener("click", async () => { try{ const j=await api(`/api/sops/ingest`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})}); toast(`ingested ${j.ingested?.length||0} SOP docs`);}catch(e){toast(e.message);} });
 $("#seedGov").addEventListener("click", async () => { try{ await api(`/api/admin/seed-stay-agent`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:companyId()})}); toast("governance seeded");}catch(e){toast(e.message);} });
 
-function loadAll(){ loadQueue(); loadBaselines(); loadWitness(); loadPhase(); }
+// ── Witness tab ──────────────────────────────────────────────────────────────
+let activeTab = "ops";
+const sealedRecords = {};
+$("#tabSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if(!b) return;
+  activeTab = b.dataset.tab;
+  [...$("#tabSeg").children].forEach(x => x.classList.toggle("on", x===b));
+  $("#opsView").style.display = activeTab==="ops" ? "grid" : "none";
+  $("#witnessView").style.display = activeTab==="witness" ? "block" : "none";
+  if(activeTab==="witness"){ loadWitnessFull(); loadVwStatus(); }
+});
+
+async function loadVwStatus(){
+  try{ const s = await api(`/api/vda-witness/status`); $("#vwStatus").textContent = s.enabled ? "VDA Witness · sealing ON (Ed25519)" : "VDA Witness · verify-only"; }
+  catch{ $("#vwStatus").textContent = "VDA Witness · —"; }
+}
+
+function witnessRow(w){
+  const art = (w.apaleoData && w.apaleoData.art17) || {};
+  const dcol = w.decision==="PASS"?"var(--green)":w.decision==="ESCALATE"?"var(--amber)":w.decision==="FAIL"?"var(--red)":"var(--dim)";
+  const sop = (art.sop_refs||[]).join(", ");
+  const charge = art.apaleo_charge_id || w.apaleoData?.apaleo_charge_id || "";
+  const recId = art.external_record_id || "";
+  const sealed = w.apaleoData?.vda_witness_record;
+  if(sealed) sealedRecords[w.id] = sealed.record || sealed;
+  const vw = w.eventCategory==="vda_witness_sealed"
+    ? `<span class="mono">${esc((recId||"").slice(0,8))}…</span> <button data-token="${w.id}" style="padding:2px 7px;font-size:11px">verify</button>`
+    : "—";
+  return `<tr>
+    <td class="mini">${esc((w.createdAt||"").slice(5,19).replace("T"," "))}</td>
+    <td><span class="dot" style="background:${dcol}"></span>${esc(w.decision)}</td>
+    <td class="mini">${esc(w.eventCategory||"")}</td>
+    <td class="mini">${esc(art.exception_class||"")}</td>
+    <td class="wclause">${esc((w.clauseApplied||"").slice(0,140))}</td>
+    <td class="mini">${esc(sop)}</td>
+    <td class="mono">${esc(charge)}</td>
+    <td>${vw}</td>
+  </tr>`;
+}
+
+async function loadWitnessFull(){
+  try{
+    const j = await api(`/api/stay/witness?company_id=${companyId()}&limit=80`);
+    $("#wfCount").textContent = j.count;
+    const rows = (j.entries||[]).map(witnessRow).join("");
+    $("#wtable").innerHTML = rows
+      ? `<table class="wt"><thead><tr><th>when</th><th>decision</th><th>event</th><th>class</th><th>clause / detail</th><th>SOP</th><th>Apaleo charge</th><th>VDA Witness</th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="muted">No witness entries for company ${companyId()} yet.</div>`;
+  }catch(e){ $("#wtable").innerHTML = `<div class="muted">${esc(e.message)}</div>`; }
+}
+
+$("#wtable").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-token]"); if(!b) return;
+  const rec = sealedRecords[b.dataset.token];
+  if(!rec){ toast("no sealed record on this row"); return; }
+  b.disabled = true;
+  try{
+    const v = await api(`/api/vda-witness/verify`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ record: rec }) });
+    const r = v.result || {};
+    toast(r.signatureValid ? "✓ independently verified — Ed25519 + hash-chain intact" : "✗ " + ((r.errors||[]).join("; ")||"invalid"));
+  }catch(err){ toast(err.message); }
+  b.disabled = false;
+});
+
+$("#vwReport").addEventListener("click", async () => {
+  const out = $("#reportOut"); out.style.display="block"; out.textContent = "Generating EU AI Act Article 12 report…";
+  try{ const j = await api(`/api/vda-witness/report`); out.textContent = JSON.stringify(j.report ?? j, null, 2); }
+  catch(e){ out.textContent = "Report error: " + e.message + "\n(needs WITNESS_API_KEY)"; }
+});
+
+function loadAll(){ loadQueue(); loadBaselines(); loadWitness(); loadPhase(); if(activeTab==="witness"){ loadWitnessFull(); loadVwStatus(); } }
 loadAll();
-setInterval(loadQueue, 6000);
+setInterval(() => { if(activeTab==="ops") loadQueue(); else loadWitnessFull(); }, 6000);
 </script>
 </body>
 </html>

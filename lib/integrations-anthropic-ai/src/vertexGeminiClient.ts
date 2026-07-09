@@ -241,12 +241,17 @@ function geminiToAnthropicMessage(json: GeminiResponse, model: string): Message 
 }
 
 export function createVertexGeminiClient(opts: {
-  projectId: string;
+  projectId?: string;
   region: string;
   model: string;
+  /** When set, use the Generative Language API (generativelanguage.googleapis.com)
+   *  with this API key instead of Vertex + ADC — ideal for serverless (no ADC). */
+  apiKey?: string;
 }): Anthropic {
-  const { projectId, region, model } = opts;
-  const auth = new GoogleAuth({ scopes: CLOUD_PLATFORM_SCOPE });
+  const { projectId, region, model, apiKey } = opts;
+  // GoogleAuth is only needed for the Vertex (ADC) path; construct it lazily.
+  let auth: GoogleAuth | null = null;
+  const getAuth = () => (auth ??= new GoogleAuth({ scopes: CLOUD_PLATFORM_SCOPE }));
 
   async function createMessage(params: Record<string, unknown>): Promise<Message> {
     const messages = (params.messages as AnthropicMessage[]) ?? [];
@@ -270,20 +275,29 @@ export function createVertexGeminiClient(opts: {
     const requested = String(params.model ?? "");
     const useModel = requested.startsWith("gemini") ? requested : model;
 
-    const url =
-      `https://${endpointHost(region)}/v1/projects/${projectId}` +
-      `/locations/${region}/publishers/google/models/${useModel}:generateContent`;
-
-    const token = await auth.getAccessToken();
-    if (!token) {
-      throw new Error(
-        "Could not obtain a Google access token. Configure ADC via `gcloud auth application-default login` or a service account.",
-      );
+    let url: string;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) {
+      // Generative Language API — API-key auth, no ADC. Same generateContent body.
+      url = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent?key=${apiKey}`;
+    } else {
+      // Vertex AI — ADC bearer token.
+      if (!projectId) throw new Error("Vertex Gemini requires a projectId (or set GEMINI_API_KEY for the key path).");
+      const token = await getAuth().getAccessToken();
+      if (!token) {
+        throw new Error(
+          "Could not obtain a Google access token. Configure ADC via `gcloud auth application-default login`, a service account, or set GEMINI_API_KEY.",
+        );
+      }
+      headers["Authorization"] = `Bearer ${token}`;
+      url =
+        `https://${endpointHost(region)}/v1/projects/${projectId}` +
+        `/locations/${region}/publishers/google/models/${useModel}:generateContent`;
     }
 
     const resp = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     });
     if (!resp.ok) {

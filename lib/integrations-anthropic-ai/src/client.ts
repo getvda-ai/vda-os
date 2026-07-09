@@ -40,18 +40,30 @@ const vertexRegion =
 
 const vertexGeminiModel = process.env.VERTEX_GEMINI_MODEL || "gemini-2.5-flash";
 
+// Gemini via API key (Generative Language API) — no ADC; preferred on serverless.
+const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY || "";
+
 const hasAnthropicKey = Boolean(
   process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY,
 );
 
 const useVertex =
   explicitProvider === "vertex" ||
+  Boolean(geminiApiKey) ||
   (explicitProvider !== "anthropic" && !hasAnthropicKey && Boolean(vertexProjectId));
 
 function makeVertexClient(): Anthropic {
+  // Gemini via API key — works anywhere (no project/ADC). Preferred on serverless.
+  if (geminiApiKey) {
+    return createVertexGeminiClient({
+      region: vertexRegion,
+      model: vertexGeminiModel,
+      apiKey: geminiApiKey,
+    });
+  }
   if (!vertexProjectId) {
     throw new Error(
-      "AI_PROVIDER=vertex requires a project. Set ANTHROPIC_VERTEX_PROJECT_ID (or GOOGLE_CLOUD_PROJECT) and ensure Application Default Credentials are configured (`gcloud auth application-default login`).",
+      "No AI credentials. Set GEMINI_API_KEY, or set a Vertex project (ANTHROPIC_VERTEX_PROJECT_ID/GOOGLE_CLOUD_PROJECT) with ADC (`gcloud auth application-default login`).",
     );
   }
   if (vertexModelFamily === "claude") {
