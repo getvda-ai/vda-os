@@ -195,13 +195,16 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
 
     const execution = await executeStayAction(payload);
     await db.update(hitlTokens).set({ outcome: "approved", decidedBy, decidedAt: new Date() }).where(eq(hitlTokens.token, token));
-    const eventCategory = outcome === "baseline" ? "BASELINE_SET" : "HITL_APPROVED";
-    const clause = outcome === "baseline"
-      ? `Approved and baselined by ${decidedBy} — this task auto-PASSes within its bounds going forward.`
-      : `Operational exception approved by ${decidedBy}; Apaleo action ${execution.status}.`;
-    const witnessId = await writeStayWitness("PASS", eventCategory, clause, { apaleo_execution: execution, baseline_id: baselineId });
+    // A real Apaleo write returns an id → record it as a first-class charge_posted event.
+    const eventCategory = execution.apaleoId ? "charge_posted" : outcome === "baseline" ? "BASELINE_SET" : "HITL_APPROVED";
+    const clause = execution.apaleoId
+      ? `Approved by ${decidedBy}; posted Apaleo ${execution.tool} → id ${execution.apaleoId}.`
+      : outcome === "baseline"
+        ? `Approved and baselined by ${decidedBy} — this task auto-PASSes within its bounds going forward.`
+        : `Operational exception approved by ${decidedBy}; Apaleo action ${execution.status}.`;
+    const witnessId = await writeStayWitness("PASS", eventCategory, clause, { apaleo_execution: execution, apaleo_charge_id: execution.apaleoId ?? null, baseline_id: baselineId });
     const rates = await updateStayRates(companyId);
-    res.json({ ok: true, action: outcome, token, apaleo_execution: execution, baseline_id: baselineId, witness_entry_id: witnessId, rates });
+    res.json({ ok: true, action: outcome, token, apaleo_execution: execution, apaleo_charge_id: execution.apaleoId ?? null, baseline_id: baselineId, witness_entry_id: witnessId, rates });
   } catch (err) {
     logger.error({ err }, "stay/hitl/respond error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to resolve card" });

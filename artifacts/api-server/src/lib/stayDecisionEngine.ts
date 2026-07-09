@@ -22,6 +22,7 @@ import { getActiveMandate } from "./mandateIssuer.js";
 import { writeWitnessEntry, type AgentDecision } from "./witnessWriter.js";
 import { apaleoFetch, buildQueryString } from "./apaleo.js";
 import { matchBaseline } from "./stayBaselines.js";
+import { executeStayAction } from "./stayExecutor.js";
 import { logger } from "./logger.js";
 
 export type StayStage = "check_in" | "in_stay" | "check_out";
@@ -86,6 +87,9 @@ export interface StayDecisionResult {
   witness_entry_id: number | null;
   hitl_token: string | null;
   baseline_id?: string | null;
+  apaleo_ref?: StayApaleoRef;
+  apaleo_execution?: unknown;
+  apaleo_charge_id?: string | null;
 }
 
 const BAND_ORDER = ["ambassador", "mod", "compliance_officer"] as const;
@@ -202,10 +206,11 @@ async function createStayHitlCard(params: {
           reasoning: result.reasoning,
           ceiling_band: result.ceiling_band,
           financial_exposure: result.ceiling_band.requested_value,
-          currency: (result.apaleo_data?.currency as string) ?? null,
+          currency: (result.apaleo_data?.folio as { currency?: string })?.currency ?? (result.apaleo_data?.currency as string) ?? "EUR",
           escalation_target: result.escalation_target,
           role_band: roleBand,
           apaleo_data: result.apaleo_data,
+          apaleo_ref: result.apaleo_ref ?? null,
           witness_entry_id: witnessEntryId,
           no_sop_coverage: result.no_sop_coverage,
         },
@@ -335,6 +340,7 @@ export async function decideStay(input: StayDecisionInput): Promise<StayDecision
     witness_entry_id: null,
     hitl_token: null,
     baseline_id: null,
+    apaleo_ref: input.apaleoRef,
   };
 
   if (!VALID_STAGES.includes(stage)) {
@@ -502,6 +508,26 @@ async function finalize(
   result: StayDecisionResult,
   opts: { companyId: number; roleBand: string; phase: string; eventCategory: string; fileReferenced: string },
 ): Promise<void> {
+  // Autonomous PASS (baseline fast-path, or Walk/Run within ceiling) executes the
+  // Apaleo write here — no HITL. A real write returns an id → charge_posted.
+  let eventCategory = opts.eventCategory;
+  if (result.outcome === "PASS") {
+    const execPayload = {
+      stage: result.stage,
+      exception_class: result.exception_class,
+      apaleo_data: result.apaleo_data,
+      apaleo_ref: result.apaleo_ref,
+      ceiling_band: result.ceiling_band,
+      financial_exposure: result.ceiling_band.requested_value,
+      currency: (result.apaleo_data?.folio as { currency?: string })?.currency ?? "EUR",
+      proposed_action: result.proposed_action,
+    };
+    const execution = await executeStayAction(execPayload);
+    result.apaleo_execution = execution;
+    result.apaleo_charge_id = execution.apaleoId ?? null;
+    if (execution.apaleoId) eventCategory = "charge_posted";
+  }
+
   const decision: AgentDecision = {
     decision: result.outcome,
     clauseApplied: result.clause_applied,
@@ -530,10 +556,12 @@ async function finalize(
           role_band: opts.roleBand,
           no_sop_coverage: result.no_sop_coverage,
           demo_data: result.demo_data,
+          apaleo_charge_id: result.apaleo_charge_id ?? null,
         },
+        ...(result.apaleo_execution ? { apaleo_execution: result.apaleo_execution } : {}),
       },
       filesConsulted: result.files_consulted,
-      eventCategory: opts.eventCategory,
+      eventCategory,
       mandateId: null,
       suppressAutoHitl: true, // we create our own role-routed card below
     });
