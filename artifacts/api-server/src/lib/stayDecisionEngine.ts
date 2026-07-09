@@ -598,11 +598,15 @@ async function finalize(
       });
     }
 
-    // Independent external seal into the deployed VDA Witness (fire-and-forget).
+    // Independent external seal into the deployed VDA Witness. Awaited so it
+    // completes reliably on serverless (fire-and-forget work is cut off when the
+    // function freezes after the response). Never fails the decision.
     if (isVdaWitnessEnabled()) {
-      void sealIntoVdaWitness(result, opts, witnessId).catch((err) =>
-        logger.warn({ err }, "[stayEngine] VDA Witness seal failed"),
-      );
+      try {
+        await sealIntoVdaWitness(result, opts, witnessId);
+      } catch (err) {
+        logger.warn({ err }, "[stayEngine] VDA Witness seal failed");
+      }
     }
   } catch (err) {
     logger.error({ err }, "[stayEngine] finalize (witness) failed");
