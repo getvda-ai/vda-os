@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>citizenM Stay Agent — Console</title>
+<style>
+  :root{--bg:#07080a;--panel:#111318;--panel2:#171a21;--line:#232733;--txt:#f4f6fb;--dim:#9aa4b6;--accent:#7c9cff;--green:#4ade80;--red:#f87171;--amber:#f59e0b;--purple:#c084fc}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{position:sticky;top:0;z-index:10;background:#0a0c10ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 18px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  .tag{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+  .spacer{flex:1}
+  input,select,button{font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+  button{cursor:pointer}
+  button:hover{border-color:#3a4152}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:transparent;padding:7px 14px}
+  .seg button.on{background:var(--accent);color:#06101f;font-weight:650}
+  main{max-width:1180px;margin:0 auto;padding:18px;display:grid;grid-template-columns:1.5fr 1fr;gap:18px}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  .col{display:flex;flex-direction:column;gap:14px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .panel > h2{margin:0;padding:12px 15px;font-size:13px;font-weight:600;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .panel .body{padding:12px 15px;display:flex;flex-direction:column;gap:12px}
+  .count{font-size:11px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--dim)}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px}
+  .card h3{margin:0 0 3px;font-size:14px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .pill{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;border-radius:999px;padding:2px 8px;border:1px solid var(--line);color:var(--dim)}
+  .pill.stage{color:var(--accent);border-color:#2b3550}
+  .pill.esc{color:var(--amber);border-color:#3a2f13}
+  .pill.pass{color:var(--green)} .pill.fail{color:var(--red)}
+  .kv{font-size:12.5px;color:var(--dim)}
+  .kv b{color:var(--txt);font-weight:600}
+  .clause{font-size:12px;background:#0c0e13;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:8px 10px;margin-top:6px;color:#cdd5e6}
+  .clause.sop{border-left-color:var(--purple)}
+  .snap{font-size:11px;color:var(--dim);max-height:96px;overflow:auto;background:#0c0e13;border:1px solid var(--line);border-radius:8px;padding:8px;white-space:pre-wrap;word-break:break-word}
+  .actions{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px}
+  .actions button{padding:8px 6px;font-size:12.5px;font-weight:600}
+  .b-appr{background:#0f2a17;border-color:#1c4a2a;color:var(--green)}
+  .b-deny{background:#2a1113;border-color:#4a1c22;color:var(--red)}
+  .b-esc{background:#2a2110;border-color:#4a3a17;color:var(--amber)}
+  .b-base{background:#211433;border-color:#3a2359;color:var(--purple)}
+  .reason{width:100%;margin-top:8px}
+  .muted{color:var(--dim);font-size:13px;text-align:center;padding:14px}
+  .wl{font-size:12px;border-bottom:1px dashed var(--line);padding:7px 0}
+  .wl:last-child{border-bottom:0}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#12151c;border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-size:13px;z-index:50;box-shadow:0 8px 30px #000a}
+  .bl{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--panel2)}
+  .bl.rev{opacity:.55}
+  .mini{font-size:11px;color:var(--dim)}
+  a{color:var(--accent)}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+  .toolbar button{font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>citizenM · Stay Agent</h1>
+  <span class="tag" id="phaseTag">phase —</span>
+  <span class="tag" id="aiTag">Vertex · Gemini</span>
+  <div class="spacer"></div>
+  <label class="mini">company <input id="company" value="1" style="width:56px" /></label>
+  <div class="seg" id="roleSeg">
+    <button data-role="ambassador" class="on">Ambassador</button>
+    <button data-role="mod">Manager on Duty</button>
+  </div>
+  <button id="refresh">↻</button>
+</header>
+
+<main>
+  <div class="col">
+    <div class="panel">
+      <h2>Decision Queue <span class="count" id="qCount">0</span> <span class="spacer" style="flex:1"></span></h2>
+      <div class="body" id="queue"><div class="muted">Loading…</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Simulate a decision</h2>
+      <div class="body">
+        <div class="row">
+          <select id="simStage">
+            <option value="check_in">check_in</option>
+            <option value="in_stay">in_stay</option>
+            <option value="check_out" selected>check_out</option>
+          </select>
+          <input id="simClass" value="late_checkout" placeholder="exception_class" style="flex:1" />
+          <input id="simVal" value="2" placeholder="value" style="width:70px" />
+        </div>
+        <div class="row">
+          <input id="simRes" placeholder="apaleo reservationId (optional)" style="flex:1" />
+          <input id="simFolio" placeholder="folioId (optional)" style="flex:1" />
+        </div>
+        <div class="toolbar">
+          <button id="runDecision" class="b-appr">Run decision →</button>
+          <button id="ingestSops">Ingest /sops folder</button>
+          <button id="seedGov">Seed stay-agent governance</button>
+        </div>
+        <div id="simOut" class="snap" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="panel">
+      <h2>Baselines <span class="count" id="blCount">0</span></h2>
+      <div class="body" id="baselines"><div class="muted">—</div></div>
+    </div>
+    <div class="panel">
+      <h2>Witness tail <span class="count" id="wCount">0</span></h2>
+      <div class="body" id="witness"><div class="muted">—</div></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let role = "ambassador";
+const companyId = () => Number($("#company").value || 1);
+function toast(m){ const t=document.createElement("div"); t.className="toast"; t.textContent=m; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+async function api(path, opts){ const r = await fetch(path, opts); const j = await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||r.status); return j; }
+const esc = s => String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+$("#roleSeg").addEventListener("click", e => { const b=e.target.closest("button"); if(!b)return; role=b.dataset.role; [...$("#roleSeg").children].forEach(x=>x.classList.toggle("on",x===b)); loadQueue(); });
+$("#refresh").addEventListener("click", loadAll);
+$("#company").addEventListener("change", loadAll);
+
+async function loadQueue(){
+  try{
+    const j = await api(`/api/stay/hitl/pending?role_band=${role}&company_id=${companyId()}`);
+    $("#qCount").textContent = j.count;
+    const el = $("#queue");
+    if(!j.pending.length){ el.innerHTML = `<div class="muted">No ${role} cards pending.</div>`; return; }
+    el.innerHTML = j.pending.map(cardHtml).join("");
+  }catch(e){ $("#queue").innerHTML = `<div class="muted">${esc(e.message)}</div>`; }
+}
+
+function cardHtml(t){
+  const p = t.payload||{};
+  const cb = p.ceiling_band||{};
+  const sops = (p.sop_refs||[]).map(c=>`<div class="clause sop"><b>SOP · ${esc(c.heading||c.anchor)}</b><br>${esc(c.text||"")}</div>`).join("");
+  const exposure = (cb.requested_value!=null)?`${esc(cb.requested_value)} ${esc(cb.ceiling_type||"")}`:"—";
+  return `<div class="card" data-token="${t.token}">
+    <div class="row">
+      <span class="pill stage">${esc(p.stage||"")}</span>
+      <span class="pill esc">${esc(p.exception_class||"")}</span>
+      ${p.no_sop_coverage?'<span class="pill fail">NO_SOP_COVERAGE</span>':''}
+      <span class="spacer" style="flex:1"></span>
+      <span class="pill">${esc(p.current_phase||"crawl")}</span>
+    </div>
+    <h3 style="margin-top:8px">${esc(p.proposed_action||p.exception_class||"Decision")}</h3>
+    <div class="kv"><b>Exposure:</b> ${exposure} · <b>Ceiling band:</b> ${esc(cb.band||"—")} (≤ ${esc(cb.ceiling??"none")}) · within: ${cb.within_ceiling?'✓':'✗'}</div>
+    <div class="kv" style="margin-top:4px"><b>Reasoning:</b> ${esc(p.reasoning||"")}</div>
+    ${p.clause_applied?`<div class="clause"><b>Policy clause</b><br>${esc(p.clause_applied)}</div>`:''}
+    ${sops}
+    <details style="margin-top:8px"><summary class="mini">Live Apaleo snapshot</summary><div class="snap">${esc(JSON.stringify(p.apaleo_data||{},null,2))}</div></details>
+    <input class="reason" placeholder="reason (optional)" />
+    <div class="actions">
+      <button class="b-appr" data-a="approve">Approve</button>
+      <button class="b-deny" data-a="deny">Deny</button>
+      <button class="b-esc" data-a="escalate">Escalate</button>
+      <button class="b-base" data-a="baseline">Baseline</button>
+    </div>
+  </div>`;
+}
+
+$("#queue").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-a]"); if(!btn) return;
+  const card = e.target.closest(".card"); const token = card.dataset.token;
+  const reason = card.querySelector(".reason").value;
+  btn.disabled = true;
+  try{
+    const j = await api(`/api/stay/hitl/respond/${token}`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ outcome: btn.dataset.a, reason, decided_by: role }) });
+    let msg = `${btn.dataset.a} ✓`;
+    if(j.apaleo_execution) msg += ` · Apaleo ${j.apaleo_execution.status}`;
+    if(j.baseline_id) msg += ` · baseline set`;
+    if(j.to_band) msg += ` → ${j.to_band}`;
+    toast(msg);
+    loadAll();
+  }catch(err){ toast(err.message); btn.disabled=false; }
+});
+
+async function loadBaselines(){
+  try{
+    const j = await api(`/api/baselines?company_id=${companyId()}`);
+    $("#blCount").textContent = j.active.length;
+    const el = $("#baselines");
+    const render = b => `<div class="bl ${b.revoked?'rev':''}">
+      <div class="row"><span class="pill">${esc(b.stage||'')}</span><b>${esc(b.exception_class)}</b><span class="spacer" style="flex:1"></span>${b.revoked?'<span class="pill fail">revoked</span>':`<button data-rev="${b.id}" style="padding:3px 9px;font-size:11px">Revoke</button>`}</div>
+      <div class="mini" style="margin-top:5px">bounds ${esc(JSON.stringify(b.bounds||{}))} · by ${esc(b.authorised_by||'—')}</div>
+      ${b.revoked?`<div class="mini">↳ revoked by ${esc(b.revoked_by||'')}: ${esc(b.revoked_reason||'')}</div>`:''}
+    </div>`;
+    const all = [...j.active, ...j.revoked];
+    el.innerHTML = all.length ? all.map(render).join("") : `<div class="muted">No baselines.</div>`;
+  }catch(e){ $("#baselines").innerHTML = `<div class="muted">${esc(e.message)}</div>`; }
+}
+$("#baselines").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-rev]"); if(!b) return;
+  const reason = prompt("Revoke reason?"); if(reason==null) return;
+  try{ await api(`/api/baselines/${b.dataset.rev}/revoke`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ revoked_by: role, revoked_reason: reason||"revoked from console", company_id: companyId() }) }); toast("baseline revoked"); loadAll(); }
+  catch(err){ toast(err.message); }
+});
+
+async function loadWitness(){
+  try{
+    const j = await api(`/api/stay/witness?company_id=${companyId()}&limit=25`);
+    $("#wCount").textContent = j.count;
+    const color = d => d==="PASS"?"var(--green)":d==="ESCALATE"?"var(--amber)":d==="FAIL"?"var(--red)":"var(--dim)";
+    $("#witness").innerHTML = j.entries.map(w=>`<div class="wl"><span class="dot" style="background:${color(w.decision)}"></span><b>${esc(w.decision)}</b> · ${esc(w.eventCategory||'')} <div class="mini">${esc((w.clauseApplied||'').slice(0,110))}</div></div>`).join("") || `<div class="muted">No entries.</div>`;
+  }catch(e){ $("#witness").innerHTML = `<div class="muted">${esc(e.message)}</div>`; }
+}
+
+async function loadPhase(){
+  try{ const j = await api(`/api/phase/${companyId()}`); $("#phaseTag").textContent = `phase ${j.phase} · agree ${(j.agreement_rate*100||0).toFixed(0)}%`; }
+  catch{ $("#phaseTag").textContent = "phase —"; }
+}
+
+$("#runDecision").addEventListener("click", async () => {
+  const body = { company_id: companyId(), stage: $("#simStage").value, exception_context: { exception_class: $("#simClass").value, requested_value: Number($("#simVal").value)||undefined, role_band: role, description: `${$("#simStage").value} ${$("#simClass").value}` }, apaleo_ref: { reservationId: $("#simRes").value||undefined, folioId: $("#simFolio").value||undefined } };
+  const out = $("#simOut"); out.style.display="block"; out.textContent="Deciding…";
+  try{ const j = await api(`/api/stay/decision`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) }); out.textContent = `${j.outcome}  ·  ${j.governance_source}\nclause: ${j.clause_applied}\nsop_refs: ${(j.sop_refs||[]).map(c=>c.anchor).join(", ")||'—'}\nreason: ${j.reasoning}`; toast(`decision: ${j.outcome}`); loadAll(); }
+  catch(e){ out.textContent = e.message; }
+});
+$("#ingestSops").addEventListener("click", async () => { try{ const j=await api(`/api/sops/ingest`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})}); toast(`ingested ${j.ingested?.length||0} SOP docs`);}catch(e){toast(e.message);} });
+$("#seedGov").addEventListener("click", async () => { try{ await api(`/api/admin/seed-stay-agent`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:companyId()})}); toast("governance seeded");}catch(e){toast(e.message);} });
+
+function loadAll(){ loadQueue(); loadBaselines(); loadWitness(); loadPhase(); }
+loadAll();
+setInterval(loadQueue, 6000);
+</script>
+</body>
+</html>
