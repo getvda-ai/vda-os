@@ -101,12 +101,35 @@
   #scrim.open{display:block}
   .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#12151c;border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-size:13px;z-index:60;box-shadow:0 8px 30px #000a;max-width:90vw}
   a{color:var(--accent)}
+  /* seal-state badges (outbox status × verify verdict) */
+  .sb{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid;cursor:default;white-space:nowrap}
+  .sb.act{cursor:pointer}
+  .sb.pending{color:#c9b56a;border-color:#5a4d22;background:#231d0f}
+  .sb.signed{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
+  .sb.anchored{color:#4ade80;border-color:#1f5a34;background:#0e2016}
+  .sb.broken{color:#fff;border-color:#a11;background:#c0202a;box-shadow:0 0 0 1px #c0202a,0 2px 12px #c0202a88}
+  .sb.dead{color:#ffb4a2;border-color:#7a2a1a;background:#2a120c}
+  /* offline verify verdict panel */
+  .vp{margin-top:7px;border:1px solid var(--line);border-radius:8px;padding:8px 9px;background:#0f131b;font-size:11px}
+  .vp.broken{border-color:#c0202a;background:#1e0c0e}
+  .vp .st{font-weight:800;font-size:12px;letter-spacing:.02em}
+  .vp .st.signed{color:var(--teal)} .vp .st.anchored{color:#4ade80} .vp .st.broken{color:#ff5a63}
+  .vp .sig{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
+  .vp .chk{font-size:10px;padding:1px 7px;border-radius:12px;border:1px solid var(--line);color:#b7c0d0}
+  .vp .chk.y{color:#4ade80;border-color:#1f5a34} .vp .chk.n{color:#ff8a8a;border-color:#7a2a1a}
+  .vp .meth{margin-top:5px;color:var(--dim);font-size:10px}
+  /* tier badge in header */
+  .tier{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid;white-space:nowrap}
+  .tier.test{color:#c9b56a;border-color:#5a4d22;background:#231d0f}
+  .tier.anchored{color:#4ade80;border-color:#1f5a34;background:#0e2016}
+  .tier .mm{color:#ff8a8a;margin-left:5px}
 </style>
 </head>
 <body>
 <header>
   <div class="brand"><span class="dot"></span>citizenM · <span>Stay Agent</span> <small id="propTag">· BER</small></div>
   <span class="tag" id="agentTag">agent live · Gemini</span>
+  <span class="tier test" id="tierBadge" title="Evidence grade — derived from the records' observed anchor state, not a config flag">tier…</span>
   <div class="spacer"></div>
   <div class="roleseg" id="roleSeg">
     <button data-role="ambassador" class="on">Ambassador<small>front-line</small></button>
@@ -271,6 +294,18 @@ async function loadLog(){
   }catch(e){$("#made").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
 }
 $("#fchip").addEventListener("click",()=>{madeFilter="all";loadLog();});
+// Seal-state badge = f(outbox status × verify verdict). "Sealed" and "verified"
+// are different truths; a pending row shows no verdict, a dead-letter is a visible
+// evidence gap, BROKEN is loud. Verdicts come from OBSERVED state (witness_state),
+// confirmed on demand by the offline Verify action.
+function sealBadge(m){
+  const st=m.seal_status, ws=m.witness_state;
+  if(st==="dead"||ws==="unsealed")return{t:"⚠ seal failed — dead-letter",c:"dead",act:false};
+  if(!m.sealed||st==="pending"||ws==="pending"||(!ws&&!m.external_record_id))return{t:"⏳ pending seal",c:"pending",act:true};
+  if(ws==="ANCHORED_VALID")return{t:"anchored ✓ audit-ready",c:"anchored",act:true};
+  if(ws==="BROKEN")return{t:"✗ verification failed",c:"broken",act:true};
+  return{t:"sealed ✓ signed · pending anchor",c:"signed",act:true}; // SIGNED_PENDING
+}
 function rowHtml(m){
   if(m.sealed&&m.sealed_record)sealedCache[m.id]=m.sealed_record.record||m.sealed_record;
   const gov=m.kind==="governance";
@@ -278,18 +313,44 @@ function rowHtml(m){
   const who=m.decided_by==="Stay Agent"?"Stay Agent · auto":`${esc(m.decided_by)}${m.role_band?" · "+roleName(m.role_band):""}`;
   const what=gov?(m.event==="BASELINE_SET"?"⚖ Baselined class "+esc(m.exception_class):"⚖ Unbaselined class"):(esc(m.event||m.decision)+(m.exception_class?" · "+esc(m.exception_class):""));
   const chg=m.apaleo_charge_id?` · Apaleo ${esc(m.apaleo_charge_id)}`:"";
-  const seal=m.sealed?`<span class="seal" data-id="${m.id}" data-rec="${m.external_record_id}">sealed ✓ verify</span>`:`<span class="seal no">unsealed</span>`;
+  const b=sealBadge(m);
+  const verb=b.act?` · ${b.c==="pending"?"drain & verify":"verify"}`:"";
+  const seal=`<span class="sb ${b.c}${b.act?' act':''}" data-id="${m.id}" data-pending="${b.c==='pending'?1:0}" title="offline bundled-proof — zero calls to witness.getvda.ai">${b.t}${verb}</span>`;
   return `<div class="r ${gov?'gov':''}"><span class="dot" style="background:${col}"></span>
     <div class="m"><div class="top"><span class="what">${what}</span>${seal}</div>
     <div class="sub">${esc(friendly(m.clause||""))}${chg}</div>
-    <div class="who">${m.governance_source==="baseline"?"auto-handled via baseline · ":""}by <b>${who}</b> · ${esc(String(m.at||"").slice(5,16).replace("T"," "))}</div></div></div>`;
+    <div class="who">${m.governance_source==="baseline"?"auto-handled via baseline · ":""}by <b>${who}</b> · ${esc(String(m.at||"").slice(5,16).replace("T"," "))}</div>
+    <div class="vpwrap" id="vp-${m.id}"></div></div></div>`;
+}
+// Render the three-state verdict VERBATIM (never coerced to a boolean) + sub-signals + method.
+function renderVerdict(id,v){
+  const wrap=$(`#vp-${id}`);if(!wrap)return;
+  const st=String(v.state||"UNKNOWN");
+  const cls=st==="ANCHORED_VALID"?"anchored":st==="BROKEN"?"broken":"signed";
+  const c=v.checks||{},an=c.anchor||{};
+  const chk=(lab,val)=>`<span class="chk ${val?'y':'n'}">${lab}: ${val?'✓':'✗'}</span>`;
+  wrap.innerHTML=`<div class="vp ${cls==='broken'?'broken':''}">
+    <span class="st ${cls}">${esc(st)}</span> ${st==="SIGNED_PENDING"?'<span class="chk">validly signed · not yet anchored</span>':st==="BROKEN"?'<span class="chk n">DO NOT TRUST</span>':''}
+    <div class="sig">${chk("signature",c.signature)}${chk("chain",c.chain)}${chk("keyValidAtSigningTime",c.keyValidAtSigningTime)}${chk("anchor.attempted",an.attempted)}${an.quorumMet!=null?chk("anchor.quorumMet",an.quorumMet):""}</div>
+    <div class="meth">method: ${esc(v.verificationMethod||"—")} · ${esc(v.verifierVersion||"")} · offline — 0 calls to witness.getvda.ai${v.reason?(" · "+esc(v.reason)):""}</div>
+  </div>`;
 }
 $("#made").addEventListener("click",async e=>{
-  const s=e.target.closest(".seal[data-id]");if(!s)return;
-  const rec=sealedCache[s.dataset.id];if(!rec){toast("no sealed record");return;}
-  try{const v=await api(`/api/vda-witness/verify`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record:rec})});
-    const r=v.result||{};toast(r.signatureValid?`✓ independently verified at witness.getvda.ai (Ed25519 + hash-chain) · ${s.dataset.rec}`:`✗ ${(r.errors||[]).join("; ")}`);}
-  catch(err){toast(err.message);}
+  const s=e.target.closest(".sb.act[data-id]");if(!s)return;
+  const id=s.dataset.id;
+  // A pending row has no sealed record yet → drain-on-read first (server-side drain
+  // via /stay/log), then verify. Never show a verdict for an unsealed record.
+  if(s.dataset.pending==="1"){
+    $(`#vp-${id}`).innerHTML='<div class="vp">draining outbox (drain-on-read)…</div>';
+    await loadLog();
+    if(!sealedCache[id]){const w=$(`#vp-${id}`);if(w)w.innerHTML='<div class="vp">still pending — enqueued, not yet sealed. No verdict shown.</div>';return;}
+  }
+  const rec=sealedCache[id];if(!rec){toast("no sealed record");return;}
+  $(`#vp-${id}`).innerHTML='<div class="vp">verifying offline (bundled-proof)…</div>';
+  try{
+    const j=await api(`/api/stay/verify`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record:rec})});
+    renderVerdict(id,j.verdict||{state:"BROKEN",reason:"no verdict returned"});
+  }catch(err){renderVerdict(id,{state:"BROKEN",reason:err.message,checks:{}});}
 });
 
 // ── Baselines ────────────────────────────────────────────────────────────────
@@ -320,6 +381,23 @@ $("#baselines").addEventListener("click",async e=>{
 
 // ── Phase tag ────────────────────────────────────────────────────────────────
 async function loadPhase(){try{const j=await api(`/api/phase/${companyId()}`);$("#agentTag").textContent=`agent live · Gemini · ${j.phase}`;}catch{}}
+
+// ── Truthful tier badge — from OBSERVED anchor/record state, never a config flag ─
+async function loadTier(){
+  const el=$("#tierBadge");
+  try{
+    const j=await api(`/api/stay/anchor-status?company_id=${companyId()}`);
+    const anchored=j.tier==="anchored";
+    el.className="tier "+(anchored?"anchored":"test");
+    const seq=j.observed?.anchoredThroughSeq;
+    el.innerHTML=(anchored?"Compliance-grade — anchored":"Test tier — non-anchored")
+      +(anchored&&seq!=null?` · seq ≤ ${esc(seq)}`:"")
+      +(j.mismatch?'<span class="mm" title="loaded key and observed anchor state disagree — showing observed">⚠ mismatch</span>':"");
+    el.title=anchored
+      ?"Records read ANCHORED_VALID and the Witness head is anchored — audit-ready."
+      :"Test key: records are validly signed and verifiable but not yet anchored (SIGNED_PENDING). Not compliance-grade.";
+  }catch{el.className="tier test";el.textContent="tier — unknown";}
+}
 
 // ── Status tiles → drill-down (numbers are navigable) ────────────────────────
 document.querySelectorAll(".stat[data-nav]").forEach(t=>t.addEventListener("click",()=>{
@@ -364,7 +442,7 @@ $("#btnIngest").addEventListener("click",async()=>{try{const j=await api(`/api/s
   if(q.get("company"))$("#company").value=q.get("company");
   const r=q.get("role");if(r==="mod"||r==="ambassador"){role=r;[...$("#roleSeg").children].forEach(x=>x.classList.toggle("on",x.dataset.role===r));$("#roleLabel").textContent=roleName(r);}
 })();
-async function loadAll(){await loadAuthority();loadQueue();loadLog();loadBaselines();loadPhase();}
+async function loadAll(){await loadAuthority();loadQueue();loadLog();loadBaselines();loadPhase();loadTier();}
 loadAll();
 setInterval(()=>{loadQueue();loadLog();},6000);
 </script>

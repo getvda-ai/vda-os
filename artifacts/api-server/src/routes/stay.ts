@@ -3,14 +3,15 @@
  *   POST /api/stay/decision  — run the governed check-in/in-stay/check-out engine.
  */
 import { Router, type IRouter } from "express";
-import { db, hitlTokens, agentPhases, witnessEntries } from "@workspace/db";
-import { and, eq, desc, sql } from "drizzle-orm";
+import { db, hitlTokens, agentPhases, witnessEntries, sealOutbox } from "@workspace/db";
+import { and, eq, desc, sql, inArray } from "drizzle-orm";
 import { decideStay, type StayStage, type StayExceptionContext, type StayApaleoRef } from "../lib/stayDecisionEngine.js";
 import { listStayBaselines, revokeStayBaseline, createStayBaseline } from "../lib/stayBaselines.js";
 import { executeStayAction } from "../lib/stayExecutor.js";
 import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { sealStayEvent } from "../lib/staySeal.js";
 import { drainSealOutbox, outboxHealth } from "../lib/sealOutbox.js";
+import { anchorStatus } from "../lib/witnessClient.js";
 import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
 import { logger } from "../lib/logger.js";
 
@@ -455,6 +456,18 @@ router.get("/stay/log", async (req, res) => {
           sealed_record: ref?.record ?? legacy?.sealed_record ?? null,
         };
       });
+    // Attach the authoritative per-row outbox status (pending | sealed | dead) so
+    // the dashboard can render the seal-state matrix honestly — "sealed" and
+    // "verified" are different truths, and a dead-letter is a visible evidence gap.
+    const decisionIds = made.map((m) => `stay-${companyId}-${m.id}`);
+    if (decisionIds.length) {
+      const obRows = await db
+        .select({ d: sealOutbox.decisionId, s: sealOutbox.status })
+        .from(sealOutbox)
+        .where(and(eq(sealOutbox.companyId, companyId), inArray(sealOutbox.decisionId, decisionIds)));
+      const statusByDecision = new Map(obRows.map((r) => [r.d, r.s]));
+      for (const m of made) (m as { seal_status?: string | null }).seal_status = statusByDecision.get(`stay-${companyId}-${m.id}`) ?? null;
+    }
     res.json({ companyId, count: made.length, made, outbox: await outboxHealth(companyId) });
   } catch (err) {
     logger.error({ err }, "stay/log error");
@@ -494,6 +507,43 @@ router.get("/stay/seal/health", async (req, res) => {
     res.json({ ok: true, outbox: await outboxHealth(companyId) });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "health failed" });
+  }
+});
+
+// ── GET /api/stay/anchor-status?company_id= — truthful tier, from observed state ─
+// Tier is DERIVED from what the records actually are + Witness anchor status, never
+// from a config string that merely claims a tier. Compliance-grade only when the
+// head is anchored AND records genuinely read ANCHORED_VALID. Never leaks the key.
+router.get("/stay/anchor-status", async (req, res) => {
+  try {
+    const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0);
+    // Observed local record lifecycle states.
+    const rows = await db
+      .select({ s: witnessEntries.witnessState, n: sql<number>`count(*)::int` })
+      .from(witnessEntries)
+      .where(and(eq(witnessEntries.companyId, companyId), eq(witnessEntries.agent, AGENT_NAME)))
+      .groupBy(witnessEntries.witnessState);
+    const states: Record<string, number> = {};
+    for (const r of rows) states[r.s ?? "none"] = r.n;
+
+    // External anchor status (a read, NOT verify — a network call here is fine).
+    let anchor: Record<string, unknown> = {};
+    try { anchor = await anchorStatus(); } catch { anchor = {}; }
+    const headAnchored = Boolean(anchor.headAnchored);
+    const externalValid = Boolean(anchor.externalValid);
+    const anchoredThroughSeq = (anchor.anchoredThroughSeq as number | null) ?? null;
+    const anyAnchoredRecord = (states.ANCHORED_VALID ?? 0) > 0;
+
+    // Compliance-grade ONLY when the head is anchored and records read ANCHORED_VALID.
+    const tier: "anchored" | "test" = headAnchored && anyAnchoredRecord ? "anchored" : "test";
+    // Mismatch: the external chain claims anchoring but no local record reads anchored
+    // yet (or vice versa). Surface it — the UI must not be able to lie about the key.
+    const mismatch = headAnchored !== anyAnchoredRecord;
+
+    res.json({ ok: true, tier, observed: { headAnchored, externalValid, anchoredThroughSeq }, states, mismatch });
+  } catch (err) {
+    logger.error({ err }, "stay/anchor-status error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "anchor-status failed" });
   }
 });
 

@@ -13,6 +13,10 @@
  */
 import { offlineVerify, type Verdict } from "vda-witness/verify";
 import { logger } from "./logger.js";
+// Bundled DID document (did:web:witness.getvda.ai) so offline verify makes ZERO
+// network calls — even on a cold serverless start or with egress blocked. Refreshed
+// opportunistically in the background; the bundled copy is always the fallback.
+import bundledDid from "./witnessDid.json" with { type: "json" };
 
 const base = (): string => process.env.WITNESS_BASE_URL || "https://witness.getvda.ai";
 const AUTO_REFRESH = (process.env.WITNESS_AUTO_REFRESH ?? "true").toLowerCase() !== "false";
@@ -61,7 +65,9 @@ export async function sealRecord(body: SealBody): Promise<SealOutcome> {
     return (j.record as Record<string, unknown>) ?? (j.data as Record<string, unknown>) ?? j;
   };
   try {
-    return { ok: true, record: await call(key) };
+    const record = await call(key);
+    refreshDidInBackground(); // warm the DID off the seal path, never off verify
+    return { ok: true, record };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (AUTO_REFRESH && isAuthError(msg)) {
@@ -72,19 +78,38 @@ export async function sealRecord(body: SealBody): Promise<SealOutcome> {
   }
 }
 
-/** Pre-fetch (and cache 1h) the DID document so offline verify makes zero Witness calls. */
-export async function getDidDocument(): Promise<unknown> {
-  if (didDoc && Date.now() - didAt < 3_600_000) return didDoc;
-  try {
-    didDoc = await (await fetch(`${base()}/.well-known/did.json`, { signal: AbortSignal.timeout(10000) })).json();
-    didAt = Date.now();
-  } catch (err) { logger.warn({ err }, "[witness] could not fetch did.json"); }
-  return didDoc;
+let didRefreshing = false;
+/**
+ * Refresh the cached DID document in the background. Called ONLY from the seal/
+ * drain path — never from verify — so verification stays strictly zero-call to
+ * witness.getvda.ai. Safe no-op if already fresh or already refreshing.
+ */
+export function refreshDidInBackground(): void {
+  if (didRefreshing || Date.now() - didAt < 3_600_000) return;
+  didRefreshing = true;
+  void fetch(`${base()}/.well-known/did.json`, { signal: AbortSignal.timeout(10000) })
+    .then((r) => r.json())
+    .then((doc) => { didDoc = doc; didAt = Date.now(); })
+    .catch((err) => logger.warn({ err }, "[witness] did.json background refresh failed (bundled copy in use)"))
+    .finally(() => { didRefreshing = false; });
 }
 
-/** REAL offline verify (SDK) — three-state, zero calls to Witness. */
+/**
+ * DID document for offline verification. Returns the in-memory cache, else the
+ * BUNDLED copy — always local, ZERO network. Never triggers a fetch, so the verify
+ * path can never call witness.getvda.ai (even cold or with egress blocked).
+ */
+export function getDidDocumentSync(): unknown {
+  return didDoc ?? bundledDid;
+}
+/** Async shim kept for callers that awaited it; still zero-call on the hot path. */
+export async function getDidDocument(): Promise<unknown> {
+  return getDidDocumentSync();
+}
+
+/** REAL offline verify (SDK) — three-state, ZERO calls to witness.getvda.ai. */
 export async function verifyOffline(record: unknown, chain?: unknown[], anchor?: unknown): Promise<Verdict | { state: string; detail: string }> {
-  const dd = await getDidDocument();
+  const dd = getDidDocumentSync();
   if (!dd) return { state: "BROKEN", detail: "DID document unavailable for offline verification" };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return offlineVerify({ record: record as any, chain: (chain as any) ?? [record], didDocument: dd as any, anchor: anchor as any });
