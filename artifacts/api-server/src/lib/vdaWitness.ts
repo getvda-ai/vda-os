@@ -16,34 +16,86 @@ import { logger } from "./logger.js";
 const MCP_URL = process.env.WITNESS_MCP_URL || "https://witness.getvda.ai/api/witness/mcp";
 const CARD_URL = process.env.WITNESS_CARD_URL || "https://witness.getvda.ai/.well-known/agent.json";
 
-const apiKey = () => process.env.WITNESS_API_KEY;
+// ── Self-healing key management ──────────────────────────────────────────────
+// witness.getvda.ai test-mode keys are ephemeral (~hourly). We seed from
+// WITNESS_API_KEY, cache a live key in-memory per instance, and mint a fresh
+// test-mode key on demand / on any auth error — so seals never break on expiry.
+const AUTO_REFRESH = (process.env.WITNESS_AUTO_REFRESH ?? "true").toLowerCase() !== "false";
+const KEY_EMAIL = process.env.WITNESS_KEY_EMAIL || "mikerawsonnz@gmail.com";
+const TEST_KEY_URL = (() => {
+  try { return `${new URL(MCP_URL).origin}/api/witness/test-key`; }
+  catch { return "https://witness.getvda.ai/api/witness/test-key"; }
+})();
+
+let cachedKey: string | null = null;
+let lastMint = 0;
+function currentKey(): string | null {
+  return cachedKey || process.env.WITNESS_API_KEY || null;
+}
 export function isVdaWitnessEnabled(): boolean {
-  return Boolean(apiKey());
+  return Boolean(currentKey()) || AUTO_REFRESH;
 }
 export function vdaWitnessInfo() {
-  return { enabled: isVdaWitnessEnabled(), endpoint: MCP_URL, card: CARD_URL, keyless_verify: true };
+  return { enabled: isVdaWitnessEnabled(), endpoint: MCP_URL, card: CARD_URL, keyless_verify: true, auto_refresh: AUTO_REFRESH, minted: Boolean(cachedKey) };
+}
+
+/** Mint a fresh test-mode key (rate-limited to once per 5s) and cache it. */
+async function mintTestKey(): Promise<string | null> {
+  if (!AUTO_REFRESH) return null;
+  if (Date.now() - lastMint < 5000 && cachedKey) return cachedKey;
+  lastMint = Date.now();
+  try {
+    const r = await fetch(TEST_KEY_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: KEY_EMAIL }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const j = (await r.json().catch(() => ({}))) as { apiKey?: string; api_key?: string; key?: string };
+    const key = j.apiKey || j.api_key || j.key || null;
+    if (key) { cachedKey = key; logger.info("[vdaWitness] minted fresh test-mode key"); }
+    else logger.warn({ j }, "[vdaWitness] test-key mint returned no key");
+    return key;
+  } catch (err) {
+    logger.warn({ err }, "[vdaWitness] test-key mint failed");
+    return null;
+  }
+}
+
+function isAuthError(msg: string): boolean {
+  return /unknown api key|malformed api key|unauthorized|api key .*(expired|invalid)|invalid api key/i.test(msg);
 }
 
 interface McpOpts {
   auth?: boolean;
   timeoutMs?: number;
 }
-async function mcpCall(name: string, args: unknown, opts: McpOpts = {}): Promise<unknown> {
+async function rawCall(name: string, args: unknown, timeoutMs: number, key?: string): Promise<unknown> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (opts.auth) {
-    const k = apiKey();
-    if (!k) throw new Error("WITNESS_API_KEY is not set — cannot call an authenticated VDA Witness tool.");
-    headers["Authorization"] = `Bearer ${k}`;
-  }
+  if (key) headers["Authorization"] = `Bearer ${key}`;
   const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
-  const resp = await fetch(MCP_URL, { method: "POST", headers, body, signal: AbortSignal.timeout(opts.timeoutMs ?? 12000) });
+  const resp = await fetch(MCP_URL, { method: "POST", headers, body, signal: AbortSignal.timeout(timeoutMs) });
   const j = (await resp.json()) as { error?: { message: string }; result?: { content?: Array<{ text?: string }> } };
   if (j.error) throw new Error(j.error.message);
   const text = (j.result?.content ?? []).map((c) => c.text ?? "").join("");
+  try { return JSON.parse(text); } catch { return text; }
+}
+async function mcpCall(name: string, args: unknown, opts: McpOpts = {}): Promise<unknown> {
+  const timeoutMs = opts.timeoutMs ?? 12000;
+  if (!opts.auth) return rawCall(name, args, timeoutMs); // keyless (verify)
+
+  let key = currentKey();
+  if (!key) key = await mintTestKey();
+  if (!key) throw new Error("No VDA Witness API key and auto-refresh is off — cannot seal.");
   try {
-    return JSON.parse(text);
-  } catch {
-    return text;
+    return await rawCall(name, args, timeoutMs, key);
+  } catch (err) {
+    // Key likely expired — mint a fresh one and retry once.
+    if (AUTO_REFRESH && err instanceof Error && isAuthError(err.message)) {
+      const fresh = await mintTestKey();
+      if (fresh && fresh !== key) return await rawCall(name, args, timeoutMs, fresh);
+    }
+    throw err;
   }
 }
 
