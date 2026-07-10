@@ -92,6 +92,28 @@ export interface StayDecisionResult {
   apaleo_execution?: unknown;
   apaleo_charge_id?: string | null;
   vda_witness?: unknown;
+  /** Plain-language Apaleo action plan (e.g. for early check-out). */
+  action_plan?: string[];
+  /** Scenario details for the HITL card (guest/room/nights/folio delta). */
+  scenario?: Record<string, unknown>;
+  /** Scope qualifiers (rate_type/refundable/group) — carried so a baseline can pin them. */
+  context_attrs?: Record<string, unknown>;
+}
+
+/** Plain-language, agent-generated Apaleo action plan for an early check-out. */
+function buildEarlyCheckoutPlan(ctx: StayExceptionContext): string[] {
+  const sc = (ctx.scenario ?? {}) as Record<string, unknown>;
+  const booked = Number(sc.nights_booked ?? 0);
+  const early = Number(sc.nights_early ?? ctx.requested_value ?? 0);
+  const stayed = booked && early ? booked - early : undefined;
+  const cur = String(sc.currency ?? ctx.currency ?? "EUR");
+  const delta = sc.folio_delta;
+  return [
+    stayed ? `Shorten reservation to ${stayed} night(s) (was ${booked})` : `Shorten reservation by ${early} night(s)`,
+    delta != null ? `Adjust folio ${delta} ${cur} for ${early} released night(s)` : `Recalculate folio for ${early} released night(s)`,
+    `Release the room for the ${early} released night(s)`,
+    `Notify housekeeping of the early departure`,
+  ];
 }
 
 const BAND_ORDER = ["ambassador", "mod", "compliance_officer"] as const;
@@ -203,6 +225,9 @@ async function createStayHitlCard(params: {
           exception_class: result.exception_class,
           decision: result.outcome,
           proposed_action: result.proposed_action,
+          action_plan: result.action_plan ?? null,
+          scenario: result.scenario ?? null,
+          context_attrs: result.context_attrs ?? null,
           clause_applied: result.clause_applied,
           sop_refs: result.sop_refs,
           reasoning: result.reasoning,
@@ -362,6 +387,9 @@ export async function decideStay(input: StayDecisionInput): Promise<StayDecision
     hitl_token: null,
     baseline_id: null,
     apaleo_ref: input.apaleoRef,
+    scenario: (exceptionContext.scenario as Record<string, unknown>) ?? undefined,
+    context_attrs: { rate_type: exceptionContext.rate_type, refundable: exceptionContext.refundable, group: exceptionContext.group },
+    action_plan: exceptionClass === "early_checkout" ? buildEarlyCheckoutPlan(exceptionContext) : undefined,
   };
 
   if (!VALID_STAGES.includes(stage)) {
@@ -394,12 +422,18 @@ export async function decideStay(input: StayDecisionInput): Promise<StayDecision
   base.files_consulted = gov.filesLoaded;
 
   // 2. Baseline fast-path — a non-revoked, bounds-matching baseline auto-PASSes.
+  const scopeContext: Record<string, unknown> = {
+    rate_type: exceptionContext.rate_type,
+    refundable: exceptionContext.refundable,
+    group: exceptionContext.group,
+  };
   const baseline = await matchBaseline({
     companyId,
     stage,
     exceptionClass,
     requestedValue: exceptionContext.requested_value,
     apaleoRef: input.apaleoRef,
+    context: scopeContext,
   });
   if (baseline) {
     base.outcome = "PASS";

@@ -13,6 +13,15 @@ same-day arrival needs the room and the folio is settled or a valid payment
 method is on file. Longer late check-outs, and VIP or comp arrangements, are a
 Manager on Duty decision, with Housekeeping notified in advance.
 
+## Early Check-out
+When a guest wants to leave before their booked departure, we make it effortless:
+shorten the reservation to the actual nights stayed, adjust the folio for the
+released nights, free the room for those nights, and let Housekeeping know.
+Ambassadors handle a modest early departure on a standard, refundable rate at the
+desk; departures of several nights, or on a non-refundable/prepaid rate or a group
+booking, are a Manager on Duty decision because they carry a revenue-forfeiture or
+group-block impact.
+
 ## Folio Settlement and Disputes
 At departure, reconcile every charge against the folio and settle it. If a guest
 disputes a charge, flag the dispute — never quietly remove it — and resolve or

@@ -29,7 +29,13 @@ export interface MatchBaselineInput {
   exceptionClass: string;
   requestedValue?: number;
   apaleoRef?: StayApaleoRef;
+  /** Qualifying attributes of the request (e.g. rate_type, refundable, group)
+   *  that a baseline's scope may narrow on — so non-refundable/group still escalate. */
+  context?: Record<string, unknown>;
 }
+
+// Scope qualifiers a baseline may pin (beyond property). A request must match each.
+const SCOPE_QUALIFIERS = ["rate_type", "refundable", "group"] as const;
 
 // ── Signature + bounds helpers ───────────────────────────────────────────────
 export function computeBounds(
@@ -71,10 +77,22 @@ function boundsContain(bounds: Record<string, unknown> | null, requestedValue: n
   return requestedValue <= max;
 }
 
-/** Does a baseline's apaleo_scope CONTAIN the request's scope? (null scope = all) */
-function scopeContain(scope: Record<string, unknown> | null, ref: StayApaleoRef | undefined): boolean {
+/** Does a baseline's apaleo_scope CONTAIN the request's scope + qualifiers?
+ *  (null scope = all). Any pinned qualifier (rate_type/refundable/group) must
+ *  match exactly — so a "standard, refundable" baseline never covers a
+ *  non-refundable or group request; those return to HITL. */
+function scopeContain(
+  scope: Record<string, unknown> | null,
+  ref: StayApaleoRef | undefined,
+  context?: Record<string, unknown>,
+): boolean {
   if (!scope || Object.keys(scope).length === 0) return true; // unscoped → applies everywhere
   if (scope.propertyId && ref?.propertyId && scope.propertyId !== ref.propertyId) return false;
+  for (const k of SCOPE_QUALIFIERS) {
+    if (k in scope) {
+      if (!context || context[k] !== scope[k]) return false;
+    }
+  }
   return true;
 }
 
@@ -99,7 +117,7 @@ export async function matchBaseline(input: MatchBaselineInput): Promise<MatchedB
       // Stage must match (or baseline stage is unset/global).
       if (row.stage && row.stage !== input.stage) continue;
       if (!boundsContain(row.bounds ?? null, input.requestedValue)) continue;
-      if (!scopeContain(row.apaleoScope ?? null, input.apaleoRef)) continue;
+      if (!scopeContain(row.apaleoScope ?? null, input.apaleoRef, input.context)) continue;
       return {
         id: row.id,
         exceptionClass: row.exceptionClass,
@@ -127,13 +145,22 @@ export interface CreateBaselineInput {
   authorisedBy: string;
   escalateTo?: string | null;
   apaleoScope?: Record<string, unknown> | null;
+  /** Qualifiers to pin on the baseline scope (rate_type/refundable/group). */
+  scopeAttrs?: Record<string, unknown> | null;
   approvedHitlToken?: string | null;
   sourceClause?: string | null;
 }
 
 export async function createStayBaseline(input: CreateBaselineInput): Promise<{ id: string; contextHash: string; bounds: Record<string, unknown> }> {
   const bounds = computeBounds(input.requestedValue, input.ceilingType, input.currency);
-  const apaleoScope = input.apaleoScope ?? null;
+  // Pin property + any qualifying attributes (rate_type/refundable/group) so the
+  // baseline is scoped exactly to the kind of request that was approved.
+  const scopeAttrs: Record<string, unknown> = {};
+  for (const k of SCOPE_QUALIFIERS) {
+    if (input.scopeAttrs && k in input.scopeAttrs && input.scopeAttrs[k] !== undefined) scopeAttrs[k] = input.scopeAttrs[k];
+  }
+  const mergedScope = { ...(input.apaleoScope ?? {}), ...scopeAttrs };
+  const apaleoScope = Object.keys(mergedScope).length > 0 ? mergedScope : null;
   const contextHash = computeContextHash({ stage: input.stage, exceptionClass: input.exceptionClass, bounds, apaleoScope });
 
   const [row] = await db

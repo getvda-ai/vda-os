@@ -9,6 +9,8 @@ import { decideStay, type StayStage, type StayExceptionContext, type StayApaleoR
 import { listStayBaselines, revokeStayBaseline, createStayBaseline } from "../lib/stayBaselines.js";
 import { executeStayAction } from "../lib/stayExecutor.js";
 import { writeWitnessEntry } from "../lib/witnessWriter.js";
+import { sealStayEvent } from "../lib/staySeal.js";
+import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
@@ -135,16 +137,31 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
     const ceilingBand = (payload.ceiling_band ?? {}) as Record<string, unknown>;
     const apaleoData = (payload.apaleo_data ?? {}) as Record<string, unknown>;
 
-    const writeStayWitness = (decision: "PASS" | "FAIL" | "ESCALATE" | "INFO", eventCategory: string, clause: string, extra: Record<string, unknown> = {}) =>
-      writeWitnessEntry({
+    // Write the resolution/governance witness entry AND seal it into VDA Witness
+    // (so every made decision + governance change carries the tamper-evident badge).
+    const writeStayWitness = async (decision: "PASS" | "FAIL" | "ESCALATE" | "INFO", eventCategory: string, clause: string, extra: Record<string, unknown> = {}): Promise<number> => {
+      const id = await writeWitnessEntry({
         companyId,
         agent: AGENT_NAME,
         decision: { decision, clauseApplied: clause, actionProposed: String(payload.proposed_action ?? "Stay action"), exceptionApplied: false, escalationTarget: (payload.escalation_target as string) ?? null, reasoning: `${eventCategory} by ${decidedBy}${reason ? `: ${reason}` : ""}`, exceptionClass: (payload.exception_class as string) ?? undefined },
         fileReferenced: String(payload.clause_applied ?? "stay-agent.SOP.md"),
-        apaleoData: { ...apaleoData, hitl_token: token, decided_by: decidedBy, art17: { stage: payload.stage, exception_class: payload.exception_class, event: eventCategory, ...extra } },
+        apaleoData: { ...apaleoData, hitl_token: token, decided_by: decidedBy, role_band: hitl.roleBand, art17: { stage: payload.stage, exception_class: payload.exception_class, event: eventCategory, decided_by: decidedBy, role_band: hitl.roleBand, ...extra } },
         eventCategory,
         suppressAutoHitl: true,
       });
+      await sealStayEvent({
+        companyId,
+        localWitnessId: id,
+        verdict: eventCategory,
+        reasoning: `${eventCategory} by ${decidedBy}${reason ? `: ${reason}` : ""}`,
+        actionProposed: String(payload.proposed_action ?? "Stay action"),
+        inputs: { stage: payload.stage, exception_class: payload.exception_class, decided_by: decidedBy, role_band: hitl.roleBand, hitl_token: token, ...extra },
+        ruleId: String(payload.clause_applied ? "stay-agent.EXCEPTION_AUTHORITY.md" : "stay-agent.SOP.md"),
+        ruleText: String(payload.clause_applied ?? clause),
+        exceptionClass: (payload.exception_class as string) ?? undefined,
+      });
+      return id;
+    };
 
     // ── ESCALATE — reroute up a band; no write; new card to the higher band. ──
     if (outcome === "escalate") {
@@ -184,6 +201,7 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
           authorisedBy: decidedBy,
           escalateTo: (payload.escalation_target as string) ?? null,
           apaleoScope: apaleoData.propertyId ? { propertyId: apaleoData.propertyId } : null,
+          scopeAttrs: (payload.context_attrs as Record<string, unknown>) ?? null,
           approvedHitlToken: token,
           sourceClause: String(payload.clause_applied ?? ""),
         });
@@ -220,12 +238,26 @@ router.get("/baselines", async (req, res) => {
       return;
     }
     const rows = await listStayBaselines(companyId);
+    // "N auto-handled since" — count baseline_applied decisions per class since
+    // each baseline was created (a baseline auto-PASSes matching requests).
+    const applied = await db
+      .select({ createdAt: witnessEntries.createdAt, apaleoData: witnessEntries.apaleoData })
+      .from(witnessEntries)
+      .where(and(eq(witnessEntries.companyId, companyId), eq(witnessEntries.agent, AGENT_NAME), eq(witnessEntries.eventCategory, "baseline_applied")))
+      .orderBy(desc(witnessEntries.createdAt))
+      .limit(500);
+    const countAuto = (exceptionClass: string, since: Date | null): number =>
+      applied.filter((a) => {
+        const art = ((a.apaleoData ?? {}) as Record<string, unknown>).art17 as Record<string, unknown> | undefined;
+        return art?.exception_class === exceptionClass && (!since || (a.createdAt && a.createdAt >= since));
+      }).length;
     const baselines = rows.map((r) => ({
       id: r.id,
       company_id: r.companyId,
       agent_id: r.agentId,
       stage: r.stage,
       exception_class: r.exceptionClass,
+      auto_handled: countAuto(r.exceptionClass, r.createdAt ?? null),
       bounds: r.bounds,
       apaleo_scope: r.apaleoScope,
       context_hash: r.contextHash,
@@ -264,15 +296,18 @@ router.post("/baselines/:id/revoke", async (req, res) => {
       res.status(404).json({ error: "Baseline not found" });
       return;
     }
-    // Witness: BASELINE_REVOKED (append-only; row retained).
+    // Witness: BASELINE_REVOKED — a sealed, MoD-attributed governance event
+    // (forward + flag: future matching requests return to HITL; past auto-
+    // approvals stand). Append-only; the baseline row is retained.
+    const companyId = Number(req.body?.company_id ?? req.body?.companyId ?? 0) || 0;
     try {
-      await writeWitnessEntry({
-        companyId: Number(req.body?.company_id ?? req.body?.companyId ?? 0) || 0,
+      const wid = await writeWitnessEntry({
+        companyId,
         agent: "Stay Agent",
         decision: {
           decision: "INFO",
-          clauseApplied: `Baseline ${id} revoked — future matching requests return to HITL.`,
-          actionProposed: "Revoke baseline",
+          clauseApplied: `Class unbaselined on ${new Date().toISOString().slice(0, 10)} by ${revokedBy} — future matching requests return to HITL; past auto-approvals stand.`,
+          actionProposed: "Unbaseline (revoke) governance change",
           exceptionApplied: false,
           escalationTarget: null,
           reasoning: `Baseline ${id} revoked by ${revokedBy}: ${revokedReason}`,
@@ -282,18 +317,111 @@ router.post("/baselines/:id/revoke", async (req, res) => {
           baseline_id: id,
           revoked_by: revokedBy,
           revoked_reason: revokedReason,
-          art17: { event: "BASELINE_REVOKED", baseline_id: id, revoked_by: revokedBy, revoked_reason: revokedReason },
+          role_band: "mod",
+          art17: { event: "BASELINE_REVOKED", baseline_id: id, revoked_by: revokedBy, revoked_reason: revokedReason, role_band: "mod", decided_by: revokedBy },
         },
         eventCategory: "BASELINE_REVOKED",
         suppressAutoHitl: true,
       });
+      await sealStayEvent({
+        companyId,
+        localWitnessId: wid,
+        verdict: "BASELINE_REVOKED",
+        reasoning: `Baseline ${id} unbaselined by ${revokedBy}: ${revokedReason}`,
+        actionProposed: "Unbaseline (governance change)",
+        inputs: { baseline_id: id, revoked_by: revokedBy, role_band: "mod" },
+        ruleId: "stay-agent.EXCEPTION_AUTHORITY.md",
+        ruleText: "Baselines are always revocable and never hard-deleted; revoking returns the class to human review going forward while past authorised decisions stand.",
+      });
     } catch (wErr) {
-      logger.warn({ wErr }, "baseline revoke witness write failed (continuing)");
+      logger.warn({ wErr }, "baseline revoke witness/seal failed (continuing)");
     }
     res.json({ ok: true, id, revoked_by: revokedBy, revoked_reason: revokedReason });
   } catch (err) {
     logger.error({ err }, "baseline revoke error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to revoke baseline" });
+  }
+});
+
+// ── GET /api/stay/authority?company_id=&role_band= — ceilings from governance ──
+// The front-end reads ceilings/authority from here (never hardcodes them), so
+// ingesting real citizenM governance changes what a role can do automatically.
+router.get("/stay/authority", async (req, res) => {
+  try {
+    const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0);
+    const roleBand = String(req.query.role_band ?? "ambassador");
+    const band = await getRoleBandAuthority(AGENT_SLUG, companyId, roleBand);
+    const exceptions = (band?.exceptions ?? []).map((e) => ({
+      exception_class: e.exception_class,
+      description: e.description ?? null,
+      ceiling: e.ceiling ?? null,
+      ceiling_type: e.ceiling_type ?? null,
+      authority: e.authority,
+      escalate_to: e.escalate_to ?? null,
+      conditions: e.conditions ?? [],
+    }));
+    res.json({ companyId, role_band: roleBand, can_baseline: roleBand === "mod", exceptions, rejected_classes: band?.rejectedClasses ?? [] });
+  } catch (err) {
+    logger.error({ err }, "stay/authority error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load authority" });
+  }
+});
+
+// ── GET /api/stay/log?company_id=&limit= — unified "Made" evidence log ─────────
+// One row per governed decision / governance event, each with who/role/clause/
+// outcome and a VDA Witness sealed badge (external record + the record to verify).
+router.get("/stay/log", async (req, res) => {
+  try {
+    const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0);
+    const limit = Math.min(Number(req.query.limit ?? 60) || 60, 200);
+    const rows = await db
+      .select()
+      .from(witnessEntries)
+      .where(and(eq(witnessEntries.companyId, companyId), eq(witnessEntries.agent, AGENT_NAME)))
+      .orderBy(desc(witnessEntries.createdAt))
+      .limit(limit * 2); // include the seal link-entries we fold in
+
+    // Index seal link-entries by the local witness id they reference.
+    const sealByLocal = new Map<number, { external_record_id: string | null; sealed_record: unknown }>();
+    for (const r of rows) {
+      const a = (r.apaleoData ?? {}) as Record<string, unknown>;
+      if (r.eventCategory === "vda_witness_sealed") {
+        const localId = (a.art17 as Record<string, unknown> | undefined)?.local_witness_id as number | undefined;
+        if (typeof localId === "number") sealByLocal.set(localId, { external_record_id: ((a.art17 as Record<string, unknown>)?.external_record_id as string) ?? null, sealed_record: a.vda_witness_record });
+      }
+    }
+
+    const made = rows
+      .filter((r) => r.eventCategory !== "vda_witness_sealed")
+      .slice(0, limit)
+      .map((r) => {
+        const a = (r.apaleoData ?? {}) as Record<string, unknown>;
+        const art = (a.art17 ?? {}) as Record<string, unknown>;
+        const seal = sealByLocal.get(r.id);
+        const isGovernance = r.eventCategory === "BASELINE_SET" || r.eventCategory === "BASELINE_REVOKED";
+        return {
+          id: r.id,
+          at: r.createdAt,
+          decision: r.decision,
+          event: r.eventCategory,
+          kind: isGovernance ? "governance" : "decision",
+          exception_class: (art.exception_class as string) ?? null,
+          stage: (art.stage as string) ?? null,
+          clause: r.clauseApplied,
+          reasoning: r.reasoning,
+          decided_by: (a.decided_by as string) ?? (art.decided_by as string) ?? AGENT_NAME,
+          role_band: (a.role_band as string) ?? (art.role_band as string) ?? null,
+          apaleo_charge_id: (art.apaleo_charge_id as string) ?? (a.apaleo_charge_id as string) ?? null,
+          governance_source: (art.governance_source as string) ?? null,
+          sealed: Boolean(seal?.external_record_id),
+          external_record_id: seal?.external_record_id ?? null,
+          sealed_record: seal?.sealed_record ?? null,
+        };
+      });
+    res.json({ companyId, count: made.length, made });
+  } catch (err) {
+    logger.error({ err }, "stay/log error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load log" });
   }
 });
 

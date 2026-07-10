@@ -88,6 +88,13 @@ MUST NOT: apply goodwill to no-show or cancellation penalties.
 1. **Late check-out**: compare hours-late against the `late_checkout` ceiling and
    confirm no same-day arrival blocks the unit. Within ceiling → PASS; above →
    escalate to `mod`.
+1a. **Early check-out**: when an in-house guest departs early, the agent shortens
+   the reservation, adjusts the folio for the released nights, releases the room
+   for those nights, and notifies housekeeping — in one governed step. Compare
+   nights-early against the `early_checkout` ceiling. Within ceiling AND on a
+   standard, refundable, non-group rate → PASS. Above ceiling, or on a
+   non-refundable / prepaid / group-block rate → escalate to `mod` (forfeiture
+   and group impact are a Manager on Duty decision).
 2. **Folio settlement**: reconcile all charges against the Apaleo folio and
    settle. Any guest dispute MUST be flagged and escalated, never suppressed.
 3. **Refund / folio adjustment**: within `refund_folio_adjustment` ceiling →

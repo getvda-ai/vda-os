@@ -150,6 +150,18 @@ role_bands:
         authority: autonomous
         escalate_to: mod
         must_log: true
+      - exception_class: early_checkout
+        stage: check_out
+        description: Shorten an in-house stay for an early departure (shorten reservation, adjust folio, release nights, notify housekeeping)
+        ceiling: 2
+        ceiling_type: nights
+        conditions:
+          - Rate plan is a standard, refundable rate (not non-refundable/prepaid)
+          - Not part of a group or corporate block
+          - Folio settled or valid payment method on file
+        authority: autonomous
+        escalate_to: mod
+        must_log: true
       - exception_class: refund_folio_adjustment
         stage: check_out
         description: Refund or adjust a folio line within the minor correction window
@@ -260,6 +272,17 @@ role_bands:
         conditions:
           - Housekeeping notified at least 2 hours before revised departure
           - No same-day arrival blocking the unit
+        authority: hitl_required
+        escalate_to: compliance_officer
+        must_log: true
+      - exception_class: early_checkout
+        stage: check_out
+        description: Approve an early departure of more nights, or on a non-refundable/group rate (MoD authority)
+        ceiling: 7
+        ceiling_type: nights
+        conditions:
+          - Non-refundable/prepaid forfeiture or group-block impact reviewed and documented
+          - Revenue impact acknowledged
         authority: hitl_required
         escalate_to: compliance_officer
         must_log: true

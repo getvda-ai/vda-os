@@ -80,7 +80,8 @@ function pickToolAndArgs(payload: Record<string, unknown>): { tool: string | nul
       },
     };
   }
-  if (cls === "room_upgrade_checkin" || cls === "room_move_rekey" || cls === "stay_extension") {
+  if (cls === "room_upgrade_checkin" || cls === "room_move_rekey" || cls === "stay_extension" || cls === "early_checkout") {
+    // Early checkout = shorten the reservation (folio recalc + night release follow).
     return { tool: "AmendReservation", args: { id: reservationId } };
   }
   // Service requests etc. have no Apaleo write.
