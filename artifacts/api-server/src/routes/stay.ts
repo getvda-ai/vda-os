@@ -10,6 +10,7 @@ import { listStayBaselines, revokeStayBaseline, createStayBaseline } from "../li
 import { executeStayAction } from "../lib/stayExecutor.js";
 import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { sealStayEvent } from "../lib/staySeal.js";
+import { drainSealOutbox, outboxHealth } from "../lib/sealOutbox.js";
 import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
 import { logger } from "../lib/logger.js";
 
@@ -97,13 +98,17 @@ router.get("/stay/witness", async (req, res) => {
   try {
     const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0);
     const limit = Math.min(Number(req.query.limit ?? 40) || 40, 200);
+    // Opportunistic, bounded drain so freshly-enqueued seals land their record
+    // ref before we render the tail. Best-effort — never fails the read.
+    try { await drainSealOutbox(8); } catch { /* drain is advisory */ }
     const rows = await db
       .select()
       .from(witnessEntries)
       .where(and(eq(witnessEntries.companyId, companyId), eq(witnessEntries.agent, AGENT_NAME)))
       .orderBy(desc(witnessEntries.createdAt))
       .limit(limit);
-    res.json({ companyId, count: rows.length, entries: rows });
+    const outbox = await outboxHealth(companyId);
+    res.json({ companyId, count: rows.length, entries: rows, outbox });
   } catch (err) {
     logger.error({ err }, "stay/witness error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load witness tail" });
@@ -151,6 +156,7 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
         apaleoData: { ...apaleoData, hitl_token: token, decided_by: decidedBy, role_band: eventRole, art17: { stage: payload.stage, exception_class: payload.exception_class, event: eventCategory, decided_by: decidedBy, role_band: eventRole, ...extra } },
         eventCategory,
         suppressAutoHitl: true,
+        skipC2pa: true, // evidence of record is the real VDA Witness seal
       });
       await sealStayEvent({
         companyId,
@@ -158,10 +164,22 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
         verdict: eventCategory,
         reasoning: `${eventCategory} by ${decidedBy}${reason ? `: ${reason}` : ""}`,
         actionProposed: String(payload.proposed_action ?? "Stay action"),
-        inputs: { stage: payload.stage, exception_class: payload.exception_class, decided_by: decidedBy, role_band: eventRole, hitl_token: token, ...extra },
+        // PII-minimized in sealStayEvent → minimizeInputs (pseudonymous ids only).
+        inputs: {
+          reservationId: (apaleoData.reservationId as string) ?? (payload.reservation_id as string),
+          folioId: (apaleoData.folioId as string) ?? (payload.folio_id as string),
+          propertyId: apaleoData.propertyId as string,
+          stage: payload.stage,
+          exception_class: payload.exception_class,
+          amount: ceilingBand.requested_value,
+          currency: payload.currency,
+          role_band: eventRole,
+          ...extra,
+        },
         ruleId: String(payload.clause_applied ? "stay-agent.EXCEPTION_AUTHORITY.md" : "stay-agent.SOP.md"),
         ruleText: String(payload.clause_applied ?? clause),
         exceptionClass: (payload.exception_class as string) ?? undefined,
+        propertyId: (apaleoData.propertyId as string) ?? null,
       });
       return id;
     };
@@ -330,6 +348,7 @@ router.post("/baselines/:id/revoke", async (req, res) => {
         },
         eventCategory: "BASELINE_REVOKED",
         suppressAutoHitl: true,
+        skipC2pa: true, // evidence of record is the real VDA Witness seal
       });
       await sealStayEvent({
         companyId,
@@ -382,14 +401,17 @@ router.get("/stay/log", async (req, res) => {
   try {
     const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0);
     const limit = Math.min(Number(req.query.limit ?? 60) || 60, 200);
+    // Opportunistic bounded drain so newly-made decisions show their seal ref.
+    try { await drainSealOutbox(8); } catch { /* advisory */ }
     const rows = await db
       .select()
       .from(witnessEntries)
       .where(and(eq(witnessEntries.companyId, companyId), eq(witnessEntries.agent, AGENT_NAME)))
       .orderBy(desc(witnessEntries.createdAt))
-      .limit(limit * 2); // include the seal link-entries we fold in
+      .limit(limit * 2);
 
-    // Index seal link-entries by the local witness id they reference.
+    // Legacy fold: older entries recorded the seal as a separate link-entry.
+    // New entries carry witnessSealRef / witnessState directly on the row.
     const sealByLocal = new Map<number, { external_record_id: string | null; sealed_record: unknown }>();
     for (const r of rows) {
       const a = (r.apaleoData ?? {}) as Record<string, unknown>;
@@ -405,7 +427,12 @@ router.get("/stay/log", async (req, res) => {
       .map((r) => {
         const a = (r.apaleoData ?? {}) as Record<string, unknown>;
         const art = (a.art17 ?? {}) as Record<string, unknown>;
-        const seal = sealByLocal.get(r.id);
+        const legacy = sealByLocal.get(r.id);
+        const ref = (r.witnessSealRef ?? null) as Record<string, unknown> | null;
+        const recordId = (ref?.recordId as string) ?? legacy?.external_record_id ?? null;
+        // Three-state, verbatim: SIGNED_PENDING / ANCHORED_VALID / BROKEN, plus
+        // the pre-seal lifecycle states pending/unsealed.
+        const witnessState = r.witnessState ?? (recordId ? "SIGNED_PENDING" : legacy?.external_record_id ? "SIGNED_PENDING" : "pending");
         const isGovernance = r.eventCategory === "BASELINE_SET" || r.eventCategory === "BASELINE_REVOKED";
         return {
           id: r.id,
@@ -421,15 +448,59 @@ router.get("/stay/log", async (req, res) => {
           role_band: (a.role_band as string) ?? (art.role_band as string) ?? null,
           apaleo_charge_id: (art.apaleo_charge_id as string) ?? (a.apaleo_charge_id as string) ?? null,
           governance_source: (art.governance_source as string) ?? null,
-          sealed: Boolean(seal?.external_record_id),
-          external_record_id: seal?.external_record_id ?? null,
-          sealed_record: seal?.sealed_record ?? null,
+          sealed: Boolean(recordId),
+          witness_state: witnessState, // ANCHORED_VALID | SIGNED_PENDING | BROKEN | pending | unsealed
+          external_record_id: recordId,
+          chain_key: (ref?.chainKey as string) ?? null,
+          sealed_record: ref?.record ?? legacy?.sealed_record ?? null,
         };
       });
-    res.json({ companyId, count: made.length, made });
+    res.json({ companyId, count: made.length, made, outbox: await outboxHealth(companyId) });
   } catch (err) {
     logger.error({ err }, "stay/log error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load log" });
+  }
+});
+
+// ── /api/stay/seal/drain — drain the fail-open seal-outbox to VDA Witness ──────
+// Idempotent + safe to call from a Vercel cron (GET), the UI, or a test (POST).
+// Never seals PII. This is what lands delayed seals after a Witness outage.
+const drainHandler = async (req: import("express").Request, res: import("express").Response): Promise<void> => {
+  try {
+    const limit = Math.min(Number(req.body?.limit ?? req.query.limit ?? 25) || 25, 100);
+    const result = await drainSealOutbox(limit);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    logger.error({ err }, "stay/seal/drain error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "drain failed" });
+  }
+};
+router.post("/stay/seal/drain", drainHandler);
+router.get("/stay/seal/drain", drainHandler);
+
+// ── GET /api/stay/seal/health?company_id= — outbox status counts (Witness tab) ─
+router.get("/stay/seal/health", async (req, res) => {
+  try {
+    const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0) || undefined;
+    res.json({ ok: true, outbox: await outboxHealth(companyId) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "health failed" });
+  }
+});
+
+// ── POST /api/stay/verify — REAL offline verification (SDK), three-state. ──────
+// Zero calls back to Witness: Ed25519 + hash-chain + anchor checked from the
+// bundled proof against the resolved did:web key. Returns the verdict verbatim.
+router.post("/stay/verify", async (req, res) => {
+  try {
+    const record = req.body?.record ?? (req.body?.sealed_record as Record<string, unknown> | undefined);
+    if (!record) { res.status(400).json({ error: "record required" }); return; }
+    const { verifyOffline } = await import("../lib/witnessClient.js");
+    const verdict = await verifyOffline(record, Array.isArray(req.body?.chain) ? req.body.chain : undefined, req.body?.anchor);
+    res.json({ ok: true, verdict });
+  } catch (err) {
+    logger.error({ err }, "stay/verify error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "verify failed" });
   }
 });
 

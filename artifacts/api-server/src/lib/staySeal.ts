@@ -1,15 +1,14 @@
 /**
- * staySeal.ts — seal a governed Stay Agent event (HITL resolution or governance
- * change: approve / deny / escalate / baseline / unbaseline) into the external
- * VDA Witness, and write the append-only vda_witness_sealed link entry so it
- * carries the same tamper-evident badge as an autonomous decision.
+ * staySeal.ts — seal a governed Stay Agent HITL / governance event (approve /
+ * deny / escalate / baseline / unbaseline) into VDA Witness via the durable,
+ * fail-open seal-outbox — the same path autonomous decisions use.
  *
- * Reuses the exact seal mechanism from the decision engine — same sealDecision()
- * + link-entry shape — so every made decision AND every governance change is
- * independently verifiable.
+ * The seal is enqueued (a fast local write) and drained to Witness in the
+ * background; it never blocks or gates the operator's action.
  */
-import { writeWitnessEntry } from "./witnessWriter.js";
-import { isVdaWitnessEnabled, sealDecision, extractRecordId } from "./vdaWitness.js";
+import { enqueueSeal, minimizeInputs } from "./sealOutbox.js";
+import { stayChainKey } from "./witnessChain.js";
+import { isWitnessEnabled } from "./witnessClient.js";
 import { logger } from "./logger.js";
 
 const AGENT_NAME = "Stay Agent";
@@ -20,47 +19,32 @@ export interface StaySealInput {
   verdict: string; // event/outcome label (HITL_APPROVED, BASELINE_SET, ...)
   reasoning: string;
   actionProposed?: string;
-  inputs?: unknown;
+  inputs?: Record<string, unknown>;
   ruleId: string; // governing clause id / file
   ruleText: string; // verbatim governing clause
   exceptionClass?: string;
+  propertyId?: string | null; // for the per-property chain key
 }
 
-export async function sealStayEvent(p: StaySealInput): Promise<{ recordId: string | null; sealed: unknown } | null> {
-  if (!isVdaWitnessEnabled()) return null;
+/** Enqueue a governed HITL/governance event for sealing. Fail-open, never throws. */
+export async function sealStayEvent(p: StaySealInput): Promise<void> {
+  if (!isWitnessEnabled()) return;
   try {
-    const sealed = await sealDecision({
-      decision: { agent: AGENT_NAME, verdict: p.verdict, reasoning: p.reasoning, actionProposed: p.actionProposed, inputs: p.inputs },
-      governingRule: { ruleId: p.ruleId, ruleText: p.ruleText, governanceRef: "stay-agent" },
-      chainKey: `stay-agent-${p.companyId}`,
-      decisionId: `stay-${p.companyId}-${p.localWitnessId}`,
-    });
-    const recordId = extractRecordId(sealed);
-    await writeWitnessEntry({
+    await enqueueSeal({
       companyId: p.companyId,
-      agent: AGENT_NAME,
+      chainKey: stayChainKey(p.propertyId, p.companyId),
+      decisionId: `stay-${p.companyId}-${p.localWitnessId}`,
       decision: {
-        decision: "INFO",
-        clauseApplied: `Sealed into VDA Witness${recordId ? ` (record ${recordId})` : ""} — independently verifiable (Ed25519 + hash-chain) at witness.getvda.ai.`,
-        actionProposed: "External tamper-evident seal",
-        exceptionApplied: false,
-        escalationTarget: null,
-        reasoning: `Governed event (local witness #${p.localWitnessId}) sealed into the external VDA Witness evidence chain.`,
-        exceptionClass: p.exceptionClass,
+        agent: AGENT_NAME,
+        verdict: p.verdict,
+        reasoning: p.reasoning,
+        actionProposed: p.actionProposed,
+        inputs: minimizeInputs(p.inputs ?? {}), // PII-minimized: no guest PII
       },
-      fileReferenced: p.ruleId,
-      apaleoData: {
-        vda_witness_record: sealed,
-        local_witness_id: p.localWitnessId,
-        art17: { event: "vda_witness_sealed", external_record_id: recordId ?? null, local_witness_id: p.localWitnessId },
-      },
-      eventCategory: "vda_witness_sealed",
-      suppressAutoHitl: true,
+      governingRule: { ruleId: p.ruleId, ruleText: p.ruleText, governanceRef: "stay-agent" },
+      localWitnessId: p.localWitnessId,
     });
-    logger.info({ localWitnessId: p.localWitnessId, recordId }, "[staySeal] event sealed into VDA Witness");
-    return { recordId: recordId ?? null, sealed };
   } catch (err) {
-    logger.warn({ err }, "[staySeal] seal failed — event recorded locally, external seal skipped");
-    return null;
+    logger.warn({ err }, "[staySeal] enqueue failed — event recorded locally, seal will not land");
   }
 }

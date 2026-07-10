@@ -29,7 +29,8 @@
     "js-yaml": "^4.1.1",
     "node-cron": "^4.2.1",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "vda-witness": "^1.0.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

@@ -58,9 +58,15 @@ await writeFile(
 );
 
 // Route everything to the function (well-known + /api + /stay all handled by Express).
+// Cron: drain the fail-open seal-outbox every 5 min so seals delayed by a Witness
+// outage land even with no dashboard traffic (drain is idempotent + never seals PII).
 await writeFile(
   path.join(outRoot, "config.json"),
-  JSON.stringify({ version: 3, routes: [{ handle: "filesystem" }, { src: "/(.*)", dest: "/index" }] }, null, 2),
+  JSON.stringify({
+    version: 3,
+    routes: [{ handle: "filesystem" }, { src: "/(.*)", dest: "/index" }],
+    crons: [{ path: "/api/stay/seal/drain", schedule: "*/5 * * * *" }],
+  }, null, 2),
 );
 
 console.log("Vercel Build Output ready:", outRoot);
