@@ -58,14 +58,16 @@ await writeFile(
 );
 
 // Route everything to the function (well-known + /api + /stay all handled by Express).
-// Cron: drain the fail-open seal-outbox every 5 min so seals delayed by a Witness
-// outage land even with no dashboard traffic (drain is idempotent + never seals PII).
+// Cron: daily backstop drain of the fail-open seal-outbox (Hobby plan caps crons
+// at once/day). Freshness during active use comes from drain-on-read on the tail/
+// log endpoints; this cron catches anything left idle. Drain is idempotent + never
+// seals PII. On the Pro plan, tighten to "*/5 * * * *" for near-real-time draining.
 await writeFile(
   path.join(outRoot, "config.json"),
   JSON.stringify({
     version: 3,
     routes: [{ handle: "filesystem" }, { src: "/(.*)", dest: "/index" }],
-    crons: [{ path: "/api/stay/seal/drain", schedule: "*/5 * * * *" }],
+    crons: [{ path: "/api/stay/seal/drain", schedule: "0 3 * * *" }],
   }, null, 2),
 );
 
