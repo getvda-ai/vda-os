@@ -57,6 +57,101 @@ export function minimizeInputs(raw: Record<string, unknown> = {}): Record<string
   return out;
 }
 
+// ── Free-text PII scrubbing ────────────────────────────────────────────────
+// A sealed record is immutable + externally anchored → un-erasable. minimizeInputs
+// handles the structured `inputs`, but the free-text fields (reasoning,
+// actionProposed, governingRule.ruleText) are LLM/authoring output that can carry a
+// guest name/email/doc number. buildSealBody() routes EVERY seal through here so no
+// free-text PII can ever reach Witness. Two layers: (1) an exact denylist of the
+// guest identifiers we actually hold (the production guarantee), and (2) structural
+// regex + name-trigger heuristics (the backstop for values we don't know about).
+const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+const PHONE_RE = /(?<!\d)\+?\d[\d\s().-]{7,}\d(?!\d)/g;
+// Mixed alphanumeric token with >=1 letter and >=1 digit, length >=5 (passport /
+// document / card-ish). Pure-digit amounts and pure-letter words are left alone.
+const DOCNUM_RE = /\b(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{5,}\b/g;
+const NAME_TRIGGER_RE = /\b(guests?|mr|mrs|ms|miss|dr|prof|name|customer|travell?er)\b[:.\s]+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){0,2})/g;
+const REDACTED = "[redacted]";
+
+function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+/** Redact known guest identifiers (denylist) + structural PII from a free-text field. */
+export function scrubText(text: unknown, denylist: string[] = []): string {
+  let s = typeof text === "string" ? text : text == null ? "" : String(text);
+  if (!s) return s;
+  // Layer 1 — exact denylist (whole phrase + each name token of length >=3).
+  const terms = new Set<string>();
+  for (const raw of denylist) {
+    const v = String(raw ?? "").trim();
+    if (v.length >= 3) terms.add(v);
+    for (const tok of v.split(/\s+/)) if (tok.length >= 3) terms.add(tok);
+  }
+  for (const t of [...terms].sort((a, b) => b.length - a.length)) {
+    s = s.replace(new RegExp(escapeRe(t), "gi"), REDACTED);
+  }
+  // Layer 2 — structural patterns.
+  s = s.replace(EMAIL_RE, REDACTED).replace(PHONE_RE, REDACTED).replace(DOCNUM_RE, REDACTED);
+  s = s.replace(NAME_TRIGGER_RE, (_m, trig) => `${trig} ${REDACTED}`);
+  return s;
+}
+
+/** Recursively collect guest-identity values from an Apaleo data blob for the denylist. */
+export function collectGuestPii(obj: unknown, acc: string[] = [], depth = 0): string[] {
+  if (!obj || depth > 6) return acc;
+  if (Array.isArray(obj)) { for (const v of obj) collectGuestPii(v, acc, depth + 1); return acc; }
+  if (typeof obj === "object") {
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (typeof v === "string" && v.trim() && /email|phone|mobile|firstname|lastname|middlename|surname|fullname|\bname\b|document|passport|nationalid|national_id|taxid|dateofbirth|dob/i.test(k)) {
+        acc.push(v.trim());
+      } else if (v && typeof v === "object") {
+        collectGuestPii(v, acc, depth + 1);
+      }
+    }
+  }
+  return acc;
+}
+
+export interface SealBodyArgs {
+  agent: string;
+  verdict: string;
+  reasoning: string;
+  actionProposed?: string;
+  inputsRaw?: Record<string, unknown>;
+  ruleId: string;
+  ruleText: string;
+  ruleRef?: string;
+  ruleHash?: string;
+  /** Raw guest identifiers to redact exactly from free-text (name/email/doc/phone/raw ids). */
+  piiDenylist?: string[];
+}
+
+/**
+ * The ONE place a Stay-Agent seal body is constructed. Guarantees: inputs are
+ * minimized, every free-text field is PII-scrubbed, and the raw reservation id is
+ * never emitted verbatim (only its pseudonym survives, in inputs).
+ */
+export function buildSealBody(a: SealBodyArgs): { decision: SealBody["decision"]; governingRule: SealBody["governingRule"] } {
+  const deny = [...(a.piiDenylist ?? [])];
+  // Ensure the raw reservation id (if present in inputs) is scrubbed from free-text.
+  const rawRes = a.inputsRaw?.reservationId ?? a.inputsRaw?.reservation_id ?? a.inputsRaw?.bookingId;
+  if (rawRes) deny.push(String(rawRes));
+  return {
+    decision: {
+      agent: a.agent,
+      verdict: a.verdict,
+      reasoning: scrubText(a.reasoning, deny),
+      actionProposed: a.actionProposed ? scrubText(a.actionProposed, deny) : undefined,
+      inputs: minimizeInputs(a.inputsRaw ?? {}),
+    },
+    governingRule: {
+      ruleId: a.ruleId,
+      ruleText: scrubText(a.ruleText, deny),
+      governanceRef: a.ruleRef,
+      governanceHash: a.ruleHash,
+    },
+  };
+}
+
 export interface EnqueueArgs {
   companyId: number;
   chainKey: string;

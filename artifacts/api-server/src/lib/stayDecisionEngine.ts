@@ -23,7 +23,7 @@ import { writeWitnessEntry, type AgentDecision } from "./witnessWriter.js";
 import { apaleoFetch, buildQueryString } from "./apaleo.js";
 import { matchBaseline } from "./stayBaselines.js";
 import { executeStayAction } from "./stayExecutor.js";
-import { enqueueSeal, minimizeInputs } from "./sealOutbox.js";
+import { enqueueSeal, buildSealBody, collectGuestPii } from "./sealOutbox.js";
 import { stayChainKey } from "./witnessChain.js";
 import { logger } from "./logger.js";
 
@@ -638,35 +638,38 @@ async function finalize(
     // fast local write OFF the critical path — the decision (and any Apaleo write)
     // has already happened. A background drain seals to VDA Witness with retry, so
     // a Witness outage delays the seal, it never blocks or loses the operation.
+    // Build the seal body through the single choke point: inputs minimized AND
+    // every free-text field (reasoning/actionProposed/ruleText) PII-scrubbed,
+    // using an exact denylist of guest identifiers pulled from the Apaleo data.
+    const sealBody = buildSealBody({
+      agent: AGENT_NAME,
+      verdict: result.outcome,
+      reasoning: result.reasoning,
+      actionProposed: result.proposed_action,
+      inputsRaw: {
+        reservationId: result.apaleo_ref?.reservationId,
+        folioId: result.apaleo_ref?.folioId,
+        propertyId: result.apaleo_ref?.propertyId,
+        stage: result.stage,
+        exception_class: result.exception_class,
+        amount: result.ceiling_band?.requested_value,
+        currency: (result.apaleo_data?.folio as { currency?: string })?.currency,
+        governance_source: result.governance_source,
+        role_band: opts.roleBand,
+        apaleo_charge_id: result.apaleo_charge_id ?? null,
+        verdict: result.outcome,
+      },
+      ruleId: opts.fileReferenced,
+      ruleText: result.clause_applied,
+      ruleRef: "stay-agent",
+      piiDenylist: collectGuestPii(result.apaleo_data),
+    });
     await enqueueSeal({
       companyId: opts.companyId,
       chainKey: stayChainKey(result.apaleo_ref?.propertyId, opts.companyId),
       decisionId: `stay-${opts.companyId}-${witnessId}`,
-      decision: {
-        agent: AGENT_NAME,
-        verdict: result.outcome,
-        reasoning: result.reasoning,
-        actionProposed: result.proposed_action,
-        // PII-minimized: pseudonymous ids + decision facts only. No guest PII.
-        inputs: minimizeInputs({
-          reservationId: result.apaleo_ref?.reservationId,
-          folioId: result.apaleo_ref?.folioId,
-          propertyId: result.apaleo_ref?.propertyId,
-          stage: result.stage,
-          exception_class: result.exception_class,
-          amount: result.ceiling_band?.requested_value,
-          currency: (result.apaleo_data?.folio as { currency?: string })?.currency,
-          governance_source: result.governance_source,
-          role_band: opts.roleBand,
-          apaleo_charge_id: result.apaleo_charge_id ?? null,
-          verdict: result.outcome,
-        }),
-      },
-      governingRule: {
-        ruleId: opts.fileReferenced,
-        ruleText: result.clause_applied,
-        governanceRef: "stay-agent",
-      },
+      decision: sealBody.decision,
+      governingRule: sealBody.governingRule,
       localWitnessId: witnessId,
     });
   } catch (err) {

@@ -466,6 +466,15 @@ router.get("/stay/log", async (req, res) => {
 // Idempotent + safe to call from a Vercel cron (GET), the UI, or a test (POST).
 // Never seals PII. This is what lands delayed seals after a Witness outage.
 const drainHandler = async (req: import("express").Request, res: import("express").Response): Promise<void> => {
+  // Guard: when CRON_SECRET is configured (production), require it. Vercel Cron
+  // sends `Authorization: Bearer ${CRON_SECRET}`. Header-only — never accept the
+  // secret from the query string. The UI never hits this route (it drains on read).
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const auth = String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    const provided = auth || String(req.headers["x-cron-secret"] ?? "");
+    if (provided !== cronSecret) { res.status(401).json({ error: "unauthorized" }); return; }
+  }
   try {
     const limit = Math.min(Number(req.body?.limit ?? req.query.limit ?? 25) || 25, 100);
     const result = await drainSealOutbox(limit);

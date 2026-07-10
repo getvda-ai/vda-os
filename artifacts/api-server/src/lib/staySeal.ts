@@ -6,7 +6,7 @@
  * The seal is enqueued (a fast local write) and drained to Witness in the
  * background; it never blocks or gates the operator's action.
  */
-import { enqueueSeal, minimizeInputs } from "./sealOutbox.js";
+import { enqueueSeal, buildSealBody, collectGuestPii } from "./sealOutbox.js";
 import { stayChainKey } from "./witnessChain.js";
 import { isWitnessEnabled } from "./witnessClient.js";
 import { logger } from "./logger.js";
@@ -30,18 +30,24 @@ export interface StaySealInput {
 export async function sealStayEvent(p: StaySealInput): Promise<void> {
   if (!isWitnessEnabled()) return;
   try {
+    // Single choke point: inputs minimized + all free-text PII-scrubbed.
+    const sealBody = buildSealBody({
+      agent: AGENT_NAME,
+      verdict: p.verdict,
+      reasoning: p.reasoning,
+      actionProposed: p.actionProposed,
+      inputsRaw: p.inputs ?? {},
+      ruleId: p.ruleId,
+      ruleText: p.ruleText,
+      ruleRef: "stay-agent",
+      piiDenylist: collectGuestPii(p.inputs ?? {}),
+    });
     await enqueueSeal({
       companyId: p.companyId,
       chainKey: stayChainKey(p.propertyId, p.companyId),
       decisionId: `stay-${p.companyId}-${p.localWitnessId}`,
-      decision: {
-        agent: AGENT_NAME,
-        verdict: p.verdict,
-        reasoning: p.reasoning,
-        actionProposed: p.actionProposed,
-        inputs: minimizeInputs(p.inputs ?? {}), // PII-minimized: no guest PII
-      },
-      governingRule: { ruleId: p.ruleId, ruleText: p.ruleText, governanceRef: "stay-agent" },
+      decision: sealBody.decision,
+      governingRule: sealBody.governingRule,
       localWitnessId: p.localWitnessId,
     });
   } catch (err) {
