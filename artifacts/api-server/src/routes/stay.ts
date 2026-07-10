@@ -140,12 +140,15 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
     // Write the resolution/governance witness entry AND seal it into VDA Witness
     // (so every made decision + governance change carries the tamper-evident badge).
     const writeStayWitness = async (decision: "PASS" | "FAIL" | "ESCALATE" | "INFO", eventCategory: string, clause: string, extra: Record<string, unknown> = {}): Promise<number> => {
+      // Baseline / unbaseline are MoD-only governance events — attribute them to
+      // the MoD role, not the card's routing band (which may be ambassador).
+      const eventRole = (eventCategory === "BASELINE_SET" || eventCategory === "BASELINE_REVOKED") ? "mod" : (hitl.roleBand ?? "ambassador");
       const id = await writeWitnessEntry({
         companyId,
         agent: AGENT_NAME,
         decision: { decision, clauseApplied: clause, actionProposed: String(payload.proposed_action ?? "Stay action"), exceptionApplied: false, escalationTarget: (payload.escalation_target as string) ?? null, reasoning: `${eventCategory} by ${decidedBy}${reason ? `: ${reason}` : ""}`, exceptionClass: (payload.exception_class as string) ?? undefined },
         fileReferenced: String(payload.clause_applied ?? "stay-agent.SOP.md"),
-        apaleoData: { ...apaleoData, hitl_token: token, decided_by: decidedBy, role_band: hitl.roleBand, art17: { stage: payload.stage, exception_class: payload.exception_class, event: eventCategory, decided_by: decidedBy, role_band: hitl.roleBand, ...extra } },
+        apaleoData: { ...apaleoData, hitl_token: token, decided_by: decidedBy, role_band: eventRole, art17: { stage: payload.stage, exception_class: payload.exception_class, event: eventCategory, decided_by: decidedBy, role_band: eventRole, ...extra } },
         eventCategory,
         suppressAutoHitl: true,
       });
@@ -155,7 +158,7 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
         verdict: eventCategory,
         reasoning: `${eventCategory} by ${decidedBy}${reason ? `: ${reason}` : ""}`,
         actionProposed: String(payload.proposed_action ?? "Stay action"),
-        inputs: { stage: payload.stage, exception_class: payload.exception_class, decided_by: decidedBy, role_band: hitl.roleBand, hitl_token: token, ...extra },
+        inputs: { stage: payload.stage, exception_class: payload.exception_class, decided_by: decidedBy, role_band: eventRole, hitl_token: token, ...extra },
         ruleId: String(payload.clause_applied ? "stay-agent.EXCEPTION_AUTHORITY.md" : "stay-agent.SOP.md"),
         ruleText: String(payload.clause_applied ?? clause),
         exceptionClass: (payload.exception_class as string) ?? undefined,
@@ -215,11 +218,16 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
     await db.update(hitlTokens).set({ outcome: "approved", decidedBy, decidedAt: new Date() }).where(eq(hitlTokens.token, token));
     // A real Apaleo write returns an id → record it as a first-class charge_posted event.
     const eventCategory = execution.apaleoId ? "charge_posted" : outcome === "baseline" ? "BASELINE_SET" : "HITL_APPROVED";
-    const clause = execution.apaleoId
-      ? `Approved by ${decidedBy}; posted Apaleo ${execution.tool} → id ${execution.apaleoId}.`
-      : outcome === "baseline"
-        ? `Approved and baselined by ${decidedBy} — this task auto-PASSes within its bounds going forward.`
-        : `Operational exception approved by ${decidedBy}; Apaleo action ${execution.status}.`;
+    // Sandbox framing: an unexecuted write is STAGED (ready to execute in test),
+    // not inert.
+    const apaleoPhrase = execution.apaleoId
+      ? `posted Apaleo ${execution.tool} → id ${execution.apaleoId}`
+      : execution.status === "SANDBOX_NO_WRITE"
+        ? (execution.tool ? `Apaleo ${execution.tool} staged (sandbox — ready to execute in test)` : "no Apaleo write required")
+        : `Apaleo action ${execution.status}`;
+    const clause = outcome === "baseline"
+      ? `Approved and baselined by ${decidedBy} — this task auto-PASSes within its bounds going forward; ${apaleoPhrase}.`
+      : `Operational exception approved by ${decidedBy}; ${apaleoPhrase}.`;
     const witnessId = await writeStayWitness("PASS", eventCategory, clause, { apaleo_execution: execution, apaleo_charge_id: execution.apaleoId ?? null, baseline_id: baselineId });
     const rates = await updateStayRates(companyId);
     res.json({ ok: true, action: outcome, token, apaleo_execution: execution, apaleo_charge_id: execution.apaleoId ?? null, baseline_id: baselineId, witness_entry_id: witnessId, rates });
