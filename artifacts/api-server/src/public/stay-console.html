@@ -428,9 +428,11 @@ async function loadTier(){
     if(bind==="resolved"&&j.account)acctChip=` · acct ${esc(String(j.account).slice(0,14))}`;
     else if(bind==="unresolved")acctChip=' <span class="mm" style="color:#8b93a3;border:0" title="key→account binding resolves on first seal/health probe — nothing is wrong">· binding pending</span>';
     else if(bind==="mismatch")acctChip='<span class="mm">⚠ account mismatch</span>';
+    // Anchor lag is INFORMATIONAL, not an error (errors are keyRed → ⛔): the Witness
+    // head is anchored but later records are still SIGNED_PENDING. Neutral grey, no ⚠.
+    const anchorChip=j.anchorMismatch?` <span class="mm" style="color:#8b93a3;border:0" title="Witness head anchored through seq ${esc(j.observed?.anchoredThroughSeq??"")}; later records still signed·pending — anchoring is catching up">· anchoring seq ≤ ${esc(j.observed?.anchoredThroughSeq??"")}</span>`:"";
     el.innerHTML=(anchored?"Compliance-grade — anchored":"Test tier — non-anchored")
-      +(anchored&&seq!=null?` · seq ≤ ${esc(seq)}`:"")+acctChip
-      +(j.anchorMismatch?'<span class="mm" title="Witness head anchored but local records not yet re-verified as ANCHORED_VALID">⚠ anchor lag</span>':"");
+      +(anchored&&seq!=null?` · seq ≤ ${esc(seq)}`:"")+acctChip+anchorChip;
     el.title=(anchored
       ?"Records read ANCHORED_VALID and the Witness head is anchored — audit-ready."
       :"Test key: records are validly signed and verifiable but not yet anchored (SIGNED_PENDING). Not compliance-grade.")
