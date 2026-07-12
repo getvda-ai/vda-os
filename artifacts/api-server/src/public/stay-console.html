@@ -348,13 +348,24 @@ function rowHtml(m){
 function renderVerdict(id,v){
   const wrap=$(`#vp-${id}`);if(!wrap)return;
   const st=String(v.state||"UNKNOWN");
-  const cls=st==="ANCHORED_VALID"?"anchored":st==="BROKEN"?"broken":"signed";
   const c=v.checks||{},an=c.anchor||{};
   const chk=(lab,val)=>`<span class="chk ${val?'y':'n'}">${lab}: ${val?'✓':'✗'}</span>`;
+  // A single-record offline check cannot confirm hash-chain continuity for a non-genesis
+  // record (the predecessors aren't supplied). Distinguish that HONESTLY — signature +
+  // key valid, chain simply not checkable here — from a real tamper (signature invalid),
+  // rather than a blanket loud "BROKEN". The Evidence panel / anchor status carry the
+  // chain's authoritative anchored state (verified end-to-end by Witness).
+  const chainOnly = st==="BROKEN" && c.signature===true && c.keyValidAtSigningTime===true && c.chain===false;
+  const cls = st==="ANCHORED_VALID"?"anchored" : chainOnly?"signed" : st==="BROKEN"?"broken" : "signed";
+  const headline = chainOnly ? "SEALED · chain not verifiable from a single record" : esc(st);
+  const badgeNote = st==="ANCHORED_VALID"?'<span class="chk y">externally anchored — audit-ready</span>'
+    : st==="SIGNED_PENDING"?'<span class="chk">validly signed · anchoring pending</span>'
+    : chainOnly?'<span class="chk">signature ✓ · supply the full chain (or see anchor status) to verify continuity</span>'
+    : st==="BROKEN"?'<span class="chk n">DO NOT TRUST — signature/verification failed</span>':'';
   wrap.innerHTML=`<div class="vp ${cls==='broken'?'broken':''}">
-    <span class="st ${cls}">${esc(st)}</span> ${st==="SIGNED_PENDING"?'<span class="chk">validly signed · not yet anchored</span>':st==="BROKEN"?'<span class="chk n">DO NOT TRUST</span>':''}
+    <span class="st ${cls}">${headline}</span> ${badgeNote}
     <div class="sig">${chk("signature",c.signature)}${chk("chain",c.chain)}${chk("keyValidAtSigningTime",c.keyValidAtSigningTime)}${chk("anchor.attempted",an.attempted)}${an.quorumMet!=null?chk("anchor.quorumMet",an.quorumMet):""}</div>
-    <div class="meth">method: ${esc(v.verificationMethod||"—")} · ${esc(v.verifierVersion||"")} · offline — 0 calls to witness.getvda.ai${v.reason?(" · "+esc(v.reason)):""}</div>
+    <div class="meth">verdict: ${esc(st)} · method: ${esc(v.verificationMethod||"—")} · ${esc(v.verifierVersion||"")} · offline — 0 calls to witness.getvda.ai${v.reason?(" · "+esc(v.reason)):""}</div>
   </div>`;
 }
 $("#made").addEventListener("click",async e=>{
