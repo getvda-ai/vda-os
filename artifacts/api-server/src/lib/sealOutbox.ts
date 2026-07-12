@@ -43,9 +43,15 @@ export function minimizeInputs(raw: Record<string, unknown> = {}): Record<string
     stage: raw.stage ?? raw.phase,
     exception_class: raw.exception_class ?? raw.class,
     amount: raw.amount,
+    requested_value: raw.requested_value,
+    ceiling_evaluated: raw.ceiling_evaluated ?? raw.ceiling,
+    ceiling_type: raw.ceiling_type,
+    ceiling_band: raw.ceiling_band,
+    within_ceiling: raw.within_ceiling,
     currency: raw.currency,
     nights: raw.nights,
     governance_source: raw.governance_source ?? raw.governanceRef,
+    phase: raw.phase,
     role_band: raw.role_band,
     apaleo_charge_id: raw.apaleo_charge_id ?? raw.chargeId,
     outcome: raw.outcome ?? raw.verdict,
@@ -95,6 +101,31 @@ export function scrubText(text: unknown, denylist: string[] = []): string {
   return s;
 }
 
+// Belt-and-braces guard: a sealed record is permanent + anchored, so `reasoning`
+// must be clean PROSE — never a fenced code block or a raw JSON completion dump. The
+// engine already parses the model output; this is the last line of defence at the
+// seal choke point.
+let sanitizedReasonings = 0;
+export function reasoningSanitizedCount(): number { return sanitizedReasonings; }
+export function cleanReasoning(text: unknown): string {
+  const original = (typeof text === "string" ? text : text == null ? "" : String(text)).trim();
+  if (!original) return original;
+  // If it IS a raw JSON envelope, try to pull the prose out of it, else mark.
+  if (/^[[{]/.test(original) && /[}\]]$/.test(original)) {
+    try {
+      const o = JSON.parse(original) as Record<string, unknown>;
+      const prose = (o.reasoning ?? o.rationale ?? o.explanation);
+      if (typeof prose === "string" && prose.trim()) { sanitizedReasonings++; return prose.trim(); }
+    } catch { /* not valid JSON — fall through */ }
+    sanitizedReasonings++;
+    return "[unparsed model output — not sealed raw]";
+  }
+  // Strip any fenced code blocks; if that removes everything, mark it.
+  const stripped = original.replace(/```[\s\S]*?```/g, " ").replace(/```/g, " ").replace(/\s+/g, " ").trim();
+  if (stripped !== original) sanitizedReasonings++;
+  return stripped || "[unparsed model output — not sealed raw]";
+}
+
 /** Recursively collect guest-identity values from an Apaleo data blob for the denylist. */
 export function collectGuestPii(obj: unknown, acc: string[] = [], depth = 0): string[] {
   if (!obj || depth > 6) return acc;
@@ -139,7 +170,8 @@ export function buildSealBody(a: SealBodyArgs): { decision: SealBody["decision"]
     decision: {
       agent: a.agent,
       verdict: a.verdict,
-      reasoning: scrubText(a.reasoning, deny),
+      // cleanReasoning() FIRST (strip fences / raw JSON → prose or marker), then scrub PII.
+      reasoning: scrubText(cleanReasoning(a.reasoning), deny),
       actionProposed: a.actionProposed ? scrubText(a.actionProposed, deny) : undefined,
       inputs: minimizeInputs(a.inputsRaw ?? {}),
     },
@@ -257,5 +289,6 @@ export async function outboxHealth(companyId?: number): Promise<Record<string, n
     .groupBy(sealOutbox.status);
   const out: Record<string, number> = { pending: 0, sealed: 0, dead: 0 };
   for (const r of rows) out[r.status] = r.n;
+  out.reasoning_sanitized = sanitizedReasonings; // seals whose reasoning was fence/JSON-stripped or marked
   return out;
 }

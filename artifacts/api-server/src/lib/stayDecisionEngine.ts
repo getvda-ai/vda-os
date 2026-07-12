@@ -336,6 +336,11 @@ Respond ONLY with this JSON (no extra text):
   const resp = await callAIWithUsage({ max_tokens: 2048, system, messages: [{ role: "user", content: user }] });
   try {
     const parsed = JSON.parse(extractJsonObject(resp.text)) as Partial<LlmDecision>;
+    // reasoning must be the model's PROSE, never a raw completion dump. If the model
+    // returned no reasoning field, mark it — do not fall back to the raw text (which
+    // would carry ```json fences into a permanent, anchored record).
+    const prose = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
+    if (!prose) logger.warn({ raw: resp.text.slice(0, 300) }, "[stayEngine] model output parsed but had no reasoning field — sealing a marker, not raw");
     return {
       decision: (parsed.decision as LlmDecision["decision"]) ?? "ESCALATE",
       clauseApplied: parsed.clauseApplied ?? "Unable to determine governing clause",
@@ -343,10 +348,13 @@ Respond ONLY with this JSON (no extra text):
       actionProposed: parsed.actionProposed ?? "Manual review",
       exceptionApplied: Boolean(parsed.exceptionApplied),
       escalationTarget: parsed.escalationTarget ?? null,
-      reasoning: parsed.reasoning ?? resp.text.slice(0, 200),
+      reasoning: prose || "[model returned no reasoning field — routed to human review]",
       noSopCoverage: Boolean(parsed.noSopCoverage),
     };
   } catch {
+    // Unparseable model output: NEVER seal the raw blob. Log it for ops (the erasable
+    // local stream), seal an explicit marker, and ESCALATE to a human.
+    logger.warn({ raw: resp.text.slice(0, 300) }, "[stayEngine] model output not parseable — sealing a marker, not raw, and escalating");
     return {
       decision: "ESCALATE",
       clauseApplied: "Unable to parse agent response",
@@ -354,7 +362,7 @@ Respond ONLY with this JSON (no extra text):
       actionProposed: "Manual review required",
       exceptionApplied: false,
       escalationTarget: "mod",
-      reasoning: resp.text.slice(0, 200),
+      reasoning: "[unparsed model output — not sealed raw; routed to human review]",
       noSopCoverage: false,
     };
   }
@@ -646,6 +654,9 @@ async function finalize(
       verdict: result.outcome,
       reasoning: result.reasoning,
       actionProposed: result.proposed_action,
+      // PII-minimized decision FACTS — what the agent saw when it decided, so an
+      // auditor reading get_record can reconstruct the decision. Pseudonymous ids +
+      // facts only; buildSealBody's scrub still applies to every field.
       inputsRaw: {
         reservationId: result.apaleo_ref?.reservationId,
         folioId: result.apaleo_ref?.folioId,
@@ -653,8 +664,15 @@ async function finalize(
         stage: result.stage,
         exception_class: result.exception_class,
         amount: result.ceiling_band?.requested_value,
+        requested_value: result.ceiling_band?.requested_value,
+        ceiling_evaluated: result.ceiling_band?.ceiling,
+        ceiling_type: result.ceiling_band?.ceiling_type,
+        ceiling_band: result.ceiling_band?.band,
+        within_ceiling: result.ceiling_band?.within_ceiling,
         currency: (result.apaleo_data?.folio as { currency?: string })?.currency,
+        nights: (result.scenario as { nights_booked?: number } | undefined)?.nights_booked,
         governance_source: result.governance_source,
+        phase: opts.phase,
         role_band: opts.roleBand,
         apaleo_charge_id: result.apaleo_charge_id ?? null,
         verdict: result.outcome,
