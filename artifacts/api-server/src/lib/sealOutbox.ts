@@ -235,10 +235,12 @@ export async function drainSealOutbox(limit = 25): Promise<DrainResult> {
         await db.update(witnessEntries).set({ witnessState: "unsealed" }).where(eq(witnessEntries.id, row.localWitnessId));
       }
       if (isDead) dead++; else failed++;
-      // A configured-key rejection affects EVERY pending row — stop draining this
-      // cycle rather than hammering the same rejection into more dead-letters.
-      if (res.terminal === true && res.code === "configured_key_rejected") {
-        logger.error("[outbox] configured key rejected — halting drain; remaining seals stay pending until the key is fixed");
+      // A key/renewal problem is systemic — it affects EVERY pending row. Stop
+      // draining this cycle rather than hammering the same failure (and, for
+      // renewal, rather than triggering a 429 storm). Remaining rows stay pending
+      // (recover on the next drain once the key/renewal is healthy) or dead-letter.
+      if (res.code === "configured_key_rejected" || res.code === "account_mismatch" || res.code === "renewal_failed") {
+        logger.error({ code: res.code }, "[outbox] halting drain — key/renewal problem is systemic; remaining seals stay pending");
         break;
       }
     }

@@ -7,10 +7,14 @@
  * decisionId, which we need for per-property partitioning + idempotency).
  *
  * Contract (obeyed exactly): the API key IS the account — never send an accountId.
- * Key is sourced from GCP Secret Manager into WITNESS_API_KEY; test-tier keys are
- * self-serve and auto-refreshed on expiry. Sealing here is a plain POST; fail-open
- * + off-critical-path is provided by the seal-outbox that calls this.
+ * The account is a DURABLE identity pinned by WITNESS_EXPECTED_ACCOUNT and re-keyed
+ * unattended by proving control of the bound Ed25519 controller key
+ * (WITNESS_CONTROLLER_PRIVATE_JWK): challenge → sign → renew → fresh key, SAME
+ * account. There is NO minting on the seal path — a rejected key renews or fails
+ * loud, never scatters into a new account. Fail-open + off-critical-path is provided
+ * by the seal-outbox that calls this.
  */
+import { createPrivateKey, sign as edSign } from "node:crypto";
 import { offlineVerify, type Verdict } from "vda-witness/verify";
 import { logger } from "./logger.js";
 // Bundled DID document (did:web:witness.getvda.ai) so offline verify makes ZERO
@@ -19,49 +23,95 @@ import { logger } from "./logger.js";
 import bundledDid from "./witnessDid.json" with { type: "json" };
 
 const base = (): string => process.env.WITNESS_BASE_URL || "https://witness.getvda.ai";
-const AUTO_REFRESH = (process.env.WITNESS_AUTO_REFRESH ?? "true").toLowerCase() !== "false";
-const KEY_EMAIL = process.env.WITNESS_KEY_EMAIL || "mikerawsonnz@gmail.com";
 const EXPECTED_ACCOUNT = (): string | null => process.env.WITNESS_EXPECTED_ACCOUNT || null;
+const RENEW_DOMAIN = "vda.witness.renew/1"; // exact domain-separated prefix — do not change
 
-let cachedKey: string | null = null; // ONLY ever a bootstrap-minted key (no configured key present)
+let cachedKey: string | null = null; // the current key — a RENEWED key for the pinned account (never a mint)
+let keyExpiresAt = 0; // ms epoch when cachedKey expires (0 = unknown / configured long-lived seed)
 let boundAccount: string | null = null; // the account the loaded key resolves to
-type KeyHealth = "unknown" | "ok" | "configured_key_rejected" | "account_mismatch" | "no_key";
+type KeyHealth = "unknown" | "ok" | "configured_key_rejected" | "account_mismatch" | "renewal_failed" | "no_key";
 let keyHealth: KeyHealth = "unknown";
+/** Read keyHealth opaquely — it is mutated inside renewKey()/doRenew(), which TS's
+ * control-flow analysis cannot see, so direct comparisons after those calls falsely
+ * narrow. This helper keeps comparisons honest. */
+const health = (): KeyHealth => keyHealth;
 let didDoc: unknown = null;
 let didAt = 0;
 
-/** The configured (seed) key from env / Secret Manager — this is the account binding. */
+/** The configured (seed) key from env / Secret Manager — the initial account binding. */
 function configuredKey(): string | null { return process.env.WITNESS_API_KEY || null; }
 function isConfigured(): boolean { return Boolean(configuredKey()); }
-/**
- * Bootstrap minting is the legitimate self-serve on-ramp — permitted ONLY when NO
- * key is configured and NO account is pinned. When a key IS configured, we must use
- * it and only it; re-minting would spray seals into a fresh orphan account (the
- * scatter bug). Test keys expire ~hourly, so a configured key WILL be rejected on
- * "expired" — that must fail loud, never re-mint.
- */
-function bootstrapAllowed(): boolean { return AUTO_REFRESH && !isConfigured() && !EXPECTED_ACCOUNT(); }
-/** Configured key wins; only fall back to a bootstrap-minted key when none is configured. */
-function currentKey(): string | null { return configuredKey() || cachedKey || null; }
-export function isWitnessEnabled(): boolean { return Boolean(currentKey()) || bootstrapAllowed(); }
+/** A freshly-renewed key (same account) wins; else the configured long-lived seed. */
+function currentKey(): string | null { return cachedKey || configuredKey() || null; }
+export function isWitnessEnabled(): boolean { return Boolean(currentKey()) || canRenew(); }
 function isAuthError(m: string): boolean {
-  return /unknown api key|malformed api key|unauthorized|api key .*(expired|invalid)|invalid api key|expired/i.test(m);
+  return /unknown api key|malformed api key|unauthorized|api key .*(expired|invalid)|invalid api key|expired|401/i.test(m);
 }
-/** Bootstrap-only mint. Refuses when a key is configured or an account is pinned. */
-async function bootstrapMint(): Promise<string | null> {
-  if (!bootstrapAllowed()) return null; // NEVER mint over a configured/pinned key
-  try {
-    const r = await fetch(`${base()}/api/witness/test-key`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: KEY_EMAIL }), signal: AbortSignal.timeout(12000) });
-    const j = (await r.json().catch(() => ({}))) as { apiKey?: string };
-    if (j.apiKey) { cachedKey = j.apiKey; logger.info("[witness] bootstrap-minted test key (no configured key present)"); return j.apiKey; }
-    return null;
-  } catch (err) { logger.warn({ err }, "[witness] bootstrap mint failed"); return null; }
+
+// ── Controller-key renewal (durable account, no standing secret, no human) ─────
+// The account is durable and re-keyed by proving control of the bound Ed25519
+// controller key: challenge → sign("vda.witness.renew/1|<acct>|<nonce>") → renew →
+// fresh 24h key for the SAME account. There is NO minting anywhere on the seal path.
+let controllerKeyObj: import("node:crypto").KeyObject | null | undefined;
+function controllerPrivateKey(): import("node:crypto").KeyObject | null {
+  if (controllerKeyObj !== undefined) return controllerKeyObj;
+  const raw = process.env.WITNESS_CONTROLLER_PRIVATE_JWK;
+  if (!raw) { controllerKeyObj = null; return null; }
+  try { controllerKeyObj = createPrivateKey({ key: JSON.parse(raw), format: "jwk" }); }
+  catch (err) { logger.error({ err }, "[witness] controller private JWK is unparseable — renewal disabled"); controllerKeyObj = null; }
+  return controllerKeyObj;
+}
+/** Renewal is possible only with a controller key AND a pinned account (never moves accounts). */
+function canRenew(): boolean { return Boolean(controllerPrivateKey() && EXPECTED_ACCOUNT()); }
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+function jitterMs(attempt: number): number { return Math.round(400 * 2 ** attempt + Math.random() * 400); }
+
+let renewing: Promise<{ ok: boolean; key?: string; reason?: string; terminal?: boolean }> | null = null;
+/** Single-flight renewal: concurrent seals share ONE in-flight renewal (no 429 storm). */
+function renewKey(): Promise<{ ok: boolean; key?: string; reason?: string; terminal?: boolean }> {
+  if (renewing) return renewing;
+  renewing = doRenew().finally(() => { renewing = null; });
+  return renewing;
+}
+async function doRenew(): Promise<{ ok: boolean; key?: string; reason?: string; terminal?: boolean }> {
+  const ctl = controllerPrivateKey();
+  const acct = EXPECTED_ACCOUNT();
+  if (!ctl || !acct) return { ok: false, reason: "renewal not configured (need controller key + WITNESS_EXPECTED_ACCOUNT)", terminal: true };
+  const B = base();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      // 1) challenge (unauthenticated; per-IP burst-limited — back off on 429)
+      const chR = await fetch(`${B}/api/witness/renew/challenge`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accountId: acct }), signal: AbortSignal.timeout(12000) });
+      if (chR.status === 429) { await sleep(jitterMs(attempt)); continue; }
+      const ch = (await chR.json().catch(() => ({}))) as { nonce?: string };
+      if (!ch.nonce) return { ok: false, reason: `renew challenge failed: http ${chR.status}` };
+      // 2) sign the EXACT domain-separated string with the controller private key
+      const sig = edSign(null, Buffer.from(`${RENEW_DOMAIN}|${acct}|${ch.nonce}`, "utf8"), ctl).toString("base64url");
+      // 3) renew → fresh short-TTL key, SAME account
+      const rnR = await fetch(`${B}/api/witness/renew`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accountId: acct, nonce: ch.nonce, signature: sig }), signal: AbortSignal.timeout(12000) });
+      if (rnR.status === 429) { await sleep(jitterMs(attempt)); continue; }
+      const rn = (await rnR.json().catch(() => ({}))) as { apiKey?: string; accountId?: string; keyExpiresAt?: string; keyTtlSec?: number };
+      if (!rnR.ok || !rn.apiKey) return { ok: false, reason: `renew failed: http ${rnR.status}` };
+      // 4) the pin still governs — renewal must NEVER move accounts
+      if (rn.accountId && rn.accountId !== acct) { keyHealth = "account_mismatch"; boundAccount = rn.accountId; return { ok: false, terminal: true, reason: `renew returned different account: ${rn.accountId} (expected ${acct})` }; }
+      cachedKey = rn.apiKey;
+      keyExpiresAt = rn.keyExpiresAt ? Date.parse(rn.keyExpiresAt) : Date.now() + (rn.keyTtlSec ?? 86400) * 1000;
+      boundAccount = acct; keyHealth = "ok";
+      logger.info({ account: acct }, "[witness] renewed key via controller (same account, no human)");
+      return { ok: true, key: rn.apiKey };
+    } catch (err) {
+      if (attempt < 3) { await sleep(jitterMs(attempt)); continue; }
+      return { ok: false, reason: `renew error: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+  return { ok: false, reason: "renew throttled (429) after retries" }; // transient — retry next drain
 }
 
 /** Health of the loaded Witness key + the account it is bound to (for /seal/health + badge). */
-export function witnessKeyHealth(): { health: KeyHealth; boundAccount: string | null; expected: string | null; configured: boolean; red: boolean } {
-  const red = keyHealth === "configured_key_rejected" || keyHealth === "account_mismatch" || keyHealth === "no_key";
-  return { health: keyHealth, boundAccount, expected: EXPECTED_ACCOUNT(), configured: isConfigured(), red };
+export function witnessKeyHealth(): { health: KeyHealth; boundAccount: string | null; expected: string | null; configured: boolean; renewable: boolean; keyExpiresAt: number; red: boolean } {
+  const red = health() === "configured_key_rejected" || health() === "account_mismatch" || keyHealth === "renewal_failed" || keyHealth === "no_key";
+  return { health: keyHealth, boundAccount, expected: EXPECTED_ACCOUNT(), configured: isConfigured(), renewable: canRenew(), keyExpiresAt, red };
 }
 
 /**
@@ -99,15 +149,34 @@ export interface SealOutcome { ok: boolean; record?: Record<string, unknown>; er
 /** Seal via REST /seal (Bearer key; account derived server-side — no accountId). */
 export async function sealRecord(body: SealBody): Promise<SealOutcome> {
   let key = currentKey();
-  if (!key) key = await bootstrapMint(); // (A) genuine no-key bootstrap ONLY
-  if (!key) { keyHealth = "no_key"; return { ok: false, error: "no VDA Witness key configured", code: "no_key", terminal: false }; }
+  // Cold start with no key (agent holds only controller key + accountId) → RENEW,
+  // never mint. Renewal recovers a fresh key for the SAME pinned account.
+  if (!key && canRenew()) {
+    const r = await renewKey();
+    if (r.ok) key = r.key ?? null;
+    else { if (health() !== "account_mismatch") keyHealth = "renewal_failed"; return { ok: false, error: r.reason, code: health() === "account_mismatch" ? "account_mismatch" : "renewal_failed", terminal: Boolean(r.terminal) }; }
+  }
+  if (!key) { keyHealth = "no_key"; return { ok: false, error: "no VDA Witness key and no controller key to renew", code: "no_key", terminal: false }; }
+
+  // Proactively renew a renewed key that is within 2 min of expiry (overlap → no gap).
+  if (canRenew() && keyExpiresAt > 0 && Date.now() > keyExpiresAt - 120_000) {
+    const r = await renewKey();
+    if (r.ok && r.key) key = r.key;
+  }
 
   // (A.3) Account pin — resolve + assert BEFORE sealing so we never seal into the
-  // wrong account. A rejected/mismatched configured key is TERMINAL: do not mint,
-  // do not reseal elsewhere; the drain dead-letters it and health goes red.
-  const bind = await verifyAccountBinding(key);
+  // wrong account. Terminal on rejection/mismatch → drain dead-letters, health-red.
+  let bind = await verifyAccountBinding(key);
+  // If the pre-flight probe found the key expired/invalid, RENEW (same account) and
+  // re-bind — never mint. A successful renew sets keyHealth=ok, so re-bind shortcuts.
+  if (!bind.ok && health() === "configured_key_rejected" && canRenew()) {
+    keyHealth = "unknown"; boundAccount = null;
+    const r = await renewKey();
+    if (r.ok && r.key) { key = r.key; bind = await verifyAccountBinding(key); }
+    else { if (health() !== "account_mismatch") keyHealth = "renewal_failed"; return { ok: false, error: `renewal_failed: ${r.reason}`, code: health() === "account_mismatch" ? "account_mismatch" : "renewal_failed", terminal: Boolean(r.terminal) }; }
+  }
   if (!bind.ok) {
-    const code = keyHealth === "configured_key_rejected" ? "configured_key_rejected" : keyHealth === "account_mismatch" ? "account_mismatch" : "probe_error";
+    const code = health() === "configured_key_rejected" ? "configured_key_rejected" : health() === "account_mismatch" ? "account_mismatch" : "probe_error";
     return { ok: false, error: bind.reason, code, terminal: Boolean(bind.terminal) };
   }
 
@@ -128,21 +197,25 @@ export async function sealRecord(body: SealBody): Promise<SealOutcome> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (isAuthError(msg)) {
-      if (isConfigured()) {
-        // (B) THE FIX — a CONFIGURED key was rejected (malformed/unknown/expired/
-        // invalid). HALT. Never mint, never reseal into a throwaway account. The
-        // operation already completed; only the silent wrong-account "success" is
-        // removed. Outbox dead-letters this as configured_key_rejected → health-red.
-        keyHealth = "configured_key_rejected";
-        logger.error({ decisionId: body.decisionId }, "[witness] CONFIGURED key rejected — halting seal (no re-mint, no account scatter)");
-        return { ok: false, error: `configured_key_rejected: ${msg}`, code: "configured_key_rejected", terminal: true };
+      // The current key was rejected (expired/invalid). RENEW (same account, no
+      // human) and retry ONCE — never mint. Single-flight dedupes concurrent seals.
+      if (canRenew()) {
+        const r = await renewKey();
+        if (r.ok && r.key && r.key !== key) {
+          try { const record = await call(r.key); refreshDidInBackground(); return { ok: true, record }; }
+          catch (e2) { return { ok: false, error: `post-renew seal failed: ${e2 instanceof Error ? e2.message : String(e2)}`, code: "renewal_failed", terminal: false }; }
+        }
+        // Renewal itself failed → fail loud (dead-letter), never mint. Op still ok.
+        if (health() !== "account_mismatch") keyHealth = "renewal_failed";
+        logger.error({ decisionId: body.decisionId, reason: r.reason }, "[witness] key rejected AND renewal failed — halting seal (no mint)");
+        return { ok: false, error: `renewal_failed: ${r.reason}`, code: health() === "account_mismatch" ? "account_mismatch" : "renewal_failed", terminal: Boolean(r.terminal) };
       }
-      // Pure bootstrap (no configured key, no pin) → the minted key expired → a
-      // re-mint is legitimate here (there is no account to stay coherent with).
-      const fresh = await bootstrapMint();
-      if (fresh && fresh !== key) { try { return { ok: true, record: await call(fresh) }; } catch (e2) { return { ok: false, error: e2 instanceof Error ? e2.message : String(e2) }; } }
+      // No controller key to renew with → fail loud (never mint). Op still completes.
+      keyHealth = "configured_key_rejected";
+      logger.error({ decisionId: body.decisionId }, "[witness] key rejected and no controller key — halting seal (no mint, no scatter)");
+      return { ok: false, error: `configured_key_rejected: ${msg}`, code: "configured_key_rejected", terminal: true };
     }
-    return { ok: false, error: msg };
+    return { ok: false, error: msg }; // transient
   }
 }
 
