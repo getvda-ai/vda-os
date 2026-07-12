@@ -11,7 +11,7 @@ import { executeStayAction } from "../lib/stayExecutor.js";
 import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { sealStayEvent } from "../lib/staySeal.js";
 import { drainSealOutbox, outboxHealth } from "../lib/sealOutbox.js";
-import { anchorStatus, fetchRecords, fetchReport, witnessKeyHealth } from "../lib/witnessClient.js";
+import { anchorStatus, fetchRecords, fetchReport, witnessKeyHealth, resolveBinding } from "../lib/witnessClient.js";
 import { generateEuAiActReport, C2MD_CONTRACT } from "../lib/c2mdClient.js";
 import { stayChainKey } from "../lib/witnessChain.js";
 import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
@@ -23,6 +23,16 @@ const VALID_STAGES = new Set(["check_in", "in_stay", "check_out"]);
 const AGENT_SLUG = "stay-agent";
 const AGENT_NAME = "Stay Agent";
 const NEXT_BAND: Record<string, string> = { ambassador: "mod", mod: "compliance_officer", compliance_officer: "compliance_officer" };
+
+/**
+ * Explicit three-state account binding for the tier badge — never a null-vs-expected
+ * string compare. `unresolved` (not yet probed) is NEUTRAL, not a warning.
+ */
+function bindingState(k: { health: string; boundAccount: string | null; expected: string | null }): "resolved" | "unresolved" | "mismatch" {
+  if (k.health === "account_mismatch" || (k.boundAccount && k.expected && k.boundAccount !== k.expected)) return "mismatch";
+  if (!k.boundAccount) return "unresolved";
+  return "resolved";
+}
 
 /** Recompute agreement/override rates on agent_phases over the last 30 resolved stay cards. */
 async function updateStayRates(companyId: number): Promise<{ agreement: number; override: number; sample: number }> {
@@ -506,8 +516,9 @@ router.get("/stay/seal/drain", drainHandler);
 router.get("/stay/seal/health", async (req, res) => {
   try {
     const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0) || undefined;
+    await resolveBinding().catch(() => {}); // populate boundAccount without waiting for a seal
     const key = witnessKeyHealth();
-    res.json({ ok: true, outbox: await outboxHealth(companyId), key, red: key.red });
+    res.json({ ok: true, outbox: await outboxHealth(companyId), key, red: key.red, accountBinding: bindingState(key) });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "health failed" });
   }
@@ -539,15 +550,23 @@ router.get("/stay/anchor-status", async (req, res) => {
 
     // Compliance-grade ONLY when the head is anchored and records read ANCHORED_VALID.
     const tier: "anchored" | "test" = headAnchored && anyAnchoredRecord ? "anchored" : "test";
-    // Mismatch: the external chain claims anchoring but no local record reads anchored
-    // yet (or vice versa). Surface it — the UI must not be able to lie about the key.
-    const mismatch = headAnchored !== anyAnchoredRecord;
+    // anchorMismatch: the external chain claims anchoring but no local record reads
+    // ANCHORED_VALID yet (or vice versa) — a genuine anchor-vs-local discrepancy, and
+    // ONLY meaningful once anchoring is actually in play. This is NOT the account
+    // binding state (that is accountBinding below).
+    const anchorMismatch = headAnchored !== anyAnchoredRecord && (headAnchored || anyAnchoredRecord);
 
-    // The pinned/bound Witness account + key health — so the badge shows WHICH
-    // account seals land in, and goes red on a rejected key / account mismatch.
+    // The pinned/bound Witness account + key health — resolved eagerly so a cold
+    // instance reports the real bound account, not null.
+    await resolveBinding().catch(() => {});
     const key = witnessKeyHealth();
+    // Account binding is a THREE-state, never a null-vs-expected string compare:
+    //   resolved   → boundAccount === expected (normal)
+    //   unresolved → not yet probed (neutral — NOT a warning)
+    //   mismatch   → boundAccount !== expected and non-null (the real failure; also red)
+    const accountBinding = bindingState(key);
 
-    res.json({ ok: true, tier, observed: { headAnchored, externalValid, anchoredThroughSeq }, states, mismatch, account: key.boundAccount, expectedAccount: key.expected, keyHealth: key.health, keyRed: key.red });
+    res.json({ ok: true, tier, observed: { headAnchored, externalValid, anchoredThroughSeq }, states, anchorMismatch, accountBinding, account: key.boundAccount, expectedAccount: key.expected, keyHealth: key.health, keyRed: key.red });
   } catch (err) {
     logger.error({ err }, "stay/anchor-status error");
     res.status(500).json({ error: err instanceof Error ? err.message : "anchor-status failed" });

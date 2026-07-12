@@ -108,6 +108,25 @@ async function doRenew(): Promise<{ ok: boolean; key?: string; reason?: string; 
   return { ok: false, reason: "renew throttled (429) after retries" }; // transient — retry next drain
 }
 
+/**
+ * Eagerly resolve the key → account binding with a cheap authenticated probe (renewing
+ * first if needed) so /seal/health + the tier badge are informative on a COLD instance
+ * without waiting for a seal. No-op once resolved. Never throws.
+ */
+export async function resolveBinding(): Promise<void> {
+  if (keyHealth === "ok" && boundAccount) return;
+  try {
+    let key = currentKey();
+    if (!key && canRenew()) { const r = await renewKey(); if (r.ok) key = r.key ?? null; }
+    if (!key) return;
+    const bind = await verifyAccountBinding(key);
+    if (!bind.ok && health() === "configured_key_rejected" && canRenew()) {
+      keyHealth = "unknown"; boundAccount = null;
+      await renewKey(); // a successful renew resolves the binding (sets health=ok)
+    }
+  } catch { /* health is advisory — never throw */ }
+}
+
 /** Health of the loaded Witness key + the account it is bound to (for /seal/health + badge). */
 export function witnessKeyHealth(): { health: KeyHealth; boundAccount: string | null; expected: string | null; configured: boolean; renewable: boolean; keyExpiresAt: number; red: boolean } {
   const red = health() === "configured_key_rejected" || health() === "account_mismatch" || keyHealth === "renewal_failed" || keyHealth === "no_key";

@@ -419,14 +419,22 @@ async function loadTier(){
     }
     el.style.cssText="";el.className="tier "+(anchored?"anchored":"test");
     const seq=j.observed?.anchoredThroughSeq;
-    const acct=j.account?` · acct ${esc(String(j.account).slice(0,14))}`:"";
+    // Account binding — three EXPLICIT states from the server, never null-vs-expected:
+    //   resolved   → show the bound account (normal, no chip)
+    //   unresolved → binding not yet resolved (neutral grey note, NOT a warning)
+    //   mismatch   → real failure (also drives keyRed → handled by the ⛔ branch above)
+    const bind=j.accountBinding;
+    let acctChip="";
+    if(bind==="resolved"&&j.account)acctChip=` · acct ${esc(String(j.account).slice(0,14))}`;
+    else if(bind==="unresolved")acctChip=' <span class="mm" style="color:#8b93a3;border:0" title="key→account binding resolves on first seal/health probe — nothing is wrong">· binding pending</span>';
+    else if(bind==="mismatch")acctChip='<span class="mm">⚠ account mismatch</span>';
     el.innerHTML=(anchored?"Compliance-grade — anchored":"Test tier — non-anchored")
-      +(anchored&&seq!=null?` · seq ≤ ${esc(seq)}`:"")+acct
-      +(j.mismatch?'<span class="mm" title="loaded key and observed anchor state disagree — showing observed">⚠ mismatch</span>':"");
+      +(anchored&&seq!=null?` · seq ≤ ${esc(seq)}`:"")+acctChip
+      +(j.anchorMismatch?'<span class="mm" title="Witness head anchored but local records not yet re-verified as ANCHORED_VALID">⚠ anchor lag</span>':"");
     el.title=(anchored
       ?"Records read ANCHORED_VALID and the Witness head is anchored — audit-ready."
       :"Test key: records are validly signed and verifiable but not yet anchored (SIGNED_PENDING). Not compliance-grade.")
-      +(j.account?`\nSeals bound to account ${j.account}${j.expectedAccount?` (expected ${j.expectedAccount})`:""}.`:"");
+      +(j.account?`\nSeals bound to account ${j.account}${j.expectedAccount?` (expected ${j.expectedAccount})`:""}.`:"\nAccount binding resolves on the first seal or health probe.");
   }catch{el.className="tier test";el.textContent="tier — unknown";}
 }
 
