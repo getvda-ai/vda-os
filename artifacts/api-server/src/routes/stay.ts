@@ -558,7 +558,10 @@ router.get("/stay/anchor-status", async (req, res) => {
     // record on this chain is genuinely anchored. Records beyond anchoredThroughSeq
     // are honestly SIGNED_PENDING (the hourly anchor job hasn't caught up) — not an error.
     const tier: "anchored" | "test" = headAnchored && externalValid && anchoredRecords > 0 ? "anchored" : "test";
-    const anchorLag = headAnchored && maxSeq > (anchoredThroughSeq ?? -1);
+    // Pending-anchor is honest info shown regardless of head state: records exist that
+    // the hourly anchor job hasn't reached yet → they are legitimately SIGNED_PENDING.
+    const pendingAnchor = pendingRecords ?? Math.max(0, recordCount - anchoredRecords);
+    const anchorLag = pendingAnchor > 0;
 
     // The pinned/bound Witness account + key health — resolved eagerly so a cold
     // instance reports the real bound account, not null.
@@ -567,7 +570,7 @@ router.get("/stay/anchor-status", async (req, res) => {
     // Account binding is a THREE-state, never a null-vs-expected string compare.
     const accountBinding = bindingState(key);
 
-    res.json({ ok: true, tier, chainKey, observed: { headAnchored, externalValid, anchoredThroughSeq, pendingRecords, recordCount, anchoredRecords, maxSeq }, anchorLag, accountBinding, account: key.boundAccount, expectedAccount: key.expected, keyHealth: key.health, keyRed: key.red });
+    res.json({ ok: true, tier, chainKey, observed: { headAnchored, externalValid, anchoredThroughSeq, pendingRecords, recordCount, anchoredRecords, maxSeq, pendingAnchor }, anchorLag, accountBinding, account: key.boundAccount, expectedAccount: key.expected, keyHealth: key.health, keyRed: key.red });
   } catch (err) {
     logger.error({ err }, "stay/anchor-status error");
     res.status(500).json({ error: err instanceof Error ? err.message : "anchor-status failed" });

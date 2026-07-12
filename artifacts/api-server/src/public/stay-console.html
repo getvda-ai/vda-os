@@ -432,7 +432,7 @@ async function loadTier(){
     // head is anchored but later v2 records are still SIGNED_PENDING until the hourly
     // anchor job catches up. Neutral grey, no ⚠.
     const ob=j.observed||{};
-    const anchorChip=j.anchorLag?` <span class="mm" style="color:#8b93a3;border:0" title="Chain anchored through seq ${esc(ob.anchoredThroughSeq??"")} (of ${esc(ob.maxSeq??"")}); newer records signed·pending until the hourly anchor job catches up — this is the correct state, not an error">· anchored ≤ seq ${esc(ob.anchoredThroughSeq??"")}, ${esc((ob.maxSeq??0)-(ob.anchoredThroughSeq??0))} pending</span>`:"";
+    const anchorChip=j.anchorLag?` <span class="mm" style="color:#8b93a3;border:0" title="${esc(ob.pendingAnchor??"")} record(s) sealed and signed, awaiting the hourly anchor job — they read SIGNED_PENDING, which is the correct state, not an error. Anchored through seq ${esc(ob.anchoredThroughSeq??"")}.">· ${esc(ob.pendingAnchor??"")} pending anchor</span>`:"";
     el.innerHTML=(anchored?"Compliance-grade — anchored":"Test tier — non-anchored")
       +(anchored&&ob.anchoredThroughSeq!=null?` · seq ≤ ${esc(ob.anchoredThroughSeq)}`:"")+acctChip+anchorChip;
     el.title=(anchored
