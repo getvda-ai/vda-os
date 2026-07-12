@@ -223,13 +223,24 @@ export async function drainSealOutbox(limit = 25): Promise<DrainResult> {
       }
       sealed++;
     } else {
+      // TERMINAL errors (configured_key_rejected / account_mismatch) fail LOUD and
+      // immediately — no bounded retry, no re-mint, no reseal into another account.
+      // The seal is a visible dead-letter (an evidence gap), NOT a silent wrong-
+      // account "success". The hotel operation already completed (fail-open).
       const attempts = row.attempts + 1;
-      const isDead = attempts >= MAX_ATTEMPTS;
-      await db.update(sealOutbox).set({ attempts, lastError: res.error ?? "unknown", status: isDead ? "dead" : "pending" }).where(eq(sealOutbox.id, row.id));
+      const isDead = res.terminal === true || attempts >= MAX_ATTEMPTS;
+      const lastError = res.code ? `${res.code}: ${res.error ?? ""}`.trim() : (res.error ?? "unknown");
+      await db.update(sealOutbox).set({ attempts, lastError, status: isDead ? "dead" : "pending" }).where(eq(sealOutbox.id, row.id));
       if (row.localWitnessId && isDead) {
         await db.update(witnessEntries).set({ witnessState: "unsealed" }).where(eq(witnessEntries.id, row.localWitnessId));
       }
       if (isDead) dead++; else failed++;
+      // A configured-key rejection affects EVERY pending row — stop draining this
+      // cycle rather than hammering the same rejection into more dead-letters.
+      if (res.terminal === true && res.code === "configured_key_rejected") {
+        logger.error("[outbox] configured key rejected — halting drain; remaining seals stay pending until the key is fixed");
+        break;
+      }
     }
   }
   return { processed: rows.length, sealed, failed, dead };

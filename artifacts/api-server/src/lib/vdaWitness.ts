@@ -29,8 +29,11 @@ const TEST_KEY_URL = (() => {
 
 let cachedKey: string | null = null;
 let lastMint = 0;
+// Configured (seed) key wins; a bootstrap-minted key is used ONLY when none is
+// configured. See witnessClient.ts for the full rationale — never re-mint over a
+// configured key (that is the account-scatter bug).
 function currentKey(): string | null {
-  return cachedKey || process.env.WITNESS_API_KEY || null;
+  return process.env.WITNESS_API_KEY || cachedKey || null;
 }
 export function isVdaWitnessEnabled(): boolean {
   return Boolean(currentKey()) || AUTO_REFRESH;
@@ -42,6 +45,10 @@ export function vdaWitnessInfo() {
 /** Mint a fresh test-mode key (rate-limited to once per 5s) and cache it. */
 async function mintTestKey(): Promise<string | null> {
   if (!AUTO_REFRESH) return null;
+  // Bootstrap only: NEVER mint when a key is configured (that would spray reads/
+  // seals into a fresh orphan account). A configured key that is rejected must fail
+  // loud, not silently re-mint.
+  if (process.env.WITNESS_API_KEY) return null;
   if (Date.now() - lastMint < 5000 && cachedKey) return cachedKey;
   lastMint = Date.now();
   try {

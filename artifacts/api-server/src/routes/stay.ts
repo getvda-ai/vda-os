@@ -11,7 +11,7 @@ import { executeStayAction } from "../lib/stayExecutor.js";
 import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { sealStayEvent } from "../lib/staySeal.js";
 import { drainSealOutbox, outboxHealth } from "../lib/sealOutbox.js";
-import { anchorStatus, fetchRecords, fetchReport } from "../lib/witnessClient.js";
+import { anchorStatus, fetchRecords, fetchReport, witnessKeyHealth } from "../lib/witnessClient.js";
 import { generateEuAiActReport, C2MD_CONTRACT } from "../lib/c2mdClient.js";
 import { stayChainKey } from "../lib/witnessChain.js";
 import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
@@ -506,7 +506,8 @@ router.get("/stay/seal/drain", drainHandler);
 router.get("/stay/seal/health", async (req, res) => {
   try {
     const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0) || undefined;
-    res.json({ ok: true, outbox: await outboxHealth(companyId) });
+    const key = witnessKeyHealth();
+    res.json({ ok: true, outbox: await outboxHealth(companyId), key, red: key.red });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "health failed" });
   }
@@ -542,7 +543,11 @@ router.get("/stay/anchor-status", async (req, res) => {
     // yet (or vice versa). Surface it — the UI must not be able to lie about the key.
     const mismatch = headAnchored !== anyAnchoredRecord;
 
-    res.json({ ok: true, tier, observed: { headAnchored, externalValid, anchoredThroughSeq }, states, mismatch });
+    // The pinned/bound Witness account + key health — so the badge shows WHICH
+    // account seals land in, and goes red on a rejected key / account mismatch.
+    const key = witnessKeyHealth();
+
+    res.json({ ok: true, tier, observed: { headAnchored, externalValid, anchoredThroughSeq }, states, mismatch, account: key.boundAccount, expectedAccount: key.expected, keyHealth: key.health, keyRed: key.red });
   } catch (err) {
     logger.error({ err }, "stay/anchor-status error");
     res.status(500).json({ error: err instanceof Error ? err.message : "anchor-status failed" });

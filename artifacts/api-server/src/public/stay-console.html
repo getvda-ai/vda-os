@@ -409,14 +409,24 @@ async function loadTier(){
   try{
     const j=await api(`/api/stay/anchor-status?company_id=${companyId()}`);
     const anchored=j.tier==="anchored";
-    el.className="tier "+(anchored?"anchored":"test");
+    // Key-health RED (rejected key / account mismatch) overrides the tier — the
+    // agent is NOT sealing into the pinned account, so the trail is compromised.
+    if(j.keyRed){
+      el.className="tier";el.style.cssText="color:#fff;border-color:#a11;background:#c0202a";
+      el.innerHTML=`⛔ key ${esc(j.keyHealth||"rejected")}`;
+      el.title=`Witness key health: ${j.keyHealth}. Seals are failing loud (dead-letter) — NOT scattering into a new account. Fix WITNESS_API_KEY / WITNESS_EXPECTED_ACCOUNT.`;
+      return;
+    }
+    el.style.cssText="";el.className="tier "+(anchored?"anchored":"test");
     const seq=j.observed?.anchoredThroughSeq;
+    const acct=j.account?` · acct ${esc(String(j.account).slice(0,14))}`:"";
     el.innerHTML=(anchored?"Compliance-grade — anchored":"Test tier — non-anchored")
-      +(anchored&&seq!=null?` · seq ≤ ${esc(seq)}`:"")
+      +(anchored&&seq!=null?` · seq ≤ ${esc(seq)}`:"")+acct
       +(j.mismatch?'<span class="mm" title="loaded key and observed anchor state disagree — showing observed">⚠ mismatch</span>':"");
-    el.title=anchored
+    el.title=(anchored
       ?"Records read ANCHORED_VALID and the Witness head is anchored — audit-ready."
-      :"Test key: records are validly signed and verifiable but not yet anchored (SIGNED_PENDING). Not compliance-grade.";
+      :"Test key: records are validly signed and verifiable but not yet anchored (SIGNED_PENDING). Not compliance-grade.")
+      +(j.account?`\nSeals bound to account ${j.account}${j.expectedAccount?` (expected ${j.expectedAccount})`:""}.`:"");
   }catch{el.className="tier test";el.textContent="tier — unknown";}
 }
 
