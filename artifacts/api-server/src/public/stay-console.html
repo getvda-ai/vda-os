@@ -120,8 +120,9 @@
   .vp .meth{margin-top:5px;color:var(--dim);font-size:10px}
   /* tier badge in header */
   .tier{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid;white-space:nowrap}
-  .tier.test{color:#c9b56a;border-color:#5a4d22;background:#231d0f}
   .tier.anchored{color:#4ade80;border-color:#1f5a34;background:#0e2016}
+  .tier.sealed{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
+  .tier.notanchored{color:#b7c0d0;border-color:#33404f;background:#141a22}
   .tier .mm{color:#ff8a8a;margin-left:5px}
   /* report modal rich rendering */
   #mRich{margin-bottom:10px}
@@ -148,7 +149,7 @@
 <header>
   <div class="brand"><span class="dot"></span>citizenM · <span>Stay Agent</span> <small id="propTag">· BER</small></div>
   <span class="tag" id="agentTag">agent live · Gemini</span>
-  <span class="tier test" id="tierBadge" title="Evidence grade — derived from the records' observed anchor state, not a config flag">tier…</span>
+  <span class="tier sealed" id="tierBadge" title="Sealed / Anchored state — derived from the chain's observed anchor status, not a config flag">Sealed…</span>
   <div class="spacer"></div>
   <div class="roleseg" id="roleSeg">
     <button data-role="ambassador" class="on">Ambassador<small>front-line</small></button>
@@ -408,8 +409,7 @@ async function loadTier(){
   const el=$("#tierBadge");
   try{
     const j=await api(`/api/stay/anchor-status?company_id=${companyId()}`);
-    const anchored=j.tier==="anchored";
-    // Key-health RED (rejected key / account mismatch) overrides the tier — the
+    // Key-health RED (rejected key / account mismatch) overrides everything — the
     // agent is NOT sealing into the pinned account, so the trail is compromised.
     if(j.keyRed){
       el.className="tier";el.style.cssText="color:#fff;border-color:#a11;background:#c0202a";
@@ -417,29 +417,33 @@ async function loadTier(){
       el.title=`Witness key health: ${j.keyHealth}. Seals are failing loud (dead-letter) — NOT scattering into a new account. Fix WITNESS_API_KEY / WITNESS_EXPECTED_ACCOUNT.`;
       return;
     }
-    el.style.cssText="";el.className="tier "+(anchored?"anchored":"test");
-    const seq=j.observed?.anchoredThroughSeq;
-    // Account binding — three EXPLICIT states from the server, never null-vs-expected:
-    //   resolved   → show the bound account (normal, no chip)
-    //   unresolved → binding not yet resolved (neutral grey note, NOT a warning)
-    //   mismatch   → real failure (also drives keyRed → handled by the ⛔ branch above)
+    // Badge driven by Witness's sealedState (Sealed / Anchored vocabulary) — never a
+    // config flag, never the deprecated tier/compliance fields.
+    const ob=j.observed||{};
+    const ss=j.sealedState;
+    let cls,label,tip;
+    if(ss==="anchored"){
+      cls="anchored";label="Anchored ✓ — externally committed, audit-ready";
+      tip=`Head is externally anchored (Rekor + TSA quorum) and verifies ANCHORED_VALID — provable even against VDA. Anchored through seq ${esc(ob.anchoredThroughSeq??"")}.`;
+    }else if(ss==="not_anchored"){
+      cls="notanchored";label=`Sealed — not anchored${j.sealedStateReason?" ("+esc(j.sealedStateReason)+")":""}`;
+      tip=`Records are Ed25519-signed, hash-chained and offline-verifiable (SIGNED_PENDING), but external anchoring is not enabled for this account. ${j.sealedStateReason?"Reason: "+esc(j.sealedStateReason)+".":""} Anchoring is concierge-gated, never self-serve.`;
+    }else{ // anchoring_pending (transient, correct — the anchor job runs ~hourly)
+      cls="sealed";label="Sealed ✓ — signed, anchoring pending";
+      tip=`${esc(ob.pendingAnchor??"")} record(s) sealed and signed (SIGNED_PENDING), awaiting the ~hourly anchor tick${j.sealedStateReason?" ("+esc(j.sealedStateReason)+")":""}. This is the correct transient state, not an error. Will read Anchored once committed.`;
+    }
+    el.style.cssText="";el.className="tier "+cls;
+    // Account binding — three EXPLICIT states, never null-vs-expected.
     const bind=j.accountBinding;
     let acctChip="";
     if(bind==="resolved"&&j.account)acctChip=` · acct ${esc(String(j.account).slice(0,14))}`;
     else if(bind==="unresolved")acctChip=' <span class="mm" style="color:#8b93a3;border:0" title="key→account binding resolves on first seal/health probe — nothing is wrong">· binding pending</span>';
     else if(bind==="mismatch")acctChip='<span class="mm">⚠ account mismatch</span>';
-    // Anchor lag is INFORMATIONAL, not an error (errors are keyRed → ⛔): the Witness
-    // head is anchored but later v2 records are still SIGNED_PENDING until the hourly
-    // anchor job catches up. Neutral grey, no ⚠.
-    const ob=j.observed||{};
-    const anchorChip=j.anchorLag?` <span class="mm" style="color:#8b93a3;border:0" title="${esc(ob.pendingAnchor??"")} record(s) sealed and signed, awaiting the hourly anchor job — they read SIGNED_PENDING, which is the correct state, not an error. Anchored through seq ${esc(ob.anchoredThroughSeq??"")}.">· ${esc(ob.pendingAnchor??"")} pending anchor</span>`:"";
-    el.innerHTML=(anchored?"Compliance-grade — anchored":"Test tier — non-anchored")
-      +(anchored&&ob.anchoredThroughSeq!=null?` · seq ≤ ${esc(ob.anchoredThroughSeq)}`:"")+acctChip+anchorChip;
-    el.title=(anchored
-      ?"Records read ANCHORED_VALID and the Witness head is anchored — audit-ready."
-      :"Test key: records are validly signed and verifiable but not yet anchored (SIGNED_PENDING). Not compliance-grade.")
-      +(j.account?`\nSeals bound to account ${j.account}${j.expectedAccount?` (expected ${j.expectedAccount})`:""}.`:"\nAccount binding resolves on the first seal or health probe.");
-  }catch{el.className="tier test";el.textContent="tier — unknown";}
+    const pendChip=(ss!=="anchored"&&ob.pendingAnchor)?` <span class="mm" style="color:#8b93a3;border:0" title="Sealed records awaiting the anchor tick — SIGNED_PENDING is the correct state">· ${esc(ob.pendingAnchor)} pending anchor</span>`:"";
+    el.innerHTML=label
+      +(ss==="anchored"&&ob.anchoredThroughSeq!=null?` · seq ≤ ${esc(ob.anchoredThroughSeq)}`:"")+acctChip+pendChip;
+    el.title=tip+(j.account?`\nSeals bound to account ${j.account}${j.expectedAccount?` (expected ${j.expectedAccount})`:""}.`:"\nAccount binding resolves on the first seal or health probe.");
+  }catch{el.className="tier sealed";el.textContent="Sealed state — unavailable";}
 }
 
 // ── Status tiles → drill-down (numbers are navigable) ────────────────────────
@@ -460,8 +464,8 @@ $("#recBtn").addEventListener("click",async()=>{
   try{
     const j=await api(`/api/stay/records?company_id=${companyId()}`);
     lastReport=j;
-    $("#mRich").innerHTML=`<div class="gbanner signed"><b>${esc(j.count)}</b> record(s) · chain <b>${esc(j.chainKey)}</b> · ${esc(j.isolation)}${j.account?` · account <code>${esc(String(j.account).slice(0,10))}…</code>`:""}</div>`
-      +(j.records||[]).map(r=>`<div class="rrow"><span class="rid">${esc(r.recordId||"—")}</span><span>seq ${esc(r.seq)} · <b>${esc(r.verdict||"—")}</b> · ${esc(r.ruleId||"")} · ${r.anchored?'<span class="cov covered">anchored</span>':'<span class="cov partial">signed · pending anchor</span>'} · ${esc(String(r.issuedAt||"").slice(0,19).replace("T"," "))}</span></div>`).join("")
+    $("#mRich").innerHTML=`<div class="gbanner signed"><b>${esc(j.count)}</b> record(s) · chain <b>${esc(j.chainKey)}</b> · ${esc(j.isolation)}${j.anchoredThroughSeq!=null?` · anchored through seq ${esc(j.anchoredThroughSeq)}`:""}${j.account?` · account <code>${esc(String(j.account).slice(0,10))}…</code>`:""}</div>`
+      +(j.records||[]).map(r=>`<div class="rrow"><span class="rid">${esc(r.recordId||"—")}</span><span>seq ${esc(r.seq)} · <b>${esc(r.verdict||"—")}</b> · ${esc(r.ruleId||"")} · ${r.sealedState==="anchored"?'<span class="cov covered">Anchored ✓</span>':'<span class="cov partial">Sealed · anchoring pending</span>'} · ${esc(String(r.issuedAt||"").slice(0,19).replace("T"," "))}</span></div>`).join("")
       ||'<div class="muted">No records on this chain yet.</div>';
     $("#mBody").textContent=JSON.stringify(j,null,2);
   }catch(e){$("#mBody").textContent="Trail unavailable: "+e.message;}

@@ -535,15 +535,19 @@ router.get("/stay/anchor-status", async (req, res) => {
     const chainKey = await chainKeyForCompany(companyId, req.query.chain_key as string | undefined);
 
     // Live anchor status for THIS chain — Witness's own external verification (Rekor +
-    // DigiCert/Sectigo TSA quorum) is the authoritative "anchored" signal. We do NOT
-    // offline-verify /records summaries here (they omit the full proof); the Verify
-    // button does that on the full sealed record.
+    // DigiCert/Sectigo TSA quorum). We consume Witness's NEW state vocabulary
+    // (sealedState / tierLabel / anchored); `tier`/`compliance` are deprecated aliases
+    // we no longer read. We do NOT offline-verify /records summaries here (they omit
+    // the full proof); the Verify button does that on the full sealed record.
     let anchor: Record<string, unknown> = {};
     try { anchor = await anchorStatus(chainKey); } catch { anchor = {}; }
     const headAnchored = Boolean(anchor.headAnchored);
     const externalValid = Boolean(anchor.externalValid);
     const anchoredThroughSeq = (anchor.anchoredThroughSeq as number | null) ?? null;
     const pendingRecords = (anchor.pendingRecords as number | null) ?? null;
+    const witnessSealedState = (anchor.sealedState as string | undefined) ?? undefined;
+    const sealedStateReason = (anchor.sealedStateReason as string | undefined) ?? undefined;
+    const tierLabel = (anchor.tierLabel as string | undefined) ?? undefined;
 
     // How much of THIS chain is anchored vs still SIGNED_PENDING (honest anchor lag).
     let recordCount = 0, maxSeq = -1, anchoredRecords = 0;
@@ -554,14 +558,14 @@ router.get("/stay/anchor-status", async (req, res) => {
       for (const r of recs) { const s = Number(r.seq); if (Number.isFinite(s)) { if (s > maxSeq) maxSeq = s; if (anchoredThroughSeq != null && s <= anchoredThroughSeq) anchoredRecords++; } }
     } catch { /* read advisory */ }
 
-    // Compliance-grade ONLY when the head is externally anchored AND at least one
-    // record on this chain is genuinely anchored. Records beyond anchoredThroughSeq
-    // are honestly SIGNED_PENDING (the hourly anchor job hasn't caught up) — not an error.
-    const tier: "anchored" | "test" = headAnchored && externalValid && anchoredRecords > 0 ? "anchored" : "test";
-    // Pending-anchor is honest info shown regardless of head state: records exist that
-    // the hourly anchor job hasn't reached yet → they are legitimately SIGNED_PENDING.
+    // Badge is driven by Witness's sealedState. Defensive honesty: only surface
+    // "anchored" when Witness says so AND the head genuinely reads anchored+externally
+    // valid — never claim anchored/audit-ready off a tier label alone.
+    let sealedState: "anchored" | "anchoring_pending" | "not_anchored";
+    if (witnessSealedState === "anchored" && headAnchored && externalValid) sealedState = "anchored";
+    else if (witnessSealedState === "not_anchored") sealedState = "not_anchored";
+    else sealedState = witnessSealedState === "anchored" ? "anchoring_pending" : (witnessSealedState as typeof sealedState) ?? "anchoring_pending";
     const pendingAnchor = pendingRecords ?? Math.max(0, recordCount - anchoredRecords);
-    const anchorLag = pendingAnchor > 0;
 
     // The pinned/bound Witness account + key health — resolved eagerly so a cold
     // instance reports the real bound account, not null.
@@ -570,7 +574,7 @@ router.get("/stay/anchor-status", async (req, res) => {
     // Account binding is a THREE-state, never a null-vs-expected string compare.
     const accountBinding = bindingState(key);
 
-    res.json({ ok: true, tier, chainKey, observed: { headAnchored, externalValid, anchoredThroughSeq, pendingRecords, recordCount, anchoredRecords, maxSeq, pendingAnchor }, anchorLag, accountBinding, account: key.boundAccount, expectedAccount: key.expected, keyHealth: key.health, keyRed: key.red });
+    res.json({ ok: true, chainKey, sealed: true, sealedState, sealedStateReason, tierLabel, observed: { headAnchored, externalValid, anchoredThroughSeq, pendingRecords, recordCount, anchoredRecords, maxSeq, pendingAnchor }, accountBinding, account: key.boundAccount, expectedAccount: key.expected, keyHealth: key.health, keyRed: key.red });
   } catch (err) {
     logger.error({ err }, "stay/anchor-status error");
     res.status(500).json({ error: err instanceof Error ? err.message : "anchor-status failed" });
@@ -611,19 +615,27 @@ router.get("/stay/records", async (req, res) => {
     const chainKey = await chainKeyForCompany(companyId, req.query.chain_key as string | undefined);
     const raw = await fetchRecords(chainKey);
     const records = (raw.records ?? raw.data ?? raw.entries ?? []) as Array<Record<string, unknown>>;
-    // Render each record with Phase-2 honesty — three-state comes from offline verify
-    // on demand; here we surface the durable lifecycle facts verbatim.
-    const items = records.map((r) => ({
-      recordId: r.recordId ?? r.id,
-      seq: r.seq,
-      issuedAt: r.issuedAt,
-      verdict: (r.decision as { verdict?: string })?.verdict ?? null,
-      agent: (r.decision as { agent?: string })?.agent ?? null,
-      ruleId: (r.governingRule as { ruleId?: string })?.ruleId ?? null,
-      anchored: Boolean((r.proof as { anchor?: unknown })?.anchor),
-      record: r, // full record for offline Verify
-    }));
-    res.json({ ok: true, chainKey, account: raw.account ?? null, count: items.length, records: items, isolation: "account derived from key; no accountId sent" });
+    // Per-record Sealed/Anchored state comes from the chain's anchoredThroughSeq
+    // (Witness's external verification): seq ≤ anchoredThroughSeq → anchored, else the
+    // record is sealed and awaiting the anchor tick (SIGNED_PENDING — correct, transient).
+    let anchoredThroughSeq: number | null = null;
+    try { const a = await anchorStatus(chainKey); anchoredThroughSeq = (a.anchoredThroughSeq as number | null) ?? null; } catch { /* advisory */ }
+    const items = records.map((r) => {
+      const seq = Number(r.seq);
+      const anchored = anchoredThroughSeq != null && Number.isFinite(seq) && seq <= anchoredThroughSeq;
+      return {
+        recordId: r.recordId ?? r.id,
+        seq: r.seq,
+        issuedAt: r.issuedAt,
+        verdict: (r.decision as { verdict?: string })?.verdict ?? null,
+        agent: (r.decision as { agent?: string })?.agent ?? null,
+        ruleId: (r.governingRule as { ruleId?: string })?.ruleId ?? null,
+        anchored,
+        sealedState: anchored ? "anchored" : "anchoring_pending", // sealed always; anchoring is what varies
+        record: r, // full record for offline Verify
+      };
+    });
+    res.json({ ok: true, chainKey, account: raw.account ?? null, count: items.length, anchoredThroughSeq, records: items, isolation: "account derived from key; no accountId sent" });
   } catch (err) {
     logger.error({ err }, "stay/records error");
     res.status(500).json({ error: err instanceof Error ? err.message : "records failed" });
@@ -633,7 +645,9 @@ router.get("/stay/records", async (req, res) => {
 // ── POST /api/stay/report — EU AI Act Article-12 evidence report (from Witness) ─
 // Generated by VDA Witness from the sealed trail (empty body — account from key).
 // Rendered VERBATIM by the UI: reportType, lifecycle, entries, integrity, scope,
-// disclaimer. On the test key lifecycle reads DEMO_DATA — shown as-is, never upgraded.
+// disclaimer. NB: Witness has not yet renamed `lifecycle`, so it may still emit
+// "DEMO_DATA" even for a genuinely Anchored account — we render it verbatim anyway
+// (never remap/suppress) and report the observed string for the coordinated rename.
 router.post("/stay/report", async (req, res) => {
   try {
     // Scope to the CUSTOMER-FACING chain (v2) by default so the retired/dev chains
