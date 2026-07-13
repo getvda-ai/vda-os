@@ -15,4 +15,5 @@ export * from "./companyCredits";
 export * from "./sopDocuments";
 export * from "./sopClauses";
 export * from "./sealOutbox";
+export * from "./witnessChainRecords";
 // Stay Agent Witness seal references live on witness_entries (see witnessEntries.ts).

@@ -20,9 +20,9 @@
  * is still computed locally — but it IS a network call, so we report which source was
  * used instead of claiming zero-call unconditionally.
  */
-import { isNotNull } from "drizzle-orm";
-import { db, witnessEntries } from "@workspace/db";
-import { fetchRecords } from "./witnessClient.js";
+import { eq, isNotNull } from "drizzle-orm";
+import { db, witnessEntries, witnessChainRecords } from "@workspace/db";
+import { fetchRecords, verifyOffline } from "./witnessClient.js";
 
 export type ChainSource = "local-db" | "witness-records" | "none";
 
@@ -51,23 +51,73 @@ function normalise(records: Record<string, unknown>[]): { chain: Record<string, 
   return { chain, complete };
 }
 
+/** Everything we hold locally for this chain: records we sealed + records we mirrored. */
+async function localRecords(chainKey: string): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+
+  // Records we sealed ourselves — the seal response, held in full.
+  const rows = await db.select().from(witnessEntries).where(isNotNull(witnessEntries.witnessSealRef));
+  for (const row of rows) {
+    const ref = row.witnessSealRef as Record<string, unknown> | null;
+    if (!ref || ref.chainKey !== chainKey) continue; // one chain per property — never splice two chains
+    const rec = ref.record as Record<string, unknown> | undefined;
+    if (rec?.proof) out.push(rec); // a record with no proof is a display projection, not evidence
+  }
+
+  // Records we did not seal (genesis, or anything sealed by another instance), mirrored
+  // locally so the chain can be assembled from seq 0 without calling Witness.
+  const mirrored = await db.select().from(witnessChainRecords).where(eq(witnessChainRecords.chainKey, chainKey));
+  for (const m of mirrored) if (m.record?.proof) out.push(m.record);
+
+  return out; // normalise() de-duplicates by seq — our own seal wins, since it is pushed first
+}
+
+/**
+ * Mirror a chain's records locally so future verifies are zero-call.
+ *
+ * The fetched chain is VERIFIED BEFORE it is stored — signature + continuity from genesis
+ * against the pinned did:web key. We will not seed the local store with records we have not
+ * checked: a cache that is populated blindly is a cache that can quietly launder a forgery
+ * into "evidence". (Verification at read time would still catch it — this is belt and braces,
+ * and it means a bad fetch fails now, loudly, rather than at audit time.)
+ */
+export async function backfillChain(chainKey: string): Promise<{ chainKey: string; ok: boolean; added: number[]; alreadyHeld: number[]; fetched: number; detail: string }> {
+  const raw = await fetchRecords(chainKey, "full");
+  const fetched = normalise(((raw.records ?? []) as Record<string, unknown>[]).filter((r) => r.proof));
+  if (!fetched.complete) {
+    return { chainKey, ok: false, added: [], alreadyHeld: [], fetched: fetched.chain.length, detail: "fetched chain is not genesis-rooted or has a gap — nothing stored" };
+  }
+
+  // Verify the head against the full fetched chain: proves every link back to genesis.
+  const head = fetched.chain[fetched.chain.length - 1];
+  const v = (await verifyOffline(head, fetched.chain)) as { state?: string; reason?: string; checks?: { signature?: boolean; chain?: boolean } };
+  if (v.checks?.signature !== true || v.checks?.chain !== true) {
+    return { chainKey, ok: false, added: [], alreadyHeld: [], fetched: fetched.chain.length, detail: `refusing to mirror an unverified chain: ${v.state}${v.reason ? `/${v.reason}` : ""} (signature=${v.checks?.signature}, chain=${v.checks?.chain})` };
+  }
+
+  const held = new Set((await localRecords(chainKey)).map((r) => Number(r.seq)));
+  const added: number[] = [], alreadyHeld: number[] = [];
+  for (const rec of fetched.chain) {
+    const seq = Number(rec.seq);
+    if (held.has(seq)) { alreadyHeld.push(seq); continue; }
+    await db.insert(witnessChainRecords)
+      .values({ chainKey, seq, recordId: String(rec.recordId ?? ""), record: rec })
+      .onConflictDoNothing({ target: [witnessChainRecords.chainKey, witnessChainRecords.seq] });
+    added.push(seq);
+  }
+  return { chainKey, ok: true, added, alreadyHeld, fetched: fetched.chain.length, detail: `chain verified (signature + continuity from genesis) before storing; ${added.length} record(s) mirrored` };
+}
+
 /**
  * Assemble the ordered chain for `chainKey`, preferring our own store.
  * Never throws: an unassemblable chain comes back complete=false so callers can say
  * "continuity not established" honestly instead of emitting a false BROKEN.
  */
 export async function assembleChain(chainKey: string): Promise<AssembledChain> {
-  // 1. Local — the records we sealed, held in full. Zero calls to witness.getvda.ai.
+  // 1. Local — the records we sealed, plus the mirrored records we did not (a chain's
+  //    seq-0 CHAIN_OPENED record is the Witness operator's, never ours). Zero calls out.
   try {
-    const rows = await db.select().from(witnessEntries).where(isNotNull(witnessEntries.witnessSealRef));
-    const mine: Record<string, unknown>[] = [];
-    for (const row of rows) {
-      const ref = row.witnessSealRef as Record<string, unknown> | null;
-      if (!ref || ref.chainKey !== chainKey) continue; // one chain per property — never splice two chains
-      const rec = ref.record as Record<string, unknown> | undefined;
-      if (rec?.proof) mine.push(rec); // a record with no proof is a display projection, not evidence
-    }
-    const local = normalise(mine);
+    const local = normalise(await localRecords(chainKey));
     if (local.complete) {
       return { chain: local.chain, source: "local-db", complete: true, detail: `${local.chain.length} record(s) from the local store — 0 calls to witness.getvda.ai` };
     }

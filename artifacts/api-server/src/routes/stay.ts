@@ -647,6 +647,39 @@ router.post("/stay/verify", async (req, res) => {
   }
 });
 
+// ── POST /api/stay/chain/backfill — mirror a chain locally so verify is zero-call. ──
+// We hold every record we seal, but never the chain's seq-0 CHAIN_OPENED record (the
+// Witness operator opens the chain, not us), so continuity could not be established from
+// local evidence alone and /stay/verify fell back to fetching the chain from Witness.
+// Mirroring the missing records makes the offline verify literally zero-call again.
+// The chain is verified from genesis BEFORE anything is stored — see backfillChain().
+// Idempotent: records already held are reported, not rewritten.
+router.post("/stay/chain/backfill", async (req, res) => {
+  try {
+    const { backfillChain, assembleChain } = await import("../lib/witnessChainProof.js");
+    // Explicit chain_key(s), else every chain we have actually sealed to (from the seal refs).
+    let chainKeys: string[] = [];
+    if (Array.isArray(req.body?.chain_keys)) chainKeys = req.body.chain_keys as string[];
+    else if (req.body?.chain_key) chainKeys = [String(req.body.chain_key)];
+    else if (req.body?.company_id != null) chainKeys = [await chainKeyForCompany(Number(req.body.company_id))];
+    else {
+      const rows = await db.select().from(witnessEntries);
+      chainKeys = [...new Set(rows.map((r) => (r.witnessSealRef as Record<string, unknown> | null)?.chainKey).filter((k): k is string => typeof k === "string"))];
+    }
+
+    const results = [];
+    for (const chainKey of chainKeys) {
+      const filled = await backfillChain(chainKey);
+      const after = await assembleChain(chainKey); // did it actually achieve zero-call?
+      results.push({ ...filled, nowVerifiesFrom: after.source, zeroCall: after.complete && after.source === "local-db" });
+    }
+    res.json({ ok: true, chains: results });
+  } catch (err) {
+    logger.error({ err }, "stay/chain/backfill error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "backfill failed" });
+  }
+});
+
 // ── POST /api/stay/reverify — repair persisted verdicts. ──────────────────────
 // Records sealed before the chain-aware verify carry witness_state = "BROKEN", written
 // by a seal-time check that verified each record against a chain containing only itself
