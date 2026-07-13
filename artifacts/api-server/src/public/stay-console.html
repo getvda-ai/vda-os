@@ -229,6 +229,7 @@ const $=s=>document.querySelector(s);
 let role="ambassador";
 let authority={};            // exception_class -> {ceiling, ceiling_type, ...} for current role (from governance)
 const sealedCache={};        // log id -> sealed_record (for verify)
+const chainKeyCache={};      // log id -> chain_key (records don't carry their own)
 let madeFilter="all";        // all | today | sealed — driven by status-tile drill-down
 const friendly=s=>String(s??"").replace(/SANDBOX_NO_WRITE/g,"staged · sandbox");
 const companyId=()=>Number($("#company").value||1);
@@ -326,10 +327,19 @@ function sealBadge(m){
   if(!m.sealed||st==="pending"||ws==="pending"||(!ws&&!m.external_record_id))return{t:"⏳ pending seal",c:"pending",act:true};
   if(ws==="ANCHORED_VALID")return{t:"anchored ✓ audit-ready",c:"anchored",act:true};
   if(ws==="BROKEN")return{t:"✗ verification failed",c:"broken",act:true};
-  return{t:"sealed ✓ signed · pending anchor",c:"signed",act:true}; // SIGNED_PENDING
+  // SIGNED_PENDING is what the OFFLINE verifier can prove: signature + hash-chain. It says
+  // nothing about the anchor either way — the verifier never checked one (Witness publishes
+  // no Rekor/TSA bundle over REST). Claiming "pending anchor" here understated records that
+  // are in fact anchored; claiming "anchored" would overclaim from a check we didn't run.
+  // State only what was proven; the anchor's authoritative state lives in the Witness tab.
+  return{t:"sealed ✓ signed + chained",c:"signed",act:true}; // SIGNED_PENDING
 }
 function rowHtml(m){
   if(m.sealed&&m.sealed_record)sealedCache[m.id]=m.sealed_record.record||m.sealed_record;
+  // A Witness record does NOT carry its own chainKey, so the row's chain_key is the only
+  // way to verify against the RIGHT chain. Rows on the retired chain (BER:stay-agent) must
+  // not be checked against the current one — that mismatch reads as a broken chain.
+  if(m.chain_key)chainKeyCache[m.id]=m.chain_key;
   const gov=m.kind==="governance";
   const col=m.decision==="PASS"?"var(--green)":m.decision==="ESCALATE"?"var(--amber)":m.decision==="FAIL"?"var(--red)":gov?"var(--purple)":"var(--dim)";
   const who=m.decided_by==="Stay Agent"?"Stay Agent · auto":`${esc(m.decided_by)}${m.role_band?" · "+roleName(m.role_band):""}`;
@@ -350,22 +360,40 @@ function renderVerdict(id,v){
   const st=String(v.state||"UNKNOWN");
   const c=v.checks||{},an=c.anchor||{};
   const chk=(lab,val)=>`<span class="chk ${val?'y':'n'}">${lab}: ${val?'✓':'✗'}</span>`;
-  // A single-record offline check cannot confirm hash-chain continuity for a non-genesis
-  // record (the predecessors aren't supplied). Distinguish that HONESTLY — signature +
-  // key valid, chain simply not checkable here — from a real tamper (signature invalid),
-  // rather than a blanket loud "BROKEN". The Evidence panel / anchor status carry the
-  // chain's authoritative anchored state (verified end-to-end by Witness).
-  const chainOnly = st==="BROKEN" && c.signature===true && c.keyValidAtSigningTime===true && c.chain===false;
-  const cls = st==="ANCHORED_VALID"?"anchored" : chainOnly?"signed" : st==="BROKEN"?"broken" : "signed";
-  const headline = chainOnly ? "SEALED · chain not verifiable from a single record" : esc(st);
+  // BROKEN/"chain" has TWO opposite meanings and they look identical in `checks`:
+  //   chain.checked=false → the predecessors were never supplied. A missing input. Neutral.
+  //   chain.checked=true  → a genesis-rooted chain WAS supplied and the linkage failed.
+  //                         A record was altered, deleted or reordered. This is a TAMPER.
+  // Only the server knows which; it tells us via chain.checked. Inferring from `checks`
+  // alone would either cry wolf over a missing input or, far worse, render a real forgery
+  // as a benign shrug. Never soften a chain failure that was actually tested.
+  const chainChecked = !!(v.__chain && v.__chain.checked);
+  const chainOnly = st==="BROKEN" && v.reason==="chain" && c.signature===true && c.keyValidAtSigningTime===true && !chainChecked;
+  const tampered = st==="BROKEN" && !chainOnly;   // signature, key, anchor, or a TESTED chain failure
+  const proven = c.signature===true && c.chain===true;   // verified locally, end-to-end from genesis
+  const cls = st==="ANCHORED_VALID"?"anchored" : chainOnly?"signed" : tampered?"broken" : "signed";
+  const headline = chainOnly ? "SEALED · chain not assembled (continuity unproven)" : esc(st);
+  // Never claim "anchored" off the offline verifier when it did not check an anchor
+  // (anchor.attempted=false). Witness's REST API does not publish the Rekor entry / TSA
+  // tokens the SDK needs, so the anchor is attested by Witness's own external verification
+  // — a separate source, named as such — while signature + chain are proven right here.
   const badgeNote = st==="ANCHORED_VALID"?'<span class="chk y">externally anchored — audit-ready</span>'
+    : (st==="SIGNED_PENDING"&&proven)?'<span class="chk y">signature + hash-chain verified locally from genesis</span><span class="chk">anchor not re-checked here — attested by Witness (see anchor status)</span>'
     : st==="SIGNED_PENDING"?'<span class="chk">validly signed · anchoring pending</span>'
-    : chainOnly?'<span class="chk">signature ✓ · supply the full chain (or see anchor status) to verify continuity</span>'
-    : st==="BROKEN"?'<span class="chk n">DO NOT TRUST — signature/verification failed</span>':'';
+    : chainOnly?'<span class="chk">signature ✓ · predecessors unavailable — continuity not established</span>'
+    : (tampered&&v.reason==="chain")?'<span class="chk n">DO NOT TRUST — hash-chain broken: a record was altered, deleted or reordered</span>'
+    : tampered?'<span class="chk n">DO NOT TRUST — signature/verification failed</span>':'';
+  // Zero-call is claimed only when it is TRUE: the chain came from our own store. A chain
+  // fetched from Witness is an evidence read (the verdict is still computed locally).
+  const src=(v.__chain&&v.__chain.source)||"";
+  const prov = src==="local-db" ? "offline — 0 calls to witness.getvda.ai (chain from local store)"
+    : src==="witness-records" ? "verdict computed locally; chain fetched from Witness as evidence"
+    : src==="caller-supplied" ? "offline — chain supplied by the caller"
+    : "offline — bundled proof";
   wrap.innerHTML=`<div class="vp ${cls==='broken'?'broken':''}">
     <span class="st ${cls}">${headline}</span> ${badgeNote}
     <div class="sig">${chk("signature",c.signature)}${chk("chain",c.chain)}${chk("keyValidAtSigningTime",c.keyValidAtSigningTime)}${chk("anchor.attempted",an.attempted)}${an.quorumMet!=null?chk("anchor.quorumMet",an.quorumMet):""}</div>
-    <div class="meth">verdict: ${esc(st)} · method: ${esc(v.verificationMethod||"—")} · ${esc(v.verifierVersion||"")} · offline — 0 calls to witness.getvda.ai${v.reason?(" · "+esc(v.reason)):""}</div>
+    <div class="meth">verdict: ${esc(st)} · method: ${esc(v.verificationMethod||"—")} · ${esc(v.verifierVersion||"")} · ${esc(prov)}${v.__chain&&v.__chain.length?` · chain: ${esc(v.__chain.length)} record(s)`:""}${v.reason?(" · "+esc(v.reason)):""}</div>
   </div>`;
 }
 $("#made").addEventListener("click",async e=>{
@@ -381,8 +409,12 @@ $("#made").addEventListener("click",async e=>{
   const rec=sealedCache[id];if(!rec){toast("no sealed record");return;}
   $(`#vp-${id}`).innerHTML='<div class="vp">verifying offline (bundled-proof)…</div>';
   try{
-    const j=await api(`/api/stay/verify`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record:rec})});
-    renderVerdict(id,j.verdict||{state:"BROKEN",reason:"no verdict returned"});
+    // The server assembles the ordered chain from genesis (own store first, zero-call) so
+    // continuity is genuinely checked — a lone record can only ever prove its signature.
+    const j=await api(`/api/stay/verify`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record:rec,company_id:companyId(),chain_key:chainKeyCache[id]})});
+    const vd=j.verdict||{state:"BROKEN",reason:"no verdict returned"};
+    vd.__chain=j.chain||null;   // provenance of the chain used — drives the zero-call claim
+    renderVerdict(id,vd);
   }catch(err){renderVerdict(id,{state:"BROKEN",reason:err.message,checks:{}});}
 });
 

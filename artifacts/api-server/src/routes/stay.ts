@@ -582,18 +582,115 @@ router.get("/stay/anchor-status", async (req, res) => {
 });
 
 // ── POST /api/stay/verify — REAL offline verification (SDK), three-state. ──────
-// Zero calls back to Witness: Ed25519 + hash-chain + anchor checked from the
-// bundled proof against the resolved did:web key. Returns the verdict verbatim.
+// Ed25519 + hash-chain checked from the bundled proofs against the pinned did:web key.
+// The verdict is returned VERBATIM.
+//
+// Hash-chain continuity is a property of the CHAIN, so the verifier needs the ordered
+// records from genesis — not the one record under test. We assemble that from our own
+// store (witness_chain_proof), which keeps the check zero-call AND lets us prove the
+// trail is intact without asking the issuer to vouch for itself. A caller may still pass
+// an explicit `chain` to verify evidence we did not seal.
+//
+// `anchor` is deliberately NOT synthesised: the SDK treats an anchor it cannot verify as
+// BROKEN ("quorum not met"), and Witness's REST API does not publish the Rekor entry or
+// TSA tokens needed to verify one offline. Passing the bundle-less anchor summary would
+// manufacture a second false tamper alarm. Absent an anchor the SDK returns SIGNED_PENDING
+// — signature + chain proven locally, the anchor attested separately by Witness's own
+// external verification (see /stay/anchor-status). We only forward a caller-supplied
+// anchor, which is the path that carries real Rekor/TSA proof.
 router.post("/stay/verify", async (req, res) => {
   try {
     const record = req.body?.record ?? (req.body?.sealed_record as Record<string, unknown> | undefined);
     if (!record) { res.status(400).json({ error: "record required" }); return; }
     const { verifyOffline } = await import("../lib/witnessClient.js");
-    const verdict = await verifyOffline(record, Array.isArray(req.body?.chain) ? req.body.chain : undefined, req.body?.anchor);
-    res.json({ ok: true, verdict });
+    const { assembleChain } = await import("../lib/witnessChainProof.js");
+
+    let chain = Array.isArray(req.body?.chain) ? (req.body.chain as Record<string, unknown>[]) : undefined;
+    let chainSource = chain ? "caller-supplied" : "none";
+    let chainDetail = chain ? `${chain.length} record(s) supplied by the caller` : "";
+    if (!chain) {
+      const companyId = Number(req.body?.company_id ?? req.body?.companyId ?? 0);
+      const chainKey = (record.chainKey as string | undefined) ?? (req.body?.chain_key as string | undefined) ?? (await chainKeyForCompany(companyId));
+      const assembled = await assembleChain(chainKey);
+      chainSource = assembled.source;
+      chainDetail = assembled.detail;
+      if (assembled.complete) {
+        chain = assembled.chain;
+        // The SDK rejects a record that is absent from the supplied chain as BROKEN/"malformed".
+        // A record can legitimately be absent — sealed after this snapshot was taken. Extend the
+        // chain by one when it is the contiguous next link (verifyChain still checks the linkage
+        // for real, so a forged record fails here); otherwise verify without a chain rather than
+        // manufacture a "malformed" verdict for evidence that is merely out of view.
+        if (!chain.some((r) => r.recordId === record.recordId)) {
+          if (Number(record.seq) === chain.length) {
+            chain = [...chain, record];
+            chainDetail = `${chainDetail}; the record under test appended as the contiguous next link`;
+          } else {
+            chain = undefined;
+            chainDetail = `record seq ${String(record.seq)} is not in the assembled chain (${assembled.chain.length} record(s)) — continuity not established`;
+          }
+        }
+      }
+    }
+
+    const verdict = await verifyOffline(record, chain, req.body?.anchor);
+    // `checked` is the difference between "continuity FAILED" and "continuity was never
+    // TESTED" — identical on the wire (BROKEN/"chain", signature ✓), opposite in meaning.
+    // With a genesis-rooted chain in hand, BROKEN/"chain" means a record really was altered,
+    // deleted or reordered: a loud tamper. Without one, it means we lacked the input. The
+    // caller cannot tell these apart from the verdict alone, so we say which happened —
+    // otherwise a UI must guess, and guessing wrong either cries wolf or hides a forgery.
+    res.json({ ok: true, verdict, chain: { source: chainSource, length: chain?.length ?? 0, checked: chain !== undefined, detail: chainDetail } });
   } catch (err) {
     logger.error({ err }, "stay/verify error");
     res.status(500).json({ error: err instanceof Error ? err.message : "verify failed" });
+  }
+});
+
+// ── POST /api/stay/reverify — repair persisted verdicts. ──────────────────────
+// Records sealed before the chain-aware verify carry witness_state = "BROKEN", written
+// by a seal-time check that verified each record against a chain containing only itself
+// — unsatisfiable for any seq >= 1. Those rows render as "✗ verification failed" against
+// evidence that is intact and externally anchored. Re-verify each sealed record against
+// its ASSEMBLED chain and persist the honest verdict. Idempotent; corrects in both
+// directions, so a genuinely broken record is still marked BROKEN.
+router.post("/stay/reverify", async (req, res) => {
+  try {
+    const { verifyOffline } = await import("../lib/witnessClient.js");
+    const { assembleChain } = await import("../lib/witnessChainProof.js");
+
+    const rows = (await db.select().from(witnessEntries)).filter((r) => r.witnessSealRef);
+    const chains = new Map<string, Awaited<ReturnType<typeof assembleChain>>>();
+    const changed: Array<{ id: number; seq: unknown; from: string | null; to: string }> = [];
+    let unchanged = 0, skipped = 0;
+
+    for (const row of rows) {
+      const ref = row.witnessSealRef as Record<string, unknown>;
+      const record = ref.record as Record<string, unknown> | undefined;
+      const chainKey = ref.chainKey as string | undefined;
+      if (!record?.proof || !chainKey) { skipped++; continue; } // nothing verifiable held
+
+      if (!chains.has(chainKey)) chains.set(chainKey, await assembleChain(chainKey));
+      const assembled = chains.get(chainKey)!;
+      const chain = assembled.complete && assembled.chain.some((r) => r.recordId === record.recordId) ? assembled.chain : undefined;
+
+      const v = (await verifyOffline(record, chain)) as { state?: string; reason?: string; checks?: { signature?: boolean } };
+      // Downgrade BROKEN/"chain" to SIGNED_PENDING ONLY when no chain was supplied — that is
+      // a missing input, not a tamper. When a genesis-rooted chain WAS supplied and the
+      // linkage still fails, the trail really is broken: keep it BROKEN and let it shout.
+      // (Softening that case would turn this repair into a forgery-laundering machine.)
+      const inputMissing = chain === undefined && v.state === "BROKEN" && v.reason === "chain" && v.checks?.signature === true;
+      const state = inputMissing ? "SIGNED_PENDING" : (v.state ?? "SIGNED_PENDING");
+
+      if (state === row.witnessState) { unchanged++; continue; }
+      await db.update(witnessEntries).set({ witnessState: state }).where(eq(witnessEntries.id, row.id));
+      changed.push({ id: row.id, seq: record.seq, from: row.witnessState, to: state });
+    }
+
+    res.json({ ok: true, changed: changed.length, unchanged, skipped, chains: [...chains.entries()].map(([k, c]) => ({ chainKey: k, source: c.source, complete: c.complete, length: c.chain.length })), updates: changed });
+  } catch (err) {
+    logger.error({ err }, "stay/reverify error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "reverify failed" });
   }
 });
 
@@ -613,7 +710,11 @@ router.get("/stay/records", async (req, res) => {
   try {
     const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0);
     const chainKey = await chainKeyForCompany(companyId, req.query.chain_key as string | undefined);
-    const raw = await fetchRecords(chainKey);
+    // view=full — the SIGNED bodies with proof + prevHash + signer. The default summary
+    // view carries none of that (no decision, no governingRule, no proof), so it rendered
+    // every verdict as "—" and the `record` handed to offline Verify could not verify at
+    // all. A summary is a display projection; only the full view is evidence.
+    const raw = await fetchRecords(chainKey, "full");
     const records = (raw.records ?? raw.data ?? raw.entries ?? []) as Array<Record<string, unknown>>;
     // Per-record Sealed/Anchored state comes from the chain's anchoredThroughSeq
     // (Witness's external verification): seq ≤ anchoredThroughSeq → anchored, else the

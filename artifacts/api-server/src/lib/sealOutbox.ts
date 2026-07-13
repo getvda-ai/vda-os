@@ -247,8 +247,22 @@ export async function drainSealOutbox(limit = 25): Promise<DrainResult> {
         decisionId: row.decisionId,
         record: rec,
       };
+      // Seal-time verify is SIGNATURE-SCOPED. The predecessors are not in hand here (this
+      // record is only about to be persisted), and verifyChain() cannot link a lone
+      // non-genesis record: chain=[rec] makes BROKEN/"chain" the arithmetically forced
+      // answer for every seq >= 1. Persisting that as the record's state marked the whole
+      // trail "verification failed" — a false tamper alarm against evidence that is in fact
+      // intact and externally anchored. So we trust ONLY what a single record can actually
+      // prove — its Ed25519 signature and key validity — and record SIGNED_PENDING.
+      // Continuity is a property of the CHAIN, established on demand in /stay/verify against
+      // the assembled chain (see witnessChainProof.ts). A real signature failure still fails
+      // loud: reason "signature" or "key" is persisted as BROKEN, exactly as before.
       let state = "SIGNED_PENDING";
-      try { const v = await verifyOffline(rec, [rec]); state = (v as { state?: string }).state ?? state; } catch { /* verify is advisory */ }
+      try {
+        const v = (await verifyOffline(rec, [rec])) as { state?: string; reason?: string; checks?: { signature?: boolean } };
+        const chainOnly = v.state === "BROKEN" && v.reason === "chain" && v.checks?.signature === true;
+        state = chainOnly ? "SIGNED_PENDING" : (v.state ?? state);
+      } catch { /* verify is advisory — never block the seal */ }
       await db.update(sealOutbox).set({ status: "sealed", recordRef: ref, sealedAt: new Date(), lastError: null }).where(eq(sealOutbox.id, row.id));
       if (row.localWitnessId) {
         await db.update(witnessEntries).set({ witnessSealRef: ref, witnessState: state }).where(eq(witnessEntries.id, row.localWitnessId));

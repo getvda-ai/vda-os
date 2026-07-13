@@ -280,9 +280,14 @@ async function authedGet(path: string): Promise<Record<string, unknown>> {
   const r = await fetch(`${base()}${path}`, { headers: key ? { Authorization: `Bearer ${key}` } : {}, signal: AbortSignal.timeout(15000) });
   return (await r.json().catch(() => ({}))) as Record<string, unknown>;
 }
-/** Account-isolated trail read (by key; never pass an accountId). */
-export async function fetchRecords(chainKey: string): Promise<Record<string, unknown>> {
-  return authedGet(`/api/witness/records?chainKey=${encodeURIComponent(chainKey)}`);
+/** Account-isolated trail read (by key; never pass an accountId).
+ *  `view=full` returns each record's signed body + proof + prevHash + signer — the
+ *  material an offline verifier needs. The default `view=summary` omits all of it
+ *  (no proof, no prevHash, no decision), so a record read that way can NEVER verify:
+ *  it is a display projection, not evidence. `?full=true` is silently ignored by
+ *  Witness — the parameter is `view`. */
+export async function fetchRecords(chainKey: string, view: "summary" | "full" = "summary"): Promise<Record<string, unknown>> {
+  return authedGet(`/api/witness/records?chainKey=${encodeURIComponent(chainKey)}&view=${view}`);
 }
 /** Anchor status, optionally scoped to a single chain (account by key; no accountId). */
 export async function anchorStatus(chainKey?: string): Promise<Record<string, unknown>> {
