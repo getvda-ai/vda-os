@@ -128,7 +128,17 @@ export async function assembleChain(chainKey: string): Promise<AssembledChain> {
     const raw = await fetchRecords(chainKey, "full");
     const remote = normalise(((raw.records ?? []) as Record<string, unknown>[]).filter((r) => r.proof));
     if (remote.complete) {
-      return { chain: remote.chain, source: "witness-records", complete: true, detail: `${remote.chain.length} record(s) fetched from Witness as evidence — the verdict is still computed locally against the pinned did:web key` };
+      // Self-heal: mirror what we just fetched so the NEXT verify is zero-call. Without this
+      // the zero-call property decays silently — every new chain (new property) opens with a
+      // genesis record we do not hold, and quietly reverts to fetching forever. backfillChain
+      // re-verifies from genesis before writing, so nothing unchecked enters the store.
+      //
+      // AWAITED, not fire-and-forget: on serverless the function is frozen once the response
+      // is sent, so a detached write would simply never land and the heal would never happen.
+      // A failed mirror must not change the verdict, so it is swallowed — worst case we fetch
+      // again next time, which is exactly today's behaviour.
+      await backfillChain(chainKey).catch(() => {});
+      return { chain: remote.chain, source: "witness-records", complete: true, detail: `${remote.chain.length} record(s) fetched from Witness as evidence — the verdict is still computed locally against the pinned did:web key; mirrored locally so the next verify is zero-call` };
     }
     return {
       chain: remote.chain,
