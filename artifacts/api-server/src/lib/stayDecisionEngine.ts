@@ -68,11 +68,25 @@ export interface CeilingBand {
   within_ceiling: boolean;
 }
 
+/**
+ * The agent failed to produce a governed decision — a fault in US, not a governance
+ * outcome. Kept separate from `clause_applied` so it can never be sealed as if the SOP
+ * said it: an agent fault must not be able to impersonate a governing rule in permanent,
+ * anchored Article-12 evidence.
+ */
+export interface AgentError {
+  kind: "model_output_truncated" | "model_output_unparseable" | "model_output_empty";
+  detail: string;
+  stopReason: string | null;
+}
+
 export interface StayDecisionResult {
   outcome: "PASS" | "FAIL" | "ESCALATE";
   stage: StayStage;
   exception_class: string;
   clause_applied: string;
+  /** Set only when the agent could not decide. Null on every genuine governed decision. */
+  agent_error?: AgentError | null;
   files_consulted: string[];
   sop_refs: CitedClause[];
   apaleo_data: Record<string, unknown>;
@@ -268,7 +282,20 @@ interface LlmDecision {
   escalationTarget: string | null;
   reasoning: string;
   noSopCoverage: boolean;
+  /** Set only when the agent could not decide — never on a real governed decision. */
+  agentError?: AgentError | null;
 }
+
+/**
+ * The model's answer shares the token budget with its own reasoning: Gemini bills thinking
+ * tokens against max_tokens. At 2048 the reasoning consumed ~1962 of them and left ~80 for
+ * the answer, so every decision came back as a JSON object cut off mid-string — parsed as
+ * "unparseable", escalated, and sealed with a fabricated governing clause. The model was
+ * right all along; the budget was not. 8192 leaves room for both (measured: ~1600 thinking
+ * + ~150 answer), and a truncated answer is now retried once with double the budget rather
+ * than being mistaken for nonsense.
+ */
+const DECISION_MAX_TOKENS = 8192;
 
 /** Robustly extract the first balanced JSON object from an LLM response
  *  (handles ```json fences, leading/trailing prose, and braces inside strings). */
@@ -333,8 +360,17 @@ Respond ONLY with this JSON (no extra text):
 
   const user = `Request context:\n${JSON.stringify(input.exceptionContext, null, 2)}\n\nLive Apaleo snapshot:\n${JSON.stringify(snapshot, null, 2)}`;
 
-  const resp = await callAIWithUsage({ max_tokens: 2048, system, messages: [{ role: "user", content: user }] });
+  let resp = await callAIWithUsage({ max_tokens: DECISION_MAX_TOKENS, system, messages: [{ role: "user", content: user }] });
+  // A truncated answer is a BUDGET failure, not a bad answer. Retry once with more room
+  // before giving up — silently escalating a decision the model was in the middle of
+  // getting right is how a working agent looks broken.
+  if (resp.stopReason === "max_tokens") {
+    logger.warn({ stopReason: resp.stopReason, outputTokens: resp.outputTokens }, "[stayEngine] model answer truncated (thinking consumed the budget) — retrying with double");
+    resp = await callAIWithUsage({ max_tokens: DECISION_MAX_TOKENS * 2, system, messages: [{ role: "user", content: user }] });
+  }
+
   try {
+    if (!resp.text.trim()) throw new Error("empty");
     const parsed = JSON.parse(extractJsonObject(resp.text)) as Partial<LlmDecision>;
     // reasoning must be the model's PROSE, never a raw completion dump. If the model
     // returned no reasoning field, mark it — do not fall back to the raw text (which
@@ -350,20 +386,27 @@ Respond ONLY with this JSON (no extra text):
       escalationTarget: parsed.escalationTarget ?? null,
       reasoning: prose || "[model returned no reasoning field — routed to human review]",
       noSopCoverage: Boolean(parsed.noSopCoverage),
+      agentError: null,
     };
   } catch {
-    // Unparseable model output: NEVER seal the raw blob. Log it for ops (the erasable
-    // local stream), seal an explicit marker, and ESCALATE to a human.
-    logger.warn({ raw: resp.text.slice(0, 300) }, "[stayEngine] model output not parseable — sealing a marker, not raw, and escalating");
+    // The agent could not produce a governed decision. NEVER seal the raw blob, and never
+    // dress the failure as a clause: "Unable to parse agent response" was being sealed as
+    // governingRule.ruleText — the verbatim text of the SOP — so an agent fault impersonated
+    // a governing rule in permanent, anchored evidence. It is reported as what it is: an
+    // agent_error. The governed outcome is the FAIL-SAFE (escalate to a human), which is a
+    // real rule and is cited as such at the seal.
+    const kind = resp.stopReason === "max_tokens" ? "model_output_truncated" : !resp.text.trim() ? "model_output_empty" : "model_output_unparseable";
+    logger.warn({ raw: resp.text.slice(0, 300), stopReason: resp.stopReason, kind }, "[stayEngine] no governed decision — escalating as an agent fault");
     return {
       decision: "ESCALATE",
-      clauseApplied: "Unable to parse agent response",
+      clauseApplied: "", // no clause was applied — do not invent one
       sopRefs: [],
       actionProposed: "Manual review required",
       exceptionApplied: false,
       escalationTarget: "mod",
-      reasoning: "[unparsed model output — not sealed raw; routed to human review]",
+      reasoning: "The Stay Agent could not produce a governed decision from the model output. No SOP clause was applied. Fail-safe: routed to human review.",
       noSopCoverage: false,
+      agentError: { kind, detail: `model output ${kind.replace("model_output_", "")} (stop_reason=${resp.stopReason ?? "none"}, ${resp.outputTokens} output tokens)`, stopReason: resp.stopReason },
     };
   }
 }
@@ -504,6 +547,7 @@ export async function decideStay(input: StayDecisionInput): Promise<StayDecision
   // 6. LLM governance judgment.
   const llm = await llmEvaluate({ policyText: gov.policyText, clauses, input, ceiling, snapshot: snap.data });
   base.clause_applied = llm.clauseApplied;
+  base.agent_error = llm.agentError ?? null;
   base.reasoning = llm.reasoning;
   base.exception_applied = llm.exceptionApplied;
   base.proposed_action = llm.actionProposed;
@@ -676,9 +720,18 @@ async function finalize(
         role_band: opts.roleBand,
         apaleo_charge_id: result.apaleo_charge_id ?? null,
         verdict: result.outcome,
+        // An agent fault is sealed as a FACT ABOUT THE AGENT, never as governance.
+        ...(result.agent_error ? { agent_error: result.agent_error.kind } : {}),
       },
-      ruleId: opts.fileReferenced,
-      ruleText: result.clause_applied,
+      // The governing rule must be a rule that actually governed. When the agent could not
+      // decide, no SOP clause was applied — sealing the failure text here published it as
+      // the verbatim text of stay-agent.SOP.md, so the trail asserted the SOP said "Unable
+      // to parse agent response". It never did. The rule that genuinely applied is the
+      // fail-safe: an agent that cannot produce a governed decision escalates to a human.
+      ruleId: result.agent_error ? `${opts.fileReferenced}#fail-safe` : opts.fileReferenced,
+      ruleText: result.agent_error
+        ? `FAIL-SAFE: the Stay Agent could not produce a governed decision (${result.agent_error.detail}). No SOP clause was applied; the request was escalated to a human (MoD). This record documents an agent fault, not a governance ruling.`
+        : result.clause_applied,
       ruleRef: "stay-agent",
       piiDenylist: collectGuestPii(result.apaleo_data),
     });

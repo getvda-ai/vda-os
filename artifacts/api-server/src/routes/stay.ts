@@ -797,20 +797,22 @@ router.post("/stay/report", async (req, res) => {
 });
 
 // ── POST /api/stay/eu-ai-act-report — EU AI Act Article-by-Article via C2MD ─────
-// C2MD owns the Article logic; the Stay Agent orchestrates. KEY-SAFE: the Witness
-// account key is never sent to C2MD (enforced in c2mdClient). C2MD's only trail-
-// backed mode requires that key, which we refuse — so this returns the DEMO report
-// (SAMPLE — DEMO DATA, not evidenced from our trail) and surfaces the blocker.
+// C2MD owns the Article logic; the Stay Agent orchestrates. ATTESTED mode: we hand C2MD our
+// own Witness chain-proof bundle, which it verifies offline (did:web + Rekor/TSA, zero calls
+// to Witness). The report is evidence-backed against our REAL trail and the Witness key never
+// leaves this process — attested rejects a key outright. No synthetic demo substitute: if the
+// report cannot be produced, the reason is returned verbatim and nothing is shown in its place.
 router.post("/stay/eu-ai-act-report", async (req, res) => {
   try {
     const companyId = Number(req.body?.company_id ?? req.body?.companyId ?? 0);
-    let industry: string | undefined; let desc: string;
-    try {
-      const [c] = await db.select({ name: companies.companyName, ind: companies.industry }).from(companies).where(eq(companies.id, companyId)).limit(1);
-      industry = c?.ind ?? "Hospitality";
-      desc = `${c?.name ?? "citizenM Stay Agent"} — an AI agent managing a hotel guest's on-property journey (check-in, in-stay, check-out), making governed exception decisions under human-in-the-loop oversight, sealing each decision into VDA Witness.`;
-    } catch { industry = "Hospitality"; desc = "citizenM Stay Agent — hotel guest journey agent with HITL governance, decisions sealed into VDA Witness."; }
-    const result = await generateEuAiActReport({ agentDescription: desc, industry, jurisdictions: ["EU"] });
+    const chainKey = await chainKeyForCompany(companyId, req.body?.chain_key as string | undefined);
+    const result = await generateEuAiActReport({
+      chainKey,
+      jurisdictions: ["EU"],
+      // A hotel stay agent handles guest data, not employment data.
+      dataCategories: ["customer_data"],
+      autonomyLevel: "assistive",
+    });
     res.json(result);
   } catch (err) {
     logger.error({ err }, "stay/eu-ai-act-report error");

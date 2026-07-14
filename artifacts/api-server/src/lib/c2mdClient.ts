@@ -1,91 +1,129 @@
 /**
  * c2mdClient.ts — the Stay Agent's seam to the C2MD Compliance Agent
- * (c2md.getvda.ai), which owns the EU AI Act Article-by-Article Evidence &
- * Readiness Report. The Stay Agent orchestrates; C2MD generates. We do NOT rebuild
- * the Article logic.
+ * (c2md.getvda.ai), which owns the EU AI Act Article-by-Article Evidence & Readiness
+ * Report. The Stay Agent orchestrates; C2MD generates. We do NOT rebuild the Article logic.
  *
- * DISCOVERED CONTRACT (live, from /.well-known/agent-card.json — 2026-07):
- *   endpoint : POST https://c2md.getvda.ai/a2a   (A2A JSON-RPC 2.0, message/send)
- *   skill    : generate_evidence_readiness_report  (Free tier)
- *   auth     : google_oauth2 (Google Sign-In); assess/evidence skills are free-tier
- *   input    : agent_description (required), data_mode ∈ demo|customer, industry,
- *              jurisdictions
- *   trail authz: data_mode=customer REQUIRES `witness_api_key` — "that Bearer key is
- *              the sole account binding … account isolation inherited from Witness."
- *              There is NO report-passthrough input and NO scoped-grant input.
+ * LIVE CONTRACT (verified against /.well-known/agent-card.json and the live endpoint):
+ *   endpoint : POST https://c2md.getvda.ai/a2a
+ *   method   : "skills/<skill_id>"  — NOT "message/send". That method does not exist here;
+ *              our old call only ever got as far as a param error, never reaching it.
+ *   skill    : generate_evidence_readiness_report   (free tier: scope c2md:assess)
+ *   auth     : OAuth2 REQUIRED — Google Sign-In (authorizationCode) or Microsoft Entra
+ *              (clientCredentials for machine callers). C2MD validates params FIRST and auth
+ *              SECOND, so a call with bad params hides the fact that auth is also needed.
+ *   modes    : demo      — synthetic; REQUIRES agent_description (omitting it is -32602)
+ *              customer  — reads our trail via Witness; REQUIRES witness_api_key
+ *              attested  — KEY-SAFE: we supply our OWN chain-proof bundle; no key at all
  *
- * GUARDRAIL (enforced in code, non-negotiable): the Witness account key is NEVER
- * sent to C2MD. The key IS the Witness account — sharing it hands over the whole
- * account. C2MD's only trail-backed mode (customer) requires exactly that key, so we
- * DELIBERATELY DO NOT use customer mode. We call demo mode only (synthetic, labelled
- * SAMPLE — DEMO DATA), and hard-assert no Witness key is ever in the outbound body.
- * Delivering an evidence-backed report from our real trail therefore needs C2MD to
- * add a report-passthrough or scoped-grant input — surfaced to the operator, not
- * worked around by leaking the key.
+ * WHY ATTESTED. Sending witness_api_key (customer mode) would hand C2MD our entire Witness
+ * account — the key IS the account. Attested exists precisely to avoid that: we pass the
+ * chain-proof bundle (records + predecessor path + anchor + didDocument) which C2MD verifies
+ * OFFLINE against pinned public infrastructure (did:web + Rekor/TSA, zero calls to Witness),
+ * and it REJECTS a witness_api_key if one is sent. The report is therefore evidence-backed
+ * against our real trail AND the key never leaves this process. Article 12 is graded strictly
+ * off the verified verdict: ANCHORED_VALID earns anchored language, SIGNED_PENDING reads
+ * "readiness — not yet anchored", a tampered bundle is refused, an incomplete one returns
+ * INSUFFICIENT_PROOF.
+ *
+ * This module used to call demo mode and tell the operator that an evidence-backed report
+ * "cannot be produced without leaking the key". That was true before attested shipped; it is
+ * false now. Worse, it called demo WITHOUT agent_description — which demo requires — so the
+ * panel displayed a -32602 underneath a stale refusal to even attempt the mode that works.
+ *
+ * GUARDRAIL (unchanged, non-negotiable): the Witness key is NEVER sent to C2MD. Asserted on
+ * the serialised payload before the request leaves.
  */
 import { logger } from "./logger.js";
+import { fetchChainProof, fetchReport } from "./witnessClient.js";
 
 const C2MD_BASE = process.env.C2MD_BASE_URL || "https://c2md.getvda.ai";
+const SKILL = "generate_evidence_readiness_report";
+/** OAuth2 bearer for C2MD (Google Sign-In / MS service principal). NOT the Witness key. */
+const c2mdToken = (): string => (process.env.C2MD_ACCESS_TOKEN || "").trim();
 
 export const C2MD_CONTRACT = {
   endpoint: `${C2MD_BASE}/a2a`,
-  transport: "A2A JSON-RPC 2.0 (message/send)",
-  skill: "generate_evidence_readiness_report",
-  auth: "google_oauth2 (free tier for the evidence skill)",
-  trailAuthModel: "customer mode requires the raw Witness API key (witness_api_key) — no report-passthrough, no scoped grant",
+  transport: "A2A JSON-RPC 2.0 (skills/<skill_id>)",
+  skill: SKILL,
+  auth: "OAuth2 required — Google Sign-In or Microsoft Entra, scope c2md:assess (free tier)",
+  trailAuthModel: "attested — we supply our own Witness chain-proof bundle; C2MD verifies it offline and rejects a witness_api_key. The key never leaves the Stay Agent.",
   keyBlocked: true,
-  usedMode: "demo" as const,
+  usedMode: "attested" as const,
 } as const;
 
 export interface C2mdReportResult {
   ok: boolean;
-  mode: "demo";
-  /** Evidence-backed against OUR Witness trail? Always false in demo mode. */
-  evidenceBacked: false;
-  grade: "sample-demo-data";
+  mode: "attested";
+  /** True ONLY when C2MD returned a report generated from our own sealed trail. */
+  evidenceBacked: boolean;
+  grade: string;
+  chainKey?: string;
+  proof?: { records: number; anchored: boolean; head?: string };
   report?: unknown;
   markdown?: string;
   error?: string;
   contract: typeof C2MD_CONTRACT;
-  /** Why the trail-backed (customer) report is not produced here. */
-  customerModeBlocked: string;
+  /** Present only when no report was produced — the real reason, stated plainly. */
+  blocked?: string;
 }
 
-const CUSTOMER_BLOCK =
-  "C2MD's customer (trail-backed) mode requires the raw Witness API key, which the key IS the account — sending it would hand C2MD the whole account. C2MD's live contract offers no report-passthrough and no scoped read-grant, so an evidence-backed EU AI Act report cannot be produced without leaking the key. Not done. Demo mode (synthetic, SAMPLE — DEMO DATA) shown instead.";
+const fail = (error: string, blocked: string, extra: Partial<C2mdReportResult> = {}): C2mdReportResult => ({
+  ok: false, mode: "attested", evidenceBacked: false, grade: "not-produced",
+  error, blocked, contract: C2MD_CONTRACT, ...extra,
+});
 
-/** Generate the EU AI Act Evidence & Readiness Report via C2MD — DEMO mode only, key-safe. */
+/**
+ * Generate the EU AI Act Evidence & Readiness Report via C2MD — ATTESTED mode: key-safe and
+ * evidence-backed against our real Witness trail.
+ *
+ * Nothing is fabricated on failure. If the proof bundle is unavailable or C2MD refuses, the
+ * reason is returned verbatim and NO report is shown. We never silently substitute a synthetic
+ * demo report and present it as if it were the best obtainable answer.
+ */
 export async function generateEuAiActReport(input: {
-  agentDescription: string;
-  industry?: string;
+  chainKey: string;
   jurisdictions?: string[];
+  dataCategories?: string[];
+  autonomyLevel?: string;
 }): Promise<C2mdReportResult> {
-  // C2MD reads skill params from message.metadata; the agent card marks only
-  // agent_description required and extra keys tightened validation in probing, so we
-  // keep metadata minimal. We also mirror the params in a structured DataPart (some
-  // A2A servers read there). NEVER include witness_api_key — that is customer mode =
-  // handing over the whole account. industry/jurisdictions are intentionally omitted.
-  const skillParams = {
-    skill: "generate_evidence_readiness_report",
-    data_mode: "demo" as const,
-    agent_description: input.agentDescription,
-  };
-  void input.industry; void input.jurisdictions;
+  // 1. Our own evidence: the chain-proof bundle + the Art-12 report Witness derives from it.
+  //    attested needs NO agent_description — C2MD derives the agent from the verified evidence.
+  let proofBundle: Record<string, unknown>;
+  let witnessReport: Record<string, unknown>;
+  try {
+    [proofBundle, witnessReport] = await Promise.all([fetchChainProof(input.chainKey), fetchReport(input.chainKey)]);
+  } catch (err) {
+    return fail(
+      `could not read our own chain proof: ${err instanceof Error ? err.message : String(err)}`,
+      "The Witness chain-proof bundle could not be fetched, so there is nothing to attest. No report produced — nothing synthesised in its place.",
+      { chainKey: input.chainKey },
+    );
+  }
+
+  const records = (proofBundle.records as unknown[] | undefined) ?? [];
+  if (!records.length) {
+    return fail(
+      "empty chain — no sealed records to attest",
+      "This chain has no sealed records, so an evidence-backed report would have nothing to evidence (C2MD would return INSUFFICIENT_PROOF). No report produced.",
+      { chainKey: input.chainKey, proof: { records: 0, anchored: false } },
+    );
+  }
+  const anchor = (proofBundle.anchor ?? {}) as { head?: string; rekor?: unknown };
+  const proofSummary = { records: records.length, anchored: Boolean(anchor.rekor), head: anchor.head };
+
   const body = {
     jsonrpc: "2.0",
     id: "stay-agent-eu-ai-act",
-    method: "message/send",
+    method: `skills/${SKILL}`,
     params: {
-      message: {
-        role: "user",
-        messageId: "stay-agent-eu-ai-act",
-        parts: [
-          { kind: "text", text: "EU AI Act Article-by-Article Evidence & Readiness Report, demo mode" },
-          { kind: "data", data: skillParams },
-        ],
-        metadata: skillParams,
-      },
-      configuration: { blocking: true },
+      data_mode: "attested",
+      witness_proof_bundle: proofBundle,
+      witness_report: witnessReport,
+      jurisdictions: input.jurisdictions ?? ["EU"],
+      data_categories: input.dataCategories ?? ["customer_data"],
+      autonomy_level: input.autonomyLevel ?? "assistive",
+      // NO witness_api_key, NO agent_description — both deliberate. The first would hand over
+      // the account; the second is a demo-mode input that attested neither needs nor accepts.
     },
   };
   const outbound = JSON.stringify(body);
@@ -93,37 +131,55 @@ export async function generateEuAiActReport(input: {
   // HARD ASSERTION: the Witness key must never appear in anything sent to C2MD.
   const witnessKey = process.env.WITNESS_API_KEY;
   if (witnessKey && outbound.includes(witnessKey)) {
-    logger.error("[c2md] refusing to send — Witness key present in outbound C2MD payload");
-    return { ok: false, mode: "demo", evidenceBacked: false, grade: "sample-demo-data", error: "blocked: Witness key present in payload", contract: C2MD_CONTRACT, customerModeBlocked: CUSTOMER_BLOCK };
+    logger.error("[c2md] refusing to send — Witness key present in outbound payload");
+    return fail(
+      "blocked: Witness key present in payload",
+      "Refused to send: the Witness account key appeared in the outbound body. The key IS the account; it is never shared.",
+      { chainKey: input.chainKey, proof: proofSummary },
+    );
+  }
+
+  const token = c2mdToken();
+  if (!token) {
+    // Name what is actually missing. C2MD auth-checks every call whose params validate, so
+    // without a token NEITHER attested NOR demo can return a report. This is a credential gap
+    // — not a limitation of attested mode, and not a key-sharing problem.
+    return fail(
+      "no C2MD OAuth token configured (C2MD_ACCESS_TOKEN)",
+      "C2MD requires an OAuth2 token on every call (Google Sign-In or Microsoft Entra, scope c2md:assess); without one it answers -32004. The attested request is otherwise complete and key-safe — it needs only a token. Set C2MD_ACCESS_TOKEN. No report produced; nothing synthesised in its place.",
+      { chainKey: input.chainKey, proof: proofSummary },
+    );
   }
 
   try {
     const r = await fetch(C2MD_CONTRACT.endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: outbound,
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(120_000),
     });
     const text = await r.text();
     let j: Record<string, unknown>;
     try { j = JSON.parse(text) as Record<string, unknown>; }
-    catch { return { ok: false, mode: "demo", evidenceBacked: false, grade: "sample-demo-data", error: `C2MD returned non-JSON (HTTP ${r.status}): ${text.slice(0, 140)}`, contract: C2MD_CONTRACT, customerModeBlocked: CUSTOMER_BLOCK }; }
+    catch {
+      return fail(`C2MD returned non-JSON (HTTP ${r.status}): ${text.slice(0, 160)}`, "C2MD did not return a JSON-RPC response. No report produced.", { chainKey: input.chainKey, proof: proofSummary });
+    }
 
     if (j.error) {
       const e = j.error as { code?: number; message?: string };
-      return { ok: false, mode: "demo", evidenceBacked: false, grade: "sample-demo-data", error: `C2MD error ${e.code ?? ""}: ${e.message ?? "unknown"}`, contract: C2MD_CONTRACT, customerModeBlocked: CUSTOMER_BLOCK };
+      return fail(
+        `C2MD error ${e.code ?? ""}: ${e.message ?? "unknown"}`,
+        "C2MD refused the attested request. Its error is shown verbatim — nothing softened, and no demo report substituted in its place.",
+        { chainKey: input.chainKey, proof: proofSummary },
+      );
     }
-    // A2A result: extract a data part (report JSON) and/or a text part (markdown).
-    const result = (j.result ?? j) as Record<string, unknown>;
-    const parts = ((result.message as { parts?: unknown[] })?.parts ?? (result.parts as unknown[]) ?? []) as Array<Record<string, unknown>>;
-    let report: unknown; let markdown: string | undefined;
-    for (const p of parts) {
-      if (p.kind === "data" && p.data) report = p.data;
-      if (p.kind === "text" && typeof p.text === "string") markdown = p.text;
-    }
-    if (report === undefined && markdown === undefined) report = result; // fall back to whole result
-    return { ok: true, mode: "demo", evidenceBacked: false, grade: "sample-demo-data", report, markdown, contract: C2MD_CONTRACT, customerModeBlocked: CUSTOMER_BLOCK };
+
+    const result = (j.result ?? {}) as Record<string, unknown>;
+    const report = (result.report ?? result.data ?? result) as unknown;
+    const markdown = typeof result.markdown === "string" ? result.markdown : undefined;
+    const grade = String(result.grade ?? result.verdict ?? "evidence-backed");
+    return { ok: true, mode: "attested", evidenceBacked: true, grade, chainKey: input.chainKey, proof: proofSummary, report, markdown, contract: C2MD_CONTRACT };
   } catch (err) {
-    return { ok: false, mode: "demo", evidenceBacked: false, grade: "sample-demo-data", error: err instanceof Error ? err.message : String(err), contract: C2MD_CONTRACT, customerModeBlocked: CUSTOMER_BLOCK };
+    return fail(err instanceof Error ? err.message : String(err), "The C2MD call failed. No report produced; nothing synthesised in its place.", { chainKey: input.chainKey, proof: proofSummary });
   }
 }

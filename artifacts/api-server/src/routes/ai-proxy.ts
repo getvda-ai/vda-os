@@ -85,6 +85,8 @@ export async function callAIWithUsage(params: {
   messages: { role: "user" | "assistant"; content: string }[];
 }): Promise<{
   text: string;
+  /** "max_tokens" means the answer was CUT OFF — not that the model wrote nonsense. */
+  stopReason: string | null;
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
@@ -98,10 +100,15 @@ export async function callAIWithUsage(params: {
     messages: params.messages,
     ...(cachedSystem ? { system: cachedSystem } : {}),
   });
-  const block = response.content[0];
   const usage = response.usage as AnthropicUsageWithCache;
   return {
-    text: block?.type === "text" ? block.text : "",
+    // Join EVERY text block. Taking content[0] alone silently dropped the answer whenever
+    // the model emitted more than one text part.
+    text: response.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join(""),
+    // Surfaced so callers can tell a TRUNCATED answer from an unparseable one. Gemini bills
+    // thinking tokens against max_tokens, so a budget that looks generous can be spent
+    // entirely on reasoning, leaving a half-written JSON object and a stop of "max_tokens".
+    stopReason: (response as { stop_reason?: string | null }).stop_reason ?? null,
     inputTokens: usage?.input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
     cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,

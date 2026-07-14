@@ -289,6 +289,12 @@ async function authedGet(path: string): Promise<Record<string, unknown>> {
 export async function fetchRecords(chainKey: string, view: "summary" | "full" = "summary"): Promise<Record<string, unknown>> {
   return authedGet(`/api/witness/records?chainKey=${encodeURIComponent(chainKey)}&view=${view}`);
 }
+/** The chain-proof bundle: records + predecessor path + anchor (Rekor + TSA tokens) +
+ *  didDocument — everything a third party needs to verify our trail OFFLINE, without our
+ *  key and without calling Witness. This is what makes C2MD's attested mode key-safe. */
+export async function fetchChainProof(chainKey: string): Promise<Record<string, unknown>> {
+  return authedGet(`/api/witness/chains/${encodeURIComponent(chainKey)}/proof`);
+}
 /** Anchor status, optionally scoped to a single chain (account by key; no accountId). */
 export async function anchorStatus(chainKey?: string): Promise<Record<string, unknown>> {
   return authedGet(`/api/witness/anchor-status${chainKey ? `?chainKey=${encodeURIComponent(chainKey)}` : ""}`);
