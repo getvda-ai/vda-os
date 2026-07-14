@@ -14,8 +14,8 @@
  *      run a check is not a check failing. Downgrade — but ONLY when Rekor still verifies.
  *   3. A forgery waved through — a fabricated anchor must never be downgraded as "environmental".
  *      Rekor's signature covers the head and is verified in pure JS against a pinned key, so a
- *      forged signature or wrong head fails there and stays loud. Only an UNRUNNABLE or ABSENT
- *      TSA check may be forgiven; a TSA token that was checked and came back invalid is a forgery.
+ *      forged signature or a wrong head fails there and stays loud. A verdict is never upgraded
+ *      on the strength of a TSA token, so a forged one buys an attacker nothing.
  */
 import { verifyOffline } from "./witnessClient.js";
 import { assembleChain } from "./witnessChainProof.js";
@@ -28,9 +28,6 @@ export interface VerifyOutcome {
   /** The state to PERSIST — never a false BROKEN. */
   persistState: string;
 }
-
-/** "Could not execute" — not "verified and failed". */
-const CANNOT_RUN = /ENOENT|spawn openssl|command not found|no such file|EACCES|not recognized/i;
 
 export async function verifyRecordAgainstChain(
   record: Record<string, unknown>,
@@ -70,18 +67,44 @@ export async function verifyRecordAgainstChain(
 
   if (verdict.state === "BROKEN" && verdict.reason === "anchor" && anchor) {
     const d = String(verdict.detail ?? "");
-    const an = ((verdict.checks ?? {}) as { anchor?: { rekor?: { verified?: boolean }; tsa?: Array<{ verified?: boolean; detail?: string }> } }).anchor ?? {};
+    const an = ((verdict.checks ?? {}) as { anchor?: { rekor?: { verified?: boolean }; tsa?: Array<{ provider?: string; verified?: boolean; detail?: string }> } }).anchor ?? {};
     const headMismatch = /recomputed head does not match/i.test(d);
     const rekorOk = an.rekor?.verified === true;
     const tsa = an.tsa ?? [];
-    const tsaForged = tsa.some((t) => t.verified !== true && !CANNOT_RUN.test(String(t.detail ?? "")));
 
-    if (!headMismatch && rekorOk && !tsaForged) {
-      // Rekor verified → the head is provably in the public transparency log. The quorum is
-      // merely INCOMPLETE (openssl missing, or no TSA tokens). Not tamper — say so plainly.
+    // What actually establishes the anchoring claim is REKOR: its signed entry timestamp is
+    // verified in pure JS against a pinned key, over the head we recomputed from our own
+    // records. An attacker cannot make an unanchored head verify there, and a tampered record
+    // already dies at the signature/chain checks. The TSA tokens are a SECOND, independent
+    // witness, and the SDK's quorum (Rekor AND >=1 TSA) is a stricter bar than integrity —
+    // failing that bar is not evidence of tampering.
+    //
+    // And the bar cannot always be reached for reasons that have nothing to do with the
+    // evidence. Observed in production, both benign:
+    //   • digicert — "openssl: symbol lookup error: undefined symbol SSL_get_srp_g": the
+    //     openssl binary on Vercel is mislinked and cannot execute at all.
+    //   • sectigo  — "no pinned root for TSA \"sectigo\"": the SDK ships no trust anchor for
+    //     that provider, so the token is never checked in ANY environment.
+    // Neither can be told apart from a forged token by its message (openssl's failure text is
+    // its first stderr line, which is config noise), so pattern-matching the detail is not a
+    // sound basis for a tamper alarm — and calling intact, Rekor-anchored evidence BROKEN is
+    // the exact failure this whole effort exists to eliminate.
+    //
+    // So: Rekor is the discriminator.
+    //   • recomputed head != anchored head → a pre-anchor record was ALTERED. Tamper. Loud.
+    //   • Rekor invalid                    → the anchor does not establish anchoring. Loud.
+    //   • Rekor valid, quorum incomplete   → the head IS provably in the public transparency
+    //                                        log; we simply cannot complete the second witness.
+    //                                        Do NOT award ANCHORED_VALID, do NOT cry tamper.
+    // Nothing is upgraded on the strength of a TSA token, so forging one gains an attacker
+    // nothing — and the per-TSA failures are surfaced verbatim rather than swallowed.
+    if (!headMismatch && rekorOk) {
       verdict = (await verifyOffline(record, chain)) as Record<string, unknown>;
-      note = `Rekor verified — the head is provably in the public transparency log — but ${tsa.length === 0 ? "no TSA tokens were supplied in the bundle" : "the TSA check could not RUN here (openssl unavailable)"}, so the Rekor+TSA quorum could not be completed and ANCHORED_VALID is not awarded. Signature + hash-chain are proven locally. An incomplete check, NOT failed evidence — deliberately not reported as tamper.`;
-      logger.warn({ detail: d, tsaCount: tsa.length }, "[verify] anchor quorum incomplete (Rekor ok) — signature+chain stand; not a tamper");
+      const why = tsa.length === 0
+        ? "no TSA tokens were supplied"
+        : tsa.map((t) => `${t.provider}: ${String(t.detail ?? "unverified").slice(0, 90)}`).join(" · ");
+      note = `Rekor VERIFIED — the chain head is provably in the public transparency log (independent of VDA), and signature + hash-chain are proven locally. The Rekor+TSA quorum could not be completed, so ANCHORED_VALID is not awarded: ${why}. An incomplete second witness, NOT failed evidence — deliberately not reported as tamper.`;
+      logger.warn({ detail: d, tsa }, "[verify] Rekor ok but TSA quorum incomplete — signature+chain+Rekor stand; not a tamper");
     } else {
       logger.error({ detail: d, rekorOk, headMismatch }, "[verify] anchor FAILED verification — BROKEN");
     }
