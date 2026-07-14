@@ -377,8 +377,12 @@ function renderVerdict(id,v){
   // (anchor.attempted=false). Witness's REST API does not publish the Rekor entry / TSA
   // tokens the SDK needs, so the anchor is attested by Witness's own external verification
   // — a separate source, named as such — while signature + chain are proven right here.
-  const badgeNote = st==="ANCHORED_VALID"?'<span class="chk y">externally anchored — audit-ready</span>'
-    : (st==="SIGNED_PENDING"&&proven)?'<span class="chk y">signature + hash-chain verified locally from genesis</span><span class="chk">anchor not re-checked here — attested by Witness (see anchor status)</span>'
+  // ANCHORED_VALID is now EARNED offline: Rekor + TSA quorum verified against pinned roots,
+  // from our own stored bundle. When the quorum could not be COMPLETED (no openssl, or no TSA
+  // tokens) we say exactly that instead of claiming anchored — or crying tamper.
+  const anote = v.__anchor && v.__anchor.note ? `<span class="chk">${esc(v.__anchor.note)}</span>` : "";
+  const badgeNote = st==="ANCHORED_VALID"?'<span class="chk y">externally anchored — Rekor + TSA quorum verified offline against pinned roots · audit-ready</span>'
+    : (st==="SIGNED_PENDING"&&proven)?`<span class="chk y">signature + hash-chain verified locally from genesis</span>${anote||'<span class="chk">anchor not re-checked here — attested by Witness (see anchor status)</span>'}`
     : st==="SIGNED_PENDING"?'<span class="chk">validly signed · anchoring pending</span>'
     : chainOnly?'<span class="chk">signature ✓ · predecessors unavailable — continuity not established</span>'
     : (tampered&&v.reason==="chain")?'<span class="chk n">DO NOT TRUST — hash-chain broken: a record was altered, deleted or reordered</span>'
@@ -414,6 +418,7 @@ $("#made").addEventListener("click",async e=>{
     const j=await api(`/api/stay/verify`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record:rec,company_id:companyId(),chain_key:chainKeyCache[id]})});
     const vd=j.verdict||{state:"BROKEN",reason:"no verdict returned"};
     vd.__chain=j.chain||null;   // provenance of the chain used — drives the zero-call claim
+    vd.__anchor=j.anchor||null; // why the anchor did/didn't complete — never inferred in the UI
     renderVerdict(id,vd);
   }catch(err){renderVerdict(id,{state:"BROKEN",reason:err.message,checks:{}});}
 });

@@ -55,6 +55,18 @@ export function minimizeInputs(raw: Record<string, unknown> = {}): Record<string
     role_band: raw.role_band,
     apaleo_charge_id: raw.apaleo_charge_id ?? raw.chargeId,
     outcome: raw.outcome ?? raw.verdict,
+    // Facts about the AGENT, not about the guest — no PII by construction, and they must
+    // survive minimisation or the record cannot say what it is for.
+    // agent_error: the agent failed to produce a governed decision. Without this the fault is
+    // invisible in the sealed record, which is how it ended up disguised as a governing clause.
+    agent_error: raw.agent_error,
+    // A TRAIL_CORRECTION must name, machine-readably, WHICH records it corrects and why. Prose
+    // alone leaves an auditor (or C2MD) to parse English to find out what was withdrawn.
+    corrects_records: raw.corrects_records,
+    defect: raw.defect,
+    root_cause: raw.root_cause,
+    operational_impact: raw.operational_impact,
+    remedy: raw.remedy,
   };
   // Belt-and-braces: strip undefined + any accidentally-PII-shaped keys/values.
   for (const k of Object.keys(out)) {

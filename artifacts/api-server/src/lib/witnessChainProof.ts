@@ -21,13 +21,15 @@
  * used instead of claiming zero-call unconditionally.
  */
 import { eq, isNotNull } from "drizzle-orm";
-import { db, witnessEntries, witnessChainRecords } from "@workspace/db";
-import { fetchRecords, verifyOffline } from "./witnessClient.js";
+import { db, witnessEntries, witnessChainRecords, witnessChainAnchors } from "@workspace/db";
+import { fetchChainProof, verifyOffline } from "./witnessClient.js";
 
 export type ChainSource = "local-db" | "witness-records" | "none";
 
 export interface AssembledChain {
   chain: Record<string, unknown>[];
+  /** The externally-anchored head (Rekor + TSA). Present → offline verify can reach ANCHORED_VALID. */
+  anchor: Record<string, unknown> | null;
   source: ChainSource;
   /** Genesis-rooted and gap-free (seq 0..n) — verifyChain() only holds when this is true. */
   complete: boolean;
@@ -72,27 +74,36 @@ async function localRecords(chainKey: string): Promise<Record<string, unknown>[]
   return out; // normalise() de-duplicates by seq — our own seal wins, since it is pushed first
 }
 
+/** The anchor we hold for this chain (Rekor + TSA over the anchored head). */
+async function localAnchor(chainKey: string): Promise<Record<string, unknown> | null> {
+  const [row] = await db.select().from(witnessChainAnchors).where(eq(witnessChainAnchors.chainKey, chainKey)).limit(1);
+  return row?.anchor ?? null;
+}
+
 /**
- * Mirror a chain's records locally so future verifies are zero-call.
+ * Mirror a chain's records AND its anchor locally, so future verifies are zero-call and can
+ * reach ANCHORED_VALID.
  *
- * The fetched chain is VERIFIED BEFORE it is stored — signature + continuity from genesis
- * against the pinned did:web key. We will not seed the local store with records we have not
- * checked: a cache that is populated blindly is a cache that can quietly launder a forgery
- * into "evidence". (Verification at read time would still catch it — this is belt and braces,
- * and it means a bad fetch fails now, loudly, rather than at audit time.)
+ * Sourced from GET /chains/{chainKey}/proof — one call returns the full records, the anchor
+ * (Rekor entry + DigiCert/Sectigo TSA tokens) and the didDocument.
+ *
+ * The chain is VERIFIED BEFORE it is stored — signature + continuity from genesis against the
+ * pinned did:web key. We will not seed the local store with records we have not checked: a
+ * cache populated blindly is a cache that can quietly launder a forgery into "evidence".
  */
-export async function backfillChain(chainKey: string): Promise<{ chainKey: string; ok: boolean; added: number[]; alreadyHeld: number[]; fetched: number; detail: string }> {
-  const raw = await fetchRecords(chainKey, "full");
-  const fetched = normalise(((raw.records ?? []) as Record<string, unknown>[]).filter((r) => r.proof));
+export async function backfillChain(chainKey: string): Promise<{ chainKey: string; ok: boolean; added: number[]; alreadyHeld: number[]; fetched: number; anchored: boolean; detail: string }> {
+  const proof = await fetchChainProof(chainKey);
+  const fetched = normalise(((proof.records ?? []) as Record<string, unknown>[]).filter((r) => r.proof));
+  const anchor = (proof.anchor ?? null) as Record<string, unknown> | null;
   if (!fetched.complete) {
-    return { chainKey, ok: false, added: [], alreadyHeld: [], fetched: fetched.chain.length, detail: "fetched chain is not genesis-rooted or has a gap — nothing stored" };
+    return { chainKey, ok: false, added: [], alreadyHeld: [], fetched: fetched.chain.length, anchored: false, detail: "fetched chain is not genesis-rooted or has a gap — nothing stored" };
   }
 
   // Verify the head against the full fetched chain: proves every link back to genesis.
   const head = fetched.chain[fetched.chain.length - 1];
   const v = (await verifyOffline(head, fetched.chain)) as { state?: string; reason?: string; checks?: { signature?: boolean; chain?: boolean } };
   if (v.checks?.signature !== true || v.checks?.chain !== true) {
-    return { chainKey, ok: false, added: [], alreadyHeld: [], fetched: fetched.chain.length, detail: `refusing to mirror an unverified chain: ${v.state}${v.reason ? `/${v.reason}` : ""} (signature=${v.checks?.signature}, chain=${v.checks?.chain})` };
+    return { chainKey, ok: false, added: [], alreadyHeld: [], fetched: fetched.chain.length, anchored: false, detail: `refusing to mirror an unverified chain: ${v.state}${v.reason ? `/${v.reason}` : ""} (signature=${v.checks?.signature}, chain=${v.checks?.chain})` };
   }
 
   const held = new Set((await localRecords(chainKey)).map((r) => Number(r.seq)));
@@ -105,7 +116,17 @@ export async function backfillChain(chainKey: string): Promise<{ chainKey: strin
       .onConflictDoNothing({ target: [witnessChainRecords.chainKey, witnessChainRecords.seq] });
     added.push(seq);
   }
-  return { chainKey, ok: true, added, alreadyHeld, fetched: fetched.chain.length, detail: `chain verified (signature + continuity from genesis) before storing; ${added.length} record(s) mirrored` };
+
+  // Store/advance the anchor. It moves as the chain is re-anchored, so upsert on chainKey.
+  let anchored = false;
+  if (anchor?.head && anchor.seq != null) {
+    await db.insert(witnessChainAnchors)
+      .values({ chainKey, head: String(anchor.head), seq: Number(anchor.seq), anchor })
+      .onConflictDoUpdate({ target: witnessChainAnchors.chainKey, set: { head: String(anchor.head), seq: Number(anchor.seq), anchor, fetchedAt: new Date() } });
+    anchored = true;
+  }
+
+  return { chainKey, ok: true, added, alreadyHeld, fetched: fetched.chain.length, anchored, detail: `chain verified (signature + continuity from genesis) before storing; ${added.length} record(s) mirrored${anchored ? "; anchor (Rekor + TSA) stored" : "; no anchor published yet"}` };
 }
 
 /**
@@ -117,16 +138,17 @@ export async function assembleChain(chainKey: string): Promise<AssembledChain> {
   // 1. Local — the records we sealed, plus the mirrored records we did not (a chain's
   //    seq-0 CHAIN_OPENED record is the Witness operator's, never ours). Zero calls out.
   try {
-    const local = normalise(await localRecords(chainKey));
+    const [local, anchor] = await Promise.all([localRecords(chainKey).then(normalise), localAnchor(chainKey)]);
     if (local.complete) {
-      return { chain: local.chain, source: "local-db", complete: true, detail: `${local.chain.length} record(s) from the local store — 0 calls to witness.getvda.ai` };
+      return { chain: local.chain, anchor, source: "local-db", complete: true, detail: `${local.chain.length} record(s)${anchor ? " + anchor" : ""} from the local store — 0 calls to witness.getvda.ai` };
     }
   } catch { /* fall through to the evidence fetch */ }
 
-  // 2. Fallback — Witness's own full view. An evidence read; the verdict is still ours.
+  // 2. Fallback — Witness's chain-proof bundle. An evidence read; the verdict is still ours.
   try {
-    const raw = await fetchRecords(chainKey, "full");
-    const remote = normalise(((raw.records ?? []) as Record<string, unknown>[]).filter((r) => r.proof));
+    const proof = await fetchChainProof(chainKey);
+    const remote = normalise(((proof.records ?? []) as Record<string, unknown>[]).filter((r) => r.proof));
+    const remoteAnchor = (proof.anchor ?? null) as Record<string, unknown> | null;
     if (remote.complete) {
       // Self-heal: mirror what we just fetched so the NEXT verify is zero-call. Without this
       // the zero-call property decays silently — every new chain (new property) opens with a
@@ -138,15 +160,16 @@ export async function assembleChain(chainKey: string): Promise<AssembledChain> {
       // A failed mirror must not change the verdict, so it is swallowed — worst case we fetch
       // again next time, which is exactly today's behaviour.
       await backfillChain(chainKey).catch(() => {});
-      return { chain: remote.chain, source: "witness-records", complete: true, detail: `${remote.chain.length} record(s) fetched from Witness as evidence — the verdict is still computed locally against the pinned did:web key; mirrored locally so the next verify is zero-call` };
+      return { chain: remote.chain, anchor: remoteAnchor, source: "witness-records", complete: true, detail: `${remote.chain.length} record(s) fetched from Witness as evidence — the verdict is still computed locally against the pinned did:web key; mirrored locally so the next verify is zero-call` };
     }
     return {
       chain: remote.chain,
+      anchor: remoteAnchor,
       source: remote.chain.length ? "witness-records" : "none",
       complete: false,
       detail: "chain is not genesis-rooted or has a gap — continuity cannot be established from the records available",
     };
   } catch (err) {
-    return { chain: [], source: "none", complete: false, detail: `chain unavailable: ${err instanceof Error ? err.message : "unknown error"}` };
+    return { chain: [], anchor: null, source: "none", complete: false, detail: `chain unavailable: ${err instanceof Error ? err.message : "unknown error"}` };
   }
 }

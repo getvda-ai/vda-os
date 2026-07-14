@@ -13,7 +13,7 @@ import { sealStayEvent } from "../lib/staySeal.js";
 import { drainSealOutbox, outboxHealth } from "../lib/sealOutbox.js";
 import { anchorStatus, fetchRecords, fetchReport, witnessKeyHealth, resolveBinding } from "../lib/witnessClient.js";
 import { generateEuAiActReport, C2MD_CONTRACT } from "../lib/c2mdClient.js";
-import { stayChainKey } from "../lib/witnessChain.js";
+import { stayChainKey, STAY_CHAIN_GENERATION } from "../lib/witnessChain.js";
 import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
 import { logger } from "../lib/logger.js";
 
@@ -581,66 +581,27 @@ router.get("/stay/anchor-status", async (req, res) => {
   }
 });
 
-// ── POST /api/stay/verify — REAL offline verification (SDK), three-state. ──────
-// Ed25519 + hash-chain checked from the bundled proofs against the pinned did:web key.
-// The verdict is returned VERBATIM.
+// ── POST /api/stay/verify — REAL offline verification (SDK), three-state. ─────
+// Signature + hash-chain + anchor (Rekor + TSA) checked from our own stored bundle against
+// the pinned did:web key. Zero calls to witness.getvda.ai. The verdict is returned VERBATIM.
 //
-// Hash-chain continuity is a property of the CHAIN, so the verifier needs the ordered
-// records from genesis — not the one record under test. We assemble that from our own
-// store (witness_chain_proof), which keeps the check zero-call AND lets us prove the
-// trail is intact without asking the issuer to vouch for itself. A caller may still pass
-// an explicit `chain` to verify evidence we did not seal.
-//
-// `anchor` is deliberately NOT synthesised: the SDK treats an anchor it cannot verify as
-// BROKEN ("quorum not met"), and Witness's REST API does not publish the Rekor entry or
-// TSA tokens needed to verify one offline. Passing the bundle-less anchor summary would
-// manufacture a second false tamper alarm. Absent an anchor the SDK returns SIGNED_PENDING
-// — signature + chain proven locally, the anchor attested separately by Witness's own
-// external verification (see /stay/anchor-status). We only forward a caller-supplied
-// anchor, which is the path that carries real Rekor/TSA proof.
+// All of the policy — chain assembly, the missing-input vs real-tamper distinction, and the
+// anchor rules — lives in ONE place (lib/verifyRecord.ts) so this route, the persisted-verdict
+// repair, and anything added later can never drift into disagreeing about the same record.
 router.post("/stay/verify", async (req, res) => {
   try {
     const record = req.body?.record ?? (req.body?.sealed_record as Record<string, unknown> | undefined);
     if (!record) { res.status(400).json({ error: "record required" }); return; }
-    const { verifyOffline } = await import("../lib/witnessClient.js");
-    const { assembleChain } = await import("../lib/witnessChainProof.js");
+    const { verifyRecordAgainstChain } = await import("../lib/verifyRecord.js");
 
-    let chain = Array.isArray(req.body?.chain) ? (req.body.chain as Record<string, unknown>[]) : undefined;
-    let chainSource = chain ? "caller-supplied" : "none";
-    let chainDetail = chain ? `${chain.length} record(s) supplied by the caller` : "";
-    if (!chain) {
-      const companyId = Number(req.body?.company_id ?? req.body?.companyId ?? 0);
-      const chainKey = (record.chainKey as string | undefined) ?? (req.body?.chain_key as string | undefined) ?? (await chainKeyForCompany(companyId));
-      const assembled = await assembleChain(chainKey);
-      chainSource = assembled.source;
-      chainDetail = assembled.detail;
-      if (assembled.complete) {
-        chain = assembled.chain;
-        // The SDK rejects a record that is absent from the supplied chain as BROKEN/"malformed".
-        // A record can legitimately be absent — sealed after this snapshot was taken. Extend the
-        // chain by one when it is the contiguous next link (verifyChain still checks the linkage
-        // for real, so a forged record fails here); otherwise verify without a chain rather than
-        // manufacture a "malformed" verdict for evidence that is merely out of view.
-        if (!chain.some((r) => r.recordId === record.recordId)) {
-          if (Number(record.seq) === chain.length) {
-            chain = [...chain, record];
-            chainDetail = `${chainDetail}; the record under test appended as the contiguous next link`;
-          } else {
-            chain = undefined;
-            chainDetail = `record seq ${String(record.seq)} is not in the assembled chain (${assembled.chain.length} record(s)) — continuity not established`;
-          }
-        }
-      }
-    }
+    const companyId = Number(req.body?.company_id ?? req.body?.companyId ?? 0);
+    const chainKey = (req.body?.chain_key as string | undefined) ?? (await chainKeyForCompany(companyId));
+    const out = await verifyRecordAgainstChain(record as Record<string, unknown>, chainKey, {
+      chain: Array.isArray(req.body?.chain) ? (req.body.chain as Record<string, unknown>[]) : undefined,
+      anchor: (req.body?.anchor ?? null) as Record<string, unknown> | null,
+    });
 
-    const verdict = await verifyOffline(record, chain, req.body?.anchor);
-    // `checked` is the difference between "continuity FAILED" and "continuity was never
-    // TESTED" — identical on the wire (BROKEN/"chain", signature ✓), opposite in meaning.
-    // With a genesis-rooted chain in hand, BROKEN/"chain" means a record really was altered,
-    // deleted or reordered: a loud tamper. Without one, it means we lacked the input. The
-    // caller cannot tell these apart from the verdict alone, so we say which happened —
-    // otherwise a UI must guess, and guessing wrong either cries wolf or hides a forgery.
-    res.json({ ok: true, verdict, chain: { source: chainSource, length: chain?.length ?? 0, checked: chain !== undefined, detail: chainDetail } });
+    res.json({ ok: true, verdict: out.verdict, chain: out.chain, anchor: out.anchor });
   } catch (err) {
     logger.error({ err }, "stay/verify error");
     res.status(500).json({ error: err instanceof Error ? err.message : "verify failed" });
@@ -680,21 +641,154 @@ router.post("/stay/chain/backfill", async (req, res) => {
   }
 });
 
+// ── POST /api/stay/trail/correct — append a correction to the evidence trail. ──
+// Records sealed before the parse fix carry governingRule.ruleText = "Unable to parse agent
+// response" under ruleId stay-agent.SOP.md — so the trail ASSERTS the SOP contained that text.
+// It never did. That is a fabricated clause in permanent, anchored evidence.
+//
+// An append-only trail is corrected by APPENDING, never by rewriting or by retiring the chain
+// and starting a clean one — a chain quietly abandoned the moment it embarrasses its author is
+// exactly what evidence laundering looks like, and the anchored records would remain anyway.
+// So we publish a correction record that names the defective records, states the defect and its
+// root cause, and leaves the originals standing. An auditor reading the chain sees both the
+// error and the correction, which is the point.
+//
+// Idempotent: if a correction covering the same records is already on the chain, it is not
+// re-appended.
+const FABRICATED_CLAUSE = "Unable to parse agent response";
+router.post("/stay/trail/correct", async (req, res) => {
+  try {
+    const dryRun = Boolean(req.body?.dry_run);
+    const rows = (await db.select().from(witnessEntries)).filter((r) => r.witnessSealRef);
+
+    // Find the defective records + any correction already published, per chain.
+    const defects = new Map<string, Array<{ recordId: string; seq: number; companyId: number }>>();
+    const corrected = new Set<string>();
+    for (const row of rows) {
+      const ref = row.witnessSealRef as Record<string, unknown>;
+      const rec = ref.record as Record<string, unknown> | undefined;
+      const chainKey = ref.chainKey as string | undefined;
+      if (!rec || !chainKey) continue;
+      const rule = (rec.governingRule ?? {}) as { ruleText?: string };
+      const decision = (rec.decision ?? {}) as { verdict?: string; inputs?: { corrects_records?: unknown[] } };
+      const verdict = decision.verdict;
+      if (verdict === "TRAIL_CORRECTION") {
+        // A correction only counts as published if it actually NAMES the records it corrects in
+        // machine-readable form. The first one we appended lost that payload to input
+        // minimisation (its allowlist dropped the fields), leaving prose an auditor can read but
+        // a tool cannot act on. Treat it as incomplete and supersede it — by appending, of course.
+        if (Array.isArray(decision.inputs?.corrects_records) && decision.inputs.corrects_records.length) corrected.add(chainKey);
+        continue;
+      }
+      if (typeof rule.ruleText === "string" && rule.ruleText.trim() === FABRICATED_CLAUSE) {
+        const list = defects.get(chainKey) ?? [];
+        list.push({ recordId: String(rec.recordId ?? ""), seq: Number(rec.seq), companyId: row.companyId });
+        defects.set(chainKey, list);
+      }
+    }
+
+    // A RETIRED chain (the pre-v2 generation) must never be written to again — that invariant is
+    // what makes its retirement meaningful, and breaking it to tidy up our own mistake would be
+    // self-serving. Its defective records are instead named in the correction published on the
+    // CURRENT chain for the same property, which is the live evidence surface an auditor reads.
+    const isCurrent = (k: string) => k.endsWith(`:${STAY_CHAIN_GENERATION}`);
+    const scopeOf = (k: string) => (k.includes(":") ? k.split(":")[0] : k);
+    const foreign = new Map<string, Array<{ chainKey: string; recordId: string; seq: number }>>();
+    for (const [chainKey, records] of [...defects]) {
+      if (isCurrent(chainKey)) continue;
+      const target = `${scopeOf(chainKey)}:${STAY_CHAIN_GENERATION}`;
+      const list = foreign.get(target) ?? [];
+      for (const r of records) list.push({ chainKey, recordId: r.recordId, seq: r.seq });
+      foreign.set(target, list);
+      defects.delete(chainKey); // never appended to; carried on the current chain instead
+      if (!defects.has(target)) defects.set(target, []); // ensure the correction still gets published
+    }
+
+    const results = [];
+    for (const [chainKey, records] of defects) {
+      records.sort((a, b) => a.seq - b.seq);
+      const alsoOnRetired = foreign.get(chainKey) ?? [];
+      if (corrected.has(chainKey)) { results.push({ chainKey, affected: records.map((r) => r.seq), appended: false, reason: "a correction is already published on this chain" }); continue; }
+      if (dryRun) { results.push({ chainKey, affected: records.map((r) => r.seq), alsoCorrectsRetired: alsoOnRetired.map((r) => `${r.chainKey}#${r.seq}`), appended: false, reason: "dry run" }); continue; }
+
+      const companyId = records[0]?.companyId ?? Number(req.body?.company_id ?? 1);
+      const propertyId = chainKey.includes(":") ? chainKey.split(":")[0] : null;
+      const seqs = records.map((r) => r.seq);
+
+      const here = seqs.length ? `Records ${seqs.map((s) => `seq ${s}`).join(", ")} on this chain` : "Records on a retired chain for this property";
+      const alsoText = alsoOnRetired.length
+        ? ` This correction also covers ${alsoOnRetired.map((r) => `${r.chainKey} seq ${r.seq}`).join(", ")} — a RETIRED chain, which is append-only and closed, so its correction is published here on the current chain rather than by writing to it.`
+        : "";
+
+      const reasoning =
+        `Correction. ${here} were sealed with governingRule.ruleText = "${FABRICATED_CLAUSE}" attributed to stay-agent.SOP.md. The SOP has never contained that text. It was an agent fault — the decision model's JSON answer was truncated and could not be parsed — written into the governing-rule field, so the trail wrongly asserted the SOP said it.${alsoText} ` +
+        `Root cause: the decision call allowed 2048 max_tokens, but the model bills its internal reasoning against that budget (it spent ~1962), leaving the answer truncated mid-string on every request. Those decisions escalated to a human, so no ungoverned action was taken. ` +
+        `Fixed: the token budget was raised and truncation is now retried and detected explicitly; an agent fault is now recorded as a typed agent_error and can no longer be written into the governing-rule field. ` +
+        `The original records are left standing and unaltered — this chain is append-only and correcting it by rewriting would destroy the very property that makes it evidence.` +
+        ` If an earlier TRAIL_CORRECTION appears on this chain, this record supersedes it: that one carried this narrative but lost its machine-readable list of corrected records to input minimisation, so it is restated here in full. It too is left standing rather than removed.`;
+
+      const localId = await writeWitnessEntry({
+        companyId,
+        agent: "Stay Agent",
+        decision: {
+          decision: "TRAIL_CORRECTION",
+          clauseApplied: "stay-agent.SOP.md#correction — a defect in sealed evidence is corrected by appending, never by rewriting.",
+          reasoning,
+          actionProposed: "No operational action. This record corrects the evidence trail only.",
+        } as never,
+        fileReferenced: "stay-agent.SOP.md",
+        apaleoData: {},
+        eventCategory: "TRAIL_CORRECTION",
+      });
+
+      await sealStayEvent({
+        companyId,
+        localWitnessId: localId,
+        verdict: "TRAIL_CORRECTION",
+        reasoning,
+        actionProposed: "No operational action — corrects the evidence trail only.",
+        inputs: {
+          corrects_records: [
+            ...records.map((r) => ({ chainKey, recordId: r.recordId, seq: r.seq })),
+            ...alsoOnRetired.map((r) => ({ chainKey: r.chainKey, recordId: r.recordId, seq: r.seq, note: "retired chain — closed to writes; corrected from here" })),
+          ],
+          defect: `governingRule.ruleText was set to "${FABRICATED_CLAUSE}" — an agent fault recorded as if it were the text of the governing SOP clause`,
+          root_cause: "decision-model answer truncated (thinking tokens billed against max_tokens=2048); the parse failure was written into the clause field",
+          operational_impact: "none — every affected decision ESCALATED to a human; no autonomous action was taken on a failed parse",
+          remedy: "token budget raised + truncation retried/detected; agent faults now carried as a typed agent_error and never as a governing rule",
+        },
+        ruleId: "stay-agent.SOP.md#correction",
+        ruleText:
+          "Evidence correction: a defect in an append-only trail is corrected by appending a correction record that names the defective records and the defect. The originals are never rewritten, deleted, or hidden, and the chain is never retired to bury them.",
+        propertyId,
+      });
+
+      results.push({ chainKey, affected: seqs, alsoCorrectsRetired: alsoOnRetired.map((r) => `${r.chainKey}#${r.seq}`), appended: true, correctsRecordIds: records.map((r) => r.recordId) });
+    }
+
+    if (!defects.size) { res.json({ ok: true, chains: [], detail: "no records carrying the fabricated clause were found — nothing to correct" }); return; }
+    res.json({ ok: true, dryRun, chains: results });
+  } catch (err) {
+    logger.error({ err }, "stay/trail/correct error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "trail correction failed" });
+  }
+});
+
 // ── POST /api/stay/reverify — repair persisted verdicts. ──────────────────────
-// Records sealed before the chain-aware verify carry witness_state = "BROKEN", written
-// by a seal-time check that verified each record against a chain containing only itself
-// — unsatisfiable for any seq >= 1. Those rows render as "✗ verification failed" against
-// evidence that is intact and externally anchored. Re-verify each sealed record against
-// its ASSEMBLED chain and persist the honest verdict. Idempotent; corrects in both
-// directions, so a genuinely broken record is still marked BROKEN.
+// Records sealed before the chain-aware verify carry witness_state = "BROKEN", written by a
+// seal-time check that verified each record against a chain containing only itself —
+// unsatisfiable for any seq >= 1. Those rows render "✗ verification failed" over evidence that
+// is intact and externally anchored. Re-verify each sealed record through the SAME policy the
+// live Verify button uses (lib/verifyRecord.ts) and persist the honest verdict — now including
+// ANCHORED_VALID where the Rekor + TSA quorum verifies. Idempotent, and it corrects in BOTH
+// directions: a genuinely broken record is still written BROKEN.
 router.post("/stay/reverify", async (req, res) => {
   try {
-    const { verifyOffline } = await import("../lib/witnessClient.js");
-    const { assembleChain } = await import("../lib/witnessChainProof.js");
+    const { verifyRecordAgainstChain } = await import("../lib/verifyRecord.js");
 
     const rows = (await db.select().from(witnessEntries)).filter((r) => r.witnessSealRef);
-    const chains = new Map<string, Awaited<ReturnType<typeof assembleChain>>>();
     const changed: Array<{ id: number; seq: unknown; from: string | null; to: string }> = [];
+    const sources = new Map<string, string>();
     let unchanged = 0, skipped = 0;
 
     for (const row of rows) {
@@ -703,24 +797,15 @@ router.post("/stay/reverify", async (req, res) => {
       const chainKey = ref.chainKey as string | undefined;
       if (!record?.proof || !chainKey) { skipped++; continue; } // nothing verifiable held
 
-      if (!chains.has(chainKey)) chains.set(chainKey, await assembleChain(chainKey));
-      const assembled = chains.get(chainKey)!;
-      const chain = assembled.complete && assembled.chain.some((r) => r.recordId === record.recordId) ? assembled.chain : undefined;
+      const out = await verifyRecordAgainstChain(record, chainKey);
+      sources.set(chainKey, `${out.chain.source}${out.anchor.supplied ? " +anchor" : ""}`);
 
-      const v = (await verifyOffline(record, chain)) as { state?: string; reason?: string; checks?: { signature?: boolean } };
-      // Downgrade BROKEN/"chain" to SIGNED_PENDING ONLY when no chain was supplied — that is
-      // a missing input, not a tamper. When a genesis-rooted chain WAS supplied and the
-      // linkage still fails, the trail really is broken: keep it BROKEN and let it shout.
-      // (Softening that case would turn this repair into a forgery-laundering machine.)
-      const inputMissing = chain === undefined && v.state === "BROKEN" && v.reason === "chain" && v.checks?.signature === true;
-      const state = inputMissing ? "SIGNED_PENDING" : (v.state ?? "SIGNED_PENDING");
-
-      if (state === row.witnessState) { unchanged++; continue; }
-      await db.update(witnessEntries).set({ witnessState: state }).where(eq(witnessEntries.id, row.id));
-      changed.push({ id: row.id, seq: record.seq, from: row.witnessState, to: state });
+      if (out.persistState === row.witnessState) { unchanged++; continue; }
+      await db.update(witnessEntries).set({ witnessState: out.persistState }).where(eq(witnessEntries.id, row.id));
+      changed.push({ id: row.id, seq: record.seq, from: row.witnessState, to: out.persistState });
     }
 
-    res.json({ ok: true, changed: changed.length, unchanged, skipped, chains: [...chains.entries()].map(([k, c]) => ({ chainKey: k, source: c.source, complete: c.complete, length: c.chain.length })), updates: changed });
+    res.json({ ok: true, changed: changed.length, unchanged, skipped, chains: [...sources.entries()].map(([chainKey, source]) => ({ chainKey, source })), updates: changed });
   } catch (err) {
     logger.error({ err }, "stay/reverify error");
     res.status(500).json({ error: err instanceof Error ? err.message : "reverify failed" });
