@@ -138,6 +138,16 @@
   .art{border:1px solid var(--line);border-radius:8px;padding:7px 9px;margin:6px 0;font-size:11.5px}
   .art .ah{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .art .an{font-weight:700}
+  .art .p{margin-top:6px;line-height:1.5}
+  .art .p:first-of-type{margin-top:7px}
+  .secttl{margin:12px 0 4px;font-weight:700;font-size:11.5px;letter-spacing:.02em;opacity:.9}
+  /* Raw response is a developer affordance — collapsed by default so a compliance reader
+     never sees a JSON dump. Never auto-open this for a product surface. */
+  .rawwrap{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
+  .rawwrap>summary{cursor:pointer;font-size:10.5px;color:var(--dim);list-style:none;user-select:none}
+  .rawwrap>summary::-webkit-details-marker{display:none}
+  .rawwrap>summary::before{content:"▸ ";opacity:.7}
+  .rawwrap[open]>summary::before{content:"▾ "}
   .cov{font-size:10px;font-weight:700;padding:1px 7px;border-radius:12px;border:1px solid}
   .cov.covered{color:#4ade80;border-color:#1f5a34} .cov.partial{color:#c9b56a;border-color:#5a4d22}
   .cov.action{color:#8ab4ff;border-color:#274a7a} .cov.unev{color:#fff;border-color:#a11;background:#c0202a}
@@ -196,7 +206,7 @@
 <div id="modal"><div class="mcard">
   <div class="mh"><h3 id="mTitle">Report</h3><span class="spacer" style="flex:1"></span>
     <button id="mDownload" style="font-size:12px">Download JSON</button><button id="mClose" style="font-size:12px">Close</button></div>
-  <div class="mb"><div class="mnote" id="mNote"></div><div id="mRich"></div><pre id="mBody">Loading…</pre></div>
+  <div class="mb"><div class="mnote" id="mNote"></div><div id="mRich"></div><details class="rawwrap"><summary>Raw response (developer)</summary><pre id="mBody">Loading…</pre></details></div>
 </div></div>
 
 <div id="scrim"></div>
@@ -504,7 +514,7 @@ document.querySelectorAll(".stat[data-nav]").forEach(t=>t.addEventListener("clic
 
 // ── Reports: Evidence trail (/records), Article-12 (/report), EU AI Act (C2MD) ──
 let lastReport=null;
-function openModal(title,note){$("#modal").classList.add("open");$("#mTitle").textContent=title;$("#mNote").innerHTML=note||"";$("#mRich").innerHTML="";$("#mBody").textContent="Loading…";lastReport=null;}
+function openModal(title,note){$("#modal").classList.add("open");$("#mTitle").textContent=title;$("#mNote").innerHTML=note||"";$("#mRich").innerHTML="";$("#mBody").textContent="Loading…";document.querySelector(".rawwrap")?.removeAttribute("open");lastReport=null;}
 
 // Evidence trail — account-isolated records from VDA Witness /records (no accountId).
 $("#recBtn").addEventListener("click",async()=>{
@@ -562,10 +572,21 @@ $("#euBtn").addEventListener("click",async()=>{
     const yn=v=>v?'<span class="cov action">required</span>':'<span class="cov covered">not required</span>';
     let head=`<div class="gbanner ${rcls}"><b>Risk: ${esc(risk.replace(/_/g," ").toUpperCase())}</b>${ai.annex_reference?` · <span class="dl">${esc(ai.annex_reference)}</span>`:""}
         <span class="dl">role: <b>${esc(ai.provider_or_deployer_role||"?")}</b> · applicable articles: ${(ai.applicable_articles||[]).map(esc).join(", ")||"—"} · assessed in ${esc(secs)}s</span></div>
-      <div class="gbanner signed"><b>Formal deliverables</b> · DPIA ${yn(del.dpia)} · FRIA ${yn(del.fria)} · conformity ${yn(del.conformity_assessment)}${del.ce_marking!==undefined?` · CE mark ${yn(del.ce_marking)}`:""}${del.eu_database_registration!==undefined?` · EU DB reg ${yn(del.eu_database_registration)}`:""}
-        <span class="dl">GDPR: ${esc(String(gd.lawful_basis_analysis||"").slice(0,200))}${(gd.special_category_flags||[]).length?` · flags: ${(gd.special_category_flags||[]).map(esc).join(", ")}`:""}</span></div>`;
-    if(Array.isArray(caps)&&caps.length)head+=caps.map(c=>`<div class="art"><div class="ah"><span class="an">${esc(c.capability||"capability")}</span><span class="cov covered">${(c.framework_drivers||[]).map(esc).join(" · ")}</span></div><div>${esc(c.description||"")}</div></div>`).join("");
-    if(a.synthesis)head+=`<div class="art"><div class="ah"><span class="an">Synthesis</span></div><div>${esc(String(a.synthesis))}</div></div>`;
+      <div class="gbanner signed"><b>Formal deliverables</b> · DPIA ${yn(del.dpia)} · FRIA ${yn(del.fria)} · conformity ${yn(del.conformity_assessment)}${del.ce_marking!==undefined?` · CE mark ${yn(del.ce_marking)}`:""}${del.eu_database_registration!==undefined?` · EU DB reg ${yn(del.eu_database_registration)}`:""}</div>`;
+    // GDPR — rendered IN FULL. This is a compliance document: the lawful-basis analysis, DPIA
+    // reasoning and transfer notes are shown complete, never clipped to a summary length. (The
+    // previous .slice(0,200) truncated the lawful-basis text mid-sentence.)
+    head+=`<div class="art"><div class="ah"><span class="an">GDPR assessment</span>${(gd.special_category_flags||[]).length?`<span class="cov action">special category: ${(gd.special_category_flags||[]).map(esc).join(", ")}</span>`:'<span class="cov covered">no special-category data flagged</span>'}</div>`;
+    if(gd.lawful_basis_analysis)head+=`<div class="p"><b>Lawful basis.</b> ${esc(String(gd.lawful_basis_analysis))}</div>`;
+    if(gd.dpia_required!==undefined)head+=`<div class="p"><b>DPIA.</b> ${gd.dpia_required?"Required":"Not required"}${gd.dpia_reasoning?` — ${esc(String(gd.dpia_reasoning))}`:""}</div>`;
+    if(Array.isArray(gd.cross_border_transfer_issues)&&gd.cross_border_transfer_issues.length)head+=`<div class="p"><b>Cross-border transfers.</b> ${gd.cross_border_transfer_issues.map(x=>esc(String(x))).join(" ")}</div>`;
+    if(gd.automated_decision_making_article_22!==undefined)head+=`<div class="p"><b>Art. 22 (solely automated decisions).</b> ${gd.automated_decision_making_article_22?"Applies — additional safeguards required":"Does not apply — meaningful human involvement"}</div>`;
+    head+=`</div>`;
+    if(Array.isArray(caps)&&caps.length){
+      head+=`<div class="secttl">Required operational capabilities</div>`;
+      head+=caps.map(c=>`<div class="art"><div class="ah"><span class="an">${esc(c.capability||"capability")}</span><span class="cov covered">${(c.framework_drivers||[]).map(esc).join(" · ")}</span></div><div class="p">${esc(c.description||"")}</div></div>`).join("");
+    }
+    if(a.synthesis)head+=`<div class="art"><div class="ah"><span class="an">Synthesis</span></div>${esc(String(a.synthesis)).split(/\n{2,}/).map(p=>`<div class="p">${p.replace(/\n/g," ")}</div>`).join("")}</div>`;
     if(a.assessment_disclaimer)head+=`<div class="mini">⚠ ${esc(String(a.assessment_disclaimer))}</div>`;
     $("#mRich").innerHTML=head;
     $("#mBody").textContent=JSON.stringify(j,null,2);
