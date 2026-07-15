@@ -12,7 +12,7 @@ import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { sealStayEvent } from "../lib/staySeal.js";
 import { drainSealOutbox, outboxHealth } from "../lib/sealOutbox.js";
 import { anchorStatus, fetchRecords, fetchReport, witnessKeyHealth, resolveBinding } from "../lib/witnessClient.js";
-import { generateEuAiActReport, C2MD_CONTRACT } from "../lib/c2mdClient.js";
+import { generateEuAiActReport, assessAgentRisk, C2MD_CONTRACT } from "../lib/c2mdClient.js";
 import { stayChainKey, STAY_CHAIN_GENERATION } from "../lib/witnessChain.js";
 import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
 import { logger } from "../lib/logger.js";
@@ -894,14 +894,45 @@ router.post("/stay/eu-ai-act-report", async (req, res) => {
     const result = await generateEuAiActReport({
       chainKey,
       jurisdictions: ["EU"],
-      // A hotel stay agent handles guest data, not employment data.
-      dataCategories: ["customer_data"],
+      dataCategories: ["financial_data"], // payment references; strict C2MD enum
       autonomyLevel: "assistive",
     });
     res.json(result);
   } catch (err) {
     logger.error({ err }, "stay/eu-ai-act-report error");
     res.status(500).json({ error: err instanceof Error ? err.message : "eu-ai-act-report failed", contract: C2MD_CONTRACT });
+  }
+});
+
+// ── POST /api/stay/eu-ai-act-assessment — C2MD tier-1 risk assessment. ─────────
+// skill assess_agent_risk: diagnostic risk classification (Annex III, provider/deployer role,
+// DPIA/FRIA/conformity, control map across NIST + ISO 42001). Authenticated with the Witness
+// suite key via the Authorization header (see c2mdClient). Works today on a SEALED key.
+//
+// SLOW BY DESIGN: the assessment is an LLM generation that runs ~55s (plus ~10s cold-start).
+// The route must be allowed to wait — see the maxDuration config in build-vercel.mjs — and the
+// console shows a long-running state rather than assuming failure.
+router.post("/stay/eu-ai-act-assessment", async (req, res) => {
+  try {
+    const companyId = Number(req.body?.company_id ?? req.body?.companyId ?? 0);
+    let industry = "Hospitality";
+    try {
+      const [c] = await db.select({ ind: companies.industry }).from(companies).where(eq(companies.id, companyId)).limit(1);
+      if (c?.ind) industry = c.ind;
+    } catch { /* default */ }
+
+    const result = await assessAgentRisk({
+      agentDescription:
+        "citizenM Stay Agent — an AI agent that manages a hotel guest's on-property journey (check-in, in-stay, check-out). It makes governed exception decisions (late check-out, incidental folio charges) under human-in-the-loop oversight (Ambassador and Manager-on-Duty approval bands), reads and writes reservation and folio data via Apaleo, and seals every decision into a tamper-evident VDA Witness hash-chain. Deployed for hotels in the EU (Germany), the UK, and other jurisdictions. Handles guest personal data including names, contact details, payment references, and stay history.",
+      jurisdictions: ["EU", "DE", "GB"],
+      dataCategories: ["financial_data"], // payment references; ordinary PII has no enum member
+      autonomyLevel: "assistive",          // proposes; a human approves within authority bands
+      industry,
+    });
+    res.json(result);
+  } catch (err) {
+    logger.error({ err }, "stay/eu-ai-act-assessment error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "eu-ai-act-assessment failed", contract: C2MD_CONTRACT });
   }
 });
 

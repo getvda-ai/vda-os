@@ -8,47 +8,61 @@
  *   method   : "skills/<skill_id>"  — NOT "message/send". That method does not exist here;
  *              our old call only ever got as far as a param error, never reaching it.
  *   skill    : generate_evidence_readiness_report   (free tier: scope c2md:assess)
- *   auth     : OAuth2 REQUIRED — Google Sign-In (authorizationCode) or Microsoft Entra
- *              (clientCredentials for machine callers). C2MD validates params FIRST and auth
- *              SECOND, so a call with bad params hides the fact that auth is also needed.
- *   modes    : demo      — synthetic; REQUIRES agent_description (omitting it is -32602)
- *              customer  — reads our trail via Witness; REQUIRES witness_api_key
- *              attested  — KEY-SAFE: we supply our OWN chain-proof bundle; no key at all
+ *   auth     : C2MD tier 1 (live since 2026-07-15) accepts the VDA Witness key DIRECTLY as an
+ *              HTTP Bearer credential — securityScheme "witness_bearer", format
+ *              wtn.<keyId>.<secret>, scope c2md:assess. This is a getvda.ai SUITE credential:
+ *              C2MD validates it against witness.getvda.ai (a forged/revoked key is rejected
+ *              -32004 "Witness key rejected"). OAuth2 (Google / Entra) still works but is no
+ *              longer needed. C2MD validates params FIRST and auth SECOND.
  *
- * WHY ATTESTED. Sending witness_api_key (customer mode) would hand C2MD our entire Witness
- * account — the key IS the account. Attested exists precisely to avoid that: we pass the
- * chain-proof bundle (records + predecessor path + anchor + didDocument) which C2MD verifies
- * OFFLINE against pinned public infrastructure (did:web + Rekor/TSA, zero calls to Witness),
- * and it REJECTS a witness_api_key if one is sent. The report is therefore evidence-backed
- * against our real trail AND the key never leaves this process. Article 12 is graded strictly
- * off the verified verdict: ANCHORED_VALID earns anchored language, SIGNED_PENDING reads
- * "readiness — not yet anchored", a tampered bundle is refused, an incomplete one returns
- * INSUFFICIENT_PROOF.
+ * KEY-HANDLING POSTURE (revised, deliberate). The earlier module refused to let the Witness
+ * key leave this process, because sending it as a skill PARAM would hand an arbitrary third
+ * party the whole account. That reasoning is intact for params — the key is never a param. But
+ * C2MD is now a sanctioned first-party consumer of the suite credential via the Authorization
+ * header: it authenticates the key against Witness and, per its own contract, rejects a key
+ * placed in params. So the key may travel as an Authorization: Bearer header to C2MD's own
+ * origin ONLY, and never in a body, never in a param, never to any other host.
  *
- * This module used to call demo mode and tell the operator that an evidence-backed report
- * "cannot be produced without leaking the key". That was true before attested shipped; it is
- * false now. Worse, it called demo WITHOUT agent_description — which demo requires — so the
- * panel displayed a -32602 underneath a stale refusal to even attempt the mode that works.
+ * TWO CALLS:
+ *   assessAgentRisk  — skill assess_agent_risk. Diagnostic risk classification (Annex III,
+ *                      provider/deployer role, DPIA/FRIA, control map). Free tier, works with a
+ *                      SEALED key today. This is the evidence-readiness SCOPE.
+ *   generateEuAiActReport — skill generate_evidence_readiness_report, ATTESTED mode: we hand
+ *                      C2MD our own chain-proof bundle (no key in the body) and it verifies the
+ *                      evidence offline. Full bundle generation needs the ANCHORED tier.
  *
- * GUARDRAIL (unchanged, non-negotiable): the Witness key is NEVER sent to C2MD. Asserted on
- * the serialised payload before the request leaves.
+ * LATENCY (measured live, flag for callers): a successful assess LLM call takes ~51-55s, plus
+ * ~10s cold-start on a scaled-to-zero C2MD instance. Client timeouts and any serverless
+ * function maxDuration MUST budget for this or the call 504s before C2MD answers.
  */
 import { logger } from "./logger.js";
-import { fetchChainProof, fetchReport } from "./witnessClient.js";
+import { fetchChainProof, fetchReport, currentWitnessKey } from "./witnessClient.js";
 
 const C2MD_BASE = process.env.C2MD_BASE_URL || "https://c2md.getvda.ai";
 const SKILL = "generate_evidence_readiness_report";
-/** OAuth2 bearer for C2MD (Google Sign-In / MS service principal). NOT the Witness key. */
+/** OAuth2 bearer for C2MD, if configured. Optional now that witness_bearer works. */
 const c2mdToken = (): string => (process.env.C2MD_ACCESS_TOKEN || "").trim();
+/** The auth header C2MD accepts: an explicit OAuth token if set, else the Witness suite key.
+ *  The key rides ONLY in this header, ONLY to C2MD's origin — never in a param or body. */
+const c2mdAuthHeader = (): string | null => {
+  const oauth = c2mdToken();
+  if (oauth) return `Bearer ${oauth}`;
+  const wk = currentWitnessKey();
+  return wk ? `Bearer ${wk}` : null;
+};
+
+/** C2MD input enums (strict — a value off-list fails the governance gate with -32600). */
+export const C2MD_DATA_CATEGORIES = ["special_category_gdpr_art9", "employment_data", "financial_data", "children_data", "biometric", "health_data", "no_personal_data"] as const;
+export const C2MD_AUTONOMY_LEVELS = ["advisory", "assistive", "autonomous"] as const;
 
 export const C2MD_CONTRACT = {
   endpoint: `${C2MD_BASE}/a2a`,
   transport: "A2A JSON-RPC 2.0 (skills/<skill_id>)",
   skill: SKILL,
-  auth: "OAuth2 required — Google Sign-In or Microsoft Entra, scope c2md:assess (free tier)",
-  trailAuthModel: "attested — we supply our own Witness chain-proof bundle; C2MD verifies it offline and rejects a witness_api_key. The key never leaves the Stay Agent.",
-  keyBlocked: true,
-  usedMode: "attested" as const,
+  auth: "witness_bearer — the VDA Witness suite key as Authorization: Bearer wtn.<keyId>.<secret>, scope c2md:assess (free tier). OAuth2 (Google/Entra) also accepted.",
+  trailAuthModel: "The Witness key authenticates to C2MD (a sibling getvda.ai suite service) as an Authorization header only; it is never placed in a skill param or body, and attested mode still rejects a key in params.",
+  keyBlocked: false,
+  usedMode: "witness_bearer" as const,
 } as const;
 
 export interface C2mdReportResult {
@@ -71,6 +85,91 @@ const fail = (error: string, blocked: string, extra: Partial<C2mdReportResult> =
   ok: false, mode: "attested", evidenceBacked: false, grade: "not-produced",
   error, blocked, contract: C2MD_CONTRACT, ...extra,
 });
+
+export interface C2mdAssessResult {
+  ok: boolean;
+  skill: "assess_agent_risk";
+  /** The diagnostic assessment (ai_act_assessment, gdpr_assessment, required_formal_deliverables, ...). */
+  assessment?: Record<string, unknown>;
+  error?: string;
+  /** Present only when no assessment was produced — the real reason, stated plainly. */
+  blocked?: string;
+  latencyMs?: number;
+  contract: typeof C2MD_CONTRACT;
+}
+
+/**
+ * C2MD tier-1 risk assessment (skill assess_agent_risk) — diagnostic only, free tier.
+ *
+ * Authenticated with the Witness suite key via the Authorization header (see c2mdAuthHeader).
+ * Nothing is fabricated on failure: the reason is returned verbatim and no assessment is shown.
+ *
+ * Latency budget is deliberately large (~55s generation + ~10s cold-start observed live). The
+ * caller's own timeout — and any serverless maxDuration — must exceed this or the call 504s.
+ */
+export async function assessAgentRisk(input: {
+  agentDescription: string;
+  jurisdictions: string[];
+  dataCategories: Array<(typeof C2MD_DATA_CATEGORIES)[number]>;
+  autonomyLevel: (typeof C2MD_AUTONOMY_LEVELS)[number];
+  industry?: string;
+}): Promise<C2mdAssessResult> {
+  const auth = c2mdAuthHeader();
+  if (!auth) {
+    return { ok: false, skill: "assess_agent_risk", error: "no credential available", blocked: "No Witness key (or C2MD OAuth token) is configured, so C2MD cannot authenticate the call. Set WITNESS_API_KEY (or C2MD_ACCESS_TOKEN). No assessment produced.", contract: C2MD_CONTRACT };
+  }
+
+  const body = {
+    jsonrpc: "2.0",
+    id: "stay-agent-assess",
+    method: `skills/assess_agent_risk`,
+    params: {
+      agent_description: input.agentDescription,
+      jurisdictions: input.jurisdictions,
+      data_categories: input.dataCategories, // strict enum — see C2MD_DATA_CATEGORIES
+      autonomy_level: input.autonomyLevel,   // strict enum — see C2MD_AUTONOMY_LEVELS
+      ...(input.industry ? { industry: input.industry } : {}),
+      // The Witness key is NOT here. It rides in the Authorization header only; C2MD rejects
+      // a key placed in params, and embedding it in a body would be the leak we guard against.
+    },
+  };
+
+  const t0 = Date.now();
+  try {
+    const r = await fetch(C2MD_CONTRACT.endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: auth },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(150_000), // C2MD assess runs ~55s + cold start; do not clip it
+    });
+    const latencyMs = Date.now() - t0;
+    const text = await r.text();
+    let j: Record<string, unknown>;
+    try { j = JSON.parse(text) as Record<string, unknown>; }
+    catch { return { ok: false, skill: "assess_agent_risk", error: `C2MD returned non-JSON (HTTP ${r.status}): ${text.slice(0, 160)}`, blocked: "C2MD did not return a JSON-RPC response. No assessment produced.", latencyMs, contract: C2MD_CONTRACT }; }
+
+    if (j.error) {
+      const e = j.error as { code?: number; message?: string };
+      const msg = `C2MD error ${e.code ?? ""}: ${String(e.message ?? "unknown").split("\n")[0]}`;
+      const blocked = e.code === -32004
+        ? "C2MD rejected the credential. If this is 'Witness key rejected', the key may be invalid or revoked; if 'Invalid audience', no credential reached C2MD."
+        : "C2MD refused the request. Its error is shown verbatim — nothing softened, no assessment substituted.";
+      return { ok: false, skill: "assess_agent_risk", error: msg, blocked, latencyMs, contract: C2MD_CONTRACT };
+    }
+
+    // A2A envelope: { result: { content, content_type, skill_id } } — the assessment is `content`.
+    const result = (j.result ?? {}) as Record<string, unknown>;
+    const assessment = (result.content ?? result) as Record<string, unknown>;
+    return { ok: true, skill: "assess_agent_risk", assessment, latencyMs, contract: C2MD_CONTRACT };
+  } catch (err) {
+    const latencyMs = Date.now() - t0;
+    const msg = err instanceof Error ? err.message : String(err);
+    const blocked = /timeout|abort/i.test(msg)
+      ? `The C2MD call did not return within the client timeout (${latencyMs}ms elapsed). assess_agent_risk runs ~55s; if this recurs the timeout — or a serverless function's maxDuration — is set too low.`
+      : "The C2MD call failed. No assessment produced.";
+    return { ok: false, skill: "assess_agent_risk", error: msg, blocked, latencyMs, contract: C2MD_CONTRACT };
+  }
+}
 
 /**
  * Generate the EU AI Act Evidence & Readiness Report via C2MD — ATTESTED mode: key-safe and
@@ -120,33 +219,33 @@ export async function generateEuAiActReport(input: {
       witness_proof_bundle: proofBundle,
       witness_report: witnessReport,
       jurisdictions: input.jurisdictions ?? ["EU"],
-      data_categories: input.dataCategories ?? ["customer_data"],
+      // Strict enum — "customer_data" is NOT a member and fails the governance gate (-32600).
+      // A hotel handles payment references → financial_data.
+      data_categories: input.dataCategories ?? ["financial_data"],
       autonomy_level: input.autonomyLevel ?? "assistive",
-      // NO witness_api_key, NO agent_description — both deliberate. The first would hand over
-      // the account; the second is a demo-mode input that attested neither needs nor accepts.
+      // NO witness_api_key in params, NO agent_description. The key authenticates via the
+      // Authorization header (below); attested rejects a key placed in params.
     },
   };
   const outbound = JSON.stringify(body);
 
-  // HARD ASSERTION: the Witness key must never appear in anything sent to C2MD.
-  const witnessKey = process.env.WITNESS_API_KEY;
+  // HARD ASSERTION: the key rides in the Authorization header, never in the body. If it ever
+  // appears in the serialised params, that is a leak — refuse.
+  const witnessKey = currentWitnessKey();
   if (witnessKey && outbound.includes(witnessKey)) {
-    logger.error("[c2md] refusing to send — Witness key present in outbound payload");
+    logger.error("[c2md] refusing to send — Witness key present in outbound body");
     return fail(
-      "blocked: Witness key present in payload",
-      "Refused to send: the Witness account key appeared in the outbound body. The key IS the account; it is never shared.",
+      "blocked: Witness key present in body",
+      "Refused to send: the Witness key appeared in the request body. It may only travel as an Authorization header to C2MD, never as a param.",
       { chainKey: input.chainKey, proof: proofSummary },
     );
   }
 
-  const token = c2mdToken();
-  if (!token) {
-    // Name what is actually missing. C2MD auth-checks every call whose params validate, so
-    // without a token NEITHER attested NOR demo can return a report. This is a credential gap
-    // — not a limitation of attested mode, and not a key-sharing problem.
+  const auth = c2mdAuthHeader();
+  if (!auth) {
     return fail(
-      "no C2MD OAuth token configured (C2MD_ACCESS_TOKEN)",
-      "C2MD requires an OAuth2 token on every call (Google Sign-In or Microsoft Entra, scope c2md:assess); without one it answers -32004. The attested request is otherwise complete and key-safe — it needs only a token. Set C2MD_ACCESS_TOKEN. No report produced; nothing synthesised in its place.",
+      "no credential available (WITNESS_API_KEY or C2MD_ACCESS_TOKEN)",
+      "C2MD authenticates every call. With no Witness key and no OAuth token configured it answers -32004. Set WITNESS_API_KEY. No report produced; nothing synthesised in its place.",
       { chainKey: input.chainKey, proof: proofSummary },
     );
   }
@@ -154,9 +253,9 @@ export async function generateEuAiActReport(input: {
   try {
     const r = await fetch(C2MD_CONTRACT.endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      headers: { "content-type": "application/json", authorization: auth },
       body: outbound,
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(150_000), // generation is slow; do not clip it
     });
     const text = await r.text();
     let j: Record<string, unknown>;

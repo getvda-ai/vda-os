@@ -43,6 +43,9 @@ function configuredKey(): string | null { return process.env.WITNESS_API_KEY || 
 function isConfigured(): boolean { return Boolean(configuredKey()); }
 /** A freshly-renewed key (same account) wins; else the configured long-lived seed. */
 function currentKey(): string | null { return cachedKey || configuredKey() || null; }
+/** The active Witness key — for presenting to sibling getvda.ai suite services (e.g. C2MD's
+ *  witness_bearer auth). Only ever sent as an Authorization header to a suite origin. */
+export function currentWitnessKey(): string | null { return currentKey(); }
 export function isWitnessEnabled(): boolean { return Boolean(currentKey()) || canRenew(); }
 function isAuthError(m: string): boolean {
   return /unknown api key|malformed api key|unauthorized|api key .*(expired|invalid)|invalid api key|expired|401/i.test(m);
