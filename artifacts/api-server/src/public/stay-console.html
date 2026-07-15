@@ -139,6 +139,8 @@
   .art .ah{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .art .an{font-weight:700}
   .art .p{margin-top:6px;line-height:1.5}
+  .art .p.ev{color:var(--dim);font-size:10.5px;margin-top:5px}
+  .art .p.ev code{font-size:10px}
   .art .p:first-of-type{margin-top:7px}
   .secttl{margin:12px 0 4px;font-weight:700;font-size:11.5px;letter-spacing:.02em;opacity:.9}
   /* Raw response is a developer affordance — collapsed by default so a compliance reader
@@ -537,9 +539,33 @@ $("#artBtn").addEventListener("click",async()=>{
     const rep=j.report??j;lastReport=rep;
     const lc=rep.lifecycle||"—";const cls=/ANCHOR/i.test(lc)?"anchored":/DEMO|PENDING|SIGNED/i.test(lc)?"demo":"signed";
     const scopeCk=rep.queryScope?.chainKey||j.chainKey||"—";
-    $("#mRich").innerHTML=`<div class="gbanner ${cls}"><b>${esc(rep.reportType||"art12")}</b> · lifecycle: <b>${esc(lc)}</b> · scope: <b>${esc(scopeCk)}</b> · integrity: ${esc(rep.integrity?.verified??rep.integrity?.status??"")}
+    // Integrity is an object {chainValid,recordCount,verifiedCount,errors} — the old code read
+    // .verified/.status (neither exists) so it rendered blank. Show what's actually there.
+    const intg=rep.integrity||{},cov=rep.coverage||{},entries=Array.isArray(rep.entries)?rep.entries:[];
+    const integrityTxt = intg.chainValid!==undefined
+      ? `chain ${intg.chainValid?"valid ✓":"BROKEN ✗"} · ${esc(intg.verifiedCount??"?")}/${esc(intg.recordCount??"?")} verified${(intg.errors||[]).length?` · ${(intg.errors||[]).length} error(s)`:""}`
+      : "";
+    const vcls=v=>/PASS/i.test(v)?"covered":/FAIL/i.test(v)?"action":/ESCALATE|CORRECTION/i.test(v)?"partial":"unev";
+    let html=`<div class="gbanner ${cls}"><b>${esc(rep.title||rep.reportType||"Article 12 Evidence Report")}</b> · lifecycle: <b>${esc(lc)}</b> · scope: <b>${esc(scopeCk)}</b>${integrityTxt?` · integrity: ${integrityTxt}`:""}${rep.anchoringStatus?` · <b>${esc(rep.anchoringStatus)}</b>`:""}
       ${rep.disclaimer?`<span class="dl">⚠ ${esc(typeof rep.disclaimer==="string"?rep.disclaimer:JSON.stringify(rep.disclaimer))}</span>`:""}</div>
-      <div class="mini">${esc((rep.entries||[]).length)} entr${(rep.entries||[]).length===1?"y":"ies"} on <b>${esc(scopeCk)}</b> — retired/dev chains excluded.</div>`;
+      <div class="mini">${esc(entries.length)} entr${entries.length===1?"y":"ies"}${cov.firstSeq!==undefined?` · seq ${esc(cov.firstSeq)}–${esc(cov.lastSeq)}`:""}${cov.periodFrom?` · ${esc(String(cov.periodFrom).slice(0,10))} → ${esc(String(cov.periodTo||"").slice(0,10))}`:""} on <b>${esc(scopeCk)}</b> — retired/dev chains excluded.</div>`;
+    // Article 12 sub-requirement mapping, when present.
+    if(Array.isArray(rep.art12Mapping)&&rep.art12Mapping.length){
+      html+=`<div class="secttl">Article 12 requirement mapping</div>`;
+      html+=rep.art12Mapping.map(m=>{const st=m.status??(m.covered===true?"covered":m.covered===false?"not covered":"");
+        return `<div class="art"><div class="ah"><span class="an">${esc(m.requirement||m.article||m.id||"requirement")}</span>${st?`<span class="cov ${/cover|satisf|yes|met|true/i.test(String(st))?"covered":"partial"}">${esc(String(st))}</span>`:""}</div>${m.detail||m.description?`<div class="p">${esc(String(m.detail||m.description))}</div>`:""}</div>`;}).join("");
+    }
+    // The evidence ITSELF — every sealed record, rendered in full. This is the report; it must
+    // never live only in the raw-JSON drawer. (It did, which is why collapsing that drawer to
+    // fix the C2MD assessment's JSON dump made this report look empty.)
+    html+=`<div class="secttl">Sealed records (${esc(entries.length)})</div>`;
+    html+=entries.map(e=>{
+      const sig=e.signatureValid===true?'<span class="cov covered">signature ✓</span>':e.signatureValid===false?'<span class="cov action">signature ✗</span>':"";
+      return `<div class="art"><div class="ah"><span class="an">seq ${esc(e.seq)}</span><span class="cov ${vcls(e.verdict)}">${esc(e.verdict||"—")}</span>${e.ruleId?`<code>${esc(e.ruleId)}</code>`:""}${sig}</div>`
+        +`${e.ruleText?`<div class="p">${esc(String(e.ruleText))}</div>`:""}`
+        +`<div class="p ev">by ${esc(e.agent||"—")} · ${esc(String(e.issuedAt||"").slice(0,19).replace("T"," "))} · record <code>${esc(String(e.recordId||"").slice(0,8))}</code>${e.bodyHash?` · body <code>${esc(String(e.bodyHash).replace(/^sha256:/,"").slice(0,12))}</code>`:""}${e.custody?` · ${esc(e.custody)}`:""}</div></div>`;
+    }).join("")||`<div class="muted">No records on this chain.</div>`;
+    $("#mRich").innerHTML=html;
     $("#mBody").textContent=JSON.stringify(rep,null,2);
   }catch(e){$("#mBody").textContent="Report unavailable: "+e.message;}
 });
