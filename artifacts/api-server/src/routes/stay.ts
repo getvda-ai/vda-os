@@ -2,15 +2,15 @@
  * Stay Agent routes.
  *   POST /api/stay/decision  — run the governed check-in/in-stay/check-out engine.
  */
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { db, hitlTokens, agentPhases, witnessEntries, sealOutbox, companies } from "@workspace/db";
 import { and, eq, desc, sql, inArray } from "drizzle-orm";
 import { decideStay, type StayStage, type StayExceptionContext, type StayApaleoRef } from "../lib/stayDecisionEngine.js";
 import { listStayBaselines, revokeStayBaseline, createStayBaseline } from "../lib/stayBaselines.js";
 import { executeStayAction } from "../lib/stayExecutor.js";
 import { writeWitnessEntry } from "../lib/witnessWriter.js";
-import { sealStayEvent } from "../lib/staySeal.js";
-import { drainSealOutbox, outboxHealth } from "../lib/sealOutbox.js";
+import { sealStayEvent, sealHitlDecisionEvent } from "../lib/staySeal.js";
+import { drainSealOutbox, outboxHealth, collectGuestPii } from "../lib/sealOutbox.js";
 import { anchorStatus, fetchRecords, fetchReport, witnessKeyHealth, resolveBinding } from "../lib/witnessClient.js";
 import { generateEuAiActReport, assessAgentRisk, C2MD_CONTRACT } from "../lib/c2mdClient.js";
 import { stayChainKey, STAY_CHAIN_GENERATION } from "../lib/witnessChain.js";
@@ -23,6 +23,40 @@ const VALID_STAGES = new Set(["check_in", "in_stay", "check_out"]);
 const AGENT_SLUG = "stay-agent";
 const AGENT_NAME = "Stay Agent";
 const NEXT_BAND: Record<string, string> = { ambassador: "mod", mod: "compliance_officer", compliance_officer: "compliance_officer" };
+
+/**
+ * The session-integrity boundary. Witness seals the ASSERTED actor and makes it tamper-
+ * evident; authenticating that the asserted human is truly the one at the console is OUR
+ * concern, not Witness's. Actor identity is sourced HERE — from authenticated session state
+ * when present — and never trusted blindly from request input.
+ *
+ * NOTE: there is no session/auth layer in the Stay Agent yet (see migration report), so for
+ * now provenance falls back to "asserted" and we seal the assertion faithfully. Wiring an
+ * authenticated session so `provenance` is genuinely "authenticated" is the tracked follow-up.
+ */
+function resolveActor(req: Request): { id: string; provenance: "authenticated" | "asserted" } {
+  const sess = (req as unknown as { session?: { actorId?: string } }).session?.actorId;
+  const hdr = req.headers["x-authenticated-actor"];
+  const authed = (typeof sess === "string" && sess.trim()) || (typeof hdr === "string" && hdr.trim()) || "";
+  if (authed) return { id: authed, provenance: "authenticated" };
+  const asserted = String(req.body?.decided_by ?? req.body?.decidedBy ?? "").trim();
+  return { id: asserted || "unattributed", provenance: "asserted" };
+}
+
+/** Shape the flat apaleo snapshot into the {reservation,folio,room,task} sub-objects the
+ *  seal's evidence entries are built from. Strips our own injected routing metadata so it
+ *  never lands as "evidence". Returns only sub-objects that carry data. */
+function shapeArtifacts(apaleoData: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const a = apaleoData ?? {};
+  if (a.folio) out.folio = a.folio;
+  else if (a.folioId) out.folio = { folioId: a.folioId, currency: a.currency };
+  if (a.reservation) out.reservation = a.reservation;
+  else if (a.reservationId || a.status || a.arrival) out.reservation = { reservationId: a.reservationId, status: a.status, arrival: a.arrival, departure: a.departure, tier: a.tier };
+  if (a.room || a.roomStatus) out.room = a.room ?? { roomStatus: a.roomStatus };
+  if (a.task || a.housekeeping) out.task = a.task ?? a.housekeeping;
+  return out;
+}
 
 /**
  * Explicit three-state account binding for the tier badge — never a null-vs-expected
@@ -135,7 +169,9 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
     const token = String(req.params.token);
     const outcome = String(req.body?.outcome ?? "");
     const reason = String(req.body?.reason ?? "");
-    const decidedBy = String(req.body?.decided_by ?? req.body?.decidedBy ?? "Dashboard User");
+    // Actor from the session-integrity boundary — not raw UI input (see resolveActor).
+    const actor = resolveActor(req);
+    const decidedBy = actor.id === "unattributed" ? "Dashboard User" : actor.id;
     if (!["approve", "deny", "escalate", "baseline"].includes(outcome)) {
       res.status(400).json({ error: "outcome must be approve | deny | escalate | baseline" });
       return;
@@ -171,28 +207,23 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
         suppressAutoHitl: true,
         skipC2pa: true, // evidence of record is the real VDA Witness seal
       });
-      await sealStayEvent({
+      // Seal as a HUMAN decision via the shaped seal_hitl_decision skill. Evidence is the
+      // apaleo artifacts the decider saw, content-addressed (hash + ref, no PII inline);
+      // basis_captured_at is the recommendation time (when the artifacts were captured).
+      await sealHitlDecisionEvent({
         companyId,
         localWitnessId: id,
-        verdict: eventCategory,
-        reasoning: `${eventCategory} by ${decidedBy}${reason ? `: ${reason}` : ""}`,
-        actionProposed: String(payload.proposed_action ?? "Stay action"),
-        // PII-minimized in sealStayEvent → minimizeInputs (pseudonymous ids only).
-        inputs: {
-          reservationId: (apaleoData.reservationId as string) ?? (payload.reservation_id as string),
-          folioId: (apaleoData.folioId as string) ?? (payload.folio_id as string),
-          propertyId: apaleoData.propertyId as string,
-          stage: payload.stage,
-          exception_class: payload.exception_class,
-          amount: ceilingBand.requested_value,
-          currency: payload.currency,
-          role_band: eventRole,
-          ...extra,
-        },
-        ruleId: String(payload.clause_applied ? "stay-agent.EXCEPTION_AUTHORITY.md" : "stay-agent.SOP.md"),
-        ruleText: String(payload.clause_applied ?? clause),
-        exceptionClass: (payload.exception_class as string) ?? undefined,
+        eventCategory,
+        actorId: decidedBy,
+        actorRole: eventRole,
+        statement: `${eventCategory} by ${decidedBy}${reason ? `: ${reason}` : ""}`,
+        clauseApplied: String(payload.clause_applied ?? clause),
+        sopSlug: (payload.exception_class as string) ?? undefined,
+        sopRefs: (payload.sop_refs as Array<{ anchor?: string; heading?: string; text?: string }>) ?? [],
+        artifacts: shapeArtifacts(apaleoData),
+        basisCapturedAt: (hitl.createdAt instanceof Date ? hitl.createdAt : new Date(hitl.createdAt as string)).toISOString(),
         propertyId: (apaleoData.propertyId as string) ?? null,
+        piiDenylist: collectGuestPii({ ...apaleoData, ...payload }),
       });
       return id;
     };
@@ -363,15 +394,19 @@ router.post("/baselines/:id/revoke", async (req, res) => {
         suppressAutoHitl: true,
         skipC2pa: true, // evidence of record is the real VDA Witness seal
       });
-      await sealStayEvent({
+      // A human MoD governance decision → shaped seal_hitl_decision. No operational artifact
+      // is consulted (it's a policy change, not a folio decision), so evidence is honestly
+      // omitted with a stated reason rather than fabricated.
+      await sealHitlDecisionEvent({
         companyId,
         localWitnessId: wid,
-        verdict: "BASELINE_REVOKED",
-        reasoning: `Baseline ${id} unbaselined by ${revokedBy}: ${revokedReason}`,
-        actionProposed: "Unbaseline (governance change)",
-        inputs: { baseline_id: id, revoked_by: revokedBy, role_band: "mod" },
-        ruleId: "stay-agent.EXCEPTION_AUTHORITY.md",
-        ruleText: "Baselines are always revocable and never hard-deleted; revoking returns the class to human review going forward while past authorised decisions stand.",
+        eventCategory: "BASELINE_REVOKED",
+        actorId: resolveActor(req).id === "unattributed" ? revokedBy : resolveActor(req).id,
+        actorRole: "mod",
+        statement: `Baseline ${id} unbaselined by ${revokedBy}: ${revokedReason}`,
+        clauseApplied: "Baselines are always revocable and never hard-deleted; revoking returns the class to human review going forward while past authorised decisions stand.",
+        sopSlug: "exception_authority",
+        basisCapturedAt: new Date().toISOString(),
       });
     } catch (wErr) {
       logger.warn({ wErr }, "baseline revoke witness/seal failed (continuing)");

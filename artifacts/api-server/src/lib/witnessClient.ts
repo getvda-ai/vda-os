@@ -168,8 +168,36 @@ export interface SealBody {
 }
 export interface SealOutcome { ok: boolean; record?: Record<string, unknown>; error?: string; code?: string; terminal?: boolean }
 
-/** Seal via REST /seal (Bearer key; account derived server-side — no accountId). */
+/** The validated seal_hitl_decision body (schema confirmed live: governing_clauses is an
+ *  array of OBJECTS, extras are silently stripped, evidence-or-reason is enforced). */
+export interface HitlSealBody {
+  actor: { id: string; type: "human"; role?: string };
+  decision: { statement: string; disposition?: string };
+  governing_clauses: Array<{ ref: string; text?: string; hash?: string }>;
+  evidence?: Array<{ ref: string; hash: string; media_type?: string; description?: string; captured_at?: string }>;
+  evidence_omitted_reason?: string;
+  basis_captured_at: string;
+  decision_context?: string;
+  chainKey?: string;
+  decisionId?: string;
+}
+
+/** Legacy /seal — retained for autonomous agent_action + TRAIL_CORRECTION until they migrate. */
 export async function sealRecord(body: SealBody): Promise<SealOutcome> {
+  return sealVia("/api/witness/seal", body, body.decisionId);
+}
+
+/** Shaped seal_hitl_decision — the v2 path for HUMAN Ambassador/MoD decisions. Same
+ *  account-pin / renew / dead-letter discipline as legacy (shared sealVia), only the
+ *  endpoint and body shape differ. */
+export async function sealHitlDecision(body: HitlSealBody): Promise<SealOutcome> {
+  return sealVia("/api/witness/seal/hitl-decision", body, body.decisionId);
+}
+
+/** Seal via a REST endpoint (Bearer key; account derived server-side — no accountId).
+ *  All account-pin / renew / dead-letter machinery lives here ONCE so the legacy and
+ *  shaped paths can never diverge on the safety-critical parts. */
+async function sealVia(endpoint: string, body: unknown, decisionId?: string): Promise<SealOutcome> {
   let key = currentKey();
   // Cold start with no key (agent holds only controller key + accountId) → RENEW,
   // never mint. Renewal recovers a fresh key for the SAME pinned account.
@@ -203,7 +231,7 @@ export async function sealRecord(body: SealBody): Promise<SealOutcome> {
   }
 
   const call = async (k: string): Promise<Record<string, unknown>> => {
-    const r = await fetch(`${base()}/api/witness/seal`, { method: "POST", headers: { Authorization: `Bearer ${k}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) });
+    const r = await fetch(`${base()}${endpoint}`, { method: "POST", headers: { Authorization: `Bearer ${k}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) });
     const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
     if (!r.ok || j.error) throw new Error(String((j.error as { message?: string })?.message ?? j.error ?? `http ${r.status}`));
     return (j.record as Record<string, unknown>) ?? (j.data as Record<string, unknown>) ?? j;
@@ -229,12 +257,12 @@ export async function sealRecord(body: SealBody): Promise<SealOutcome> {
         }
         // Renewal itself failed → fail loud (dead-letter), never mint. Op still ok.
         if (health() !== "account_mismatch") keyHealth = "renewal_failed";
-        logger.error({ decisionId: body.decisionId, reason: r.reason }, "[witness] key rejected AND renewal failed — halting seal (no mint)");
+        logger.error({ decisionId, reason: r.reason }, "[witness] key rejected AND renewal failed — halting seal (no mint)");
         return { ok: false, error: `renewal_failed: ${r.reason}`, code: health() === "account_mismatch" ? "account_mismatch" : "renewal_failed", terminal: Boolean(r.terminal) };
       }
       // No controller key to renew with → fail loud (never mint). Op still completes.
       keyHealth = "configured_key_rejected";
-      logger.error({ decisionId: body.decisionId }, "[witness] key rejected and no controller key — halting seal (no mint, no scatter)");
+      logger.error({ decisionId }, "[witness] key rejected and no controller key — halting seal (no mint, no scatter)");
       return { ok: false, error: `configured_key_rejected: ${msg}`, code: "configured_key_rejected", terminal: true };
     }
     return { ok: false, error: msg }; // transient

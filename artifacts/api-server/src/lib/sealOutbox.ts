@@ -16,7 +16,7 @@
 import { createHash } from "node:crypto";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { db, sealOutbox, witnessEntries } from "@workspace/db";
-import { sealRecord, verifyOffline, isWitnessEnabled, type SealBody } from "./witnessClient.js";
+import { sealRecord, sealHitlDecision, verifyOffline, isWitnessEnabled, type SealBody, type HitlSealBody } from "./witnessClient.js";
 import { logger } from "./logger.js";
 
 const MAX_ATTEMPTS = 6;
@@ -196,25 +196,126 @@ export function buildSealBody(a: SealBodyArgs): { decision: SealBody["decision"]
   };
 }
 
+/** Stable, key-sorted JSON — the canonical form we hash so an auditor holding the same
+ *  artifact recomputes the same digest regardless of key order. */
+function canonicalJson(v: unknown): string {
+  const seen = new WeakSet();
+  const norm = (x: unknown): unknown => {
+    if (x === null || typeof x !== "object") return x;
+    if (seen.has(x as object)) return null;
+    seen.add(x as object);
+    if (Array.isArray(x)) return x.map(norm);
+    return Object.fromEntries(Object.keys(x as Record<string, unknown>).sort().map((k) => [k, norm((x as Record<string, unknown>)[k])]));
+  };
+  return JSON.stringify(norm(v));
+}
+const sha256 = (s: string): string => "sha256:" + createHash("sha256").update(s).digest("hex");
+
+// Decision-relevant, NON-PII scalar fields the SOP clauses actually invoke. Safe to surface
+// in the seal's evidence description (a boolean/number/short-enum tells an auditor WHAT the
+// decider saw without exposing WHO). Anything not on this allowlist (names, emails, ids) is
+// never lifted into the description; the full PII-bearing snapshot stays in the local store.
+const SAFE_DESCRIPTOR_KEYS = new Set(["status", "settled", "balance", "amount", "currency", "disputes", "openDisputes", "tier", "vip", "vipFlag", "sameDayArrival", "same_day_arrival", "nights", "roomStatus", "housekeepingStatus", "paymentMethodOnFile", "checkedOut", "arrival", "departure"]);
+function safeDescriptor(o: unknown): string {
+  if (!o || typeof o !== "object") return "";
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+    if (!SAFE_DESCRIPTOR_KEYS.has(k)) continue;
+    if (v === null || typeof v === "object") continue; // scalars only — never nested PII
+    const s = String(v);
+    if (s.length > 40) continue; // a short scalar, not free text
+    parts.push(`${k}=${s}`);
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Build a validated seal_hitl_decision body from a human decision + the artifacts the decider
+ * saw. Content-based and PII-safe: evidence carries a content-address (pseudonymized ref +
+ * sha256 of the canonical snapshot) and a NON-PII descriptor — never the raw artifact inline.
+ * The PII-bearing snapshot stays in the local (erasable) store; the immutable seal carries only
+ * the hash, so erasure stays possible and the hash remains a tombstone. Enforces the schema's
+ * evidence-or-reason rule: no artifacts → an honest evidence_omitted_reason, never a silent gap.
+ */
+export function buildHitlSealBody(a: {
+  actorId: string;
+  actorRole?: string;
+  disposition: string;
+  statement: string;
+  clauses: Array<{ ref: string; text?: string; hash?: string }>;
+  artifacts?: Record<string, unknown>;
+  artifactKeys?: string[]; // which sub-objects of `artifacts` to seal as distinct evidence
+  basisCapturedAt: string;
+  piiDenylist?: string[];
+}): HitlSealBody {
+  const deny = [...(a.piiDenylist ?? [])];
+  const clauses = a.clauses.length ? a.clauses : [{ ref: "sop:stay-agent:unspecified", text: "No specific clause captured for this decision." }];
+
+  // Evidence — one content-addressed entry per artifact sub-object that is actually present.
+  const evidence: NonNullable<HitlSealBody["evidence"]> = [];
+  const keys = a.artifactKeys ?? ["reservation", "folio", "room", "housekeeping", "task"];
+  const art = a.artifacts ?? {};
+  for (const key of keys) {
+    const sub = (art as Record<string, unknown>)[key];
+    if (!sub || (typeof sub === "object" && Object.keys(sub as object).length === 0)) continue;
+    const pseudo = pseudonymize(JSON.stringify(sub), key);
+    evidence.push({
+      ref: `apaleo://${key}/${pseudo?.split(":")[1] ?? "unknown"}`,
+      hash: sha256(canonicalJson(sub)),
+      media_type: "application/json",
+      description: scrubText(safeDescriptor(sub) || `${key} state at decision time`, deny),
+      captured_at: a.basisCapturedAt,
+    });
+  }
+  // If no sub-objects matched but there IS artifact content, seal the whole basis as one entry
+  // (better a coarse content-address than none).
+  if (!evidence.length && art && Object.keys(art).length) {
+    evidence.push({
+      ref: `apaleo://decision-basis/${pseudonymize(JSON.stringify(art), "basis")?.split(":")[1] ?? "unknown"}`,
+      hash: sha256(canonicalJson(art)),
+      media_type: "application/json",
+      description: scrubText(safeDescriptor(art) || "decision basis at decision time", deny),
+      captured_at: a.basisCapturedAt,
+    });
+  }
+
+  const body: HitlSealBody = {
+    actor: { id: a.actorId, type: "human", ...(a.actorRole ? { role: a.actorRole } : {}) },
+    decision: { statement: scrubText(a.statement, deny), disposition: a.disposition },
+    governing_clauses: clauses.map((c) => ({ ref: c.ref, ...(c.text ? { text: scrubText(c.text, deny) } : {}), ...(c.hash ? { hash: c.hash } : {}) })),
+    basis_captured_at: a.basisCapturedAt,
+  };
+  if (evidence.length) body.evidence = evidence;
+  else body.evidence_omitted_reason = "no system-of-record artifact was captured for this decision (automated evidence capture pending); the governing clause and rationale are sealed";
+  return body;
+}
+
 export interface EnqueueArgs {
   companyId: number;
   chainKey: string;
   decisionId: string;
-  decision: SealBody["decision"];
-  governingRule: SealBody["governingRule"];
+  /** Legacy record body (autonomous agent_action + TRAIL_CORRECTION until they migrate). */
+  decision?: SealBody["decision"];
+  governingRule?: SealBody["governingRule"];
+  /** Shaped seal_hitl_decision body — set for HUMAN Ambassador/MoD decisions. */
+  hitl?: HitlSealBody;
   localWitnessId?: number | null;
 }
 
 /** Idempotent enqueue (never throws — enqueue must not break the hotel op). */
 export async function enqueueSeal(args: EnqueueArgs): Promise<void> {
   try {
+    // record_type drives drain-time routing: hitl_decision → shaped skill, else legacy /seal.
+    const payload = args.hitl
+      ? { recordType: "hitl_decision" as const, hitl: args.hitl }
+      : { decision: args.decision, governingRule: args.governingRule };
     await db
       .insert(sealOutbox)
       .values({
         companyId: args.companyId,
         chainKey: args.chainKey,
         decisionId: args.decisionId,
-        payload: { decision: args.decision, governingRule: args.governingRule },
+        payload,
         localWitnessId: args.localWitnessId ?? null,
         status: "pending",
       })
@@ -242,13 +343,12 @@ export async function drainSealOutbox(limit = 25): Promise<DrainResult> {
 
   let sealed = 0, failed = 0, dead = 0;
   for (const row of rows) {
-    const payload = row.payload as { decision: SealBody["decision"]; governingRule: SealBody["governingRule"] };
-    const res = await sealRecord({
-      decision: payload.decision,
-      governingRule: payload.governingRule,
-      chainKey: row.chainKey,
-      decisionId: row.decisionId,
-    });
+    const payload = row.payload as { recordType?: string; hitl?: HitlSealBody; decision?: SealBody["decision"]; governingRule?: SealBody["governingRule"] };
+    // Route by record_type. HUMAN decisions → shaped seal_hitl_decision; everything else
+    // (autonomous agent_action, TRAIL_CORRECTION) → legacy /seal until those paths migrate.
+    const res = payload.recordType === "hitl_decision" && payload.hitl
+      ? await sealHitlDecision({ ...payload.hitl, chainKey: row.chainKey, decisionId: row.decisionId })
+      : await sealRecord({ decision: payload.decision as SealBody["decision"], governingRule: payload.governingRule as SealBody["governingRule"], chainKey: row.chainKey, decisionId: row.decisionId });
 
     if (res.ok && res.record) {
       const rec = res.record;
