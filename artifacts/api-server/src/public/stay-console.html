@@ -105,6 +105,13 @@
   .sb{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid;cursor:default;white-space:nowrap}
   .sb.act{cursor:pointer}
   .sb.pending{color:#c9b56a;border-color:#5a4d22;background:#231d0f}
+  .art2{margin:6px 0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:#0f1712}
+  .art2.unavail{background:#1a1410}
+  .art2 .t{font-size:9.5px;color:var(--dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
+  .art2 .ar{font-size:11.5px;margin-top:3px;line-height:1.5}
+  .art2 .pill{font-size:9.5px;padding:1px 5px;border-radius:6px;border:1px solid var(--line)}
+  .art2 .pill.ok{color:#7bd88f;border-color:#2e5a3a}
+  .art2 .pill.no{color:#e0a05a;border-color:#5a4522}
   .sb.signed{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
   .sb.anchored{color:#4ade80;border-color:#1f5a34;background:#0e2016}
   .sb.broken{color:#fff;border-color:#a11;background:#c0202a;box-shadow:0 0 0 1px #c0202a,0 2px 12px #c0202a88}
@@ -249,6 +256,30 @@ const friendly=s=>String(s??"").replace(/SANDBOX_NO_WRITE/g,"staged · sandbox")
 const BAD_CLAUSE=/unable to parse|unparsed model|could not (parse|produce)|unable to determine governing clause/i;
 const clauseSafe=s=>{const v=String(s??"").trim();return v&&!BAD_CLAUSE.test(v)?v:null;};
 const DEGRADED_CLAUSE="Reasoning captured in the sealed record — route to Manager on Duty.";
+// Decision-basis panel: the system-of-record artifacts the Ambassador/MoD is deciding
+// against, at recommendation time. Real data when Apaleo resolved; an honest "unavailable"
+// line when the fetch failed — never a blank or a fabricated value.
+function artifactPanel(ad){
+  ad=ad||{};
+  const rs=ad.reservation;
+  const foArr=(ad.folios&&(ad.folios.folios||ad.folios))||null;
+  const folio=Array.isArray(foArr)?(foArr.find(f=>!f.isEmpty)||foArr[0]):null;
+  const money=b=>b?`${b.amount??0}${b.currency?" "+b.currency:""}`:"—";
+  if(!rs&&!folio){
+    return (ad.error||ad.note)?`<div class="art2 unavail"><div class="t">System of record</div><div class="ar muted">Apaleo read unavailable${ad.ref&&ad.ref.reservationId?` for ${esc(ad.ref.reservationId)}`:""} — decide from the clause + SOPs, or escalate.</div></div>`:"";
+  }
+  let h=`<div class="art2"><div class="t">System-of-record artifacts · at recommendation time</div>`;
+  if(rs){
+    const g=rs.debitor?[rs.debitor.firstName,rs.debitor.name].filter(Boolean).join(" "):(rs.primaryGuest?[rs.primaryGuest.firstName,rs.primaryGuest.lastName].filter(Boolean).join(" "):"");
+    h+=`<div class="ar"><b>Reservation</b> ${esc(rs.id||"—")} · <span class="pill">${esc(rs.status||"?")}</span> · room ${esc(rs.unit?rs.unit.name||rs.unit.id:"—")} · arr ${esc(String(rs.arrival||"").slice(0,10))} · bal ${esc(money(rs.balance))}${g?` · <b>${esc(g)}</b>`:""}</div>`;
+  }
+  if(folio){
+    const settled=(folio.balance&&folio.balance.amount)===0;
+    const guest=folio.debitor?[folio.debitor.title,folio.debitor.firstName,folio.debitor.name].filter(Boolean).join(" "):"";
+    h+=`<div class="ar"><b>Folio</b> ${esc(folio.id||"—")} · <span class="pill">${esc(folio.status||"?")}</span> · settled ${settled?'<span class="pill ok">YES</span>':'<span class="pill no">NO</span>'} · bal ${esc(money(folio.balance))}${guest?` · ${esc(guest)}`:""}</div>`;
+  }
+  return h+`</div>`;
+}
 const companyId=()=>Number($("#company").value||1);
 const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function toast(m){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3000);}
@@ -295,6 +326,7 @@ function cardHtml(t){
     ${plan?`<div class="plan"><div class="t">Apaleo actions (one governed step)</div><ol>${plan}</ol></div>`:""}
     <div class="kv"><b>Exposure:</b> ${exposure} ${cl?`· <span class="ceiling">${esc(cl)} ${within?'<span class="pill ok">within ceiling</span>':'<span class="pill no">over ceiling → escalate</span>'}</span>`:""}</div>
     ${clauseSafe(p.clause_applied)?`<div class="clause"><b>Governing clause</b><br>${esc(clauseSafe(p.clause_applied))}</div>`:(p.clause_applied?`<div class="clause"><b>Governing clause</b><br>${DEGRADED_CLAUSE}</div>`:"")}
+    ${artifactPanel(p.apaleo_data)}
     ${sops}
     <input class="reason" placeholder="reason (optional)" />
     <div class="actions">${acts.map(a=>`<button class="${a[2]}" data-a="${a[0]}">${a[1]}</button>`).join("")}</div>
