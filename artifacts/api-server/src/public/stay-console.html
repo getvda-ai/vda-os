@@ -244,6 +244,11 @@ const sealedCache={};        // log id -> sealed_record (for verify)
 const chainKeyCache={};      // log id -> chain_key (records don't carry their own)
 let madeFilter="all";        // all | today | sealed — driven by status-tile drill-down
 const friendly=s=>String(s??"").replace(/SANDBOX_NO_WRITE/g,"staged · sandbox");
+// Rendering-safety: a decision-support field must never surface an agent-fault marker
+// (a model parse failure) as if it were governance. Detect the marker → degraded state.
+const BAD_CLAUSE=/unable to parse|unparsed model|could not (parse|produce)|unable to determine governing clause/i;
+const clauseSafe=s=>{const v=String(s??"").trim();return v&&!BAD_CLAUSE.test(v)?v:null;};
+const DEGRADED_CLAUSE="Reasoning captured in the sealed record — route to Manager on Duty.";
 const companyId=()=>Number($("#company").value||1);
 const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function toast(m){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3000);}
@@ -289,7 +294,7 @@ function cardHtml(t){
     <div class="kv"><b>Agent proposes:</b> ${esc(p.proposed_action||p.exception_class)}</div>
     ${plan?`<div class="plan"><div class="t">Apaleo actions (one governed step)</div><ol>${plan}</ol></div>`:""}
     <div class="kv"><b>Exposure:</b> ${exposure} ${cl?`· <span class="ceiling">${esc(cl)} ${within?'<span class="pill ok">within ceiling</span>':'<span class="pill no">over ceiling → escalate</span>'}</span>`:""}</div>
-    ${p.clause_applied?`<div class="clause"><b>Governing clause</b><br>${esc(p.clause_applied)}</div>`:""}
+    ${clauseSafe(p.clause_applied)?`<div class="clause"><b>Governing clause</b><br>${esc(clauseSafe(p.clause_applied))}</div>`:(p.clause_applied?`<div class="clause"><b>Governing clause</b><br>${DEGRADED_CLAUSE}</div>`:"")}
     ${sops}
     <input class="reason" placeholder="reason (optional)" />
     <div class="actions">${acts.map(a=>`<button class="${a[2]}" data-a="${a[0]}">${a[1]}</button>`).join("")}</div>
@@ -362,7 +367,7 @@ function rowHtml(m){
   const seal=`<span class="sb ${b.c}${b.act?' act':''}" data-id="${m.id}" data-pending="${b.c==='pending'?1:0}" title="offline bundled-proof — zero calls to witness.getvda.ai">${b.t}${verb}</span>`;
   return `<div class="r ${gov?'gov':''}"><span class="dot" style="background:${col}"></span>
     <div class="m"><div class="top"><span class="what">${what}</span>${seal}</div>
-    <div class="sub">${esc(friendly(m.clause||""))}${chg}</div>
+    <div class="sub">${clauseSafe(m.clause)?esc(friendly(clauseSafe(m.clause))):(m.clause?"Reasoning captured in the sealed record":"")}${chg}</div>
     <div class="who">${m.governance_source==="baseline"?"auto-handled via baseline · ":""}by <b>${who}</b> · ${esc(String(m.at||"").slice(5,16).replace("T"," "))}</div>
     <div class="vpwrap" id="vp-${m.id}"></div></div></div>`;
 }
