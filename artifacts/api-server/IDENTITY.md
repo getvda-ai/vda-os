@@ -46,33 +46,44 @@ This closed exactly one gap, and it is easy to over-read.
 - **None of the pre-existing divergences.** Self-computed authority, its own HITL queue,
   inline Apaleo writes, no PII minimisation — all unchanged and all still on the card.
 
-## Provisioning (Mike — the key is yours, not the repo's)
+## Provisioning — DONE (2026-08-01)
 
-The private key was generated locally and is in `secrets/` (gitignored, never committed,
-never printed to a transcript). The deployment does not have it yet, so **production
-currently serves 503 `identity_not_provisioned` on all three endpoints** — an honest
-"not provisioned" rather than a document built from an in-process key.
+`STAY_DID_PRIVATE_KEY_B64` is installed in the Vercel **Production** environment and the
+identity is live: `verify-stay-identity.mjs` passes all 21 checks against
+`https://stay-agent-mikerawsonnzs-projects.vercel.app`. The served `publicKeyJwk.x` matches
+the locally generated key, which is the proof that the base64 survived the environment
+round-trip intact.
 
-That refusal is deliberate. Without it, an unprovisioned deployment would mint a fresh
-keypair on every cold start and serve a DID document that changes underneath anyone who
-cached it — which reads as tampering to a careful verifier and as success to a careless one.
+The commands, for a rebuild or a second environment:
 
 ```bash
 cd artifacts/api-server
 
-# 1. Install the private key in the deployment (from the gitignored b64 file).
+# 1. Install the private key (from the gitignored b64 file).
 vercel env add STAY_DID_PRIVATE_KEY_B64 production < secrets/stay-did-key-1.b64
 
-# 2. Redeploy from committed source.
+# 2. Deploy PREBUILT. This matters: build-vercel.mjs bundles everything, so Vercel runs no
+#    install. A plain git-triggered build fails on ERR_PNPM_LOCKFILE_CONFIG_MISMATCH — the
+#    workspace `overrides` do not match pnpm-lock.yaml. That is what killed the
+#    2026-07-27 deploy; it is not an identity problem and --prebuilt sidesteps it.
 node build-vercel.mjs
 cd ../.. && vercel deploy --prebuilt --prod
 
-# 3. Prove it from the outside. Exits 0 only if all checks pass.
+# 3. Prove it from the outside. Exits 0 only if every check passes.
 cd artifacts/api-server && node scripts/verify-stay-identity.mjs
 ```
 
-Then delete `secrets/stay-did-key-1.pem` and `secrets/stay-did-key-1.b64` — the deployment
-is the custodian from that point, and a second copy on a laptop is a second thing to lose.
+### Do not delete the local key without a backup first
+
+Vercel stored this variable as **Sensitive**, which is write-only: `vercel env pull` returns
+an empty value, and there is no API that reads it back. So the deployment is not a copy you
+can recover from — it is a black hole. If `secrets/stay-did-key-1.pem` is deleted and the
+Vercel value is ever lost or overwritten, the private key is gone permanently and the only
+path forward is a **DID rotation**: new key, new `rotationLog` entry, and every verifier that
+cached the old document has to be told.
+
+Put the PEM in a password manager or another durable store **first**, then delete the
+working copies from `secrets/`. Two custodians, not zero.
 
 ## Verifying it (what an enforcer does)
 
