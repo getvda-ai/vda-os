@@ -11,6 +11,12 @@ out-tsc
 # Agent VC credentials store (contains key material — never commit)
 artifacts/api-server/agent-credentials/
 
+# Stay Agent's did:web private key (scripts/gen-stay-did-key.mjs writes here).
+# The runtime reads it from STAY_DID_PRIVATE_KEY_B64 in the environment; the tree never
+# holds it. Do not remove this rule — the 0600 mode the script sets is a no-op on Windows,
+# so this ignore is the only thing keeping the key out of a commit.
+artifacts/api-server/secrets/
+
 # dependencies
 node_modules
 

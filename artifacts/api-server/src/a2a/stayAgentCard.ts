@@ -3,19 +3,30 @@
  * hitl.getvda.ai), from the single skill definition in stayAgentSkills.ts.
  *
  * It describes what Stay Agent IS TODAY, honestly: a bespoke hospitality monolith running
- * on the Apaleo sandbox, with no identity of its own. It is deliberately NOT normalised to
- * the future adapter state — the gap between this card and the governance model is exactly
- * what Onboarding's admission is meant to surface.
+ * on the Apaleo sandbox. It is deliberately NOT normalised to the future adapter state —
+ * the gap between this card and the governance model is exactly what Onboarding's admission
+ * is meant to surface.
  *
- * NOT signed. Stay Agent has no key/DID/Witness account; agentCardSignature is intentionally
- * absent, and `witnessAccountId` names the SHARED account it currently borrows.
+ * SIGNED, as of the did:web genesis. Stay Agent now controls one key — the `#key-1` that
+ * signs this card and answers DID-auth challenges — so `agentCardSignature` is real and
+ * `did` is resolvable. Read the scope of that narrowly: it does NOT mean Stay Agent owns
+ * its seal custody. `witnessAccountId` still names a SHARED account it borrows, and it
+ * still holds no record-signing key, so an enforcer can verify that THIS agent published
+ * THIS card and cannot verify that THIS agent sealed a given decision. Those are two
+ * different keys and only the first one exists; see `custody` and the caveats.
  */
 import { cardSkills } from "./stayAgentSkills.js";
 
 const GIT_SHA = process.env.STAY_GIT_SHA || "89ddedc319efa7b8569a5b45ae44781e313540af"; // deployed Vercel branch @ audit
 const SHARED_WITNESS_ACCOUNT = process.env.WITNESS_EXPECTED_ACCOUNT || "acct_01KX3TQ8Z0ME1455RW16JC4ENQ";
 
-export function buildStayAgentCard(now: string) {
+/** Identity the card is anchored to. Supplied by stayIdentity.ts, which owns the key. */
+export interface StayCardIdentity {
+  did: string;
+  keyId: string;
+}
+
+export function buildStayAgentCard(now: string, identity: StayCardIdentity) {
   return {
     protocolVersion: "0.3.0",
     name: "citizenM Stay Agent",
@@ -23,8 +34,11 @@ export function buildStayAgentCard(now: string) {
       "Governs a hotel guest's on-property journey (check-in, in-stay, check-out) at citizenM by proposing actions on Apaleo exceptions and routing the ones beyond its authority to a human. A bespoke build, not yet a normalised VDA deployment: it decides its own authority, runs its own human queue, executes its own writes, and seals under a borrowed identity. Running against the Apaleo SANDBOX only.",
     url: "https://stay-agent-mikerawsonnzs-projects.vercel.app",
     preferredTransport: "JSONRPC",
-    version: "0.0.0-predeployment",
+    version: "0.1.0-identity",
     gitSha: GIT_SHA,
+
+    // Stay Agent's own DID. Resolves to /.well-known/did.json on the host in `url`.
+    did: identity.did,
 
     provider: { organization: "citizenM Hotels", url: "https://citizenm.com" },
 
@@ -85,9 +99,17 @@ export function buildStayAgentCard(now: string) {
         detail: "CheckIn / CheckOut / CreateFolioCharge / AmendReservation are performed inline by the decision path (lib/stayExecutor.ts). The framework model is record-then-the-deployment-executes; Stay fuses the two.",
       },
       {
-        id: "no_own_identity",
-        statement: "Stay has no keys, no DID, and no Witness account of its own. It cannot sign this card.",
-        detail: "It runs inside vda-api and seals under a shared Witness account (" + SHARED_WITNESS_ACCOUNT + "). A legacy code path (lib/vdaWitness.ts) falls back to a personal email (mikerawsonnz@gmail.com) if WITNESS_KEY_EMAIL is unset. Custody is therefore custodial-under-a-borrowed-account: an enforcer cannot prove THIS agent signed a decision. Provisioning an own account is a prerequisite to signing (step 2).",
+        id: "no_own_witness_account",
+        statement:
+          "Stay now controls its own card key (" + identity.keyId + "), but still has no Witness account and no record-signing key. Its decisions seal under a borrowed identity.",
+        detail:
+          "The did:web genesis closed exactly one gap: an enforcer can now verify that THIS agent published THIS card, and can challenge it to prove control of its DID. It closed none of the seal-custody gap. Stay still runs inside vda-api and seals to the shared Witness account " + SHARED_WITNESS_ACCOUNT + "; a legacy path (lib/vdaWitness.ts) still falls back to a personal email (mikerawsonnz@gmail.com) when WITNESS_KEY_EMAIL is unset. So an enforcer verifying a sealed decision sees the shared account, not Stay Agent — it cannot prove THIS agent sealed it. Do not read a signed card as signed evidence. Provisioning an own Witness account and record-signing key is the next step, and it is a separate key from this one.",
+      },
+      {
+        id: "identity_key_is_process_held",
+        statement: "The card key lives in the deployment's environment, not in an HSM or a KMS.",
+        detail:
+          "STAY_DID_PRIVATE_KEY_B64 is read into process memory at boot. Anyone with deploy access to the Vercel project can read it and sign as Stay Agent. That is an acceptable posture for a sandbox demo and is NOT an acceptable posture for an agent carrying real guests or real money; it would need a KMS-backed signer first.",
       },
       {
         id: "actor_asserted_and_endpoints_unauthenticated",
@@ -102,11 +124,14 @@ export function buildStayAgentCard(now: string) {
     ],
 
     custody: {
-      model: "custodial-under-borrowed-account",
+      // Two keys matter for this agent. It now holds the first and still lacks the second.
+      model: "own-card-key / custodial-seals-under-borrowed-account",
+      cardSigningKey: identity.keyId,
       recordSigningKey: null,
       statement:
-        "Stay Agent holds no signing key. Decisions are sealed under vda-api's shared Witness identity, not a key Stay controls. An enforcer can see that Witness recorded a decision under the shared account; it cannot prove that Stay Agent, specifically, signed it. Contrast the suite standard (customer-managed, own record-signing key).",
-      issuerVerification: "none — no did:web for Stay Agent yet",
+        "Stay Agent controls the key that signs this card and answers DID-auth challenges, so its IDENTITY is now verifiable: resolve " + identity.did + ", take #key-1, check agentCardSignature. Its EVIDENCE is not. Decisions are still sealed under vda-api's shared Witness identity, not a key Stay controls, so an enforcer can see that Witness recorded a decision under the shared account and cannot prove Stay Agent specifically sealed it. The suite standard is customer-managed with an own record-signing key; Stay meets it for the card and not for the seal.",
+      issuerVerification:
+        "card: verifiable via " + identity.keyId + ". Seals: none — sealed records carry the shared account, not this DID.",
     },
 
     // A self-report of the real state — NOT a live-probe of a genuine, admitted service.
@@ -117,16 +142,27 @@ export function buildStayAgentCard(now: string) {
       carries_real_guests: false,
       carries_real_money: false,
       admitted: false,
-      admission_note: "No Onboarding credential. This card is being produced AS the admission entry ticket; it is not yet signed or registered.",
-      identity: "borrowed — seals under shared account " + SHARED_WITNESS_ACCOUNT,
+      admission_note:
+        "No Onboarding credential yet. This card is the admission entry ticket and it is now DID-anchored and signed, so it can be presented as one — being signed is not being admitted.",
+      identity:
+        "own did:web for the card (" + identity.did + "); seals still ride shared account " + SHARED_WITNESS_ACCOUNT,
       note: "These are honest self-declared facts about a pre-deployment demo, not the output of live readiness probes against an admitted service.",
     },
 
     // Contracts Stay actually honours today. It does NOT yet implement suite auth-via-whoami.
-    contracts: [],
+    contracts: [
+      {
+        id: "holder_binding_responder",
+        role: "holder",
+        statement:
+          "Stay Agent answers a DID-auth challenge at POST /.well-known/did-auth, signing a caller-supplied nonce with " + identity.keyId + ". This is the holder side of Contract B: an enforcer holding a credential that NAMES this subject_did can now bind the presenter to it instead of assuming.",
+      },
+    ],
 
-    witnessAccountId: SHARED_WITNESS_ACCOUNT, // borrowed, not owned — see custody + no_own_identity
+    witnessAccountId: SHARED_WITNESS_ACCOUNT, // borrowed, not owned — see custody + no_own_witness_account
 
-    // agentCardSignature: intentionally ABSENT. Stay has no key to sign with; signing is step 2.
+    // agentCardSignature is attached by stayIdentity.signStayAgentCard() over the canonical
+    // bytes of this object with that key removed. Absent here on purpose: the builder is
+    // pure data, the key lives one layer up.
   };
 }
