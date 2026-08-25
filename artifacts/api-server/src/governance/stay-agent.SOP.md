@@ -27,7 +27,7 @@ MUST escalate with reason `NO_SOP_COVERAGE` and MUST NOT guess.
 ## Global Rules (all stages)
 
 - The Stay Agent **MUST** confirm the reservation is within the in-stay window
-  (arriving today, in-house, or departing) via the Apaleo Reservations API
+  (arriving today, in-house, or departing) via the property system's Reservations API
   before acting.
 - The Stay Agent **MUST** consult the ingested A Hotel Berlin SOP clauses for the
   current stage plus global clauses, and **MUST** cite the specific clause(s)
@@ -36,8 +36,8 @@ MUST escalate with reason `NO_SOP_COVERAGE` and MUST NOT guess.
   the routed role band in `stay-agent.EXCEPTION_AUTHORITY.md`.
 - The Stay Agent **MUST** write a Witness Stream entry for every outcome (PASS,
   FAIL, ESCALATE) with the verbatim clause applied, the SOP references
-  consulted, and the Apaleo data snapshot used.
-- The Stay Agent **MUST NOT** perform any Apaleo write until the engine returns
+  consulted, and the property-system data snapshot used.
+- The Stay Agent **MUST NOT** perform any property-system write until the engine returns
   PASS, a human approves via HITL, or a matching non-revoked baseline applies.
 - The Stay Agent **MUST NOT** apply a ceiling not defined in the authority file,
   and **MUST NOT** widen a baseline beyond its approved bounds.
@@ -51,7 +51,7 @@ MUST escalate with reason `NO_SOP_COVERAGE` and MUST NOT guess.
    where the jurisdiction requires, a captured identity document. Incomplete →
    FAIL with the missing-field reason (no key issuance).
 3. **Pre-authorisation / payment-on-file**: validate the payment method on the
-   Apaleo folio. Within the `preauth_validation` ceiling → PASS; above →
+   property-system folio. Within the `preauth_validation` ceiling → PASS; above →
    escalate to `mod`.
 4. **Early check-in**: if requested before the property standard time, compare
    hours-early against the `early_checkin` ceiling and confirm the unit is clean
@@ -71,10 +71,10 @@ MUST NOT: issue a key before pre-authorisation is validated.
    within `folio_post_charge` ceiling → PASS and post via the Folio API; above →
    escalate to `mod`. Damages MUST carry an evidence reference.
 2. **Service requests**: fulfil housekeeping / amenity requests operationally;
-   raise maintenance issues as an Apaleo maintenance ticket.
+   raise maintenance issues as an property-system maintenance ticket.
 3. **Room move / re-key**: value the nightly rate delta; within
    `room_move_rekey` ceiling and target unit available → PASS; above → escalate.
-4. **Stay extension**: confirm availability for the added night(s) via Apaleo;
+4. **Stay extension**: confirm availability for the added night(s) via the property system;
    within `stay_extension` nights ceiling and payment on file → PASS; above →
    escalate to `mod`.
 5. **Goodwill / service-recovery credit**: require a documented service failure;
@@ -95,7 +95,7 @@ MUST NOT: apply goodwill to no-show or cancellation penalties.
    standard, refundable, non-group rate → PASS. Above ceiling, or on a
    non-refundable / prepaid / group-block rate → escalate to `mod` (forfeiture
    and group impact are a Manager on Duty decision).
-2. **Folio settlement**: reconcile all charges against the Apaleo folio and
+2. **Folio settlement**: reconcile all charges against the property-system folio and
    settle. Any guest dispute MUST be flagged and escalated, never suppressed.
 3. **Refund / folio adjustment**: within `refund_folio_adjustment` ceiling →
    PASS; above → escalate to `mod`. Refund to the original payment method where

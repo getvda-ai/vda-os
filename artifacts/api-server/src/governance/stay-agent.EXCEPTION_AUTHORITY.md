@@ -31,7 +31,7 @@ role_bands:
         ceiling: 3
         ceiling_type: hours
         conditions:
-          - Unit confirmed clean and available by Housekeeping in Apaleo
+          - Unit confirmed clean and available by Housekeeping in the property system
           - No same-day group arrival blocking the floor
         authority: autonomous
         escalate_to: mod
@@ -42,7 +42,7 @@ role_bands:
         ceiling: 40
         ceiling_type: eur_per_night
         conditions:
-          - Upgrade unit confirmed available via Apaleo Inventory/Unit API
+          - Upgrade unit confirmed available via property system's Inventory/Unit API
           - Original reservation status is Confirmed or InHouse
         authority: autonomous
         escalate_to: mod
@@ -53,7 +53,7 @@ role_bands:
         ceiling: null
         ceiling_type: none
         conditions:
-          - Mandatory registration fields present on the Apaleo reservation
+          - Mandatory registration fields present on the property-system reservation
           - Identity document captured where jurisdiction requires it
         authority: autonomous
         escalate_to: mod
@@ -64,7 +64,7 @@ role_bands:
         ceiling: 500
         ceiling_type: eur
         conditions:
-          - Payment method confirmed on the Apaleo folio
+          - Payment method confirmed on the property-system folio
           - No open folio disputes on the guest account
         authority: autonomous
         escalate_to: mod
@@ -100,7 +100,7 @@ role_bands:
         ceiling_type: none
         conditions:
           - Request is operational and non-financial
-          - Maintenance issues raised as an Apaleo maintenance ticket
+          - Maintenance issues raised as an property-system maintenance ticket
         authority: autonomous
         escalate_to: mod
         must_log: true
@@ -110,7 +110,7 @@ role_bands:
         ceiling: 25
         ceiling_type: eur_per_night
         conditions:
-          - Target unit confirmed available via Apaleo Inventory/Unit API
+          - Target unit confirmed available via property system's Inventory/Unit API
           - Move reason documented (maintenance, guest request, operational)
         authority: autonomous
         escalate_to: mod
@@ -121,7 +121,7 @@ role_bands:
         ceiling: 1
         ceiling_type: nights
         conditions:
-          - Unit availability confirmed for the added night(s) via Apaleo
+          - Unit availability confirmed for the added night(s) via the property system
           - Valid payment method on file for the incremental amount
         authority: autonomous
         escalate_to: mod
@@ -179,7 +179,7 @@ role_bands:
         ceiling: null
         ceiling_type: none
         conditions:
-          - All charges reconciled against the Apaleo folio
+          - All charges reconciled against the property-system folio
           - Any guest dispute flagged and escalated, never suppressed
         authority: autonomous
         escalate_to: mod
@@ -204,7 +204,7 @@ role_bands:
         ceiling: 120
         ceiling_type: eur_per_night
         conditions:
-          - Upgrade unit confirmed available via Apaleo Inventory/Unit API
+          - Upgrade unit confirmed available via property system's Inventory/Unit API
           - Documented justification (VIP, loyalty, service recovery)
         authority: hitl_required
         escalate_to: compliance_officer
@@ -237,7 +237,7 @@ role_bands:
         ceiling: 150
         ceiling_type: eur_per_night
         conditions:
-          - Target unit confirmed available via Apaleo Inventory/Unit API
+          - Target unit confirmed available via property system's Inventory/Unit API
           - Move reason documented
         authority: hitl_required
         escalate_to: compliance_officer
@@ -248,7 +248,7 @@ role_bands:
         ceiling: 5
         ceiling_type: nights
         conditions:
-          - Unit availability confirmed for all added nights via Apaleo
+          - Unit availability confirmed for all added nights via the property system
           - Valid payment method on file for the incremental amount
         authority: hitl_required
         escalate_to: compliance_officer
@@ -292,7 +292,7 @@ role_bands:
         ceiling: 500
         ceiling_type: eur
         conditions:
-          - Reason documented and reconciled against the Apaleo folio
+          - Reason documented and reconciled against the property-system folio
           - Original payment method used for refunds where possible
         authority: hitl_required
         escalate_to: compliance_officer

@@ -19,7 +19,7 @@ role_bands:
         ceiling_type: units
         conditions:
           - Hold must not exceed 2 units for more than 4 hours
-          - No active group block conflicts in Apaleo
+          - No active group block conflicts in the property system
         authority: autonomous
         escalate_to: senior_ambassador
         must_log: true
@@ -32,7 +32,7 @@ role_bands:
         ceiling_type: units
         conditions:
           - Senior Ambassador supervisor approval documented
-          - Inventory category verified as restricted in Apaleo
+          - Inventory category verified as restricted in the property system
           - Allocation purpose recorded in Witness Agent entry
         authority: autonomous
         escalate_to: hotel_gm

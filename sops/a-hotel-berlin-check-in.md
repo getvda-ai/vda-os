@@ -12,7 +12,7 @@ Guests may be welcomed before the 15:00 standard check-in time when a room in th
 booked category is already cleaned and released by Housekeeping. Ambassadors may
 grant up to 3 hours early at their discretion; earlier arrivals are held in the
 living room with a welcome drink and escalated to the Manager on Duty. Never
-release a room that Housekeeping has not confirmed clean in Apaleo.
+release a room that Housekeeping has not confirmed clean in the property system.
 
 ## Room Upgrade at Check-in
 An upgrade is a hospitality gesture, not an entitlement. Ambassadors may offer a

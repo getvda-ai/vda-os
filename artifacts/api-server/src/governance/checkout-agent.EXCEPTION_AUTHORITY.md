@@ -42,8 +42,8 @@ role_bands:
         ceiling: "14:00"
         ceiling_type: time
         conditions:
-          - Active loyalty tier verified in Apaleo guest profile
-          - Unit availability confirmed via Apaleo Inventory API
+          - Active loyalty tier verified in property-system guest profile
+          - Unit availability confirmed via property system's Inventory API
           - No same-day group check-in blocking the unit
         authority: autonomous
         escalate_to: hotel_gm
@@ -67,7 +67,7 @@ role_bands:
         ceiling: "17:00"
         ceiling_type: time
         conditions:
-          - VIP flag active in Apaleo guest profile or guest comp approved by Hotel GM this stay
+          - VIP flag active in property-system guest profile or guest comp approved by Hotel GM this stay
           - Housekeeping notified minimum 2 hours before departure
         authority: hitl_required
         escalate_to: regional_gm

@@ -40,7 +40,7 @@ role_bands:
         conditions:
           - CFO notification required for overrides above 5%
           - Cross-property scope requires Regional GM written approval
-          - Audit trail must include original Apaleo revenue report reference
+          - Audit trail must include original property-system revenue report reference
         authority: hitl_required
         escalate_to: operations_chief
         must_log: true

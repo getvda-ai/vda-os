@@ -18,7 +18,7 @@ role_bands:
         ceiling: 500
         ceiling_type: eur
         conditions:
-          - Payment method confirmed in Apaleo
+          - Payment method confirmed in the property system
           - Reservation status is Confirmed
           - No open disputes on guest account
         authority: autonomous
@@ -43,7 +43,7 @@ role_bands:
         ceiling: 1
         ceiling_type: category_steps
         conditions:
-          - Upgrade unit confirmed available by Apaleo Inventory API
+          - Upgrade unit confirmed available by property system's Inventory API
           - Guest loyalty tier is Silver or above
           - Senior Ambassador authorisation documented
         authority: autonomous

@@ -15,7 +15,7 @@ risk_level: HIGH
 c2md_confidence: 0.95
 nist_control: AC-2, AU-2
 apaleo_api: Reservations API, Folio API, Finance API, Inventory/Unit API, Availability API
-vendor: VDA-MD for Apaleo
+vendor: VDA-MD for the property system
 baseline: true
 normalisation_level: 3
 ---
@@ -54,7 +54,7 @@ carrying a chargeback / fraud signal is escalated to a human, never executed.
   creation) — those belong to other agents.
 - MUST NOT act after a departure has been settled and closed (post-stay
   reconciliation, marketing, win-back).
-- MUST NOT post any Apaleo write (charge, upgrade, modify reservation, late
+- MUST NOT post any property-system write (charge, upgrade, modify reservation, late
   check-out) until the decision engine returns PASS, a human approves, or a
   matching non-revoked baseline applies.
 - MUST NOT process any decision without writing a Witness Stream entry.

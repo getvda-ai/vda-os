@@ -7,7 +7,7 @@
  * No policy text is hardcoded in route code — all content is read from static files at seed time.
  */
 import { Router, type IRouter } from "express";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents, agentMandates, sealOutbox } from "@workspace/db";
@@ -818,15 +818,99 @@ router.post("/admin/reset-demo", async (_req, res) => {
 // CLEARED:   witness entries, HITL cards, value events, pending seals, and every
 //            authority:"baseline" row — the demo starts with NO baselines set, so each
 //            exception is decided on governance rather than on a prior authorisation.
+//
+// TENANCY: this demo owns its OWN company row and never reuses company 1. Company 1 is
+// "citizenM Berlin" and both deployments point at the same database, so sharing it would
+// mean (a) a citizenM name rendering inside an Alliance-branded demo and (b) each demo's
+// reset wiping the other's console. The row is resolved by NAME, not by apaleoPropertyId
+// — matching on the property would find citizenM Berlin (also BER) and rename it, which
+// would edit the original demo rather than copy it. Both still run against the same BER
+// sandbox property, which is the point: same property management system, separate tenants.
+const ALLIANCE_COMPANY_NAME = "A Hotel Berlin";
 router.post("/admin/reset-stay-demo", async (req, res) => {
-  const companyId = Number(req.body?.company_id ?? req.body?.companyId ?? 1);
-  if (!Number.isInteger(companyId) || companyId < 0) {
-    res.status(400).json({ error: "company_id must be a non-negative integer" });
-    return;
-  }
   const propertyId = String(req.body?.property_id ?? req.body?.propertyId ?? "BER");
 
   try {
+    // 1. Resolve-or-create this demo's own tenant, then make sure it has governance.
+    //    A reset has to be able to produce a WORKING demo from nothing, not just clear a
+    //    demo that someone already set up by hand.
+    let [company] = await db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(eq(companies.companyName, ALLIANCE_COMPANY_NAME))
+      .limit(1);
+
+    let createdCompany = false;
+    if (!company) {
+      const [inserted] = await db
+        .insert(companies)
+        .values({
+          companyName: ALLIANCE_COMPANY_NAME,
+          websiteUrl: "https://aihospitalityalliance.com",
+          industry: "hospitality",
+          filesCount: 4,
+          savedAt: Date.now(),
+          uploadedFiles: null,
+          apaleoPropertyId: propertyId,
+          x402Exempt: true,
+        })
+        .returning({ id: companies.id });
+      company = inserted;
+      createdCompany = true;
+    }
+    const companyId = company.id;
+
+    const seededGovernance = await seedStayAgentGovernance(companyId);
+
+    // 2. Ingest the SOPs. Governance files alone are NOT enough: the four governance
+    //    documents supply the authority ceilings, but the decision engine also needs
+    //    ingested SOP clauses per stage to cite. Without them every decision correctly
+    //    returns NO_SOP_COVERAGE and escalates — a demo where nothing is ever decided at
+    //    the front desk. Idempotent per (company, filename).
+    const sopsIngested: string[] = [];
+    try {
+      const { resolveSopsDir, ingestDocument, TEXT_EXTS } = await import("./sops.js");
+      const dir = resolveSopsDir();
+      if (dir) {
+        for (const f of readdirSync(dir).filter((f: string) => TEXT_EXTS.has(path.extname(f).toLowerCase()))) {
+          try {
+            await ingestDocument({
+              companyId,
+              filename: f,
+              content: readFileSync(path.join(dir, f), "utf-8"),
+              sourceType: path.extname(f).slice(1) || "md",
+            });
+            sopsIngested.push(f);
+          } catch (e) {
+            logger.warn({ e, f }, "[reset-stay-demo] SOP ingest failed for one file");
+          }
+        }
+      } else {
+        logger.warn("[reset-stay-demo] no /sops folder resolved — decisions will report NO_SOP_COVERAGE");
+      }
+    } catch (err) {
+      logger.error({ err }, "[reset-stay-demo] SOP ingestion failed");
+    }
+
+    // 3. Put the tenant in Walk. In Crawl every decision escalates for human confirmation
+    //    even when it is comfortably inside the Ambassador's ceiling — correct behaviour,
+    //    but it means the front desk never acts and the demo cannot show the Ambassador/MoD
+    //    split at all. This is a DEMO SETUP step, set directly and reported as such: it is
+    //    not a promotion, and it does not claim the Walk criteria (85% HITL agreement, <10%
+    //    override, no boundary violation) were met. /api/phase/:id/promote still enforces
+    //    those for a real tenant, and this deliberately does not go through it.
+    const DEMO_PHASE = "walk";
+    const [phaseRow] = await db
+      .select({ id: agentPhases.id })
+      .from(agentPhases)
+      .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, "stay-agent")))
+      .limit(1);
+    if (phaseRow) {
+      await db.update(agentPhases).set({ phase: DEMO_PHASE }).where(eq(agentPhases.id, phaseRow.id));
+    } else {
+      await db.insert(agentPhases).values({ companyId, agentId: "stay-agent", phase: DEMO_PHASE, activatedAt: new Date() });
+    }
+
     const cleared: Record<string, number> = {};
     const count = (r: unknown): number => (r as { rowCount?: number })?.rowCount ?? 0;
 
@@ -864,10 +948,18 @@ router.post("/admin/reset-stay-demo", async (req, res) => {
       chain = { chainKey, ok: false, detail: `chain re-mirror skipped: ${err instanceof Error ? err.message : String(err)}` };
     }
 
-    logger.info({ companyId, cleared, chain }, "[reset-stay-demo] demo view reset");
+    logger.info({ companyId, createdCompany, cleared, chain }, "[reset-stay-demo] demo view reset");
     res.json({
       ok: true,
       companyId,
+      companyName: ALLIANCE_COMPANY_NAME,
+      createdCompany,
+      seededGovernance,
+      sopsIngested,
+      phase: DEMO_PHASE,
+      phaseNote:
+        "Set directly as demo setup — not a promotion, and not a claim the Walk criteria were met. " +
+        "In Crawl every decision escalates, so the Ambassador/MoD split would never be visible.",
       propertyId,
       cleared,
       chain,

@@ -18,7 +18,7 @@ role_bands:
         ceiling: 500
         ceiling_type: eur
         conditions:
-          - Folio status is Open in Apaleo Finance API
+          - Folio status is Open in property system's Finance API
           - No duplicate charge detected on same service date
           - Payment method confirmed — no unsecured balance
           - Open disputes NONE
@@ -45,7 +45,7 @@ role_bands:
         ceiling_type: eur
         conditions:
           - Service failure documented in Witness Agent entry
-          - Original charge verified in Apaleo Folio API
+          - Original charge verified in property system's Folio API
           - Applies to current stay folio only
         authority: autonomous
         escalate_to: hotel_gm

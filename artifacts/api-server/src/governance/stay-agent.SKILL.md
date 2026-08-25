@@ -17,7 +17,7 @@ normalisation_level: 3
 
 # Stay Agent — Capability & Tool Declaration (SKILL)
 
-The Stay Agent may call ONLY the Apaleo MCP tools listed here, and only for the
+The Stay Agent may call ONLY the property-system tools listed here, and only for the
 in-stay window (check-in → in-stay → check-out). Read tools may be used freely
 inside the decision loop. Write tools are executed ONLY after the decision engine
 returns PASS, a human approves via HITL, or a matching non-revoked baseline
@@ -26,7 +26,7 @@ applies — never before, and never outside the ceilings in
 
 ## Read tools (permitted in the evaluation loop)
 
-| Tool | Purpose | Apaleo scope |
+| Tool | Purpose | property-system scope |
 |------|---------|--------------|
 | `GetReservation` | Verify reservation status, dates, unit, guest | reservations.read |
 | `ListFolios` | List folios for a reservation | folios.read |
@@ -40,7 +40,7 @@ applies — never before, and never outside the ceilings in
 
 ## Write tools (executed ONLY after PASS / approval / baseline)
 
-| Tool | Used for | Apaleo scope |
+| Tool | Used for | property-system scope |
 |------|----------|--------------|
 | `CheckIn` | Complete guest check-in / early check-in | distribution:reservations.manage |
 | `CheckOut` | Complete check-out / late check-out settlement | distribution:reservations.manage |
@@ -50,8 +50,8 @@ applies — never before, and never outside the ceilings in
 ## Write discipline (MUST)
 
 - Every MCP tool call is written to the Witness Stream **before** execution.
-- If a required write tool is not available in the connected Apaleo MCP surface,
-  the agent records the intended Apaleo mutation in the Witness entry and marks
+- If a required write tool is not available in the connected property-system surface,
+  the agent records the intended property-system mutation in the Witness entry and marks
   it `SANDBOX_NO_WRITE` rather than fabricating success.
 - Refunds and goodwill credits that reverse money are modelled as folio
   adjustments and inherit the Finance O2C controls.

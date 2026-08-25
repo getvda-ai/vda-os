@@ -92,16 +92,16 @@ export async function executeStayAction(payload: Record<string, unknown>): Promi
   const { tool, args } = pickToolAndArgs(payload);
 
   if (!tool) {
-    return { status: "SANDBOX_NO_WRITE", tool: null, args: {}, note: "No Apaleo write is required for this exception class (operational only)." };
+    return { status: "SANDBOX_NO_WRITE", tool: null, args: {}, note: "No property-system write is required for this exception class (operational only)." };
   }
   if (!isMcpConfigured()) {
-    return { status: "SANDBOX_NO_WRITE", tool, args, note: "Apaleo MCP is not configured — intended mutation recorded, not executed." };
+    return { status: "SANDBOX_NO_WRITE", tool, args, note: "The property-system integration is not configured — intended mutation recorded, not executed." };
   }
   try {
     const tools = await listMcpTools();
     const available = tools.some((t) => t.name === tool);
     if (!available) {
-      return { status: "SANDBOX_NO_WRITE", tool, args, note: `Write tool ${tool} is not exposed by the connected Apaleo MCP surface — intended mutation recorded.` };
+      return { status: "SANDBOX_NO_WRITE", tool, args, note: `Write tool ${tool} is not exposed by the connected property-system surface — intended mutation recorded.` };
     }
     const result = await callMcpTool(tool, args);
     // An MCP tool can return a structured error result without throwing. That is
@@ -113,7 +113,7 @@ export async function executeStayAction(payload: Record<string, unknown>): Promi
         .map((c) => c.text ?? "")
         .join(" ")
         .slice(0, 300);
-      return { status: "SANDBOX_NO_WRITE", tool, args, result, note: `Apaleo MCP rejected the write: ${detail}` };
+      return { status: "SANDBOX_NO_WRITE", tool, args, result, note: `The property system rejected the write: ${detail}` };
     }
     return { status: "EXECUTED", tool, args, result, apaleoId: extractApaleoId(result) };
   } catch (err) {

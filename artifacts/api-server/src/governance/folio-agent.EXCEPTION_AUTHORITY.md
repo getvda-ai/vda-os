@@ -31,7 +31,7 @@ role_bands:
         ceiling: null
         ceiling_type: none
         conditions:
-          - Guest dispute communicated in writing or via Apaleo guest profile
+          - Guest dispute communicated in writing or via property-system guest profile
           - Charge must be on a folio in Open or Closed status
           - Finance team notified within 2 hours of flagging
         authority: autonomous

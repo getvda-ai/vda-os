@@ -18,7 +18,7 @@ role_bands:
         ceiling: 7
         ceiling_type: nights
         conditions:
-          - Rate plan is confirmed active in Apaleo
+          - Rate plan is confirmed active in the property system
           - Unit group has availability confirmed
           - Guest identity verified
         authority: autonomous

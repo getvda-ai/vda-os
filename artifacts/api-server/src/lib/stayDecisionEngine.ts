@@ -172,7 +172,7 @@ async function fetchApaleoSnapshot(
   ref: StayApaleoRef | undefined,
 ): Promise<{ data: Record<string, unknown>; demo: boolean }> {
   if (!process.env.APALEO_CLIENT_ID || !process.env.APALEO_CLIENT_SECRET) {
-    return { data: { note: "DEMO-DATA — Apaleo credentials not configured", ref }, demo: true };
+    return { data: { note: "DEMO-DATA — property-system credentials not configured", ref }, demo: true };
   }
   const data: Record<string, unknown> = {};
   try {
@@ -191,7 +191,7 @@ async function fetchApaleoSnapshot(
     return { data, demo: false };
   } catch (err) {
     logger.warn({ err, ref }, "[stayEngine] Apaleo snapshot failed — using DEMO-DATA fallback");
-    return { data: { note: "DEMO-DATA — Apaleo read failed", error: String(err), ref }, demo: true };
+    return { data: { note: "DEMO-DATA — property-system read failed", error: String(err), ref }, demo: true };
   }
 }
 

@@ -18,7 +18,7 @@ role_bands:
         ceiling: 9
         ceiling_type: percent_below_bar
         conditions:
-          - Rate plan is confirmed active in Apaleo
+          - Rate plan is confirmed active in the property system
           - Discount does not breach floor rate
           - No competing promotional rate applies
         authority: autonomous
