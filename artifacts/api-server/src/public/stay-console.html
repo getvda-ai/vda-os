@@ -723,7 +723,7 @@ $("#btnSeed").addEventListener("click",async()=>{try{await api(`/api/admin/seed-
 // governance, applies the ceiling, and seals to Witness. Nothing here is a fixture, which
 // is the whole point: a governance demo that fabricates its own evidence demonstrates
 // nothing. It is driven from the browser one call at a time because each decision is an
-// LLM + Apaleo + seal round-trip, and the function's ceiling is 60s per request.
+// LLM + property-system + seal round-trip, and the function's ceiling is 60s per request.
 //
 // The split follows the governance file, not a script: late check-out sits inside the
 // Ambassador's 2-hour ceiling so it PASSes at the front desk; early check-out above 2
