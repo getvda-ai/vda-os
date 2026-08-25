@@ -827,6 +827,32 @@ router.post("/admin/reset-demo", async (_req, res) => {
 // would edit the original demo rather than copy it. Both still run against the same BER
 // sandbox property, which is the point: same property management system, separate tenants.
 const ALLIANCE_COMPANY_NAME = "A Hotel Berlin";
+
+// ─── GET /api/admin/stay-demo-tenant ──────────────────────────────────────────
+// Which company row is this demo's? The console asks on load so it opens on its own
+// tenant instead of the hardcoded company 1 — which is a DIFFERENT hotel's tenant on the
+// same database, and showed an empty console because this demo's data was never there.
+// Read-only on purpose: it never creates the row. Only Reset does that, so merely opening
+// the page can never write to the database.
+router.get("/admin/stay-demo-tenant", async (_req, res) => {
+  try {
+    const [row] = await db
+      .select({ id: companies.id, name: companies.companyName })
+      .from(companies)
+      .where(eq(companies.companyName, ALLIANCE_COMPANY_NAME))
+      .limit(1);
+    res.json({
+      ok: true,
+      exists: Boolean(row),
+      companyId: row?.id ?? null,
+      companyName: ALLIANCE_COMPANY_NAME,
+    });
+  } catch (err) {
+    logger.error({ err }, "admin/stay-demo-tenant error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Lookup failed" });
+  }
+});
+
 router.post("/admin/reset-stay-demo", async (req, res) => {
   const propertyId = String(req.body?.property_id ?? req.body?.propertyId ?? "BER");
 

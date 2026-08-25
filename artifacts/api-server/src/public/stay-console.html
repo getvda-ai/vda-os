@@ -13,6 +13,9 @@
   .brand .logo{height:26px;width:auto;display:block}
   .b-reset{background:#101a2e;border-color:#25406e;color:var(--accent);font-weight:600}
   .b-reset[disabled]{opacity:.55;cursor:progress}
+  .emptyHint{display:none;margin:0 18px 12px;padding:11px 14px;border:1px solid #2a3550;border-radius:10px;background:#101725;color:var(--dim);font-size:13px}
+  .emptyHint.show{display:block}
+  .emptyHint b{color:var(--txt)}
   .resetPanel{display:none;margin:0 18px 12px;border:1px solid var(--line);border-radius:12px;background:#0d1117;overflow:hidden}
   .resetPanel.open{display:block}
   .rp-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
@@ -192,6 +195,12 @@
   <button id="resetBtn" class="b-reset" title="Clear the console view and replay a mid-shift set of governed decisions">↺ Reset demo</button>
   <button id="demoBtn" title="Demo controls">⚙</button>
 </header>
+
+<div id="emptyHint" class="emptyHint">
+  <b>No shift loaded.</b> This console has no decisions yet for its tenant.
+  Press <b>↺ Reset demo</b> to build one — it replays a mid-shift set of real governed
+  decisions (about a minute).
+</div>
 
 <!-- Reset progress. Each line is one real call to the decision engine, not a fixture. -->
 <div id="resetPanel" class="resetPanel">
@@ -832,6 +841,7 @@ async function runReset(){
     const stillPending=Math.max(0,escalated.length-Math.min(RESET_PRE_APPROVE,modCards.length));
     $("#rpStatus").textContent=`ready · ${stillPending} card(s) awaiting the Manager on Duty`;
     rpStep("Demo ready — no baselines set, mid-shift state restored","ok",`${stillPending} escalation(s) open for the MoD`);
+    $("#emptyHint").classList.remove("show");
     toast("demo reset — mid-shift state restored");
   }catch(e){
     $("#rpStatus").textContent="reset failed";rpStep("Reset failed","warn",e.message);toast(e.message);
@@ -870,8 +880,26 @@ $("#btnIngest").addEventListener("click",async()=>{try{const j=await api(`/api/s
   if(q.get("company"))$("#company").value=q.get("company");
   const r=q.get("role");if(r==="mod"||r==="ambassador"){role=r;[...$("#roleSeg").children].forEach(x=>x.classList.toggle("on",x.dataset.role===r));$("#roleLabel").textContent=roleName(r);}
 })();
+
+// Open on THIS demo's tenant. The `co` box used to default to 1 — a different hotel's
+// tenant on the same database — so the console loaded empty and looked broken when the
+// demo's data was sitting under its own company all along. An explicit ?company= in the
+// URL still wins, so deep links keep working.
+async function resolveTenant(){
+  if(new URLSearchParams(location.search).get("company"))return;   // caller was explicit
+  try{
+    const t=await api(`/api/admin/stay-demo-tenant`);
+    if(t.exists&&t.companyId)$("#company").value=String(t.companyId);
+    else $("#emptyHint").classList.add("show");   // no tenant yet → Reset builds one
+  }catch{/* fall back to whatever is in the box */}
+}
 async function loadAll(){await loadAuthority();loadQueue();loadLog();loadBaselines();loadPhase();loadTier();}
-loadAll();
+(async()=>{await resolveTenant();await loadAll();
+  // Nothing to show and nothing pending? Say what to do rather than presenting an empty
+  // console as if it were a quiet shift.
+  try{const l=await api(`/api/stay/log?company_id=${companyId()}`);
+      if(!l.count)$("#emptyHint").classList.add("show");}catch{}
+})();
 setInterval(()=>{loadQueue();loadLog();},6000);
 </script>
 </body>
