@@ -25,30 +25,43 @@
   .b-reset{background:#101a2e;border-color:#25406e;color:var(--accent);font-weight:600}
   .b-reset[disabled]{opacity:.55;cursor:progress}
   /* Splash — what the demo is FOR. Shown once per browser; the ? in the header reopens it. */
+  /* Sized in PERCENTAGES of the padded overlay, never vw/vh. `96vw` inside a 20px-padded
+     container needs 96vw+40px, and vw counts the scrollbar the console behind already has —
+     so the card was wider than the usable area and the whole page gained scrollbars. A
+     percentage resolves against the padded content box and cannot exceed it. */
   #splash{position:fixed;inset:0;background:#05070bef;backdrop-filter:blur(6px);
-    z-index:90;display:none;align-items:center;justify-content:center;padding:20px}
+    z-index:90;display:none;align-items:center;justify-content:center;padding:16px;overflow:hidden}
   #splash.open{display:flex}
-  .scard{background:#0c0e13;border:1px solid #2b3550;border-radius:16px;width:760px;max-width:96vw;
-    max-height:92vh;display:flex;flex-direction:column;box-shadow:0 28px 80px #000c;overflow:hidden}
-  .scard .sh{display:flex;align-items:center;gap:16px;padding:20px 24px;border-bottom:1px solid var(--line);
-    background:linear-gradient(180deg,#121826,#0c0e13)}
-  .scard .st{font-size:19px;font-weight:680;letter-spacing:.2px}
-  .scard .ss{font-size:12.5px;color:var(--dim);margin-top:3px}
-  .scard .sb{padding:20px 24px 6px;overflow:auto}
-  .scard .lead{font-size:14px;line-height:1.6;color:#cfd6e4;margin:0 0 18px}
+  .scard{background:#0c0e13;border:1px solid #2b3550;border-radius:16px;
+    width:min(720px,100%);max-width:100%;max-height:100%;
+    display:flex;flex-direction:column;box-shadow:0 28px 80px #000c;overflow:hidden}
+  .scard .sh{display:flex;align-items:center;gap:14px;padding:15px 20px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#121826,#0c0e13);flex:0 0 auto}
+  .scard .sh>div{min-width:0}
+  .scard .st{font-size:17px;font-weight:680;letter-spacing:.2px}
+  .scard .ss{font-size:12px;color:var(--dim);margin-top:2px}
+  .scard .sb{padding:15px 20px 4px;overflow:auto;overscroll-behavior:contain;min-height:0}
+  .scard .lead{font-size:13.5px;line-height:1.55;color:#cfd6e4;margin:0 0 14px}
   .scard .lead b{color:var(--txt)}
-  .pt{display:flex;gap:14px;margin-bottom:18px}
-  .pt .n{flex:0 0 26px;height:26px;border-radius:50%;background:#16213a;border:1px solid #2b3550;
-    color:var(--accent);font-size:12.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
-  .pt h4{margin:2px 0 5px;font-size:13.5px;font-weight:650;color:var(--txt)}
-  .pt p{margin:0;font-size:13px;line-height:1.6;color:var(--dim)}
+  .pt{display:flex;gap:12px;margin-bottom:13px}
+  .pt>div:last-child{min-width:0}   /* flex items default to min-width:auto and refuse to
+                                       shrink — the other half of the sideways scroll */
+  .pt .n{flex:0 0 24px;height:24px;border-radius:50%;background:#16213a;border:1px solid #2b3550;
+    color:var(--accent);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .pt h4{margin:1px 0 4px;font-size:13px;font-weight:650;color:var(--txt)}
+  .pt p{margin:0;font-size:12.5px;line-height:1.55;color:var(--dim);overflow-wrap:anywhere}
   .pt p b{color:#cfd6e4;font-weight:600}
-  .scard .note{border:1px solid #24405e;background:#0e1a26;border-radius:9px;padding:11px 13px;
-    font-size:12.5px;color:var(--dim);line-height:1.55;margin-bottom:16px}
+  .scard .note{border:1px solid #24405e;background:#0e1a26;border-radius:9px;padding:10px 12px;
+    font-size:12px;color:var(--dim);line-height:1.5;margin-bottom:12px}
   .scard .note b{color:var(--txt)}
-  .scard .sf{padding:14px 24px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;
-    background:#0a0c11}
+  .scard .sf{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;
+    background:#0a0c11;flex:0 0 auto}
   .scard .sf button{padding:9px 18px;font-size:13.5px}
+  @media (max-height:700px){
+    .scard .lead{margin-bottom:11px}
+    .pt{margin-bottom:10px}
+    .scard .sh{padding:12px 20px}
+  }
   #helpBtn{padding:6px 11px}
   .emptyHint{display:none;margin:0 18px 12px;padding:11px 14px;border:1px solid #2a3550;border-radius:10px;background:#101725;color:var(--dim);font-size:13px}
   .emptyHint.show{display:block}
