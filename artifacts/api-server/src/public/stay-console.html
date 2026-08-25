@@ -7,9 +7,16 @@
 <style>
   :root{--bg:#07080a;--panel:#111318;--panel2:#171a21;--line:#232733;--txt:#f4f6fb;--dim:#9aa4b6;--accent:#7c9cff;--green:#4ade80;--red:#f87171;--amber:#f59e0b;--purple:#c084fc;--teal:#2dd4bf}
   *{box-sizing:border-box}
+  /* Nothing may scroll the window sideways. `clip` not `hidden`: hidden would make body a
+     scroll container and break the sticky header, clip just refuses the overflow. This is a
+     backstop — the shrinkable header badges below are the actual fix — but a console whose
+     layout depends on the length of a status string should not be one bad string from a
+     sideways scrollbar. */
+  html,body{max-width:100%;overflow-x:clip}
   body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
   header{position:sticky;top:0;z-index:20;background:#0a0c10ee;backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-  .brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:.2px;text-decoration:none;color:inherit}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:.2px;text-decoration:none;
+    color:inherit;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   /* The Alliance wordmark is #1e2a5e navy on #7b8694 grey — both effectively invisible on a
      near-black header, which is why it read as a dark smudge. It sits on a light chip rather
      than being filtered or recoloured: this is someone else's brand and its actual colours
@@ -69,7 +76,7 @@
   /* Floats over the console instead of pushing it down: the whole point of watching a reset
      is seeing the queue and log fill in behind it, and a panel that displaces the layout
      hides exactly what it is narrating. */
-  .resetPanel{display:none;position:fixed;right:18px;bottom:18px;width:min(430px,calc(100vw - 36px));
+  .resetPanel{display:none;position:fixed;right:18px;bottom:18px;left:auto;max-width:calc(100% - 36px);width:430px;
     z-index:60;border:1px solid #2b3550;border-radius:12px;background:#0d1117f2;backdrop-filter:blur(8px);
     box-shadow:0 18px 44px #000a;overflow:hidden}
   .resetPanel.open{display:block}
@@ -84,7 +91,8 @@
   .rp-step .who{font-weight:600}
   .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
   .brand small{color:var(--dim);font-weight:500}
-  .tag{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
+  .tag{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:2px 9px;
+    white-space:nowrap;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}
   .spacer{flex:1}
   input,select,button{font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
   button{cursor:pointer}button:hover{border-color:#3a4152}
@@ -146,7 +154,7 @@
   /* report modal */
   #modal{position:fixed;inset:0;background:#000a;z-index:70;display:none;align-items:center;justify-content:center;padding:20px}
   #modal.open{display:flex}
-  .mcard{background:#0c0e13;border:1px solid var(--line);border-radius:14px;width:720px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px #000b}
+  .mcard{background:#0c0e13;border:1px solid var(--line);border-radius:14px;width:720px;max-width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px #000b}
   .mcard .mh{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
   .mcard .mh h3{margin:0;font-size:15px}
   .mcard .mb{padding:14px 16px;overflow:auto}
@@ -164,14 +172,14 @@
   .mini{font-size:11px;color:var(--dim)}
   .auto{font-size:11px;color:var(--teal);border:1px solid #14483f;border-radius:999px;padding:1px 8px}
   /* demo drawer */
-  #drawer{position:fixed;top:0;right:0;height:100%;width:340px;max-width:88vw;background:#0c0e13;border-left:1px solid var(--line);z-index:40;transform:translateX(100%);transition:transform .2s;padding:16px;overflow:auto;box-shadow:-12px 0 40px #000a}
+  #drawer{position:fixed;top:0;right:0;height:100%;width:340px;max-width:85%;background:#0c0e13;border-left:1px solid var(--line);z-index:40;transform:translateX(100%);transition:transform .2s;padding:16px;overflow:auto;box-shadow:-12px 0 40px #000a}
   #drawer.open{transform:translateX(0)}
   #drawer h3{margin:2px 0 4px;font-size:14px}
   #drawer .sec{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;background:var(--panel)}
   #drawer label{display:block;font-size:11px;color:var(--dim);margin:8px 0 3px}
   #scrim{position:fixed;inset:0;background:#0007;z-index:39;display:none}
   #scrim.open{display:block}
-  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#12151c;border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-size:13px;z-index:60;box-shadow:0 8px 30px #000a;max-width:90vw}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#12151c;border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-size:13px;z-index:60;box-shadow:0 8px 30px #000a;max-width:calc(100% - 36px)}
   a{color:var(--accent)}
   /* seal-state badges (outbox status × verify verdict) */
   .sb{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid;cursor:default;white-space:nowrap}
@@ -198,7 +206,8 @@
   .vp .chk.y{color:#4ade80;border-color:#1f5a34} .vp .chk.n{color:#ff8a8a;border-color:#7a2a1a}
   .vp .meth{margin-top:5px;color:var(--dim);font-size:10px}
   /* tier badge in header */
-  .tier{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid;white-space:nowrap}
+  .tier{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid;
+    white-space:nowrap;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}
   .tier.anchored{color:#4ade80;border-color:#1f5a34;background:#0e2016}
   .tier.sealed{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
   .tier.notanchored{color:#b7c0d0;border-color:#33404f;background:#141a22}
