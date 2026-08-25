@@ -14,10 +14,14 @@
      near-black header, which is why it read as a dark smudge. It sits on a light chip rather
      than being filtered or recoloured: this is someone else's brand and its actual colours
      are the point, so the surface changes, not the mark. */
-  .brand .logoChip{display:flex;align-items:center;background:#fff;border-radius:9px;padding:7px 12px;
+  /* NOT scoped to .brand — the splash reuses these classes, and when the sizing lived under
+     .brand the splash img fell back to the SVG's intrinsic 2000px and swallowed the screen.
+     A height cap on .logo itself is what makes that impossible, wherever the mark is used. */
+  .logoChip{display:flex;align-items:center;background:#fff;border-radius:9px;padding:7px 12px;
     box-shadow:0 1px 3px #0008;flex:0 0 auto}
-  .brand .logo{height:32px;width:auto;display:block}
-  @media (max-width:720px){ .brand .logo{height:26px} }
+  .logo{height:32px;width:auto;max-width:100%;display:block}
+  .scard .sh .logo{height:36px}
+  @media (max-width:720px){ .logo{height:26px} .scard .sh .logo{height:28px} }
   .b-reset{background:#101a2e;border-color:#25406e;color:var(--accent);font-weight:600}
   .b-reset[disabled]{opacity:.55;cursor:progress}
   /* Splash — what the demo is FOR. Shown once per browser; the ? in the header reopens it. */
