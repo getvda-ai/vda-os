@@ -63,3 +63,10 @@ Thumbs.db
 .local/
 .vercel
 .env*
+
+# `vercel env pull <name>.env` writes a file whose name ENDS in .env — check.env,
+# stay.env, production.env. The patterns above (.env, .env.*, .env*) all anchor on a
+# LEADING dot and miss every one of them, so a pulled secrets file sat in the repo root
+# fully committable. Found 2026-08-25 after a diagnostic pull did exactly that.
+*.env
+!*.env.example
