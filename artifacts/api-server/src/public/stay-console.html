@@ -10,9 +10,42 @@
   body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
   header{position:sticky;top:0;z-index:20;background:#0a0c10ee;backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
   .brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:.2px;text-decoration:none;color:inherit}
-  .brand .logo{height:26px;width:auto;display:block}
+  /* The Alliance wordmark is #1e2a5e navy on #7b8694 grey — both effectively invisible on a
+     near-black header, which is why it read as a dark smudge. It sits on a light chip rather
+     than being filtered or recoloured: this is someone else's brand and its actual colours
+     are the point, so the surface changes, not the mark. */
+  .brand .logoChip{display:flex;align-items:center;background:#fff;border-radius:9px;padding:7px 12px;
+    box-shadow:0 1px 3px #0008;flex:0 0 auto}
+  .brand .logo{height:32px;width:auto;display:block}
+  @media (max-width:720px){ .brand .logo{height:26px} }
   .b-reset{background:#101a2e;border-color:#25406e;color:var(--accent);font-weight:600}
   .b-reset[disabled]{opacity:.55;cursor:progress}
+  /* Splash — what the demo is FOR. Shown once per browser; the ? in the header reopens it. */
+  #splash{position:fixed;inset:0;background:#05070bef;backdrop-filter:blur(6px);
+    z-index:90;display:none;align-items:center;justify-content:center;padding:20px}
+  #splash.open{display:flex}
+  .scard{background:#0c0e13;border:1px solid #2b3550;border-radius:16px;width:760px;max-width:96vw;
+    max-height:92vh;display:flex;flex-direction:column;box-shadow:0 28px 80px #000c;overflow:hidden}
+  .scard .sh{display:flex;align-items:center;gap:16px;padding:20px 24px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#121826,#0c0e13)}
+  .scard .st{font-size:19px;font-weight:680;letter-spacing:.2px}
+  .scard .ss{font-size:12.5px;color:var(--dim);margin-top:3px}
+  .scard .sb{padding:20px 24px 6px;overflow:auto}
+  .scard .lead{font-size:14px;line-height:1.6;color:#cfd6e4;margin:0 0 18px}
+  .scard .lead b{color:var(--txt)}
+  .pt{display:flex;gap:14px;margin-bottom:18px}
+  .pt .n{flex:0 0 26px;height:26px;border-radius:50%;background:#16213a;border:1px solid #2b3550;
+    color:var(--accent);font-size:12.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .pt h4{margin:2px 0 5px;font-size:13.5px;font-weight:650;color:var(--txt)}
+  .pt p{margin:0;font-size:13px;line-height:1.6;color:var(--dim)}
+  .pt p b{color:#cfd6e4;font-weight:600}
+  .scard .note{border:1px solid #24405e;background:#0e1a26;border-radius:9px;padding:11px 13px;
+    font-size:12.5px;color:var(--dim);line-height:1.55;margin-bottom:16px}
+  .scard .note b{color:var(--txt)}
+  .scard .sf{padding:14px 24px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;
+    background:#0a0c11}
+  .scard .sf button{padding:9px 18px;font-size:13.5px}
+  #helpBtn{padding:6px 11px}
   .emptyHint{display:none;margin:0 18px 12px;padding:11px 14px;border:1px solid #2a3550;border-radius:10px;background:#101725;color:var(--dim);font-size:13px}
   .emptyHint.show{display:block}
   .emptyHint b{color:var(--txt)}
@@ -189,7 +222,7 @@
 <body>
 <header>
   <a class="brand" href="https://aihospitalityalliance.com" target="_blank" rel="noopener" title="AI Hospitality Alliance">
-    <img src="/brand/ai-hospitality-alliance-logo-horizontal.svg" alt="AI Hospitality Alliance" class="logo" />
+    <span class="logoChip"><img src="/brand/ai-hospitality-alliance-logo-horizontal.svg" alt="AI Hospitality Alliance" class="logo" /></span>
   </a>
   <div class="brand"><span class="dot"></span>A Hotel Berlin · <span>Stay Agent</span> <small id="propTag">· BER</small></div>
   <span class="tag" id="agentTag">agent live · Gemini</span>
@@ -201,8 +234,74 @@
   </div>
   <label class="mini">co <input id="company" value="1" style="width:52px" /></label>
   <button id="resetBtn" class="b-reset" title="Clear the console view and replay a mid-shift set of governed decisions">↺ Reset demo</button>
+  <button id="helpBtn" title="What is this demo showing?">?</button>
   <button id="demoBtn" title="Demo controls">⚙</button>
 </header>
+
+<div id="splash">
+  <div class="scard">
+    <div class="sh">
+      <span class="logoChip"><img src="/brand/ai-hospitality-alliance-logo-horizontal.svg" alt="AI Hospitality Alliance" class="logo" /></span>
+      <div>
+        <div class="st">A Hotel Berlin · Stay Agent</div>
+        <div class="ss">A governed AI agent running a real guest journey — check-in, in-stay, check-out</div>
+      </div>
+    </div>
+
+    <div class="sb">
+      <p class="lead">
+        The agent is not the product. <b>The control over it is.</b> This console shows the three
+        mechanisms that make an AI agent safe to put in front of guests — and they are the same
+        three for every agent you add after it.
+      </p>
+
+      <div class="pt">
+        <div class="n">1</div>
+        <div>
+          <h4>Human-in-the-loop is the control mechanism</h4>
+          <p>Every exception is measured against governance written in plain Markdown, not code.
+          Inside the Ambassador's ceiling and all conditions met, the agent acts. Over the ceiling,
+          or a condition it cannot evidence, it stops and asks — the Ambassador for front-desk
+          calls, the Manager on Duty for anything carrying revenue or policy risk.
+          <b>The agent never decides what it is allowed to decide.</b></p>
+        </div>
+      </div>
+
+      <div class="pt">
+        <div class="n">2</div>
+        <div>
+          <h4>Baselining is how autonomy is granted — and it is the MoD's to grant</h4>
+          <p>When a decision proves itself, the Manager on Duty can <b>baseline</b> it: approve that
+          one kind of task, scoped to exact bounds, and the agent handles it automatically from then
+          on. Revocable at any time. This is the single control point for the whole estate — the
+          same gate governs this agent, the next agent, and every new capability either of them
+          gains. <b>Automation is something a manager grants, never something a deployment assumes.</b></p>
+        </div>
+      </div>
+
+      <div class="pt">
+        <div class="n">3</div>
+        <div>
+          <h4>Every decision is sealed, so compliance is built in from day one</h4>
+          <p>Each decision — autonomous or human — is sealed into a tamper-evident Witness chain:
+          what was decided, which clause governed it, who decided, and when. Append-only and
+          externally anchored, so it cannot be quietly revised afterwards. The EU AI Act
+          Article&nbsp;12 record is a by-product of operating, <b>not a project you start once a
+          regulator asks.</b></p>
+        </div>
+      </div>
+
+      <div class="note">
+        Live demo against a sandbox property management system — test data only, no guest records.
+        Press <b>↺ Reset demo</b> at any time to replay a mid-shift set of real governed decisions.
+      </div>
+    </div>
+
+    <div class="sf">
+      <button id="splashGo" class="b-reset">Enter the console →</button>
+    </div>
+  </div>
+</div>
 
 <div id="emptyHint" class="emptyHint">
   <b>No shift loaded.</b> This console has no decisions yet for its tenant.
@@ -891,6 +990,27 @@ function buildScenarioBody(sc,co){
   },apaleo_ref:{propertyId:"BER"}};
 }
 $("#resetBtn").addEventListener("click",runReset);
+
+// ── Splash ───────────────────────────────────────────────────────────────────
+// Shown once per browser, then reachable from the ? in the header. A demo that opens
+// straight into a cockpit of numbers assumes the viewer already knows what they are
+// looking at; most first-time viewers do not, and the point of this one is the control
+// model, not the numbers.
+const SPLASH_SEEN="ahb.splash.v1";
+function showSplash(){$("#splash").classList.add("open");}
+function hideSplash(){$("#splash").classList.remove("open");try{localStorage.setItem(SPLASH_SEEN,"1");}catch{}}
+$("#splashGo").addEventListener("click",hideSplash);
+$("#helpBtn").addEventListener("click",showSplash);
+$("#splash").addEventListener("click",e=>{if(e.target.id==="splash")hideSplash();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("#splash").classList.contains("open"))hideSplash();});
+(function(){
+  const q=new URLSearchParams(location.search);
+  // ?splash=1 forces it — useful when presenting to a fresh audience on a browser that has
+  // already dismissed it. ?splash=0 suppresses it for screenshots.
+  if(q.get("splash")==="0")return;
+  let seen=false;try{seen=localStorage.getItem(SPLASH_SEEN)==="1";}catch{}
+  if(q.get("splash")==="1"||!seen)showSplash();
+})();
 $("#rpClose").addEventListener("click",()=>$("#resetPanel").classList.remove("open"));
 $("#rpMin").addEventListener("click",()=>{const p=$("#resetPanel");p.classList.toggle("min");$("#rpMin").textContent=p.classList.contains("min")?"+":"–";});
 $("#btnIngest").addEventListener("click",async()=>{try{const j=await api(`/api/sops/ingest`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})});toast(`ingested ${j.ingested?.length||0} SOP docs`);}catch(e){toast(e.message);}});
