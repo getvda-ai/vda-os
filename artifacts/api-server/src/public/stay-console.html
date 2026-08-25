@@ -27,8 +27,8 @@
   .logoChip{display:flex;align-items:center;background:#fff;border-radius:9px;padding:7px 12px;
     box-shadow:0 1px 3px #0008;flex:0 0 auto}
   .logo{height:32px;width:auto;max-width:100%;display:block}
-  .scard .sh .logo{height:36px}
-  @media (max-width:720px){ .logo{height:26px} .scard .sh .logo{height:28px} }
+  .sp-card .sp-head .logo{height:36px}
+  @media (max-width:720px){ .logo{height:26px} .sp-card .sp-head .logo{height:28px} }
   .b-reset{background:#101a2e;border-color:#25406e;color:var(--accent);font-weight:600}
   .b-reset[disabled]{opacity:.55;cursor:progress}
   /* Splash — what the demo is FOR. Shown once per browser; the ? in the header reopens it. */
@@ -39,35 +39,35 @@
   #splash{position:fixed;inset:0;background:#05070bef;backdrop-filter:blur(6px);
     z-index:90;display:none;align-items:center;justify-content:center;padding:16px;overflow:hidden}
   #splash.open{display:flex}
-  .scard{background:#0c0e13;border:1px solid #2b3550;border-radius:16px;
+  .sp-card{white-space:normal;word-break:normal;background:#0c0e13;border:1px solid #2b3550;border-radius:16px;
     width:min(720px,100%);max-width:100%;max-height:100%;
     display:flex;flex-direction:column;box-shadow:0 28px 80px #000c;overflow:hidden}
-  .scard .sh{display:flex;align-items:center;gap:14px;padding:15px 20px;border-bottom:1px solid var(--line);
+  .sp-card .sp-head{display:flex;align-items:center;gap:14px;padding:15px 20px;border-bottom:1px solid var(--line);
     background:linear-gradient(180deg,#121826,#0c0e13);flex:0 0 auto}
-  .scard .sh>div{min-width:0}
-  .scard .st{font-size:17px;font-weight:680;letter-spacing:.2px}
-  .scard .ss{font-size:12px;color:var(--dim);margin-top:2px}
-  .scard .sb{padding:15px 20px 4px;overflow:auto;overscroll-behavior:contain;min-height:0}
-  .scard .lead{font-size:13.5px;line-height:1.55;color:#cfd6e4;margin:0 0 14px}
-  .scard .lead b{color:var(--txt)}
-  .pt{display:flex;gap:12px;margin-bottom:13px}
-  .pt>div:last-child{min-width:0}   /* flex items default to min-width:auto and refuse to
+  .sp-card .sp-head>div{min-width:0}
+  .sp-card .sp-title{font-size:17px;font-weight:680;letter-spacing:.2px}
+  .sp-card .sp-sub{font-size:12px;color:var(--dim);margin-top:2px}
+  .sp-card .sp-body{padding:15px 20px 4px;overflow:auto;overscroll-behavior:contain;min-height:0}
+  .sp-card .sp-lead{font-size:13.5px;line-height:1.55;color:#cfd6e4;margin:0 0 14px}
+  .sp-card .sp-lead b{color:var(--txt)}
+  .sp-pt{display:flex;gap:12px;margin-bottom:13px}
+  .sp-pt>div:last-child{min-width:0}   /* flex items default to min-width:auto and refuse to
                                        shrink — the other half of the sideways scroll */
-  .pt .n{flex:0 0 24px;height:24px;border-radius:50%;background:#16213a;border:1px solid #2b3550;
+  .sp-pt .sp-num{flex:0 0 24px;height:24px;border-radius:50%;background:#16213a;border:1px solid #2b3550;
     color:var(--accent);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
-  .pt h4{margin:1px 0 4px;font-size:13px;font-weight:650;color:var(--txt)}
-  .pt p{margin:0;font-size:12.5px;line-height:1.55;color:var(--dim);overflow-wrap:anywhere}
-  .pt p b{color:#cfd6e4;font-weight:600}
-  .scard .note{border:1px solid #24405e;background:#0e1a26;border-radius:9px;padding:10px 12px;
+  .sp-pt h4{margin:1px 0 4px;font-size:13px;font-weight:650;color:var(--txt)}
+  .sp-pt p{margin:0;font-size:12.5px;line-height:1.55;color:var(--dim);overflow-wrap:anywhere}
+  .sp-pt p b{color:#cfd6e4;font-weight:600}
+  .sp-card .sp-note{border:1px solid #24405e;background:#0e1a26;border-radius:9px;padding:10px 12px;
     font-size:12px;color:var(--dim);line-height:1.5;margin-bottom:12px}
-  .scard .note b{color:var(--txt)}
-  .scard .sf{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;
+  .sp-card .sp-note b{color:var(--txt)}
+  .sp-card .sp-foot{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;
     background:#0a0c11;flex:0 0 auto}
-  .scard .sf button{padding:9px 18px;font-size:13.5px}
+  .sp-card .sp-foot button{padding:9px 18px;font-size:13.5px}
   @media (max-height:700px){
-    .scard .lead{margin-bottom:11px}
-    .pt{margin-bottom:10px}
-    .scard .sh{padding:12px 20px}
+    .sp-card .sp-lead{margin-bottom:11px}
+    .sp-pt{margin-bottom:10px}
+    .sp-card .sp-head{padding:12px 20px}
   }
   #helpBtn{padding:6px 11px}
   .emptyHint{display:none;margin:0 18px 12px;padding:11px 14px;border:1px solid #2a3550;border-radius:10px;background:#101725;color:var(--dim);font-size:13px}
@@ -265,24 +265,24 @@
 </header>
 
 <div id="splash">
-  <div class="scard">
-    <div class="sh">
+  <div class="sp-card">
+    <div class="sp-head">
       <span class="logoChip"><img src="/brand/ai-hospitality-alliance-logo-horizontal.svg" alt="AI Hospitality Alliance" class="logo" /></span>
       <div>
-        <div class="st">A Hotel Berlin · Stay Agent</div>
-        <div class="ss">A governed AI agent running a real guest journey — check-in, in-stay, check-out</div>
+        <div class="sp-title">A Hotel Berlin · Stay Agent</div>
+        <div class="sp-sub">A governed AI agent running a real guest journey — check-in, in-stay, check-out</div>
       </div>
     </div>
 
-    <div class="sb">
-      <p class="lead">
+    <div class="sp-body">
+      <p class="sp-lead">
         The agent is not the product. <b>The control over it is.</b> This console shows the three
         mechanisms that make an AI agent safe to put in front of guests — and they are the same
         three for every agent you add after it.
       </p>
 
-      <div class="pt">
-        <div class="n">1</div>
+      <div class="sp-pt">
+        <div class="sp-num">1</div>
         <div>
           <h4>Human-in-the-loop is the control mechanism</h4>
           <p>Every exception is measured against governance written in plain Markdown, not code.
@@ -293,8 +293,8 @@
         </div>
       </div>
 
-      <div class="pt">
-        <div class="n">2</div>
+      <div class="sp-pt">
+        <div class="sp-num">2</div>
         <div>
           <h4>Baselining is how autonomy is granted — and it is the MoD's to grant</h4>
           <p>When a decision proves itself, the Manager on Duty can <b>baseline</b> it: approve that
@@ -305,8 +305,8 @@
         </div>
       </div>
 
-      <div class="pt">
-        <div class="n">3</div>
+      <div class="sp-pt">
+        <div class="sp-num">3</div>
         <div>
           <h4>Every decision is sealed, so compliance is built in from day one</h4>
           <p>Each decision — autonomous or human — is sealed into a tamper-evident Witness chain:
@@ -317,13 +317,13 @@
         </div>
       </div>
 
-      <div class="note">
+      <div class="sp-note">
         Live demo against a sandbox property management system — test data only, no guest records.
         Press <b>↺ Reset demo</b> at any time to replay a mid-shift set of real governed decisions.
       </div>
     </div>
 
-    <div class="sf">
+    <div class="sp-foot">
       <button id="splashGo" class="b-reset">Enter the console →</button>
     </div>
   </div>
