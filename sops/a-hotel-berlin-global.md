@@ -1,11 +1,11 @@
 ---
-title: citizenM Guest Experience — Global Principles
+title: A Hotel Berlin Guest Experience — Global Principles
 stage: global
 version: "2.1"
 owner: General Manager
 ---
 
-# citizenM Global Service Principles
+# A Hotel Berlin Global Service Principles
 
 ## Affordable Luxury, Human Judgement
 Every in-stay decision balances the guest's experience with commercial fairness.
@@ -16,7 +16,7 @@ guess.
 ## Document Every Financial Movement
 Any decision that moves money — a charge, a credit, a refund, a settlement — is
 recorded with its reason so it can be audited later. Transparency protects both
-the guest and citizenM.
+the guest and A Hotel Berlin.
 
 ## Data Protection
 Guest identity and payment data are handled per GDPR: captured only when needed,

@@ -21,7 +21,7 @@ normalisation_level: 3
 This SOP is the procedure the Stay Agent walks for every in-stay decision. It
 defines MUST / MUST NOT / MAY rules and the escalation path for each stage. The
 business rationale for a specific action is supplied at runtime by the ingested
-citizenM SOP clauses; where no ingested SOP clause covers a situation, the agent
+A Hotel Berlin SOP clauses; where no ingested SOP clause covers a situation, the agent
 MUST escalate with reason `NO_SOP_COVERAGE` and MUST NOT guess.
 
 ## Global Rules (all stages)
@@ -29,7 +29,7 @@ MUST escalate with reason `NO_SOP_COVERAGE` and MUST NOT guess.
 - The Stay Agent **MUST** confirm the reservation is within the in-stay window
   (arriving today, in-house, or departing) via the Apaleo Reservations API
   before acting.
-- The Stay Agent **MUST** consult the ingested citizenM SOP clauses for the
+- The Stay Agent **MUST** consult the ingested A Hotel Berlin SOP clauses for the
   current stage plus global clauses, and **MUST** cite the specific clause(s)
   that justify the action or the exception.
 - The Stay Agent **MUST** evaluate every action against the ceiling defined for

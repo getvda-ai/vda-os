@@ -47,7 +47,7 @@ app.listen(port, (err) => {
   );
   // Seed all canonical VDA-MD AGENTS/SOP/SKILL files at companyId=0 (platform).
   // The CISO sandbox evaluates against companyId=0 — these files MUST exist at genesis.
-  seedCompanyGovernance(0, "citizenM").catch(err =>
+  seedCompanyGovernance(0, "A Hotel Berlin").catch(err =>
     logger.warn({ err }, "Platform VDA-MD canonical governance seed deferred")
   );
   // Stay Agent governance (AGENTS/SOP/SKILL/EXCEPTION_AUTHORITY) at platform baseline.

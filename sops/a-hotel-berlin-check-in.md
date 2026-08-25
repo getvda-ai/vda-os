@@ -1,11 +1,11 @@
 ---
-title: citizenM Front Desk SOP — Arrival & Check-in
+title: A Hotel Berlin Front Desk SOP — Arrival & Check-in
 stage: check_in
 version: "2.1"
 owner: Front Office Manager
 ---
 
-# citizenM Check-in SOP
+# A Hotel Berlin Check-in SOP
 
 ## Early Check-in
 Guests may be welcomed before the 15:00 standard check-in time when a room in the

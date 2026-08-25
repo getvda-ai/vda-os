@@ -323,7 +323,7 @@ role_bands:
         must_log: true
 
 must_not_override:
-  - "Bypassing Apaleo API calls required by governance policy for stay-agent"
+  - "Bypassing property management system API calls required by governance policy for stay-agent"
   - "Processing any decision without writing a Witness Agent entry"
   - "Applying exception ceilings not defined in this EXCEPTION_AUTHORITY.md"
   - "Auto-approving any decision carrying a chargeback-risk or fraud signal — these ALWAYS escalate"

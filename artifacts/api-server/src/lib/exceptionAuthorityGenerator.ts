@@ -183,7 +183,7 @@ Mandatory MUST NOT clauses to include verbatim:
 ${jurisdiction.mandatory_must_not_clauses.map(c => `- ${c}`).join("\n")}`
     : "JURISDICTION: Platform-level (no hotel-specific jurisdiction context — use generic EU hospitality norms)";
 
-  const systemPrompt = `You are a VDA-MD governance architect generating a jurisdiction-aware EXCEPTION_AUTHORITY.md for a hospitality AI agent operating under citizenM's governance framework.
+  const systemPrompt = `You are a VDA-MD governance architect generating a jurisdiction-aware EXCEPTION_AUTHORITY.md for a hospitality AI agent operating under A Hotel Berlin's governance framework.
 
 OUTPUT FORMAT — produce EXACTLY this structure:
 1. YAML front matter (--- ... ---) containing:
@@ -206,9 +206,9 @@ IMPORTANT:
 
   const userPrompt = `Generate EXCEPTION_AUTHORITY.md for:
 Agent ID: ${agentId}
-Company: ${companyName || "citizenM Hotels"}
+Company: ${companyName || "A Hotel Berlin Hotels"}
 Industry: ${industry || "hospitality"}
-Brand context: ${brandContext ? brandContext.slice(0, 300) : "citizenM — tech-forward affordable luxury hotels"}
+Brand context: ${brandContext ? brandContext.slice(0, 300) : "A Hotel Berlin — tech-forward affordable luxury hotels"}
 
 ${jurisdictionBlock}
 

@@ -9,7 +9,7 @@
  * Prereqs: the api-server running locally with APALEO_CLIENT_ID/SECRET set.
  * Usage:   node artifacts/api-server/scripts/find-open-folio.mjs [BER] [http://localhost:8080]
  *
- * Note on the sandbox: the citizenM sandbox has only historical CheckedOut
+ * Note on the sandbox: the A Hotel Berlin sandbox has only historical CheckedOut
  * reservations, but their folios remain status=Open and in EUR, so a
  * post-checkout incidental charge (a legitimate check-out action) lands for
  * real. No fresh booking is needed per demo run — the open folios persist.

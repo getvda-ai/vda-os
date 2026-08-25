@@ -67,7 +67,7 @@ role_bands:
   regional_gm:
     exceptions:
       - exception_class: cross_property_rate_exception
-        description: Apply a rate exception across multiple citizenM properties
+        description: Apply a rate exception across multiple A Hotel Berlin properties
         ceiling: 20
         ceiling_type: percent_below_bar
         conditions:
@@ -95,7 +95,7 @@ role_bands:
         must_log: true
 
 must_not_override:
-  - "Bypassing Apaleo API calls required by governance policy for rate-agent"
+  - "Bypassing property management system API calls required by governance policy for rate-agent"
   - "Processing decisions without writing to Witness Agent"
   - "Applying exception ceilings not defined in this EXCEPTION_AUTHORITY.md"
 

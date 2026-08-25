@@ -1,7 +1,7 @@
 /**
  * Demo Data Seeder
  * POST /api/admin/seed-demo-data   – creates Apaleo sandbox reservations
- * POST /api/admin/seed-companies   – seeds 5 citizenM hotel entries + governance files
+ * POST /api/admin/seed-companies   – seeds 5 A Hotel Berlin hotel entries + governance files
  *
  * Safe to call multiple times — idempotent checks throughout.
  */
@@ -379,7 +379,7 @@ router.get("/admin/seed-status", async (req, res) => {
 
 // ─── Seed Companies ───────────────────────────────────────────────────────────
 // POST /api/admin/seed-companies
-// Idempotently creates 5 citizenM hotel entries (BER/LND/MUC/PAR/VIE) with
+// Idempotently creates 5 A Hotel Berlin hotel entries (BER/LND/MUC/PAR/VIE) with
 // governance files pre-seeded so all 7 demo agents have policy to evaluate against.
 
 function countClauses(content: string) {
@@ -390,36 +390,12 @@ function countClauses(content: string) {
   return { mustCount, mustNotCount, mayCount, wordCount };
 }
 
-const CITIZENM_PROPERTIES = [
+const ALLIANCE_PROPERTIES = [
   {
     apaleoPropertyId: "BER",
-    companyName: "citizenM Berlin",
-    websiteUrl: "https://www.citizenm.com/hotels/europe/berlin/berlin-checkpoint-charlie-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Berlin (Checkpoint Charlie) sits at the historic heart of Berlin. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English-first, German signage. Role titles: citizenM Ambassador, Revenue Manager, Operations Director. Rooms not suites. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
-  },
-  {
-    apaleoPropertyId: "LND",
-    companyName: "citizenM London",
-    websiteUrl: "https://www.citizenm.com/hotels/europe/london/london-bankside-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM London (Bankside) is on the South Bank, steps from Tate Modern and the Globe Theatre. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Self check-in kiosks, mobile key, tablet-controlled moodpad room settings. All guest touchpoints driven by Apaleo open API integrations. Operational language: English. Role titles: citizenM Ambassador, Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
-  },
-  {
-    apaleoPropertyId: "MUC",
-    companyName: "citizenM Munich",
-    websiteUrl: "https://www.citizenm.com/hotels/europe/munich/munich-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Munich is near the main train station with quick access to the city centre and trade fair grounds. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
-  },
-  {
-    apaleoPropertyId: "PAR",
-    companyName: "citizenM Paris",
-    websiteUrl: "https://www.citizenm.com/hotels/europe/paris/paris-gare-de-lyon-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Paris (Gare de Lyon) is steps from the iconic station. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and French. Role titles: citizenM Ambassador (Ambassadeur), Revenue Manager, Directeur des opérations. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
-  },
-  {
-    apaleoPropertyId: "VIE",
-    companyName: "citizenM Vienna",
-    websiteUrl: "https://www.citizenm.com/hotels/europe/vienna/vienna-hotel",
-    brandContext: "citizenM is a global hotel chain renowned for affordable luxury — bold Vitra design, fast self check-in kiosks, and an API-first tech stack powered by Apaleo. citizenM Vienna is in the heart of the Austrian capital, close to Stephansdom and the Ringstrasse. Brand values: technology-first, bold design, affordable luxury, Apaleo PMS at the core. Operational language: English and German. Role titles: citizenM Ambassador (Gastgeber), Revenue Manager, Operations Director. Guests are called 'citizens'. VDA-MD governance covers the full Apaleo guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
+    companyName: "A Hotel Berlin",
+    websiteUrl: "https://aihospitalityalliance.com",
+    brandContext: "A Hotel Berlin is an independent design hotel in Mitte, operating as the AI Hospitality Alliance reference property. Brand values: technology-first operations, calm contemporary design, honest pricing. Self check-in kiosks, mobile key, in-room tablet controls. Every guest touchpoint runs through the property management system's open API. Operational language: English-first, German signage. Role titles: Ambassador (front of house), Manager on Duty (MoD), Revenue Manager, Operations Director. Rooms, not suites. Guests are called guests. VDA-MD governance covers the full guest lifecycle: availability, rate override, reservation creation, check-in, folio charge, and checkout.",
   },
 ];
 
@@ -489,8 +465,8 @@ const PHASE_SEED: Record<string, Array<{ agentId: string; phase: string; agreeme
 const C2MD_MARKER = "c2md_generated: true";
 
 /**
- * Calls Claude to enrich a static governance file with citizenM brand voice.
- * Uses the shared citizenM brandContext; hotel-specific companyName is injected
+ * Calls Claude to enrich a static governance file with A Hotel Berlin brand voice.
+ * Uses the shared A Hotel Berlin brandContext; hotel-specific companyName is injected
  * by the caller via a simple string replace after generation.
  */
 async function generateC2MDContent(
@@ -500,24 +476,24 @@ async function generateC2MDContent(
 ): Promise<string> {
   const brandSnippet = brandContext.slice(0, 1200);
 
-  const system = `You are the C2MD (Compliance-to-Markdown) Translation Engine for citizenM, an Apaleo-powered hospitality brand.
+  const system = `You are the C2MD (Compliance-to-Markdown) Translation Engine for A Hotel Berlin, an Apaleo-powered hospitality brand.
 
 BRAND CONTEXT:
 ${brandSnippet}
 
 Rules:
 - Use "citizen" (lowercase) instead of "guest", "customer", or "user"
-- Use "citizenM Ambassador" instead of "staff" or "employee"
-- Reference Apaleo API names explicitly (Rate Plan API, Reservations API, Folio API, Unit Management API, Availability API)
+- Use "Ambassador" instead of "staff" or "employee"
+- Reference property management system API names explicitly (Rate Plan API, Reservations API, Folio API, Unit Management API, Availability API)
 - Add exactly this line to the YAML frontmatter block: c2md_generated: true
 - Keep all other existing YAML frontmatter fields intact
-- Expand the MUST / MUST NOT / MAY rules with citizenM-specific operational context — add 2-4 more clauses where they add genuine value
-- Add a "## citizenM Operational Notes" section at the end with 2-3 brand-specific observations about this agent's role in the Apaleo stack
+- Expand the MUST / MUST NOT / MAY rules with A Hotel Berlin-specific operational context — add 2-4 more clauses where they add genuine value
+- Add a "## A Hotel Berlin Operational Notes" section at the end with 2-3 brand-specific observations about this agent's role in the Apaleo stack
 - Output ONLY the enriched markdown — no preamble, no commentary, no code fences`;
 
-  const user = `Enrich this governance file for citizenM's Apaleo-powered properties.
+  const user = `Enrich this governance file for A Hotel Berlin's Apaleo-powered properties.
 
-Keep the YAML frontmatter (add c2md_generated: true inside the frontmatter block), expand the MUST/MUST NOT/MAY rules with citizenM brand voice and Apaleo operational context, and add a citizenM Operational Notes section.
+Keep the YAML frontmatter (add c2md_generated: true inside the frontmatter block), expand the MUST/MUST NOT/MAY rules with A Hotel Berlin brand voice and Apaleo operational context, and add a A Hotel Berlin Operational Notes section.
 
 GOVERNANCE FILE (${filename}):
 ${staticContent}
@@ -1568,10 +1544,10 @@ MUST escalate to the Folio Charge Agent when a citizen requests a charge, correc
 2. If a write action is required: hand off to Folio Charge Agent with folio ID and the citizen's stated intent.
 3. If Apaleo Folio API returns an error: log the error, notify Front Office Manager, and do not surface raw error detail to the citizen.
 
-## citizenM Operational Notes
+## A Hotel Berlin Operational Notes
 
 - All folio interactions use the Apaleo Folio API under the \`folios.read\` OAuth scope. Write access is not granted to this agent.
-- citizenM Ambassadors are the primary human reviewers of disputed folio balances — this agent surfaces structured summaries, not raw ledger entries.
+- Ambassadors are the primary human reviewers of disputed folio balances — this agent surfaces structured summaries, not raw ledger entries.
 - Citizens value transparency: folio summaries MUST be expressed in plain language (charge descriptions, not internal line-item codes).
 `,
     },
@@ -2039,7 +2015,7 @@ The agent MUST cross-reference folio records via the Folio API (ListFolios) and 
 The agent MUST compare actual vs expected revenue and calculate the variance percentage for each unit group.
 The agent MUST log a full reconciliation summary to the Witness Agent including variance percentage, discrepancy types, and all flagged reservation IDs (NIST AU-2).
 The agent MUST NOT modify any financial records — this is a strictly read-only agent with no write scopes.
-The agent MUST NOT issue reconciliation decisions based on cached or estimated data — live Apaleo API data is mandatory for every run.
+The agent MUST NOT issue reconciliation decisions based on cached or estimated data — live property management system API data is mandatory for every run.
 The agent MAY pass reconciliation with variance ≤5% as normal operational variance.
 The agent MAY summarise discrepancy patterns to aid Revenue Manager review.
 
@@ -2126,7 +2102,7 @@ The agent MUST NOT make a reconciliation decision based on data older than the c
 - **Underpayment**: Actual rate < contracted rate plan rate — flag with reservation ID
 - **Overbilling**: Charge exceeds rate plan cap — flag immediately
 - **Unmatched folio**: Folio exists with no linked reservation — CFO audit required
-- **Data unavailable**: Apaleo API returns no data — ESCALATE to Operations Director
+- **Data unavailable**: property management system API returns no data — ESCALATE to Operations Director
 
 ## Witness Agent Requirement
 
@@ -2414,11 +2390,11 @@ baseline: true
 
 ## Agent Purpose
 
-Governs the acquisition of all systems, services, and AI components used within the ${companyName} VDA-MD framework. Ensures all third-party integrations — including Apaleo PMS, AI models, and external APIs — meet security, privacy, and governance requirements before activation.
+Governs the acquisition of all systems, services, and AI components used within the ${companyName} VDA-MD framework. Ensures all third-party integrations — including the property management system, AI models, and external APIs — meet security, privacy, and governance requirements before activation.
 
 ## Scope
 
-All technology acquisitions that interface with citizen data, Apaleo APIs, or AI decision-making pipelines — including vendor onboarding, API integrations, AI model selection, and cloud service procurement.
+All technology acquisitions that interface with citizen data, property management system APIs, or AI decision-making pipelines — including vendor onboarding, API integrations, AI model selection, and cloud service procurement.
 
 ## Agent Rules
 
@@ -2481,13 +2457,13 @@ baseline: true
 
 ## Step 1: Initiation
 
-When a new system, vendor, or AI component is proposed, the initiating team MUST submit an acquisition request including: proposed vendor, data scope, Apaleo API access required, AI risk classification, and business justification.
+When a new system, vendor, or AI component is proposed, the initiating team MUST submit an acquisition request including: proposed vendor, data scope, property management system API access required, AI risk classification, and business justification.
 
 ## Step 2: Security Review
 
 CISO MUST conduct a security review covering:
 1. Data flows — what citizen data is accessed or stored
-2. Apaleo API permissions required (minimum necessary scope)
+2. property management system API permissions required (minimum necessary scope)
 3. EU AI Act risk classification (prohibited / high-risk / limited / minimal)
 4. GDPR Article 28 processor agreement status
 5. Vendor security posture (ISO 27001 / SOC 2 certification)
@@ -2505,7 +2481,7 @@ All vendor contracts MUST include:
 
 - Standard integrations: CISO approval
 - High-risk AI systems (EU AI Act Article 6): CISO + General Manager dual sign-off
-- Apaleo API write-access: CISO + Operations Director sign-off
+- property management system API write-access: CISO + Operations Director sign-off
 
 ## Step 5: Activation and Monitoring
 
@@ -2561,7 +2537,7 @@ baseline: true
 
 - EU AI Act risk classification lookup (prohibited / high-risk / limited / minimal)
 - GDPR Article 28 DPA compliance check
-- Apaleo API scope analysis (minimum-necessary principle verification)
+- property management system API scope analysis (minimum-necessary principle verification)
 - Vendor security posture scoring (ISO 27001 / SOC 2 certification validation)
 
 ## Escalation Paths
@@ -2622,13 +2598,13 @@ baseline: true
 
 ## Agent Purpose
 
-Governs detection, containment, eradication, and recovery from security incidents, Apaleo API failures, AI agent errors, and citizen data breaches at ${companyName}. Ensures all incidents are handled consistently, with mandatory GDPR Article 33 notification within 72 hours for data breaches.
+Governs detection, containment, eradication, and recovery from security incidents, property management system API failures, AI agent errors, and citizen data breaches at ${companyName}. Ensures all incidents are handled consistently, with mandatory GDPR Article 33 notification within 72 hours for data breaches.
 
 ## Incident Categories
 
 1. **Security breach**: Unauthorised access to citizen data or Apaleo systems
 2. **AI agent malfunction**: Agent producing incorrect decisions at scale
-3. **Apaleo API failure**: PMS unavailability affecting guest lifecycle operations
+3. **property management system API failure**: PMS unavailability affecting guest lifecycle operations
 4. **Data integrity failure**: Corrupted folios, reservation records, or governance files
 5. **GDPR violation event**: Citizen data processed without lawful basis
 
@@ -2699,7 +2675,7 @@ Any ${companyName} Ambassador or AI agent observing an anomaly MUST:
 2. Notify CISO via emergency contact channel
 3. Preserve all relevant system logs — MUST NOT delete or overwrite
 
-Detection sources include: Witness Agent audit trail anomalies, Apaleo API error rate spikes, citizen complaints, automated monitoring alerts.
+Detection sources include: Witness Agent audit trail anomalies, property management system API error rate spikes, citizen complaints, automated monitoring alerts.
 
 ## Phase 2: Classification & Containment (1–2 hours)
 
@@ -2709,7 +2685,7 @@ CISO MUST classify the incident and initiate containment:
 |---|---|
 | Security breach (Cat 1) | Revoke affected API credentials, isolate affected systems |
 | AI malfunction (Cat 2) | Suspend affected agents, enable manual review mode |
-| Apaleo API failure (Cat 3) | Activate manual operations fallback, notify Apaleo support |
+| property management system API failure (Cat 3) | Activate manual operations fallback, notify Apaleo support |
 | Data integrity (Cat 4) | Freeze affected records, initiate reconciliation |
 | GDPR violation (Cat 5) | Suspend data processing, notify DPO within 24h |
 
@@ -2727,7 +2703,7 @@ For any incident involving citizen personal data:
 - MUST identify and remediate root cause before restoring agent autonomy
 - MUST validate remediation with CISO sign-off
 - MUST restore from last known good governance file version (VDA-MD version control)
-- Apaleo API credentials MUST be rotated after any credential compromise
+- property management system API credentials MUST be rotated after any credential compromise
 
 ## Phase 5: Post-Incident Review (within 7 days)
 
@@ -2846,7 +2822,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
   const created: { apaleoPropertyId: string; companyName: string; companyId: number; filesSeeded: number }[] = [];
   const existing: { apaleoPropertyId: string; companyName: string; companyId: number }[] = [];
 
-  for (const prop of CITIZENM_PROPERTIES) {
+  for (const prop of ALLIANCE_PROPERTIES) {
     try {
       // Check if company already exists by apaleoPropertyId
       const existingRows = await db
@@ -3040,24 +3016,24 @@ router.post("/admin/seed-companies", async (_req, res) => {
   // Return the seeded company records now so the UI isn't blocked by the AI enrichment pass.
   // C2MD enrichment runs asynchronously in the background after the response is sent.
   {
-    const propertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
+    const propertyIds = ALLIANCE_PROPERTIES.map(p => p.apaleoPropertyId);
     const seededRows = await db
       .select()
       .from(companies)
       .where(inArray(companies.apaleoPropertyId, propertyIds))
       .orderBy(companies.id);
-    const success = errors.length === 0 && seededRows.length === CITIZENM_PROPERTIES.length;
+    const success = errors.length === 0 && seededRows.length === ALLIANCE_PROPERTIES.length;
     res.json({ success, created, existing, errors: errors.length > 0 ? errors : undefined, log, companies: seededRows, enrichment: "running_in_background" });
   }
 
   // ── C2MD ENRICHMENT PASS (background) ────────────────────────────────────────
   // Generate brand-adapted markdown for each of the 23 VDA-MD governance files using
-  // Claude (up to 19 calls, shared across all 5 citizenM hotels since they share a brand).
+  // Claude (up to 19 calls, shared across all 5 A Hotel Berlin hotels since they share a brand).
   // Idempotent: files containing C2MD_MARKER are skipped.
   const c2mdLog: string[] = [];
 
   try {
-    const allPropertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
+    const allPropertyIds = ALLIANCE_PROPERTIES.map(p => p.apaleoPropertyId);
     const companyRows = await db
       .select({ id: companies.id, apaleoPropertyId: companies.apaleoPropertyId, brandContext: companies.brandContext })
       .from(companies)
@@ -3065,7 +3041,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
 
     const companyIds = companyRows.map(c => c.id);
     // Read brandContext from DB (source of truth, just upserted above)
-    const citizenMBrandContext = companyRows[0]?.brandContext ?? CITIZENM_PROPERTIES[0].brandContext;
+    const propertyBrandContext = companyRows[0]?.brandContext ?? ALLIANCE_PROPERTIES[0].brandContext;
     const canonicalFilenames = [
       "Hospitality-Revenue-Book-rate-agent.AGENTS.md",
       "Hospitality-Revenue-Book-rate-agent.SOP.md",
@@ -3119,8 +3095,8 @@ router.post("/admin/seed-companies", async (_req, res) => {
     } else {
       c2mdLog.push(`C2MD: ${unenrichedFiles.length} file(s) need enrichment — generating (up to 19 shared calls)…`);
 
-      // Build static template content using generic "citizenM" brand (no city)
-      const templateFiles = buildGovernanceFiles(0, "citizenM");
+      // Build static template content using generic "A Hotel Berlin" brand (no city)
+      const templateFiles = buildGovernanceFiles(0, "A Hotel Berlin");
       const enrichedByFilename = new Map<string, string>();
 
       // Up to 19 sequential Claude calls — one per VDA-MD file (AGENTS/SOP/SKILL × 6 agents + Shared Services).
@@ -3130,7 +3106,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
       );
       for (const tmpl of filesToEnrich) {
         try {
-          const enriched = await generateC2MDContent(tmpl.filename, tmpl.content, citizenMBrandContext);
+          const enriched = await generateC2MDContent(tmpl.filename, tmpl.content, propertyBrandContext);
           if (enriched && enriched.length > 400) {
             enrichedByFilename.set(tmpl.filename, enriched);
             c2mdLog.push(`C2MD: ✓ ${tmpl.filename} — ${enriched.length} chars`);
@@ -3172,7 +3148,7 @@ router.post("/admin/seed-companies", async (_req, res) => {
 });
 
 // ─── POST /api/admin/enrich-c2md ─────────────────────────────────────────────
-// Triggers the C2MD enrichment pass for all citizenM governance files.
+// Triggers the C2MD enrichment pass for all A Hotel Berlin governance files.
 // Responds IMMEDIATELY — enrichment runs in the background (fire-and-forget).
 // Idempotent: files with c2md_generated: true (and >800 chars) are skipped unless force=true.
 // C2MD is the core of VDA — every governance file MUST be enriched.
@@ -3217,18 +3193,18 @@ router.post("/admin/enrich-c2md", async (req, res) => {
   const force = Boolean((req.body as { force?: boolean }).force);
 
   try {
-    const allPropertyIds = CITIZENM_PROPERTIES.map(p => p.apaleoPropertyId);
+    const allPropertyIds = ALLIANCE_PROPERTIES.map(p => p.apaleoPropertyId);
     const companyRows = await db
       .select({ id: companies.id, brandContext: companies.brandContext })
       .from(companies)
       .where(inArray(companies.apaleoPropertyId, allPropertyIds));
 
     if (companyRows.length === 0) {
-      return res.status(400).json({ error: "No citizenM companies found. Run /admin/seed-companies first." });
+      return res.status(400).json({ error: "No A Hotel Berlin companies found. Run /admin/seed-companies first." });
     }
 
     const companyIds = companyRows.map(c => c.id);
-    const citizenMBrandContext = companyRows[0]?.brandContext ?? CITIZENM_PROPERTIES[0].brandContext;
+    const propertyBrandContext = companyRows[0]?.brandContext ?? ALLIANCE_PROPERTIES[0].brandContext;
 
     const allFiles = await db
       .select({ id: governanceFiles.id, companyId: governanceFiles.companyId, filename: governanceFiles.filename, content: governanceFiles.content })
@@ -3252,7 +3228,7 @@ router.post("/admin/enrich-c2md", async (req, res) => {
     // ── BACKGROUND ENRICHMENT ──────────────────────────────────────────────────
     (async () => {
       try {
-        const templateFiles = buildGovernanceFiles(0, "citizenM");
+        const templateFiles = buildGovernanceFiles(0, "A Hotel Berlin");
         const uniqueFilenames = [...new Set(targets.map(f => f.filename))];
         const enrichedByFilename = new Map<string, string>();
 
@@ -3263,7 +3239,7 @@ router.post("/admin/enrich-c2md", async (req, res) => {
             const tmpl = templateFiles.find(t => t.filename === filename);
             if (!tmpl) return;
             try {
-              const enriched = await generateC2MDContent(filename, tmpl.content, citizenMBrandContext);
+              const enriched = await generateC2MDContent(filename, tmpl.content, propertyBrandContext);
               if (enriched && enriched.length > 400) enrichedByFilename.set(filename, enriched);
             } catch { /* per-file errors silently absorbed */ }
           }));
@@ -3518,7 +3494,7 @@ GOVERNANCE SYSTEM FACTS:
 - Operating domains: ${uniqueDomains.join(", ")}
 - NIST SP 800-53 controls: ${nistControls.join(", ")}
 - Named accountable roles: ${uniqueOwners.join(", ")}
-- Core technology stack: Apaleo PMS (API-first), Anthropic Claude (AI), VDA-MD governance framework
+- Core technology stack: the property management system (API-first), Anthropic Claude (AI), VDA-MD governance framework
 - Compliance framework: GDPR, EU AI Act, ISO 42001, NIST SP 800-53, SOC 2 Type II, ISO 27001
 - Change control: §4 audit signoff enforcement (SOC 2 and NIST standard reductions require named signoff)
 - Audit trail: Witness Agent logs every AI agent decision before execution (tamper-evident)
@@ -3555,11 +3531,11 @@ soc2_generated: true
 
 ## Section 1: Overview of the Entity and its Services
 
-[Write 3-4 paragraphs describing ${companyName} as a citizenM hotel property, the VDA-MD AI governance platform purpose, the Apaleo PMS as core system, and the principal service commitments to guests]
+[Write 3-4 paragraphs describing ${companyName} as a A Hotel Berlin hotel property, the VDA-MD AI governance platform purpose, the the property management system as core system, and the principal service commitments to guests]
 
 ## Section 2: Principal Service Commitments and System Requirements
 
-[Write 2-3 paragraphs covering: (a) AICPA Trust Service Criteria commitments — Security (CC), Availability (A1); (b) Apaleo API service commitments; (c) VDA-MD governance obligations including mandatory file enforcement]
+[Write 2-3 paragraphs covering: (a) AICPA Trust Service Criteria commitments — Security (CC), Availability (A1); (b) property management system API service commitments; (c) VDA-MD governance obligations including mandatory file enforcement]
 
 ## Section 3: Components of the System
 
@@ -3580,7 +3556,7 @@ soc2_generated: true
 
 ## Section 4: System Boundaries
 
-[Formal description of what is IN scope: AI agent decision layer, governance file system, Apaleo API integrations for ${hotelCode}, Witness Agent audit trail. OUT of scope: physical hotel infrastructure, room hardware, external guest-facing booking channels, payroll systems]
+[Formal description of what is IN scope: AI agent decision layer, governance file system, property management system API integrations for ${hotelCode}, Witness Agent audit trail. OUT of scope: physical hotel infrastructure, room hardware, external guest-facing booking channels, payroll systems]
 
 ## Section 5: Control Environment
 
@@ -3589,7 +3565,7 @@ soc2_generated: true
 ## Section 6: Trust Service Criteria Controls
 
 ### CC6: Logical and Physical Access Controls
-[How AC-2 governance files enforce access control for Apaleo API credentials; minimum-privilege API scope restrictions per agent; CISO escalation paths for access anomalies; audit log of all access decisions via Witness Agent]
+[How AC-2 governance files enforce access control for property management system API credentials; minimum-privilege API scope restrictions per agent; CISO escalation paths for access anomalies; audit log of all access decisions via Witness Agent]
 
 ### CC7: System Operations and Monitoring
 [How AU-2 event logging governance files specify what the Witness Agent must log; every AI agent decision logged before execution; anomaly escalation paths to Operations Director; SOC 2 Type II operational evidence generated continuously]
@@ -3598,7 +3574,7 @@ soc2_generated: true
 [How SA-4 acquisition governance files govern all system and vendor changes; §4 signoff enforcement — any reduction of SOC 2 or NIST references requires named accountable owner, recorded in commit history; version history maintained for all governance files]
 
 ### CC9: Risk Mitigation
-[How IR-4 incident response governance files govern breach detection, containment, GDPR Article 33 72-hour notification obligation, Apaleo API incident handling, post-incident review requirements]
+[How IR-4 incident response governance files govern breach detection, containment, GDPR Article 33 72-hour notification obligation, property management system API incident handling, post-incident review requirements]
 
 ## Section 7: Complementary User Entity Controls (CUECs)
 

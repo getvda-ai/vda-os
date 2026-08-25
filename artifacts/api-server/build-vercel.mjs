@@ -45,7 +45,7 @@ globalThis.__dirname = __path.dirname(globalThis.__filename);`,
 });
 
 // Runtime assets read by the app: console HTML, governance md (admin re-seed),
-// and the citizenM /sops folder (POST /api/sops/ingest scans process.cwd()/sops,
+// and the /sops folder (POST /api/sops/ingest scans process.cwd()/sops,
 // which is the function root on Vercel).
 await cp(path.resolve(dir, "src/public"), path.join(funcDir, "public"), { recursive: true });
 await cp(path.resolve(dir, "src/governance"), path.join(funcDir, "governance"), { recursive: true });

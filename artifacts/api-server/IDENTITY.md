@@ -102,6 +102,6 @@ Rotating is a deliberate act, not a redeploy. Delete `secrets/stay-did-key-1.pem
 recording `fromKeyId`/`toKeyId`, and install the new key. Silently swapping the key under a
 DID that resolvers have cached is indistinguishable from compromise.
 
-Moving to a real domain (`stay.getvda.ai`, or a citizenM domain) is a **DID change**, not a
+Moving to a real domain (`stay.getvda.ai`, or a hotel-owned domain) is a **DID change**, not a
 redirect — `did:web` is host-bound. Set `STAY_DID_HOST`, expect a new DID, and keep the old
 one resolving until it is formally retired.

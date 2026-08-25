@@ -547,7 +547,7 @@ const DEFAULT_SCENARIOS: Array<{ scenario: string; expected: "PASS" | "FAIL" | "
 // VDA is connected to live Apaleo. The sandbox MUST supply live API data to each
 // agent — no mock data. Each agent gets its production read-only tool set so Claude
 // can call Apaleo MCP tools before issuing the governance decision, exactly as it
-// does in production. citizenM Berlin (BER) is the reference property.
+// does in production. A Hotel Berlin Berlin (BER) is the reference property.
 
 const SANDBOX_PROPERTY_ID = "BER";
 

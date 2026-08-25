@@ -14,7 +14,7 @@ export const companies = pgTable("companies", {
   apaleoPropertyId: text("apaleo_property_id"),
   /**
    * x402 billing exemption flag.
-   * true  = primary tenant (citizenM) — governance calls are free.
+   * true  = primary tenant (A Hotel Berlin) — governance calls are free.
    * false = external tenant — each governance call deducts from credit wallet;
    *         402 is returned when balance reaches zero.
    */

@@ -188,7 +188,7 @@ router.get("/eu-ai-act/register", async (_req, res) => {
         nistControl: govNistControl,
         riskClass,
         provider: "Rawson Consulting BV — VDA-MD Platform",
-        deployer: "citizenM Hotels (BER, LND, MUC, PAR, VIE)",
+        deployer: "A Hotel Berlin Hotels (BER, LND, MUC, PAR, VIE)",
         techDocComplete,
         hasSop,
         conformityStatus: techDocComplete ? "conformant" : "incomplete",
@@ -457,10 +457,10 @@ Date of Declaration: ${declarationDate}
    Contact:  compliance@vda-md.io
 
 2. DEPLOYER INFORMATION
-   Organisation: citizenM Hotels
-   Properties:   citizenM Berlin (BER), citizenM London (LND),
-                 citizenM Munich (MUC), citizenM Paris (PAR),
-                 citizenM Vienna (VIE)
+   Organisation: A Hotel Berlin Hotels
+   Properties:   A Hotel Berlin (BER), A Hotel Berlin London (LND),
+                 A Hotel Berlin Munich (MUC), A Hotel Berlin Paris (PAR),
+                 A Hotel Berlin Vienna (VIE)
    Use Domain:   Hotel Operations & Revenue Management
 
 3. AI SYSTEMS COVERED — Article 49 Registration Readiness
@@ -504,7 +504,7 @@ Date of Declaration: ${declarationDate}
    Last framework integrity check: ${lastIntegrityStr}
 
 6. TRANSPARENCY — Article 13
-   Deployers (citizenM hotel staff) are informed at all times:
+   Deployers (A Hotel Berlin hotel staff) are informed at all times:
    • The identity of the AI agent making the decision
    • The specific governance clause governing the decision
    • The authority ceiling that applies to the current decision
@@ -575,8 +575,8 @@ _______________________________________
         contact: "compliance@vda-md.io",
       },
       deployer: {
-        name: "citizenM Hotels",
-        properties: ["citizenM Berlin (BER)", "citizenM London (LND)", "citizenM Munich (MUC)", "citizenM Paris (PAR)", "citizenM Vienna (VIE)"],
+        name: "A Hotel Berlin Hotels",
+        properties: ["A Hotel Berlin (BER)", "A Hotel Berlin London (LND)", "A Hotel Berlin Munich (MUC)", "A Hotel Berlin Paris (PAR)", "A Hotel Berlin Vienna (VIE)"],
         domain: "Hotel Operations & Revenue Management",
       },
       coveredAgents: Object.entries(AGENT_META).map(([id, meta]) => ({

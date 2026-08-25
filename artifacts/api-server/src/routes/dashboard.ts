@@ -110,7 +110,7 @@ router.get("/dashboard/phases", async (req, res) => {
 });
 
 // ─── GET /api/dashboard/phases/portfolio ──────────────────────────────────────
-// Returns per-hotel phase summary across all 5 citizenM properties.
+// Returns per-hotel phase summary across all 5 A Hotel Berlin properties.
 // Used by the Wizard Step 8 (Portfolio Rollout) to count hotels at walk/run phase.
 
 router.get("/dashboard/phases/portfolio", async (req, res) => {

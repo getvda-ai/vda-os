@@ -939,7 +939,7 @@ router.post("/fm/generate-exception-authority", async (req, res) => {
     }
 
     // Fetch brand context from companies table
-    let companyName = "citizenM Hotels";
+    let companyName = "A Hotel Berlin Hotels";
     let brandContext: string | undefined;
     if (companyId > 0) {
       const companyRows = await db

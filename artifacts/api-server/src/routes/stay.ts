@@ -420,7 +420,7 @@ router.post("/baselines/:id/revoke", async (req, res) => {
 
 // ── GET /api/stay/authority?company_id=&role_band= — ceilings from governance ──
 // The front-end reads ceilings/authority from here (never hardcodes them), so
-// ingesting real citizenM governance changes what a role can do automatically.
+// ingesting real A Hotel Berlin governance changes what a role can do automatically.
 router.get("/stay/authority", async (req, res) => {
   try {
     const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0);
@@ -958,7 +958,7 @@ router.post("/stay/eu-ai-act-assessment", async (req, res) => {
 
     const result = await assessAgentRisk({
       agentDescription:
-        "citizenM Stay Agent — an AI agent that manages a hotel guest's on-property journey (check-in, in-stay, check-out). It makes governed exception decisions (late check-out, incidental folio charges) under human-in-the-loop oversight (Ambassador and Manager-on-Duty approval bands), reads and writes reservation and folio data via Apaleo, and seals every decision into a tamper-evident VDA Witness hash-chain. Deployed for hotels in the EU (Germany), the UK, and other jurisdictions. Handles guest personal data including names, contact details, payment references, and stay history.",
+        "A Hotel Berlin Stay Agent — an AI agent that manages a hotel guest's on-property journey (check-in, in-stay, check-out). It makes governed exception decisions (late check-out, incidental folio charges) under human-in-the-loop oversight (Ambassador and Manager-on-Duty approval bands), reads and writes reservation and folio data via Apaleo, and seals every decision into a tamper-evident VDA Witness hash-chain. Deployed for hotels in the EU (Germany), the UK, and other jurisdictions. Handles guest personal data including names, contact details, payment references, and stay history.",
       jurisdictions: ["EU", "DE", "GB"],
       dataCategories: ["financial_data"], // payment references; ordinary PII has no enum member
       autonomyLevel: "assistive",          // proposes; a human approves within authority bands

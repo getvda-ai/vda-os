@@ -1,6 +1,6 @@
 # Stay Agent — engineering principles
 
-The citizenM Stay Agent is a governed HITL decision surface. Its output is evidence a
+The A Hotel Berlin Stay Agent is a governed HITL decision surface. Its output is evidence a
 compliance officer and an auditor rely on. These principles are load-bearing, not style.
 
 ## Rendering safety (non-negotiable)

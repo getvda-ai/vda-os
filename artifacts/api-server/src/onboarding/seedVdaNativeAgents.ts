@@ -12,7 +12,7 @@ import { and, eq } from "drizzle-orm";
 import { AGENT_DEFS } from "../a2a/agentCardRegistry.js";
 import { logger } from "../lib/logger.js";
 
-const PLATFORM_PROVIDER = { organization: "citizenM · VDA-MD Platform", url: "https://citizenm.com" };
+const PLATFORM_PROVIDER = { organization: "A Hotel Berlin · VDA-MD Platform", url: "https://aihospitalityalliance.com" };
 
 const NATIVE_AGENT_IDS = Object.keys(AGENT_DEFS).filter(id => id !== "onboarding-agent");
 

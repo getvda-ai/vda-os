@@ -61,7 +61,7 @@ role_bands:
         must_log: true
 
 must_not_override:
-  - "Bypassing Apaleo API calls required by governance policy for availability-agent"
+  - "Bypassing property management system API calls required by governance policy for availability-agent"
   - "Processing decisions without writing to Witness Agent"
   - "Applying exception ceilings not defined in this EXCEPTION_AUTHORITY.md"
 

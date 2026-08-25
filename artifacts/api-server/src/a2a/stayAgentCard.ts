@@ -3,7 +3,7 @@
  * hitl.getvda.ai), from the single skill definition in stayAgentSkills.ts.
  *
  * It describes what Stay Agent IS TODAY, honestly: a bespoke hospitality monolith running
- * on the Apaleo sandbox. It is deliberately NOT normalised to the future adapter state —
+ * on the property management system sandbox. It is deliberately NOT normalised to the future adapter state —
  * the gap between this card and the governance model is exactly what Onboarding's admission
  * is meant to surface.
  *
@@ -29,9 +29,9 @@ export interface StayCardIdentity {
 export function buildStayAgentCard(now: string, identity: StayCardIdentity) {
   return {
     protocolVersion: "0.3.0",
-    name: "citizenM Stay Agent",
+    name: "A Hotel Berlin Stay Agent",
     description:
-      "Governs a hotel guest's on-property journey (check-in, in-stay, check-out) at citizenM by proposing actions on Apaleo exceptions and routing the ones beyond its authority to a human. A bespoke build, not yet a normalised VDA deployment: it decides its own authority, runs its own human queue, executes its own writes, and seals under a borrowed identity. Running against the Apaleo SANDBOX only.",
+      "Governs a hotel guest's on-property journey (check-in, in-stay, check-out) at A Hotel Berlin by proposing actions on Apaleo exceptions and routing the ones beyond its authority to a human. A bespoke build, not yet a normalised VDA deployment: it decides its own authority, runs its own human queue, executes its own writes, and seals under a borrowed identity. Running against the property management system SANDBOX only.",
     url: "https://stay-agent-mikerawsonnzs-projects.vercel.app",
     preferredTransport: "JSONRPC",
     version: "0.1.0-identity",
@@ -40,7 +40,7 @@ export function buildStayAgentCard(now: string, identity: StayCardIdentity) {
     // Stay Agent's own DID. Resolves to /.well-known/did.json on the host in `url`.
     did: identity.did,
 
-    provider: { organization: "citizenM Hotels", url: "https://citizenm.com" },
+    provider: { organization: "A Hotel Berlin Hotels", url: "https://aihospitalityalliance.com" },
 
     capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: true },
     defaultInputModes: ["application/json", "text/plain"],
@@ -95,7 +95,7 @@ export function buildStayAgentCard(now: string, identity: StayCardIdentity) {
       },
       {
         id: "executes_domain_writes_inline",
-        statement: "Stay both decides AND executes the Apaleo write on a governed PASS.",
+        statement: "Stay both decides AND executes the property management system write on a governed PASS.",
         detail: "CheckIn / CheckOut / CreateFolioCharge / AmendReservation are performed inline by the decision path (lib/stayExecutor.ts). The framework model is record-then-the-deployment-executes; Stay fuses the two.",
       },
       {

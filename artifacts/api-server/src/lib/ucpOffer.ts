@@ -185,7 +185,7 @@ export function buildAvailabilityOffer(opts: BuildAvailabilityOfferOpts): UcpOff
       type: "lodging.unit_group",
       propertyId: opts.propertyId,
       // null by design: the Availability Agent evaluates capacity at property level
-      // via Apaleo GetAvailableUnitGroups. Unit group is committed at reservation phase.
+      // via the property management system GetAvailableUnitGroups. Unit group is committed at reservation phase.
       unitGroup: null,
       ratePlanId: null,
     },
@@ -198,7 +198,7 @@ export function buildAvailabilityOffer(opts: BuildAvailabilityOfferOpts): UcpOff
     },
     validity: { validUntil },
     terms: {
-      cancellationPolicy: "citizenM standard cancellation terms apply",
+      cancellationPolicy: "A Hotel Berlin standard cancellation terms apply",
       governedBy: `${opts.propertyId} Availability Agent governance policy (Apaleo GetAvailableUnitGroups)`,
       mandateRequired: true,
       mandateId: opts.mandateId,
@@ -249,7 +249,7 @@ export function buildRateOffer(opts: BuildRateOfferOpts): UcpOffer {
     },
     validity: { validUntil },
     terms: {
-      cancellationPolicy: "citizenM standard cancellation terms apply",
+      cancellationPolicy: "A Hotel Berlin standard cancellation terms apply",
       governedBy: [
         `${opts.propertyId} Rate Agent governance policy`,
         `Approved: €${opts.requestedRate}/night`,
@@ -287,8 +287,8 @@ export function buildUcpServiceDescriptor(baseUrl: string): UcpServiceDescriptor
     "@context": "https://ucp.spec/v2026",
     specVersion: "2026.1",
     provider: {
-      organization: "citizenM Hotels — VDA-MD Platform",
-      url: "https://citizenm.com",
+      organization: "AI Hospitality Alliance — VDA-MD Platform",
+      url: "https://aihospitalityalliance.com",
     },
     offerTypes: ["lodging.unit_group", "lodging.rate_override"],
     agents: {

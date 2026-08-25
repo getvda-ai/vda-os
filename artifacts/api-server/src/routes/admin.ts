@@ -10,8 +10,8 @@ import { Router, type IRouter } from "express";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
-import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents, agentMandates } from "@workspace/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents, agentMandates, sealOutbox } from "@workspace/db";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { issueMandate } from "../lib/mandateIssuer.js";
 import { buildRateOffer } from "../lib/ucpOffer.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
@@ -238,7 +238,7 @@ router.post("/admin/seed-rate-agent", async (_req, res) => {
         id: rateAgentDid,
         name: "Rate Agent",
         version: "1.0.0",
-        description: "Apaleo-native rate override agent for the citizenM hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls. Implements AP2 Intent Mandates for structured exception handling.",
+        description: "Apaleo-native rate override agent for the A Hotel Berlin hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls. Implements AP2 Intent Mandates for structured exception handling.",
         skills: [
           {
             id: "rate-agent-core",
@@ -247,7 +247,7 @@ router.post("/admin/seed-rate-agent", async (_req, res) => {
           },
         ],
         url: "/api/agents/rate",
-        provider: { organization: "citizenM · VDA-MD Platform", url: "https://citizenm.com" },
+        provider: { organization: "A Hotel Berlin · VDA-MD Platform", url: "https://aihospitalityalliance.com" },
       };
 
       const [row] = await db
@@ -330,7 +330,7 @@ router.post("/admin/onboarding/quick-submit", async (req, res) => {
     id: agentSlug,
     name: agentName,
     version: "1.0.0",
-    description: `Apaleo-native ${agentName.toLowerCase()} for the citizenM hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls.`,
+    description: `Apaleo-native ${agentName.toLowerCase()} for the A Hotel Berlin hospitality stack. Operates under full VDA-MD governance with NIST-mapped controls.`,
     skills: [
       {
         id: `${agentSlug}-core`,
@@ -415,7 +415,7 @@ router.post("/admin/seed-exception-authority-files", async (req, res) => {
           }
 
           // Fetch brand context
-          let companyName = "citizenM Hotels";
+          let companyName = "A Hotel Berlin Hotels";
           let brandContextStr: string | undefined;
           const companyRows = await db
             .select({ companyName: companies.companyName, brandContext: companies.brandContext })
@@ -791,6 +791,94 @@ router.post("/admin/reset-demo", async (_req, res) => {
     res.json({ ok: true, message: "Demo reset — all agent progress cleared. Governance files preserved." });
   } catch (err) {
     logger.error({ err }, "admin/reset-demo error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Reset failed" });
+  }
+});
+
+// ─── POST /api/admin/reset-stay-demo ──────────────────────────────────────────
+// Return the A Hotel Berlin demo to a clean, working start state.
+//
+// WHAT THIS DOES NOT DO: it does not un-seal anything. The Witness chain is remote and
+// append-only, and every record this demo ever sealed is still on it, still signed, still
+// anchored. Sequence numbers are assigned by the Witness, not by us — so "resetting" by
+// deleting local rows and re-sealing from zero is not even available: the next seal would
+// come back as seq N+1 with no local predecessors, and /stay/verify would report BROKEN
+// against evidence that is in fact intact. A false tamper alarm on a demo is worse than
+// a demo that admits what it is.
+//
+// So this clears the CONSOLE'S VIEW — the local decision log, the pending queue, the
+// bounds-based baselines — and then re-mirrors the full chain from the Witness so an
+// offline verify still resolves from genesis. Nothing is destroyed; the trail is simply
+// no longer being displayed. The alternative — a fresh chain per reset — needs a
+// CHAIN_OPENED record that only the Witness operator can write, and a chain abandoned
+// whenever it gets inconvenient is the shape of evidence laundering.
+//
+// PRESERVED: governance files, companies, agent phases, and the EXCEPTION_AUTHORITY rows
+//            that define the Ambassador/MoD ceilings (those ARE the governance).
+// CLEARED:   witness entries, HITL cards, value events, pending seals, and every
+//            authority:"baseline" row — the demo starts with NO baselines set, so each
+//            exception is decided on governance rather than on a prior authorisation.
+router.post("/admin/reset-stay-demo", async (req, res) => {
+  const companyId = Number(req.body?.company_id ?? req.body?.companyId ?? 1);
+  if (!Number.isInteger(companyId) || companyId < 0) {
+    res.status(400).json({ error: "company_id must be a non-negative integer" });
+    return;
+  }
+  const propertyId = String(req.body?.property_id ?? req.body?.propertyId ?? "BER");
+
+  try {
+    const cleared: Record<string, number> = {};
+    const count = (r: unknown): number => (r as { rowCount?: number })?.rowCount ?? 0;
+
+    cleared.witness_entries = count(await db.delete(witnessEntries).where(eq(witnessEntries.companyId, companyId)));
+    cleared.hitl_tokens = count(await db.delete(hitlTokens).where(eq(hitlTokens.companyId, companyId)));
+    cleared.agent_value_events = count(await db.delete(agentValueEvents).where(eq(agentValueEvents.companyId, companyId)));
+    cleared.seal_outbox = count(await db.delete(sealOutbox).where(eq(sealOutbox.companyId, companyId)));
+
+    // Bounds-based baselines only. A governance ceiling and a baseline share this table;
+    // authority:"baseline" + a non-null stage is what createStayBaseline writes, and it is
+    // the only thing that may be removed here. Deleting the rest would delete the
+    // authority model itself and the console would show no ceilings at all.
+    cleared.stay_baselines = count(
+      await db.delete(exceptionBaselines).where(
+        and(
+          eq(exceptionBaselines.agentId, "stay-agent"),
+          eq(exceptionBaselines.companyId, companyId),
+          eq(exceptionBaselines.authority, "baseline"),
+          isNotNull(exceptionBaselines.stage),
+        ),
+      ),
+    );
+
+    // Re-mirror the chain so verification still resolves from genesis with zero calls out
+    // after the local seal refs above were dropped. Best-effort: a demo reset must not fail
+    // because the Witness is briefly unreachable, but say so rather than implying success.
+    let chain: Record<string, unknown>;
+    const { stayChainKey } = await import("../lib/witnessChain.js");
+    const chainKey = stayChainKey(propertyId, companyId);
+    try {
+      const { backfillChain } = await import("../lib/witnessChainProof.js");
+      const filled = await backfillChain(chainKey);
+      chain = { chainKey, remirrored: filled.added.length, held: filled.alreadyHeld.length, ok: filled.ok, detail: filled.detail };
+    } catch (err) {
+      chain = { chainKey, ok: false, detail: `chain re-mirror skipped: ${err instanceof Error ? err.message : String(err)}` };
+    }
+
+    logger.info({ companyId, cleared, chain }, "[reset-stay-demo] demo view reset");
+    res.json({
+      ok: true,
+      companyId,
+      propertyId,
+      cleared,
+      chain,
+      preserved: ["governance_files", "companies", "agent_phases", "exception_authority_ceilings"],
+      note:
+        "Console view reset. Nothing was un-sealed — the Witness chain is append-only and " +
+        "still holds every prior record; it has been re-mirrored locally so verification " +
+        "resolves from genesis.",
+    });
+  } catch (err) {
+    logger.error({ err }, "admin/reset-stay-demo error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Reset failed" });
   }
 });

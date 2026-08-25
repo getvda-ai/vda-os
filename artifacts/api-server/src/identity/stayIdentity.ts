@@ -26,7 +26,7 @@ import { loadStaySigningKey, readStayDidPrivateKeyPem, signBytes, type StaySigni
 /**
  * The host Stay Agent's DID is anchored to. Defaults to the deployment the A2A card has
  * always advertised. A did:web is host-bound, so moving Stay Agent to a real domain
- * (stay.getvda.ai, or a citizenM domain) is a DID change, not a redirect — set this env
+ * (stay.getvda.ai, or a A Hotel Berlin domain) is a DID change, not a redirect — set this env
  * and re-run the genesis, and expect the old DID to keep resolving until it is retired.
  */
 const DEFAULT_DID_HOST = "stay-agent-mikerawsonnzs-projects.vercel.app";

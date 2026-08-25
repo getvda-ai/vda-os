@@ -27,6 +27,11 @@ function serveConsole(_req: express.Request, res: express.Response) {
 app.get("/", (_req, res) => res.redirect("/stay"));
 app.get("/stay", serveConsole);
 
+// Brand assets for the console header. Mounted explicitly rather than serving all of
+// PUBLIC_DIR: that directory also holds governance markdown the console reads through
+// authenticated routes, and a blanket static mount would publish it.
+app.use("/brand", express.static(path.join(PUBLIC_DIR, "brand"), { maxAge: "1h" }));
+
 app.use(
   pinoHttp({
     logger,

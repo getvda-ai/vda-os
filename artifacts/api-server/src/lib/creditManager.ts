@@ -34,7 +34,7 @@ export const RATE_CARD: Record<string, number> = {
 // ─── Wallet Operations ────────────────────────────────────────────────────────
 
 /**
- * Returns true if the company is x402 exempt (e.g. the primary citizenM tenant).
+ * Returns true if the company is x402 exempt (e.g. the primary A Hotel Berlin tenant).
  * Caches result in memory for 60 seconds to avoid a DB round-trip on every request.
  */
 const exemptCache = new Map<number, { value: boolean; expiresAt: number }>();

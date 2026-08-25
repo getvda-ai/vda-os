@@ -1,11 +1,11 @@
 ---
-title: citizenM Departure & Check-out SOP
+title: A Hotel Berlin Departure & Check-out SOP
 stage: check_out
 version: "2.1"
 owner: Front Office Manager
 ---
 
-# citizenM Check-out SOP
+# A Hotel Berlin Check-out SOP
 
 ## Late Check-out
 Standard check-out is 11:00. Ambassadors may grant up to 2 hours late when no

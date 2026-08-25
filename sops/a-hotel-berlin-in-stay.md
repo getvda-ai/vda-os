@@ -1,11 +1,11 @@
 ---
-title: citizenM In-stay Service SOP
+title: A Hotel Berlin In-stay Service SOP
 stage: in_stay
 version: "2.1"
 owner: Front Office Manager
 ---
 
-# citizenM In-stay SOP
+# A Hotel Berlin In-stay SOP
 
 ## Posting Charges to the Folio
 Charges for F&B, canteenM, minibar, and amenities are posted to the in-house
@@ -31,7 +31,7 @@ added night; multi-night extensions, especially across a rate change or a busy
 date, are confirmed by the Manager on Duty.
 
 ## Goodwill and Service Recovery
-When citizenM falls short, we make it right. A modest goodwill credit may be
+When A Hotel Berlin falls short, we make it right. A modest goodwill credit may be
 applied at the desk with a documented reason; more significant service-recovery
 credits are authorised by the Manager on Duty. Goodwill is never applied to
 no-show or cancellation penalties.

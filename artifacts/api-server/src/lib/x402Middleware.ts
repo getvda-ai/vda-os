@@ -6,7 +6,7 @@
  *
  * Flow:
  *   1. Extract companyId from route params (or request body)
- *   2. If tenant is x402Exempt → pass through (citizenM primary tenant)
+ *   2. If tenant is x402Exempt → pass through (A Hotel Berlin primary tenant)
  *   3. Check credit balance
  *   4. If balance < cost → return 402 with structured payment body
  *   5. Deduct credits → continue to route handler
@@ -48,7 +48,7 @@ export function x402Middleware(opts: X402Options) {
     }
 
     try {
-      // Exempt tenants (citizenM primary tenant) pass through unconditionally.
+      // Exempt tenants (A Hotel Berlin primary tenant) pass through unconditionally.
       const exempt = await isX402Exempt(companyId);
       if (exempt) {
         next();

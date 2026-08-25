@@ -3,13 +3,24 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>citizenM · Stay Agent — HITL Cockpit</title>
+<title>A Hotel Berlin · Stay Agent — HITL Cockpit</title>
 <style>
   :root{--bg:#07080a;--panel:#111318;--panel2:#171a21;--line:#232733;--txt:#f4f6fb;--dim:#9aa4b6;--accent:#7c9cff;--green:#4ade80;--red:#f87171;--amber:#f59e0b;--purple:#c084fc;--teal:#2dd4bf}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
   header{position:sticky;top:0;z-index:20;background:#0a0c10ee;backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-  .brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:.2px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:.2px;text-decoration:none;color:inherit}
+  .brand .logo{height:26px;width:auto;display:block}
+  .b-reset{background:#101a2e;border-color:#25406e;color:var(--accent);font-weight:600}
+  .b-reset[disabled]{opacity:.55;cursor:progress}
+  .resetPanel{display:none;margin:0 18px 12px;border:1px solid var(--line);border-radius:12px;background:#0d1117;overflow:hidden}
+  .resetPanel.open{display:block}
+  .rp-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .rp-steps{max-height:280px;overflow:auto;padding:6px 14px 12px}
+  .rp-step{display:flex;align-items:flex-start;gap:9px;padding:5px 0;font-size:12.5px;line-height:1.45}
+  .rp-step .ic{flex:0 0 auto;width:15px;text-align:center;margin-top:1px}
+  .rp-step.pend{color:var(--dim)}
+  .rp-step .who{font-weight:600}
   .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
   .brand small{color:var(--dim);font-weight:500}
   .tag{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
@@ -166,7 +177,10 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot"></span>citizenM · <span>Stay Agent</span> <small id="propTag">· BER</small></div>
+  <a class="brand" href="https://aihospitalityalliance.com" target="_blank" rel="noopener" title="AI Hospitality Alliance">
+    <img src="/brand/ai-hospitality-alliance-logo-horizontal.svg" alt="AI Hospitality Alliance" class="logo" />
+  </a>
+  <div class="brand"><span class="dot"></span>A Hotel Berlin · <span>Stay Agent</span> <small id="propTag">· BER</small></div>
   <span class="tag" id="agentTag">agent live · Gemini</span>
   <span class="tier sealed" id="tierBadge" title="Sealed / Anchored state — derived from the chain's observed anchor status, not a config flag">Sealed…</span>
   <div class="spacer"></div>
@@ -175,8 +189,20 @@
     <button data-role="mod">Manager on Duty<small>governs exceptions</small></button>
   </div>
   <label class="mini">co <input id="company" value="1" style="width:52px" /></label>
-  <button id="demoBtn" title="Demo controls">⚙ Demo</button>
+  <button id="resetBtn" class="b-reset" title="Clear the console view and replay a mid-shift set of governed decisions">↺ Reset demo</button>
+  <button id="demoBtn" title="Demo controls">⚙</button>
 </header>
+
+<!-- Reset progress. Each line is one real call to the decision engine, not a fixture. -->
+<div id="resetPanel" class="resetPanel">
+  <div class="rp-head">
+    <b>Resetting the A Hotel Berlin demo</b>
+    <span class="mini" id="rpStatus">starting…</span>
+    <div class="spacer"></div>
+    <button id="rpClose" class="mini" style="display:none">Close</button>
+  </div>
+  <div id="rpSteps" class="rp-steps"></div>
+</div>
 
 <div class="strip">
   <div class="stat" data-nav="pending"><div class="n" id="sPending">0</div><div class="l">Pending now <span class="go">→ queue</span></div></div>
@@ -239,7 +265,7 @@
     <b style="font-size:13px">Setup</b>
     <div class="mini">Bind a demo tenant &amp; load governance/SOPs.</div>
     <button id="btnSeed" style="width:100%;margin-top:8px">Seed stay-agent governance</button>
-    <button id="btnIngest" style="width:100%;margin-top:8px">Ingest citizenM /sops</button>
+    <button id="btnIngest" style="width:100%;margin-top:8px">Ingest A Hotel Berlin /sops</button>
   </div>
 </div>
 
@@ -679,6 +705,129 @@ $("#simRun").addEventListener("click",async()=>{
   catch(e){$("#simOut").textContent=e.message;}
 });
 $("#btnSeed").addEventListener("click",async()=>{try{await api(`/api/admin/seed-stay-agent`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:companyId()})});toast("governance seeded");loadAuthority();}catch(e){toast(e.message);}});
+
+// ── Reset demo ───────────────────────────────────────────────────────────────
+// Clears the console view, then replays a mid-shift set of decisions THROUGH THE REAL
+// DECISION ENGINE — every line below is an actual POST /api/stay/decision that reads
+// governance, applies the ceiling, and seals to Witness. Nothing here is a fixture, which
+// is the whole point: a governance demo that fabricates its own evidence demonstrates
+// nothing. It is driven from the browser one call at a time because each decision is an
+// LLM + Apaleo + seal round-trip, and the function's ceiling is 60s per request.
+//
+// The split follows the governance file, not a script: late check-out sits inside the
+// Ambassador's 2-hour ceiling so it PASSes at the front desk; early check-out above 2
+// nights — or on a non-refundable or group rate — exceeds it and routes to the MoD.
+const RESET_SCENARIOS=[
+  {kind:"late",  guest:"K. Adeyemi · room 214",  hours:1, why:"Late flight to LHR, 15:00 departure"},
+  {kind:"late",  guest:"T. Lindqvist · room 308",hours:2, why:"Afternoon meeting in Mitte"},
+  {kind:"early", guest:"A. Okafor · room 512",   booked:7,night:5,early:3,rate:"standard",group:false,delta:-360,why:"Project ended early, flying home"},
+  {kind:"early", guest:"R. Moreau · room 407",   booked:4,night:2,early:2,rate:"nonref",  group:false,delta:-180,why:"Family emergency, prepaid rate"},
+  {kind:"late",  guest:"M. Costa · room 502",    hours:2, why:"Later train to Hamburg"},
+  {kind:"early", guest:"S. Haddad · room 118",   booked:6,night:2,early:4,rate:"standard",group:true, delta:-480,why:"Conference block released early"},
+];
+// Which escalated cards the MoD has already worked. Leaving the rest pending is what makes
+// it read as mid-shift rather than as a queue nobody has touched.
+const RESET_PRE_APPROVE=1;
+
+function rpStep(label,state,detail){
+  const d=document.createElement("div");
+  d.className="rp-step"+(state==="pend"?" pend":"");
+  d.innerHTML=`<span class="ic">${state==="ok"?"✓":state==="warn"?"!":"·"}</span><span>${label}${detail?` <span class="mini">— ${detail}</span>`:""}</span>`;
+  $("#rpSteps").appendChild(d);$("#rpSteps").scrollTop=$("#rpSteps").scrollHeight;return d;
+}
+function rpUpdate(el,label,state,detail){
+  el.className="rp-step"+(state==="pend"?" pend":"");
+  el.innerHTML=`<span class="ic">${state==="ok"?"✓":state==="warn"?"!":"·"}</span><span>${label}${detail?` <span class="mini">— ${detail}</span>`:""}</span>`;
+}
+
+async function runReset(){
+  const btn=$("#resetBtn");btn.disabled=true;
+  $("#resetPanel").classList.add("open");$("#rpSteps").innerHTML="";$("#rpClose").style.display="none";
+  $("#rpStatus").textContent="clearing…";
+  const co=companyId();
+  try{
+    // 1. Clear the view. Nothing is un-sealed — see the endpoint's note.
+    let s=rpStep("Clearing console view (log, queue, baselines)","pend");
+    const r=await api(`/api/admin/reset-stay-demo`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:co,property_id:"BER"})});
+    const c=r.cleared||{};
+    rpUpdate(s,"Cleared console view","ok",`${c.witness_entries||0} log entries, ${c.hitl_tokens||0} cards, ${c.stay_baselines||0} baselines · Witness chain untouched`);
+    if(r.chain&&r.chain.ok===false)rpStep("Chain re-mirror incomplete","warn",r.chain.detail||"");
+
+    // 2. Replay the shift through the real engine.
+    const escalated=[];
+    for(let i=0;i<RESET_SCENARIOS.length;i++){
+      const sc=RESET_SCENARIOS[i];
+      $("#rpStatus").textContent=`decision ${i+1} of ${RESET_SCENARIOS.length}…`;
+      const label=sc.kind==="late"
+        ? `Late check-out · ${sc.guest} · +${sc.hours}h`
+        : `Early check-out · ${sc.guest} · ${sc.early} night(s) early${sc.rate==="nonref"?" · non-refundable":""}${sc.group?" · group block":""}`;
+      const st=rpStep(label,"pend","agent evaluating…");
+      try{
+        const j=await api(`/api/stay/decision`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(buildScenarioBody(sc,co))});
+        const who=roleName(j.role_band||"ambassador");
+        const sealed=j.vda_witness&&j.vda_witness.record_id;
+        rpUpdate(st,label,"ok",`<b>${j.outcome}</b> · <span class="who">${who}</span>${sealed?" · sealed ✓":""}`);
+        if(j.outcome==="ESCALATE"&&j.hitl_token)escalated.push({token:j.hitl_token,label});
+      }catch(e){rpUpdate(st,label,"warn",e.message);}
+    }
+
+    // 3. Let the MoD have already worked part of the queue.
+    for(let i=0;i<Math.min(RESET_PRE_APPROVE,escalated.length);i++){
+      const {token,label}=escalated[i];
+      $("#rpStatus").textContent="Manager on Duty clearing earlier cards…";
+      const st=rpStep(`Manager on Duty approved · ${label.replace(/^Early check-out · /,"")}`,"pend");
+      try{
+        await api(`/api/stay/hitl/respond/${token}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({outcome:"approve",reason:"Reviewed with Revenue Manager; forfeiture and block impact documented."})});
+        rpUpdate(st,`Manager on Duty approved · ${label.replace(/^Early check-out · /,"")}`,"ok","decision sealed ✓");
+      }catch(e){rpUpdate(st,`Manager on Duty approval`,"warn",e.message);}
+    }
+
+    // 4. Land any delayed seals. /api/stay/seal/drain is CRON_SECRET-guarded in production
+    //    and the UI must never hold that secret, so we use the drain-on-read path instead:
+    //    reading the log drains 8 outbox rows a time. Loop until the outbox is empty rather
+    //    than assuming one pass covered it, and report what is genuinely still pending.
+    $("#rpStatus").textContent="sealing…";
+    const sd=rpStep("Sealing to Witness","pend");
+    let pending=null;
+    try{
+      for(let pass=0;pass<4;pass++){
+        await api(`/api/stay/log?company_id=${co}`);
+        const h=await api(`/api/stay/seal/health?company_id=${co}`);
+        pending=(h.outbox&&h.outbox.pending)||0;
+        if(!pending)break;
+      }
+      rpUpdate(sd,"Sealed to Witness",pending?"warn":"ok",pending?`${pending} seal(s) still queued — they land on the next read or the nightly drain`:"outbox empty");
+    }catch(e){rpUpdate(sd,"Sealing","warn",e.message);}
+
+    const stillPending=Math.max(0,escalated.length-RESET_PRE_APPROVE);
+    $("#rpStatus").textContent=`ready · ${stillPending} card(s) awaiting the Manager on Duty`;
+    rpStep("Demo ready — no baselines set, mid-shift state restored","ok",`${stillPending} escalation(s) open for the MoD`);
+    toast("demo reset — mid-shift state restored");
+  }catch(e){
+    $("#rpStatus").textContent="reset failed";rpStep("Reset failed","warn",e.message);toast(e.message);
+  }finally{
+    btn.disabled=false;$("#rpClose").style.display="";await loadAll();
+  }
+}
+function buildScenarioBody(sc,co){
+  if(sc.kind==="late"){
+    return {company_id:co,stage:"check_out",exception_context:{
+      exception_class:"late_checkout",requested_value:sc.hours,unit:"hours",role_band:"ambassador",
+      description:`Guest requests late check-out ${sc.hours} hour(s) beyond standard departure — ${sc.why}`,
+      currency:"EUR",
+      scenario:{guest:sc.guest,room:(sc.guest.match(/room\s*\w+/i)||[""])[0],hours_late:sc.hours,reason:sc.why}
+    },apaleo_ref:{propertyId:"BER"}};
+  }
+  const nonref=sc.rate==="nonref";
+  return {company_id:co,stage:"check_out",exception_context:{
+    exception_class:"early_checkout",requested_value:sc.early,unit:"nights",role_band:"ambassador",
+    description:`Guest requests check-out ${sc.early} night(s) early (after night ${sc.night} of ${sc.booked}) — ${sc.why}`,
+    rate_type:nonref?"nonrefundable":"standard",refundable:!nonref,group:sc.group,currency:"EUR",
+    scenario:{guest:sc.guest,room:(sc.guest.match(/room\s*\w+/i)||[""])[0],nights_booked:sc.booked,night_current:sc.night,nights_early:sc.early,folio_delta:sc.delta,currency:"EUR",rate_type:nonref?"nonrefundable":"standard",group:sc.group,reason:sc.why}
+  },apaleo_ref:{propertyId:"BER"}};
+}
+$("#resetBtn").addEventListener("click",runReset);
+$("#rpClose").addEventListener("click",()=>$("#resetPanel").classList.remove("open"));
 $("#btnIngest").addEventListener("click",async()=>{try{const j=await api(`/api/sops/ingest`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})});toast(`ingested ${j.ingested?.length||0} SOP docs`);}catch(e){toast(e.message);}});
 
 // Deep-link support: /stay?company=N&role=ambassador|mod

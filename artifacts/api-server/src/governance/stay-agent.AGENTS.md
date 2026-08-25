@@ -24,7 +24,7 @@ normalisation_level: 3
 
 ## Agent Identity
 
-The Stay Agent is the single autonomous authority for a citizenM guest's
+The Stay Agent is the single autonomous authority for a A Hotel Berlin guest's
 **on-property journey — from check-in to check-out, and nothing outside that
 window**. It operates on the Stay journey stage (vertical axis) under Operations
 domain ownership and acts only on reservations that are arriving, in-house, or
@@ -83,7 +83,7 @@ This agent inherits governance from:
 2. NIST SP 800-53 AU-2 — Event Logging baseline
 3. ISO/IEC 42001 — AI Management System controls
 4. EU AI Act — consequential-decision transparency and Article 17 record-keeping
-5. citizenM Operations Policy (see the SOP file)
+5. A Hotel Berlin Operations Policy (see the SOP file)
 
 ## Cross-Domain Inheritance
 

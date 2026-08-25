@@ -56,11 +56,11 @@ export interface AgentCard {
   negotiationEndpoint?: string;
 }
 
-const DOCS_URL = "https://vda-md.citizenm.com/docs/agents";
+const DOCS_URL = "https://aihospitalityalliance.com/docs/agents";
 
 const PLATFORM_PROVIDER = {
-  organization: "citizenM Hotels — VDA-MD Platform",
-  url: "https://citizenm.com",
+  organization: "AI Hospitality Alliance — VDA-MD Platform",
+  url: "https://aihospitalityalliance.com",
 };
 
 // Standard A2A v1.0 I/O modes for all VDA-MD agents
@@ -70,7 +70,7 @@ const DEFAULT_OUTPUT_MODES = ["application/json"];
 export const AGENT_DEFS: Record<string, { name: string; description: string; defaultSkills: AgentSkill[] }> = {
   "availability-agent": {
     name: "VDA-MD Availability Agent",
-    description: "Evaluates room availability and unit group capacity at citizenM properties using Apaleo PMS data, governed by the availability policy file.",
+    description: "Evaluates room availability and unit group capacity at A Hotel Berlin using Apaleo PMS data, governed by the availability policy file.",
     defaultSkills: [
       { id: "check-availability", name: "Check Availability", description: "Query available unit groups for a property and date range" },
       { id: "availability-decision", name: "Availability Decision", description: "Return governed PASS/FAIL decision on availability requests" },
@@ -78,7 +78,7 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
   },
   "rate-agent": {
     name: "VDA-MD Rate Agent",
-    description: "Evaluates and authorises rate plan overrides at citizenM properties, governed by the rate management policy.",
+    description: "Evaluates and authorises rate plan overrides at A Hotel Berlin, governed by the rate management policy.",
     defaultSkills: [
       { id: "evaluate-rate", name: "Evaluate Rate", description: "Assess rate plan override requests against policy rules" },
       { id: "list-rate-plans", name: "List Rate Plans", description: "Retrieve available Apaleo rate plans for a property" },
@@ -86,7 +86,7 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
   },
   "reservation-bot": {
     name: "VDA-MD Reservation Bot",
-    description: "Creates and manages guest reservations at citizenM properties via Apaleo, enforcing booking policy.",
+    description: "Creates and manages guest reservations at A Hotel Berlin via the property management system, enforcing booking policy.",
     defaultSkills: [
       { id: "create-reservation", name: "Create Reservation", description: "Submit a new reservation to Apaleo after policy validation" },
       { id: "validate-booking", name: "Validate Booking", description: "Run policy check on a reservation creation request" },
@@ -94,15 +94,15 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
   },
   "check-in-agent": {
     name: "VDA-MD Check-In Agent",
-    description: "Governs the 5-gate check-in process at citizenM properties, verifying guest identity, payment, and folio status before check-in.",
+    description: "Governs the 5-gate check-in process at A Hotel Berlin, verifying guest identity, payment, and folio status before check-in.",
     defaultSkills: [
-      { id: "process-checkin", name: "Process Check-In", description: "Execute governed 5-gate check-in via Apaleo" },
+      { id: "process-checkin", name: "Process Check-In", description: "Execute governed 5-gate check-in via the property management system" },
       { id: "verify-reservation", name: "Verify Reservation", description: "Confirm reservation status before check-in" },
     ],
   },
   "folio-agent": {
     name: "VDA-MD Folio Agent",
-    description: "Reads and inspects guest folios at citizenM properties via Apaleo, returning a governed read-only view.",
+    description: "Reads and inspects guest folios at A Hotel Berlin via the property management system, returning a governed read-only view.",
     defaultSkills: [
       { id: "list-folios", name: "List Folios", description: "Return governed list of open folios for a reservation" },
       { id: "get-folio", name: "Get Folio", description: "Retrieve folio details for a specific reservation" },
@@ -110,7 +110,7 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
   },
   "folio-charge-agent": {
     name: "VDA-MD Folio Charge Agent",
-    description: "Authorises and posts folio charges at citizenM properties, inheriting Finance O2C cross-domain policy for charge thresholds.",
+    description: "Authorises and posts folio charges at A Hotel Berlin, inheriting Finance O2C cross-domain policy for charge thresholds.",
     defaultSkills: [
       { id: "post-charge", name: "Post Folio Charge", description: "Submit a folio charge after O2C policy validation" },
       { id: "evaluate-charge", name: "Evaluate Charge", description: "Run O2C governance check on a proposed charge" },
@@ -118,7 +118,7 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
   },
   "checkout-agent": {
     name: "VDA-MD Checkout Agent",
-    description: "Governs the guest checkout process at citizenM properties, validating folio balance and processing checkout via Apaleo.",
+    description: "Governs the guest checkout process at A Hotel Berlin, validating folio balance and processing checkout via the property management system.",
     defaultSkills: [
       { id: "process-checkout", name: "Process Checkout", description: "Execute governed checkout with folio validation" },
       { id: "validate-folio", name: "Validate Folio", description: "Confirm folio is settled before checkout" },
@@ -126,7 +126,7 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
   },
   "revenue-reconciliation-agent": {
     name: "VDA-MD Revenue Reconciliation Agent",
-    description: "Runs end-of-day revenue reconciliation and reporting at citizenM properties, governed by the revenue reconciliation policy.",
+    description: "Runs end-of-day revenue reconciliation and reporting at A Hotel Berlin, governed by the revenue reconciliation policy.",
     defaultSkills: [
       { id: "run-reconciliation", name: "Run Reconciliation", description: "Execute end-of-day revenue reconciliation" },
       { id: "generate-report", name: "Generate Revenue Report", description: "Produce governed revenue summary from Apaleo data" },
@@ -134,7 +134,7 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
   },
   "onboarding-agent": {
     name: "VDA-MD Onboarding Agent",
-    description: "Governs the admission of external agents into the VDA-MD framework. Runs a 7-phase workflow: Agent Card validation, impact delta analysis, candidate governance file generation, dual HITL approval gates, sandbox evaluation, GitHub PR creation, and W3C VC issuance. Platform-scoped across all citizenM properties.",
+    description: "Governs the admission of external agents into the VDA-MD framework. Runs a 7-phase workflow: Agent Card validation, impact delta analysis, candidate governance file generation, dual HITL approval gates, sandbox evaluation, GitHub PR creation, and W3C VC issuance. Platform-scoped across all A Hotel Berlin.",
     defaultSkills: [
       { id: "read_all_governance_files", name: "Read All Governance Files", description: "READ all AGENTS.md, SOP.md, SKILL.md, EXCEPTION.md files across all agents and companies" },
       { id: "read_witness_log", name: "Read Witness Log", description: "QUERY witness_entries for impact delta analysis" },
@@ -148,7 +148,7 @@ export const AGENT_DEFS: Record<string, { name: string; description: string; def
   },
   "stay-agent": {
     name: "VDA-MD Stay Agent",
-    description: "Governs a citizenM guest's on-property journey from check-in through in-stay to check-out at Apaleo-powered properties, bounded by the stay-agent governance files and AP2 mandate ceilings, with Ambassador/MoD human-in-the-loop.",
+    description: "Governs a guest's on-property journey from check-in through in-stay to check-out at Apaleo-powered properties, bounded by the stay-agent governance files and AP2 mandate ceilings, with Ambassador/MoD human-in-the-loop.",
     defaultSkills: [
       { id: "stay-decision", name: "Stay Decision", description: "Return a governed PASS/FAIL/ESCALATE decision for a check-in, in-stay, or check-out exception, citing the policy and SOP clauses applied" },
       { id: "checkin", name: "Check-in", description: "Early check-in, room upgrade, registration/ID capture, pre-auth validation, key issuance" },
@@ -267,8 +267,8 @@ export function getOnboardingAgentCard(): AgentCard {
 
 export function getPlatformCard(): AgentCard {
   return {
-    name: "VDA-MD — Value Driven AI Operating System (citizenM)",
-    description: "VDA-MD is a governed multi-agent platform for citizenM hospitality operations. It exposes 9 specialised agents: 8 for the full Apaleo guest lifecycle (availability, rate, reservation, check-in, folio, folio charging, checkout, revenue reconciliation) and 1 Onboarding Agent for governed external agent admission. Every agent decision is governed by W3C Verifiable Credentials, §2.1 mandatory governance files, Witness Agent audit logging, and compliance guards enforcing GDPR, EU AI Act, and ISO 42001.",
+    name: "VDA-MD — Value Driven AI Operating System (A Hotel Berlin)",
+    description: "VDA-MD is a governed multi-agent platform for A Hotel Berlin hospitality operations. It exposes 9 specialised agents: 8 for the full Apaleo guest lifecycle (availability, rate, reservation, check-in, folio, folio charging, checkout, revenue reconciliation) and 1 Onboarding Agent for governed external agent admission. Every agent decision is governed by W3C Verifiable Credentials, §2.1 mandatory governance files, Witness Agent audit logging, and compliance guards enforcing GDPR, EU AI Act, and ISO 42001.",
     url: `${REPLIT_URL}/api/a2a`,
     version: "1.0.0",
     provider: PLATFORM_PROVIDER,

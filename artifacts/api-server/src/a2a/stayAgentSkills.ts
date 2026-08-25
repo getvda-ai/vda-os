@@ -6,7 +6,7 @@
  * second schema to drift from — deliberately not the pattern where card skills defer
  * their schema to MCP.
  *
- * These describe what Stay Agent does TODAY (a bespoke monolith on the Apaleo sandbox),
+ * These describe what Stay Agent does TODAY (a bespoke monolith on the property management system sandbox),
  * not the future thin-adapter state. Where a skill does something the framework now does
  * generically — deciding its own authority, hosting its own HITL, executing its own
  * writes — the description says so plainly, and the card's caveats/doesNotOwn carry it.
@@ -35,13 +35,13 @@ export const STAY_SKILLS: StaySkill[] = [
     id: "propose_stay_action",
     name: "Propose and govern a hospitality exception",
     description:
-      "Evaluate a guest-journey exception (late/early check-out, folio adjustment, refund, etc.) at a citizenM property. Reads the LIVE Apaleo reservation and folio, runs a hospitality prompt that PROPOSES an action, then governs it end-to-end IN THIS AGENT: it decides the outcome against ceilings and a band ladder it computes ITSELF in code (hardcoded ambassador → mod → compliance_officer, not a signed ACP bundle evaluated by ACP's SDK); on a self-authorised PASS or a matching local baseline it EXECUTES the Apaleo write itself; otherwise it escalates to this agent's OWN human queue. Every outcome is sealed to a shared Witness account. This is one fused skill today; the framework separates propose / authorise / route / execute / seal.",
+      "Evaluate a guest-journey exception (late/early check-out, folio adjustment, refund, etc.) at a A Hotel Berlin. Reads the LIVE Apaleo reservation and folio, runs a hospitality prompt that PROPOSES an action, then governs it end-to-end IN THIS AGENT: it decides the outcome against ceilings and a band ladder it computes ITSELF in code (hardcoded ambassador → mod → compliance_officer, not a signed ACP bundle evaluated by ACP's SDK); on a self-authorised PASS or a matching local baseline it EXECUTES the property management system write itself; otherwise it escalates to this agent's OWN human queue. Every outcome is sealed to a shared Witness account. This is one fused skill today; the framework separates propose / authorise / route / execute / seal.",
     tags: ["hospitality", "decision", "mutating", "self-authority"],
     inputSchema: {
       type: "object",
       required: ["company_id", "stage", "exception_context"],
       properties: {
-        company_id: S("integer", "Tenant id (a citizenM property/company).", { minimum: 0 }),
+        company_id: S("integer", "Tenant id (a A Hotel Berlin/company).", { minimum: 0 }),
         stage: S("string", "Guest-journey stage.", { enum: ["check_in", "in_stay", "check_out"] }),
         exception_context: {
           type: "object",
@@ -89,7 +89,7 @@ export const STAY_SKILLS: StaySkill[] = [
     id: "resolve_decision",
     name: "Record a human's resolution",
     description:
-      "Record a human's decision on a pending item: approve | deny | escalate | baseline. On approve or baseline this agent EXECUTES the Apaleo write itself and seals the decision. The deciding human is ASSERTED from request input (decided_by), not authenticated; the endpoint is unauthenticated.",
+      "Record a human's decision on a pending item: approve | deny | escalate | baseline. On approve or baseline this agent EXECUTES the property management system write itself and seals the decision. The deciding human is ASSERTED from request input (decided_by), not authenticated; the endpoint is unauthenticated.",
     tags: ["hitl", "governance", "mutating", "actor-asserted"],
     inputSchema: {
       type: "object",

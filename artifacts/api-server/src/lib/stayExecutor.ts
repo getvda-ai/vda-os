@@ -17,7 +17,7 @@ export interface StayExecution {
   apaleoId?: string;
 }
 
-/** Pull the Apaleo entity id out of an MCP result ({content:[{text:'{"data":{"id":...}}'}]}). */
+/** Pull the property management system entity id out of an MCP result ({content:[{text:'{"data":{"id":...}}'}]}). */
 function extractApaleoId(result: unknown): string | undefined {
   try {
     const content = (result as { content?: Array<{ text?: string }> })?.content ?? [];
@@ -29,7 +29,7 @@ function extractApaleoId(result: unknown): string | undefined {
   }
 }
 
-// Map (stage, exception_class) → the Apaleo MCP write tool + args extracted from the card.
+// Map (stage, exception_class) → the property management system MCP write tool + args extracted from the card.
 function pickToolAndArgs(payload: Record<string, unknown>): { tool: string | null; args: Record<string, unknown> } {
   const stage = String(payload.stage ?? "");
   const cls = String(payload.exception_class ?? "");
@@ -58,7 +58,7 @@ function pickToolAndArgs(payload: Record<string, unknown>): { tool: string | nul
     goodwill_credit: "Goodwill credit",
     refund_folio_adjustment: "Folio adjustment",
   };
-  const name = `citizenM — ${chargeLabel[cls] ?? cls} (${currency} ${amount ?? ""})`.trim();
+  const name = `A Hotel Berlin — ${chargeLabel[cls] ?? cls} (${currency} ${amount ?? ""})`.trim();
 
   if (stage === "check_in" && (cls === "early_checkin" || cls === "key_issuance" || cls === "registration_id_capture" || cls === "preauth_validation")) {
     return { tool: "CheckIn", args: { id: reservationId } };

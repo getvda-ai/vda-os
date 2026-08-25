@@ -1,7 +1,7 @@
 import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 
 /**
- * sop_documents — an ingested citizenM Standard Operating Procedure document.
+ * sop_documents — an ingested Standard Operating Procedure document.
  * SOPs are the BUSINESS source of truth the Stay Agent consults per stage; they
  * are split into heading-anchored clauses (see sop_clauses). Stage is inferred
  * from front-matter (`stage: check_in`) or filename, defaulting to `global`.

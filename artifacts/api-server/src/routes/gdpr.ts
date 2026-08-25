@@ -132,7 +132,7 @@ const AGENT_ROPA: Array<{
     art22Exception: null,
     retentionPeriod: "Duration of stay + 90 days audit log",
     safeguards: ["HITL oversight", "PII scrubbing layer (Microsoft Presidio)", "Governance file constraints"],
-    recipients: ["citizenM front-of-house staff", "Apaleo PMS"],
+    recipients: ["A Hotel Berlin front-of-house staff", "Apaleo PMS"],
   },
   {
     agentId: "rate-agent",
@@ -146,7 +146,7 @@ const AGENT_ROPA: Array<{
     art22Exception: "Art. 22(2)(a) — necessary for the performance of the guest contract; HITL safeguard applied for decisions above authority ceiling",
     retentionPeriod: "7 years (financial record retention)",
     safeguards: ["HITL mandatory for above-ceiling discounts", "EXCEPTION_AUTHORITY.md ceiling constraints", "Governance file hash verification"],
-    recipients: ["citizenM Revenue Management", "Apaleo PMS"],
+    recipients: ["A Hotel Berlin Revenue Management", "Apaleo PMS"],
   },
   {
     agentId: "reservation-bot",
@@ -160,7 +160,7 @@ const AGENT_ROPA: Array<{
     art22Exception: "Art. 22(2)(a) — necessary for performance of the reservation contract; guest retains right to request human review",
     retentionPeriod: "Duration of stay + 7 years (financial)",
     safeguards: ["HITL for group bookings above ceiling", "PII scrubbing layer (Microsoft Presidio)", "EXCEPTION_AUTHORITY.md ceiling constraints"],
-    recipients: ["citizenM front-of-house staff", "Apaleo PMS", "Channel managers (where applicable)"],
+    recipients: ["A Hotel Berlin front-of-house staff", "Apaleo PMS", "Channel managers (where applicable)"],
   },
   {
     agentId: "check-in-agent",
@@ -174,7 +174,7 @@ const AGENT_ROPA: Array<{
     art22Exception: "Art. 22(2)(a) — check-in and unit assignment are necessary to perform the accommodation contract; HITL escalation for all pre-auth above ceiling",
     retentionPeriod: "Duration of stay + 7 years (financial)",
     safeguards: ["HITL for pre-auth above authority ceiling", "PII scrubbing layer (Microsoft Presidio)", "Governance file constraints on biometric and ID data", "EXCEPTION_AUTHORITY.md ceiling"],
-    recipients: ["citizenM front-of-house staff", "Apaleo PMS", "Payment processor (pre-auth only)"],
+    recipients: ["A Hotel Berlin front-of-house staff", "Apaleo PMS", "Payment processor (pre-auth only)"],
   },
   {
     agentId: "folio-agent",
@@ -188,7 +188,7 @@ const AGENT_ROPA: Array<{
     art22Exception: null,
     retentionPeriod: "7 years (financial record retention)",
     safeguards: ["Read-only access scope", "PII scrubbing layer (Microsoft Presidio)", "Governance file audit trail"],
-    recipients: ["citizenM Finance", "Apaleo PMS"],
+    recipients: ["A Hotel Berlin Finance", "Apaleo PMS"],
   },
   {
     agentId: "folio-charge-agent",
@@ -202,7 +202,7 @@ const AGENT_ROPA: Array<{
     art22Exception: "Art. 22(2)(a) — charge posting is necessary to settle the accommodation contract; all above-ceiling charges require HITL approval",
     retentionPeriod: "7 years (financial record retention)",
     safeguards: ["HITL mandatory for charges above authority ceiling", "EXCEPTION_AUTHORITY.md ceiling constraints", "Witness Agent tamper-evident audit trail"],
-    recipients: ["citizenM Finance", "Apaleo PMS", "Payment processor"],
+    recipients: ["A Hotel Berlin Finance", "Apaleo PMS", "Payment processor"],
   },
   {
     agentId: "checkout-agent",
@@ -216,7 +216,7 @@ const AGENT_ROPA: Array<{
     art22Exception: "Art. 22(2)(a) — checkout processing is necessary to complete the accommodation contract; fee waiver decisions above ceiling require HITL approval",
     retentionPeriod: "7 years (financial record retention)",
     safeguards: ["HITL for above-ceiling fee waivers", "PII scrubbing layer (Microsoft Presidio)", "Governance file constraints"],
-    recipients: ["citizenM front-of-house staff", "Apaleo PMS", "Payment processor"],
+    recipients: ["A Hotel Berlin front-of-house staff", "Apaleo PMS", "Payment processor"],
   },
   {
     agentId: "revenue-reconciliation-agent",
@@ -230,7 +230,7 @@ const AGENT_ROPA: Array<{
     art22Exception: null,
     retentionPeriod: "7 years (financial record retention)",
     safeguards: ["No individual guest PII in processing scope", "HITL for above-threshold override authority", "EXCEPTION_AUTHORITY.md ceiling constraints"],
-    recipients: ["citizenM Finance", "Revenue Management", "Apaleo PMS"],
+    recipients: ["A Hotel Berlin Finance", "Revenue Management", "Apaleo PMS"],
   },
 ];
 
@@ -263,7 +263,7 @@ router.get("/gdpr/ropa", async (_req, res) => {
       ...a,
       governanceFileCount: fileCountByAgent[a.agentId] ?? 0,
       documented: (fileCountByAgent[a.agentId] ?? 0) > 0,
-      controller: "citizenM Hotels",
+      controller: "A Hotel Berlin Hotels",
       processor: "Rawson Consulting BV — VDA-MD Platform",
       transfersOutsideEEA: false,
       transferSafeguards: "Data processed within EU. Apaleo PMS — EU-hosted SaaS.",
@@ -285,10 +285,10 @@ router.get("/gdpr/ropa", async (_req, res) => {
         : null,
       retentionPeriod: "As declared in AGENTS.md — review required",
       safeguards: ["HITL oversight", "PII scrubbing layer (Microsoft Presidio)", "Governance file constraints"],
-      recipients: ["citizenM staff", "Apaleo PMS"],
+      recipients: ["A Hotel Berlin staff", "Apaleo PMS"],
       governanceFileCount: fileCountByAgent[a.agentId] ?? 0,
       documented: (fileCountByAgent[a.agentId] ?? 0) > 0,
-      controller: "citizenM Hotels",
+      controller: "A Hotel Berlin Hotels",
       processor: "Rawson Consulting BV — VDA-MD Platform",
       transfersOutsideEEA: false,
       transferSafeguards: "Data processed within EU. Apaleo PMS — EU-hosted SaaS.",
@@ -306,9 +306,9 @@ router.get("/gdpr/ropa", async (_req, res) => {
       totalArt22Scope: totalArt22,
       dynamicallyDiscovered: dynamicActivities.length,
       allDocumented,
-      controller: "citizenM Hotels",
+      controller: "A Hotel Berlin Hotels",
       processor: "Rawson Consulting BV — VDA-MD Platform",
-      dpo: "To be appointed by citizenM Hotels (Art. 37)",
+      dpo: "To be appointed by A Hotel Berlin Hotels (Art. 37)",
       generatedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -540,7 +540,7 @@ router.get("/gdpr/checklist", async (_req, res) => {
         {
           id: "Art. 13/14", title: "Transparency to Data Subjects",
           status: "amber",
-          evidence: "VDA-MD governance files document agent purpose, data categories, and HITL escalation rights for internal transparency. Guest-facing privacy notices (informing guests of AI-assisted decisions) must be confirmed as present and up-to-date by citizenM Hotels as data controller.",
+          evidence: "VDA-MD governance files document agent purpose, data categories, and HITL escalation rights for internal transparency. Guest-facing privacy notices (informing guests of AI-assisted decisions) must be confirmed as present and up-to-date by A Hotel Berlin Hotels as data controller.",
         },
         {
           id: "Art. 22", title: "Automated Decision-Making",
@@ -559,7 +559,7 @@ router.get("/gdpr/checklist", async (_req, res) => {
         {
           id: "Art. 30", title: "Records of Processing Activities",
           status: "amber",
-          evidence: `RoPA generated from live governance state: ${AGENT_ROPA.length} processing activities documented across ${AGENT_ROPA.filter(a => a.art22Scope).length} Art. 22-scope agents. citizenM Hotels (data controller) must formally maintain and sign off the RoPA. DPO appointment status requires confirmation.`,
+          evidence: `RoPA generated from live governance state: ${AGENT_ROPA.length} processing activities documented across ${AGENT_ROPA.filter(a => a.art22Scope).length} Art. 22-scope agents. A Hotel Berlin Hotels (data controller) must formally maintain and sign off the RoPA. DPO appointment status requires confirmation.`,
         },
         {
           id: "Art. 32", title: "Security of Processing",
@@ -578,7 +578,7 @@ router.get("/gdpr/checklist", async (_req, res) => {
         {
           id: "Art. 35", title: "Data Protection Impact Assessment",
           status: "amber",
-          evidence: "DPIA has not been formally completed for the VDA-MD platform deployment at citizenM Hotels. A DPIA is recommended given the automated decision-making scope (Art. 35(3)(a)) and large-scale processing of guest personal data. citizenM Hotels as controller is responsible for commissioning the DPIA.",
+          evidence: "DPIA has not been formally completed for the VDA-MD platform deployment at A Hotel Berlin Hotels. A DPIA is recommended given the automated decision-making scope (Art. 35(3)(a)) and large-scale processing of guest personal data. A Hotel Berlin Hotels as controller is responsible for commissioning the DPIA.",
         },
       ],
       summary: {

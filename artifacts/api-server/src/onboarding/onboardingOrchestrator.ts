@@ -329,7 +329,7 @@ async function runPhase3(id: string, agentCard: AgentCard, impactDelta: ReturnTy
       .limit(1);
     const companyId = reqRow[0]?.companyId ?? 0;
 
-    let companyName = "citizenM Hotels";
+    let companyName = "A Hotel Berlin Hotels";
     let brandContext: string | undefined;
     if (companyId && companyId > 0) {
       const companyRows = await db

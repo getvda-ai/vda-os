@@ -329,7 +329,7 @@ async function llmEvaluate(params: {
     .map((c) => `[${c.anchor}] ${c.heading}: ${c.text}`)
     .join("\n\n");
 
-  const system = `You are the citizenM Stay Agent operating under the VDA-MD governance framework, deciding a ${input.stage.toUpperCase()} exception of class "${input.exceptionContext.exception_class}".
+  const system = `You are the A Hotel Berlin Stay Agent operating under the VDA-MD governance framework, deciding a ${input.stage.toUpperCase()} exception of class "${input.exceptionContext.exception_class}".
 
 GOVERNING POLICY (the law — authority ceilings, MUST/MUST NOT):
 ${policyText}
@@ -351,7 +351,7 @@ Respond ONLY with this JSON (no extra text):
   "decision": "PASS" | "FAIL" | "ESCALATE",
   "clauseApplied": "<verbatim policy clause>",
   "sopRefs": ["<anchor>", ...],
-  "actionProposed": "<the Apaleo action to take>",
+  "actionProposed": "<the property management system action to take>",
   "exceptionApplied": true | false,
   "escalationTarget": "ambassador" | "mod" | "compliance_officer" | null,
   "reasoning": "<1-3 sentences citing the SOP and the live data>",
@@ -692,7 +692,7 @@ async function finalize(
     // a Witness outage delays the seal, it never blocks or loses the operation.
     // Build the seal body through the single choke point: inputs minimized AND
     // every free-text field (reasoning/actionProposed/ruleText) PII-scrubbed,
-    // using an exact denylist of guest identifiers pulled from the Apaleo data.
+    // using an exact denylist of guest identifiers pulled from the property management system data.
     const sealBody = buildSealBody({
       agent: AGENT_NAME,
       verdict: result.outcome,
