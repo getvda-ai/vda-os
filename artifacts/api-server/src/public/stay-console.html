@@ -16,10 +16,18 @@
   .emptyHint{display:none;margin:0 18px 12px;padding:11px 14px;border:1px solid #2a3550;border-radius:10px;background:#101725;color:var(--dim);font-size:13px}
   .emptyHint.show{display:block}
   .emptyHint b{color:var(--txt)}
-  .resetPanel{display:none;margin:0 18px 12px;border:1px solid var(--line);border-radius:12px;background:#0d1117;overflow:hidden}
+  /* Floats over the console instead of pushing it down: the whole point of watching a reset
+     is seeing the queue and log fill in behind it, and a panel that displaces the layout
+     hides exactly what it is narrating. */
+  .resetPanel{display:none;position:fixed;right:18px;bottom:18px;width:min(430px,calc(100vw - 36px));
+    z-index:60;border:1px solid #2b3550;border-radius:12px;background:#0d1117f2;backdrop-filter:blur(8px);
+    box-shadow:0 18px 44px #000a;overflow:hidden}
   .resetPanel.open{display:block}
+  .resetPanel.min .rp-steps{display:none}
   .rp-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
-  .rp-steps{max-height:280px;overflow:auto;padding:6px 14px 12px}
+  .rp-head button{background:transparent;border:0;color:var(--dim);padding:2px 6px}
+  .rp-head button:hover{color:var(--txt)}
+  .rp-steps{max-height:min(300px,42vh);overflow:auto;padding:6px 14px 12px}
   .rp-step{display:flex;align-items:flex-start;gap:9px;padding:5px 0;font-size:12.5px;line-height:1.45}
   .rp-step .ic{flex:0 0 auto;width:15px;text-align:center;margin-top:1px}
   .rp-step.pend{color:var(--dim)}
@@ -205,10 +213,11 @@
 <!-- Reset progress. Each line is one real call to the decision engine, not a fixture. -->
 <div id="resetPanel" class="resetPanel">
   <div class="rp-head">
-    <b>Resetting the A Hotel Berlin demo</b>
+    <b style="font-size:13px">Resetting the demo</b>
     <span class="mini" id="rpStatus">starting…</span>
     <div class="spacer"></div>
-    <button id="rpClose" class="mini" style="display:none">Close</button>
+    <button id="rpMin" class="mini" title="Collapse">–</button>
+    <button id="rpClose" class="mini" style="display:none" title="Close">✕</button>
   </div>
   <div id="rpSteps" class="rp-steps"></div>
 </div>
@@ -749,12 +758,19 @@ $("#btnSeed").addEventListener("click",async()=>{try{await api(`/api/admin/seed-
 // a late check-out well inside the ceiling escalates about half the time and the Ambassador
 // side of the demo never appears. Supplying the facts is not loosening the rule; it is
 // giving the agent what the person at the desk can see.
+// `blocked` / `unsettled` fail one of late_checkout's two governance conditions. The request
+// is still INSIDE the Ambassador's 2-hour ceiling, so it stays their call — the agent simply
+// will not act autonomously when a mandatory condition is unmet, and asks. That is what puts
+// work in the AMBASSADOR's queue rather than the MoD's, and without it the Ambassador view is
+// permanently empty and reads as broken.
 const RESET_SCENARIOS=[
   {kind:"late",  guest:"K. Adeyemi · room 214",  hours:1, why:"Late flight to LHR, 15:00 departure"},
   {kind:"late",  guest:"T. Lindqvist · room 308",hours:2, why:"Afternoon meeting in Mitte"},
+  {kind:"late",  guest:"J. Weber · room 221",    hours:2, why:"Same-day arrival already assigned to the room", blocked:true},
   {kind:"early", guest:"A. Okafor · room 512",   booked:7,night:5,early:3,rate:"standard",group:false,delta:-360,why:"Project ended early, flying home"},
   {kind:"early", guest:"R. Moreau · room 407",   booked:6,night:2,early:4,rate:"nonref",  group:false,delta:-540,why:"Family emergency, prepaid rate"},
   {kind:"late",  guest:"M. Costa · room 502",    hours:2, why:"Later train to Hamburg"},
+  {kind:"late",  guest:"P. Nowak · room 634",    hours:2, why:"Folio unsettled, no card on file", unsettled:true},
   {kind:"early", guest:"S. Haddad · room 118",   booked:6,night:2,early:4,rate:"standard",group:true, delta:-480,why:"Conference block released early"},
 ];
 // How many of the MoD's cards are already worked when you walk in. Leaving the rest pending
@@ -847,6 +863,9 @@ async function runReset(){
     $("#rpStatus").textContent="reset failed";rpStep("Reset failed","warn",e.message);toast(e.message);
   }finally{
     btn.disabled=false;$("#rpClose").style.display="";await loadAll();
+    // Overlay: shrink to the header line once the run is done so it stops covering
+    // the queue it just filled. Steps stay one click away.
+    setTimeout(()=>{$("#resetPanel").classList.add("min");$("#rpMin").textContent="+";},2500);
   }
 }
 function buildScenarioBody(sc,co){
@@ -857,9 +876,9 @@ function buildScenarioBody(sc,co){
       description:`Guest requests late check-out ${sc.hours} hour(s) beyond standard departure — ${sc.why}`,
       currency:"EUR",
       // The two conditions stay-agent.EXCEPTION_AUTHORITY.md sets on late_checkout.
-      conditions:{same_day_arrival_blocking_unit:false,folio_settled_or_payment_on_file:true},
+      conditions:{same_day_arrival_blocking_unit:!!sc.blocked,folio_settled_or_payment_on_file:!sc.unsettled},
       scenario:{guest:sc.guest,room,hours_late:sc.hours,reason:sc.why,
-                same_day_arrival_blocking_unit:false,folio_settled:true}
+                same_day_arrival_blocking_unit:!!sc.blocked,folio_settled:!sc.unsettled}
     },apaleo_ref:{propertyId:"BER"}};
   }
   const nonref=sc.rate==="nonref";
@@ -873,6 +892,7 @@ function buildScenarioBody(sc,co){
 }
 $("#resetBtn").addEventListener("click",runReset);
 $("#rpClose").addEventListener("click",()=>$("#resetPanel").classList.remove("open"));
+$("#rpMin").addEventListener("click",()=>{const p=$("#resetPanel");p.classList.toggle("min");$("#rpMin").textContent=p.classList.contains("min")?"+":"–";});
 $("#btnIngest").addEventListener("click",async()=>{try{const j=await api(`/api/sops/ingest`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})});toast(`ingested ${j.ingested?.length||0} SOP docs`);}catch(e){toast(e.message);}});
 
 // Deep-link support: /stay?company=N&role=ambassador|mod
