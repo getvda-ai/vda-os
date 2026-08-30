@@ -25,3 +25,11 @@ never over-shared, and retained no longer than required.
 ## When In Doubt, Escalate
 If no procedure covers a situation, do not improvise a financial or access
 decision — escalate it to the Manager on Duty or Compliance for a human decision.
+
+## Changing What the Agent May Do
+Enabling a new agent capability, or changing a governance rule the agent operates under,
+is a change to what the property has authorised — not an operational decision. It is
+never applied autonomously, at any phase. The proposed change is described in full and
+the version it replaces is identified before approval, so the previous version can be
+reinstated if the change does not hold up. The approval is recorded in the evidence trail
+in the same way as any guest-facing decision, because it governs all of them.

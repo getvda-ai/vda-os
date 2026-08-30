@@ -2,7 +2,7 @@
 file_type: EXCEPTION_AUTHORITY
 agent_id: stay-agent
 owner: Manager on Duty
-version: "1.0"
+version: "1.1"
 approved_by: Compliance Officer
 approved_at: 2026-07-07
 domain: Operations
@@ -196,6 +196,19 @@ role_bands:
         escalate_to: mod
         must_log: true
 
+      # ── RATE / COMMERCIAL ─────────────────────────────────────────────────
+      - exception_class: rate_override
+        stage: check_in
+        description: Apply a discount below the Best Available Rate for a guest or corporate request
+        ceiling: 9
+        ceiling_type: percent_below_bar
+        conditions:
+          - Rate plan resolved from Apaleo and the BAR for the date range is known
+          - Discount does not breach a negotiated or corporate rate agreement
+        authority: autonomous
+        escalate_to: mod
+        must_log: true
+
   mod:
     exceptions:
       - exception_class: room_upgrade_checkin
@@ -208,6 +221,7 @@ role_bands:
           - Documented justification (VIP, loyalty, service recovery)
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Senior Reservation Manager"
         must_log: true
       - exception_class: preauth_validation
         stage: check_in
@@ -219,6 +233,7 @@ role_bands:
           - Guest acknowledgement on file
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Accountant"
         must_log: true
       - exception_class: folio_post_charge
         stage: in_stay
@@ -230,6 +245,7 @@ role_bands:
           - Guest notified where the charge is a damage/incidental
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Accountant"
         must_log: true
       - exception_class: room_move_rekey
         stage: in_stay
@@ -241,6 +257,7 @@ role_bands:
           - Move reason documented
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Senior Reservation Manager"
         must_log: true
       - exception_class: stay_extension
         stage: in_stay
@@ -252,6 +269,7 @@ role_bands:
           - Valid payment method on file for the incremental amount
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Senior Reservation Manager"
         must_log: true
       - exception_class: goodwill_credit
         stage: in_stay
@@ -263,6 +281,7 @@ role_bands:
           - Revenue Manager notified when credit exceeds 100 EUR
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Accountant"
         must_log: true
       - exception_class: late_checkout
         stage: check_out
@@ -274,6 +293,7 @@ role_bands:
           - No same-day arrival blocking the unit
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Senior Reservation Manager"
         must_log: true
       - exception_class: early_checkout
         stage: check_out
@@ -285,6 +305,7 @@ role_bands:
           - Revenue impact acknowledged
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Senior Reservation Manager"
         must_log: true
       - exception_class: refund_folio_adjustment
         stage: check_out
@@ -296,6 +317,50 @@ role_bands:
           - Original payment method used for refunds where possible
         authority: hitl_required
         escalate_to: compliance_officer
+        apaleo_role: "Accountant"
+        must_log: true
+
+      # ── RATE / COMMERCIAL ─────────────────────────────────────────────────
+      - exception_class: rate_override
+        stage: check_in
+        description: Approve a discount below BAR beyond the front-line autonomous limit
+        ceiling: 25
+        ceiling_type: percent_below_bar
+        conditions:
+          - Commercial rationale recorded (corporate account, service recovery, occupancy)
+          - Discount reviewed against the property's rate strategy for the date range
+        authority: hitl_required
+        escalate_to: compliance_officer
+        apaleo_role: "Revenue Manager"
+        must_log: true
+
+      # ── OVERRIDE CLASSES — never autonomous at any band ───────────────────
+      # No ambassador rule exists for these two by design. A class with no
+      # `authority: autonomous` rule at ANY band can never auto-PASS, in any
+      # phase including Run — see stayDecisionEngine.ts step 7.
+      - exception_class: force_manage_override
+        stage: check_in
+        description: Book or amend a reservation outside rate-plan, availability or restriction rules
+        ceiling: null
+        ceiling_type: none
+        conditions:
+          - The blocking restriction is named explicitly in the request
+          - Commercial or operational justification recorded before the override
+        authority: hitl_required
+        escalate_to: compliance_officer
+        apaleo_role: "Senior Reservation Manager"
+        must_log: true
+      - exception_class: feature_enablement
+        stage: global
+        description: Enable a new agent capability or governance rule in production
+        ceiling: null
+        ceiling_type: none
+        conditions:
+          - The change is described in full before it is applied
+          - The previous version is identified so it can be reinstated
+        authority: hitl_required
+        escalate_to: compliance_officer
+        apaleo_role: "Property Admin"
         must_log: true
 
   compliance_officer:
@@ -309,6 +374,7 @@ role_bands:
           - Any chargeback-risk or suspected-fraud signal is present
         authority: hitl_required
         escalate_to: null
+        apaleo_role: "Account Admin"
         must_log: true
       - exception_class: policy_override
         stage: global
@@ -320,8 +386,58 @@ role_bands:
           - Time-limited — maximum 30 days without formal policy amendment
         authority: hitl_required
         escalate_to: null
+        apaleo_role: "Account Admin"
         must_log: true
 
+      # ── TERMINAL AUTHORITY — the top of each escalation chain ─────────────
+      # These carry no ceiling of their own: reaching this band means every
+      # lower ceiling was already exceeded. They exist so an escalation chain
+      # terminates at a named authority instead of trailing off.
+      - exception_class: early_checkout
+        stage: check_out
+        description: Early departure beyond the Manager on Duty ceiling
+        ceiling: null
+        ceiling_type: none
+        authority: hitl_required
+        escalate_to: null
+        apaleo_role: "Property Admin"
+        must_log: true
+      - exception_class: folio_post_charge
+        stage: in_stay
+        description: Folio charge beyond the Manager on Duty ceiling
+        ceiling: null
+        ceiling_type: none
+        authority: hitl_required
+        escalate_to: null
+        apaleo_role: "Account Admin"
+        must_log: true
+      - exception_class: rate_override
+        stage: check_in
+        description: Discount below BAR beyond the Revenue Manager ceiling
+        ceiling: null
+        ceiling_type: none
+        authority: hitl_required
+        escalate_to: null
+        apaleo_role: "Property Admin"
+        must_log: true
+      - exception_class: force_manage_override
+        stage: check_in
+        description: Force-manage override escalated beyond the Senior Reservation Manager
+        ceiling: null
+        ceiling_type: none
+        authority: hitl_required
+        escalate_to: null
+        apaleo_role: "Property Admin"
+        must_log: true
+      - exception_class: feature_enablement
+        stage: global
+        description: Capability enablement escalated beyond the property
+        ceiling: null
+        ceiling_type: none
+        authority: hitl_required
+        escalate_to: null
+        apaleo_role: "Account Admin"
+        must_log: true
 must_not_override:
   - "Bypassing Apaleo API calls required by governance policy for stay-agent"
   - "Processing any decision without writing a Witness Agent entry"

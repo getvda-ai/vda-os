@@ -7,14 +7,16 @@ import { db, hitlTokens, agentPhases, witnessEntries, sealOutbox, companies } fr
 import { and, eq, desc, sql, inArray } from "drizzle-orm";
 import { decideStay, type StayStage, type StayExceptionContext, type StayApaleoRef } from "../lib/stayDecisionEngine.js";
 import { listStayBaselines, revokeStayBaseline, createStayBaseline } from "../lib/stayBaselines.js";
-import { executeStayAction } from "../lib/stayExecutor.js";
+import { executeStayAction, assertExecutorAgreement } from "../lib/stayExecutor.js";
 import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { sealStayEvent, sealHitlDecisionEvent } from "../lib/staySeal.js";
 import { drainSealOutbox, outboxHealth, collectGuestPii } from "../lib/sealOutbox.js";
 import { anchorStatus, fetchRecords, fetchReport, witnessKeyHealth, resolveBinding } from "../lib/witnessClient.js";
 import { generateEuAiActReport, assessAgentRisk, C2MD_CONTRACT } from "../lib/c2mdClient.js";
 import { stayChainKey, STAY_CHAIN_GENERATION } from "../lib/witnessChain.js";
-import { getRoleBandAuthority } from "../lib/exceptionAuthorityReader.js";
+import { getRoleBandAuthority, getExceptionAuthority } from "../lib/exceptionAuthorityReader.js";
+import { STAY_SCENARIOS, buildAuthorityChain, hasAutonomousBand, scenarioForClass } from "../lib/stayScopeMap.js";
+import { classify } from "../lib/stayEventCategory.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
@@ -191,6 +193,17 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
     const ceilingBand = (payload.ceiling_band ?? {}) as Record<string, unknown>;
     const apaleoData = (payload.apaleo_data ?? {}) as Record<string, unknown>;
 
+    // The Apaleo authority boundary this card sits at, and the role that holds it.
+    // SEALED into the record (art17) rather than derived at read time: a scope that is
+    // only computed when the log is rendered is not evidence of what was gated — it is
+    // today's opinion about a decision made months ago. Sealing it makes "which scope
+    // was invoked, and by whose authority" answerable from the record alone.
+    const cardClass = String(payload.exception_class ?? "");
+    const cardScenario = scenarioForClass(cardClass);
+    const cardAuthority = await getExceptionAuthority(AGENT_SLUG, companyId).catch(() => null);
+    const cardChain = buildAuthorityChain(cardAuthority, cardClass);
+    const decidingNode = cardChain.find((n) => n.band === (hitl.roleBand ?? "ambassador")) ?? null;
+
     // Write the resolution/governance witness entry AND seal it into VDA Witness
     // (so every made decision + governance change carries the tamper-evident badge).
     const writeStayWitness = async (decision: "PASS" | "FAIL" | "ESCALATE" | "INFO", eventCategory: string, clause: string, extra: Record<string, unknown> = {}): Promise<number> => {
@@ -202,7 +215,25 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
         agent: AGENT_NAME,
         decision: { decision, clauseApplied: clause, actionProposed: String(payload.proposed_action ?? "Stay action"), exceptionApplied: false, escalationTarget: (payload.escalation_target as string) ?? null, reasoning: `${eventCategory} by ${decidedBy}${reason ? `: ${reason}` : ""}`, exceptionClass: (payload.exception_class as string) ?? undefined },
         fileReferenced: String(payload.clause_applied ?? "stay-agent.SOP.md"),
-        apaleoData: { ...apaleoData, hitl_token: token, decided_by: decidedBy, role_band: eventRole, art17: { stage: payload.stage, exception_class: payload.exception_class, event: eventCategory, decided_by: decidedBy, role_band: eventRole, ...extra } },
+        apaleoData: {
+          ...apaleoData,
+          hitl_token: token,
+          decided_by: decidedBy,
+          role_band: eventRole,
+          art17: {
+            stage: payload.stage,
+            exception_class: payload.exception_class,
+            event: eventCategory,
+            decided_by: decidedBy,
+            role_band: eventRole,
+            // The authority boundary, sealed with the decision (see above).
+            apaleo_scope: cardScenario?.scope ?? null,
+            apaleo_endpoint: cardScenario?.endpoint ?? null,
+            apaleo_role: decidingNode?.apaleoRole ?? null,
+            approver_title: decidingNode?.title ?? null,
+            ...extra,
+          },
+        },
         eventCategory,
         suppressAutoHitl: true,
         skipC2pa: true, // evidence of record is the real VDA Witness seal
@@ -238,7 +269,24 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
         .values({ cardType: "operational_exception", phase: 0, agentId: AGENT_SLUG, companyId, roleBand: toBand, witnessEntryId: hitl.witnessEntryId, payload: { ...payload, role_band: toBand, escalation_target: toBand, escalated_from: fromBand, escalated_by: decidedBy }, context: hitl.context })
         .returning({ token: hitlTokens.token });
       const witnessId = await writeStayWitness("ESCALATE", "ESCALATE", `Escalated from ${fromBand} to ${toBand} by ${decidedBy}.`, { escalated_from: fromBand, escalated_to: toBand });
-      res.json({ ok: true, action: "escalate", token, rerouted_token: rerouted?.token, from_band: fromBand, to_band: toBand, witness_entry_id: witnessId });
+      // Name the band we escalated TO in the chain's own vocabulary, so the console can
+      // re-head the card without re-deriving the ladder for itself.
+      const toNode = cardChain.find((n) => n.band === toBand) ?? null;
+      res.json({
+        ok: true,
+        action: "escalate",
+        token,
+        rerouted_token: rerouted?.token,
+        from_band: fromBand,
+        to_band: toBand,
+        to_title: toNode?.title ?? null,
+        to_apaleo_role: toNode?.apaleoRole ?? null,
+        // Escalation reaches for no scope. Stated, so the intercept panel can show the
+        // action still pending rather than silently keeping its last status.
+        apaleo_scope: cardScenario?.scope ?? null,
+        scope_invoked: false,
+        witness_entry_id: witnessId,
+      });
       return;
     }
 
@@ -247,7 +295,18 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
       await db.update(hitlTokens).set({ outcome: "rejected", decidedBy, decidedAt: new Date() }).where(eq(hitlTokens.token, token));
       const witnessId = await writeStayWitness("FAIL", "HITL_REJECTED", `Operational exception denied by ${decidedBy}.`);
       const rates = await updateStayRates(companyId);
-      res.json({ ok: true, action: "deny", token, witness_entry_id: witnessId, rates });
+      res.json({
+        ok: true,
+        action: "deny",
+        token,
+        // No Apaleo call was made. Reported as an explicit false rather than by omission —
+        // the console renders "scope blocked", and an absent field would render nothing.
+        apaleo_scope: cardScenario?.scope ?? null,
+        apaleo_endpoint: cardScenario?.endpoint ?? null,
+        scope_invoked: false,
+        witness_entry_id: witnessId,
+        rates,
+      });
       return;
     }
 
@@ -292,7 +351,28 @@ router.post("/stay/hitl/respond/:token", async (req, res) => {
       : `Operational exception approved by ${decidedBy}; ${apaleoPhrase}.`;
     const witnessId = await writeStayWitness("PASS", eventCategory, clause, { apaleo_execution: execution, apaleo_charge_id: execution.apaleoId ?? null, baseline_id: baselineId });
     const rates = await updateStayRates(companyId);
-    res.json({ ok: true, action: outcome, token, apaleo_execution: execution, apaleo_charge_id: execution.apaleoId ?? null, baseline_id: baselineId, witness_entry_id: witnessId, rates });
+    res.json({
+      ok: true,
+      action: outcome,
+      token,
+      apaleo_execution: execution,
+      apaleo_charge_id: execution.apaleoId ?? null,
+      // Scope and endpoint come off the EXECUTION, not off the card — so a staged write
+      // reports the scope it reached for and does not claim the call landed.
+      apaleo_scope: execution.scope ?? null,
+      apaleo_endpoint: execution.endpoint ?? null,
+      scope_invoked: execution.status === "EXECUTED",
+      baseline_id: baselineId,
+      // What a baseline actually reinstates: the clause it is pinned to, and the bounds
+      // inside which this class will now auto-PASS. Returned so the card can name the
+      // rule instead of asserting that one exists.
+      baseline_clause: outcome === "baseline" ? String(payload.clause_applied ?? "") || null : null,
+      baseline_bounds: outcome === "baseline"
+        ? { value_max: ceilingBand.requested_value ?? null, ceiling_type: ceilingBand.ceiling_type ?? null }
+        : null,
+      witness_entry_id: witnessId,
+      rates,
+    });
   } catch (err) {
     logger.error({ err }, "stay/hitl/respond error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to resolve card" });
@@ -433,12 +513,74 @@ router.get("/stay/authority", async (req, res) => {
       ceiling_type: e.ceiling_type ?? null,
       authority: e.authority,
       escalate_to: e.escalate_to ?? null,
+      // The Apaleo role holding the equivalent authority, verbatim from governance.
+      // Absent at the front line by design: the Ambassador band corresponds to no
+      // Apaleo admin role — see /api/stay/scenarios.
+      apaleo_role: (e as { apaleo_role?: string | null }).apaleo_role ?? null,
       conditions: e.conditions ?? [],
     }));
     res.json({ companyId, role_band: roleBand, can_baseline: roleBand === "mod", exceptions, rejected_classes: band?.rejectedClasses ?? [] });
   } catch (err) {
     logger.error({ err }, "stay/authority error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load authority" });
+  }
+});
+
+// ── GET /api/stay/scenarios?company_id= — the harness, one entry per authority config ──
+// ONE call returns everything the cockpit needs to draw the scenario selector and every
+// authority chain: the scope each class intercepts, and the escalation ladder WALKED
+// FROM GOVERNANCE (escalate_to in EXCEPTION_AUTHORITY.md), not from a hardcoded list.
+// Adding a band to the governance file lengthens the chain here with no code change.
+//
+// Serving it from one endpoint is deliberate: if the console assembled chains itself it
+// would need its own copy of the ladder, and the copy would eventually disagree with the
+// engine that actually routes the card.
+router.get("/stay/scenarios", async (req, res) => {
+  try {
+    const companyId = Number(req.query.company_id ?? req.query.companyId ?? 0);
+    const authority = await getExceptionAuthority(AGENT_SLUG, companyId);
+    const scenarios = STAY_SCENARIOS.map((s) => {
+      const chain = buildAuthorityChain(authority, s.exceptionClass);
+      const autonomous = chain.find((n) => n.authority === "autonomous") ?? null;
+      return {
+        ...s,
+        // The autonomous threshold, read from governance — never a UI constant.
+        autonomous_ceiling: autonomous ? autonomous.ceiling : null,
+        autonomous_ceiling_type: autonomous ? autonomous.ceilingType : null,
+        never_autonomous: !hasAutonomousBand(authority, s.exceptionClass),
+        chain,
+        // A scenario whose class is missing from governance must say so rather than
+        // render an empty chain that reads like "no approval needed".
+        governed: chain.length > 0,
+      };
+    });
+    // Prove the scope panel is telling the truth BEFORE the console draws it. If the
+    // map and the executor disagree, the console suppresses the panel rather than naming
+    // an Apaleo call the code would not make — a wrong integration claim in front of the
+    // people who built the integration is the one failure worth degrading the UI for.
+    let scopeMapVerified = true;
+    let scopeMapError: string | null = null;
+    try {
+      assertExecutorAgreement();
+    } catch (aErr) {
+      scopeMapVerified = false;
+      scopeMapError = aErr instanceof Error ? aErr.message : String(aErr);
+      logger.error({ aErr }, "[stay] scope map disagrees with the executor");
+    }
+    res.json({
+      companyId,
+      count: scenarios.length,
+      scenarios,
+      scope_map_verified: scopeMapVerified,
+      scope_map_error: scopeMapError,
+      governance_loaded: Boolean(authority),
+      // Stated once, here, rather than implied per-scenario: the front line holds no
+      // Apaleo admin role. It acts under the integration's own OAuth client.
+      front_line_note: "The Ambassador band maps to no Apaleo admin role — front-line actions run under the integration's OAuth client, not a named Apaleo user.",
+    });
+  } catch (err) {
+    logger.error({ err }, "stay/scenarios error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load scenarios" });
   }
 });
 
@@ -482,17 +624,31 @@ router.get("/stay/log", async (req, res) => {
         // the pre-seal lifecycle states pending/unsealed.
         const witnessState = r.witnessState ?? (recordId ? "SIGNED_PENDING" : legacy?.external_record_id ? "SIGNED_PENDING" : "pending");
         const isGovernance = r.eventCategory === "BASELINE_SET" || r.eventCategory === "BASELINE_REVOKED";
+        const cls = (art.exception_class as string) ?? null;
+        const sc = scenarioForClass(cls);
+        const decidedByName = (a.decided_by as string) ?? (art.decided_by as string) ?? AGENT_NAME;
         return {
           id: r.id,
           at: r.createdAt,
           decision: r.decision,
           event: r.eventCategory,
+          // The four framework categories, DERIVED from the sealed `event` above — the
+          // stored value is never rewritten. See lib/stayEventCategory.ts for why.
+          // `humanDecided` separates an autonomous `charge_posted` from a human-approved
+          // one — the same sealed event name covers both. See stayEventCategory.ts.
+          event_category: classify(r.eventCategory, { humanDecided: Boolean(decidedByName && decidedByName !== AGENT_NAME) }),
+          // Which Apaleo authority boundary this row sits at, and whether the scope was
+          // actually reached. `apaleo_charge_id` present = the write landed.
+          apaleo_scope: (art.apaleo_scope as string) ?? sc?.scope ?? null,
+          apaleo_endpoint: (art.apaleo_endpoint as string) ?? sc?.endpoint ?? null,
+          scenario_key: sc?.key ?? null,
+          approver_role: (art.apaleo_role as string) ?? null,
           kind: isGovernance ? "governance" : "decision",
-          exception_class: (art.exception_class as string) ?? null,
+          exception_class: cls,
           stage: (art.stage as string) ?? null,
           clause: r.clauseApplied,
           reasoning: r.reasoning,
-          decided_by: (a.decided_by as string) ?? (art.decided_by as string) ?? AGENT_NAME,
+          decided_by: decidedByName,
           role_band: (a.role_band as string) ?? (art.role_band as string) ?? null,
           apaleo_charge_id: (art.apaleo_charge_id as string) ?? (a.apaleo_charge_id as string) ?? null,
           governance_source: (art.governance_source as string) ?? null,
@@ -874,11 +1030,34 @@ router.get("/stay/records", async (req, res) => {
     // record is sealed and awaiting the anchor tick (SIGNED_PENDING — correct, transient).
     let anchoredThroughSeq: number | null = null;
     try { const a = await anchorStatus(chainKey); anchoredThroughSeq = (a.anchoredThroughSeq as number | null) ?? null; } catch { /* advisory */ }
+    // Join our own sealed rows onto the Witness records by recordId, so each entry can
+    // carry the framework category, the Apaleo scope it gated, and who approved it.
+    //
+    // These are attached as OUR fields on OUR envelope — the `record` below is still the
+    // Witness record byte-for-byte, because that is the thing that verifies. Enriching
+    // the signed record itself would break its signature and, worse, would mean shipping
+    // an "evidence" object that says more than what was actually signed.
+    const localRows = await db
+      .select({ ec: witnessEntries.eventCategory, ref: witnessEntries.witnessSealRef, ad: witnessEntries.apaleoData })
+      .from(witnessEntries)
+      .where(and(eq(witnessEntries.companyId, companyId), eq(witnessEntries.agent, AGENT_NAME)))
+      .orderBy(desc(witnessEntries.createdAt))
+      .limit(400);
+    const localByRecordId = new Map<string, { ec: string | null; art: Record<string, unknown>; by: string | null }>();
+    for (const lr of localRows) {
+      const rid = (lr.ref as { recordId?: string } | null)?.recordId;
+      if (!rid) continue;
+      const a = (lr.ad ?? {}) as Record<string, unknown>;
+      localByRecordId.set(rid, { ec: lr.ec, art: (a.art17 ?? {}) as Record<string, unknown>, by: (a.decided_by as string) ?? null });
+    }
+
     const items = records.map((r) => {
       const seq = Number(r.seq);
       const anchored = anchoredThroughSeq != null && Number.isFinite(seq) && seq <= anchoredThroughSeq;
+      const rid = (r.recordId ?? r.id) as string;
+      const local = localByRecordId.get(rid) ?? null;
       return {
-        recordId: r.recordId ?? r.id,
+        recordId: rid,
         seq: r.seq,
         issuedAt: r.issuedAt,
         verdict: (r.decision as { verdict?: string })?.verdict ?? null,
@@ -886,10 +1065,26 @@ router.get("/stay/records", async (req, res) => {
         ruleId: (r.governingRule as { ruleId?: string })?.ruleId ?? null,
         anchored,
         sealedState: anchored ? "anchored" : "anchoring_pending", // sealed always; anchoring is what varies
-        record: r, // full record for offline Verify
+        // Locally-derived classification. Null when this record was not sealed by this
+        // deployment — stated as null rather than guessed, so a gap reads as a gap.
+        event: local?.ec ?? null,
+        event_category: local ? classify(local.ec, { humanDecided: Boolean(local.by && local.by !== AGENT_NAME) }) : null,
+        apaleo_scope: (local?.art.apaleo_scope as string) ?? null,
+        approver_role: (local?.art.apaleo_role as string) ?? null,
+        record: r, // full record for offline Verify — Witness's bytes, unmodified
       };
     });
-    res.json({ ok: true, chainKey, account: raw.account ?? null, count: items.length, anchoredThroughSeq, records: items, isolation: "account derived from key; no accountId sent" });
+    res.json({
+      ok: true,
+      chainKey,
+      account: raw.account ?? null,
+      count: items.length,
+      anchoredThroughSeq,
+      records: items,
+      isolation: "account derived from key; no accountId sent",
+      event_category_note:
+        "event_category, apaleo_scope and approver_role are derived by this deployment from its own sealed rows and joined by recordId. They are NOT part of the Witness record and are not covered by its signature; `record` is Witness's bytes verbatim.",
+    });
   } catch (err) {
     logger.error({ err }, "stay/records error");
     res.status(500).json({ error: err instanceof Error ? err.message : "records failed" });

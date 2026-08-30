@@ -162,6 +162,93 @@
   .cov.action{color:#8ab4ff;border-color:#274a7a} .cov.unev{color:#fff;border-color:#a11;background:#c0202a}
   .cite{font-size:10.5px;color:var(--teal);font-family:ui-monospace,monospace;margin-top:3px;overflow-wrap:anywhere}
   .cite.none{color:#ff8a8a}
+
+  /* ── Scenario selector — the harness, once per authority configuration ──────
+     Five tabs, identical in shape on purpose: the visual sameness IS the claim.
+     Same card, same four responses, same trail; only the scope, the ceiling and
+     the approver change between them. */
+  .scenbar{max-width:1240px;margin:0 auto;padding:14px 18px 0}
+  .scenbar .lead{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .scenbar .lead b{color:#cdd5e6;text-transform:none;letter-spacing:0;font-size:12px;font-weight:600}
+  /* The front-line note is a footnote, not a headline — it must not inherit the lead's
+     uppercase treatment, which turned one honest caveat into the loudest line on screen. */
+  #scenNote{text-transform:none;letter-spacing:0;font-weight:400;font-size:10.5px;color:#6f7889;max-width:640px;text-align:right;line-height:1.4}
+  .scens{display:flex;gap:9px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+  .scen{flex:0 0 auto;width:212px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .15s,background .15s;display:flex;flex-direction:column;gap:5px}
+  .scen:hover{border-color:#3a4661}
+  .scen.on{border-color:var(--accent);background:#131a2c;box-shadow:0 0 0 1px var(--accent)}
+  .scen .sh{display:flex;align-items:center;gap:7px}
+  .scen .si{font-size:15px;width:20px;text-align:center;flex:0 0 auto}
+  .scen .sn{font-weight:640;font-size:13px}
+  .scen .sk{font-size:9.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-left:auto}
+  .scen .sc{font-size:10.5px;font-family:ui-monospace,monospace;color:var(--teal);overflow-wrap:anywhere;line-height:1.35}
+  .scen .sc.gov{color:var(--purple)}
+  .scen .st2{font-size:11px;display:flex;align-items:center;gap:5px}
+  .scen .st2 .th{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .scen .sa{font-size:11px;color:var(--dim)}
+  .scen .sa b{color:#cdd5e6;font-weight:600}
+  .scen .sq{font-size:10px;color:var(--amber);font-weight:700}
+
+  /* ── Authority chain — the escalation path, walked from governance ───────── */
+  .chain{margin:9px 0;padding:9px 11px;background:#0c0e13;border:1px solid var(--line);border-radius:9px}
+  .chain .t{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
+  .cn{display:flex;gap:9px;align-items:flex-start;padding:3px 0;position:relative;transition:opacity .35s,transform .35s}
+  .cn .cd{width:9px;height:9px;border-radius:50%;border:2px solid #3a4152;margin-top:4px;flex:0 0 auto;background:transparent;transition:background .35s,border-color .35s,box-shadow .35s}
+  .cn.cur .cd{background:var(--accent);border-color:var(--accent);box-shadow:0 0 9px var(--accent)}
+  .cn.done .cd{background:#3a4152;border-color:#3a4152}
+  .cn .cl{flex:1;min-width:0;line-height:1.35}
+  .cn .ct{font-size:12.5px;font-weight:600;color:#7e8799}
+  .cn.cur .ct{color:var(--txt)}
+  .cn .cr{font-size:10.5px;color:var(--dim)}
+  .cn .cr .ap{color:#8ab4ff}
+  .cn .cc{font-size:10px;color:var(--dim);opacity:.85}
+  .cn .now{font-size:9.5px;font-weight:800;color:var(--accent);letter-spacing:.5px;white-space:nowrap;margin-left:auto;align-self:center}
+  .cn.done{opacity:.42}
+  /* the connecting rail between nodes */
+  .cn:not(:last-child)::before{content:"";position:absolute;left:4px;top:15px;bottom:-3px;width:1px;background:#2b3141}
+
+  /* ── Apaleo scope intercept — where the HITL layer actually sits ─────────── */
+  .icept{margin:9px 0;border:1px solid #1e3a4a;border-radius:9px;background:#0a1418;overflow:hidden}
+  .icept .ih{font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:#5fa8c7;padding:6px 11px;border-bottom:1px solid #16303d;background:#0b1a20}
+  .icept .ib{padding:8px 11px;display:flex;flex-direction:column;gap:4px}
+  .icept .ir{display:flex;gap:9px;font-size:11.5px;align-items:baseline}
+  .icept .ik{color:var(--dim);flex:0 0 118px;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+  .icept .iv{font-family:ui-monospace,monospace;color:#cdd5e6;overflow-wrap:anywhere;min-width:0}
+  .icept .iv.scope{color:var(--teal);font-weight:700}
+  .icept .iv.wait{color:var(--amber)}
+  .icept .iv.ok{color:var(--green)}
+  .icept .iv.no{color:var(--red)}
+  .icept.gov{border-color:#3a2359;background:#120c1c}
+  .icept.gov .ih{color:var(--purple);border-bottom-color:#2a1f3a;background:#150e21}
+
+  /* ── Four-response row — mobile-first, 48px touch targets ────────────────── */
+  .acts4{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}
+  @media(min-width:520px){.acts4{grid-template-columns:repeat(4,1fr)}}
+  .acts4 button{min-height:48px;padding:8px 6px;font-size:13px;font-weight:700;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.15}
+  .acts4 button small{font-size:9.5px;font-weight:600;opacity:.72;letter-spacing:.3px}
+  .acts4 button:disabled{opacity:.4;cursor:not-allowed}
+  .acts4 .b-base[disabled]{opacity:.28}
+  /* the card fades as it re-routes, so an escalation reads as movement not a refresh */
+  .card.rerouting{opacity:.45;transform:translateY(-4px);transition:opacity .4s,transform .4s}
+  .basenote{margin-top:9px;padding:8px 10px;border-left:3px solid var(--purple);background:#150e21;border-radius:0 8px 8px 0;font-size:11.5px;color:#cdd5e6}
+
+  /* ── Witness category badges ─────────────────────────────────────────────── */
+  .evc{font-size:9px;font-weight:800;letter-spacing:.4px;padding:2px 6px;border-radius:5px;border:1px solid;white-space:nowrap;text-transform:uppercase}
+  .evc.AGENT_DECISION{color:#8ab4ff;border-color:#274a7a;background:#0e1626}
+  .evc.COMPLIANCE_BOUNDARY{color:var(--amber);border-color:#5a4522;background:#1d1608}
+  .evc.FRAMEWORK_INTEGRITY{color:var(--purple);border-color:#3a2359;background:#150e21}
+  .evc.AGENT_LIFECYCLE{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
+  .scopechip{font-size:9.5px;font-family:ui-monospace,monospace;color:#5fa8c7;border:1px solid #1e3a4a;border-radius:5px;padding:1px 5px;white-space:nowrap}
+
+  /* ── Phase pill + selector ───────────────────────────────────────────────── */
+  .phasepill{font-size:9.5px;font-weight:800;letter-spacing:.6px;padding:3px 8px;border-radius:6px;border:1px solid;white-space:nowrap;cursor:help}
+  .phasepill.crawl{color:#c9b56a;border-color:#5a4d22;background:#231d0f}
+  .phasepill.walk{color:var(--accent);border-color:#2b3550;background:#111726}
+  .phasepill.run{color:var(--green);border-color:#1f5a34;background:#0e2016}
+  .phaseseg{display:flex;gap:6px;margin-top:6px}
+  .phaseseg button{flex:1;padding:8px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  .phaseseg button.on{background:var(--accent);border-color:var(--accent);color:#06101f}
+  .warnline{font-size:10.5px;color:#c9b56a;border-left:3px solid #5a4d22;padding-left:8px;margin-top:8px;line-height:1.45}
 </style>
 </head>
 <body>
@@ -174,9 +261,21 @@
     <button data-role="ambassador" class="on">Ambassador<small>front-line</small></button>
     <button data-role="mod">Manager on Duty<small>governs exceptions</small></button>
   </div>
+  <span class="phasepill crawl" id="phasePill" title="Operating phase">CRAWL</span>
   <label class="mini">co <input id="company" value="1" style="width:52px" /></label>
   <button id="demoBtn" title="Demo controls">⚙ Demo</button>
 </header>
+
+<!-- ── The harness, five times over ───────────────────────────────────────────
+     One selector, five authority configurations. Everything below this strip is
+     identical between them: the same decision card, the same four responses, the
+     same Witness trail. Only the Apaleo scope being gated, the ceiling read from
+     governance, and the approver in the chain differ. -->
+<div class="scenbar">
+  <div class="lead">Authority boundary <b>· the same HITL harness, five configurations</b>
+    <span class="spacer" style="flex:1"></span><span class="mini" id="scenNote"></span></div>
+  <div class="scens" id="scens"><div class="muted" style="padding:8px">Loading scenarios…</div></div>
+</div>
 
 <div class="strip">
   <div class="stat" data-nav="pending"><div class="n" id="sPending">0</div><div class="l">Pending now <span class="go">→ queue</span></div></div>
@@ -221,20 +320,87 @@
 <div id="scrim"></div>
 <div id="drawer">
   <h3>Demo controls</h3>
-  <div class="mini">Stage a live early check-out and drive the lifecycle. Not part of the operational view.</div>
+  <div class="mini">Drive the selected scenario. Not part of the operational view.</div>
+
+  <!-- Operating phase. Set directly, never presented as a promotion — /promote is
+       criteria-gated and forward-only, and reusing it here would mean either bypassing
+       its gate or failing on a tenant with no decision history. -->
   <div class="sec">
-    <b style="font-size:13px">Simulate early check-out</b>
+    <b style="font-size:13px">Operating phase</b>
+    <div class="mini">Crawl: every proposal goes to a human. Walk: below-ceiling executes, above escalates. Run: autonomous within mandate.</div>
+    <div class="phaseseg" id="phaseSeg">
+      <button data-phase="crawl">Crawl</button><button data-phase="walk">Walk</button><button data-phase="run">Run</button>
+    </div>
+    <div class="warnline">Set directly as demo setup — this is not a promotion. It claims no criteria and records none; the trail seals it as <code>PHASE_CHANGED · promotion: false</code>.</div>
+  </div>
+
+  <!-- ── Per-scenario triggers. Only the selected scenario's control is shown, so the
+       presenter cannot fire scenario C's charge while the cockpit is showing A. ── -->
+  <div class="sec" id="trig-early_checkout">
+    <b style="font-size:13px">A · Early check-out</b>
     <label>Guest / room</label><input id="dGuest" value="A. Okafor · room 512" />
     <label>Booked nights / departing after night</label>
     <div class="row"><input id="dBooked" value="7" style="width:60px" /><input id="dNight" value="5" style="width:60px" /></div>
-    <label>Nights early (ceiling demo: 2 = in-scope, 3 = escalates)</label><input id="dEarly" value="2" style="width:70px" />
+    <label>Nights early <span id="hintEarly" class="mini"></span></label><input id="dEarly" value="2" style="width:70px" />
     <label>Rate</label>
     <select id="dRate"><option value="standard">standard · refundable</option><option value="nonref">non-refundable / prepaid</option></select>
     <label><input type="checkbox" id="dGroup" style="width:auto"/> group / corporate block</label>
     <label>Folio delta (€, released nights)</label><input id="dDelta" value="-240" style="width:80px" />
-    <button id="simRun" class="b-appr" style="width:100%;margin-top:10px">Present early-checkout to HITL →</button>
-    <div id="simOut" class="mini" style="margin-top:8px"></div>
+    <button data-sim="early_checkout" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
   </div>
+
+  <div class="sec" id="trig-rate_override">
+    <b style="font-size:13px">B · Rate override</b>
+    <div class="mini">Guest or corporate account asks for a discount below the Best Available Rate.</div>
+    <label>Guest / account</label><input id="rGuest" value="Northwind GmbH · corporate" />
+    <label>Discount below BAR — <b id="rPct">6</b>% <span id="hintRate" class="mini"></span></label>
+    <input type="range" id="rSlider" min="0" max="20" value="6" style="width:100%;padding:0" />
+    <label>Rate plan</label><input id="rPlan" value="BER-FLEX-SGL" />
+    <button data-sim="rate_override" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+
+  <div class="sec" id="trig-folio_post_charge">
+    <b style="font-size:13px">C · Folio charge</b>
+    <div class="mini">A charge posted to an open guest folio.</div>
+    <label>Guest / room</label><input id="cGuest" value="M. Lindqvist · room township 208" />
+    <label>Charge amount (EUR) <span id="hintCharge" class="mini"></span></label><input id="cAmount" value="340" style="width:90px" />
+    <label>Description</label><input id="cDesc" value="Minibar and late F&B — three nights" />
+    <!-- A REAL open Apaleo folio. With it, an approval posts an actual charge and the
+         card shows the Apaleo id back; without it the write honestly reports as staged.
+         Re-discover one with: node scripts/find-open-folio.mjs BER <base-url> -->
+    <label>Apaleo folio (open) — a real one makes APPROVE post a real charge</label>
+    <input id="cFolio" value="MFCLCSZS-1-1" />
+    <button data-sim="folio_post_charge" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+
+  <div class="sec" id="trig-force_manage_override">
+    <b style="font-size:13px">D · Force-manage override</b>
+    <div class="mini">Never autonomous, at any phase — including Run.</div>
+    <label>Guest / account</label><input id="fGuest" value="R. Achterberg · walk-in" />
+    <label>Restriction being overridden</label>
+    <select id="fRestriction">
+      <option>Minimum advance booking (3 days) not met</option>
+      <option>No rate set for the requested date range</option>
+      <option>Unit group closed to arrival</option>
+      <option>Availability restriction — property at capacity</option>
+    </select>
+    <label>Justification</label><input id="fWhy" value="Displaced guest from partner property" />
+    <button data-sim="force_manage_override" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+
+  <div class="sec" id="trig-feature_enablement">
+    <b style="font-size:13px">E · Feature enablement</b>
+    <div class="mini">No Apaleo scope. The harness gates the agent's own capability change, before it applies.</div>
+    <label>Capability to enable</label>
+    <select id="eCap">
+      <option>Loyalty tier rule — auto-upgrade citizenM members at check-in</option>
+      <option>Auto-waive late-checkout fees under 2 hours</option>
+      <option>Autonomous folio settlement at departure</option>
+    </select>
+    <label>Replaces version</label><input id="ePrev" value="loyalty-rules v1.2" />
+    <button data-sim="feature_enablement" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+  <div id="simOut" class="mini" style="margin:0 0 12px"></div>
   <div class="sec">
     <b style="font-size:13px">Setup</b>
     <div class="mini">Bind a demo tenant &amp; load governance/SOPs.</div>
@@ -250,6 +416,17 @@ let authority={};            // exception_class -> {ceiling, ceiling_type, ...} 
 const sealedCache={};        // log id -> sealed_record (for verify)
 const chainKeyCache={};      // log id -> chain_key (records don't carry their own)
 let madeFilter="all";        // all | today | sealed — driven by status-tile drill-down
+// ── Harness state ───────────────────────────────────────────────────────────
+// `scenarios` is served whole by /api/stay/scenarios: scope + endpoint + the authority
+// chain WALKED FROM GOVERNANCE. The console never assembles a chain itself — a second
+// copy of the ladder here would eventually disagree with the engine that routes the card,
+// and the disagreement would surface as a confidently-drawn wrong answer.
+let scenarios=[];
+let scenarioKey="A";         // selected tab; null = show every pending card
+let curPhase="crawl";
+const scenByKey=()=>Object.fromEntries(scenarios.map(s=>[s.key,s]));
+const scenByClass=()=>Object.fromEntries(scenarios.map(s=>[s.exceptionClass,s]));
+const curScen=()=>scenByKey()[scenarioKey]||null;
 const friendly=s=>String(s??"").replace(/SANDBOX_NO_WRITE/g,"staged · sandbox");
 // Rendering-safety: a decision-support field must never surface an agent-fault marker
 // (a model parse failure) as if it were governance. Detect the marker → degraded state.
@@ -299,53 +476,280 @@ async function loadAuthority(){
 }
 function ceilingText(cls){const a=authority[cls];if(!a)return null;if(a.ceiling==null||a.ceiling_type==="none")return `${roleName(role)} may act (no numeric ceiling)`;return `${roleName(role)} ceiling: ≤ ${a.ceiling} ${a.ceiling_type}`;}
 
+// ── Scenario selector — the harness, once per authority configuration ────────
+// Threshold and approver are rendered from the SERVER's reading of the governance file.
+// Nothing here is a UI constant: change stay-agent.EXCEPTION_AUTHORITY.md, re-seed, and
+// these tiles change with it. That is the point being demonstrated, so hardcoding even
+// one number would quietly undo the demo.
+async function loadScenarios(){
+  try{
+    const j=await api(`/api/stay/scenarios?company_id=${companyId()}`);
+    scenarios=j.scenarios||[];
+    $("#scenNote").textContent=j.front_line_note||"";
+    if(j.scope_map_verified===false){
+      // Rendering safety: a scope panel that might name a call the executor would not
+      // make is worse than no panel. Say so loudly rather than drawing it anyway.
+      $("#scenNote").innerHTML=`<span style="color:var(--red)">⚠ scope map disagrees with the executor — scope panels suppressed. ${esc(j.scope_map_error||"")}</span>`;
+    }
+    renderScens();
+  }catch(e){
+    scenarios=[];
+    $("#scens").innerHTML=`<div class="muted">Scenarios unavailable — ${esc(e.message)}</div>`;
+  }
+}
+function renderScens(){
+  if(!scenarios.length){$("#scens").innerHTML=`<div class="muted" style="padding:8px">No scenarios configured.</div>`;return;}
+  $("#scens").innerHTML=scenarios.map(s=>{
+    // Threshold colour: green while the request would be handled autonomously, amber
+    // once a human is required. A class no band holds autonomously is amber always.
+    const never=s.never_autonomous;
+    const thr=never?"HITL always":(s.autonomous_ceiling==null?"no numeric ceiling":`≤ ${s.autonomous_ceiling} ${(s.autonomous_ceiling_type||"").replace(/_/g," ")}`);
+    const dot=never?"var(--amber)":"var(--green)";
+    // The approver is the first node that requires a human — the one the card will
+    // actually land on, not simply the top of the chain.
+    const appr=(s.chain||[]).find(n=>n.authority!=="autonomous")||(s.chain||[])[0]||null;
+    const pending=(window.__pendingByClass||{})[s.exceptionClass]||0;
+    return `<button class="scen ${s.key===scenarioKey?'on':''}" data-scen="${esc(s.key)}">
+      <div class="sh"><span class="si">${esc(s.icon)}</span><span class="sn">${esc(s.name)}</span>
+        ${pending?`<span class="sq">${pending} pending</span>`:""}<span class="sk">${esc(s.key)}</span></div>
+      <div class="sc ${s.scope?"":"gov"}">${s.scope?esc(s.scope):"governance layer — no Apaleo scope"}${s.readScope?` <span style="opacity:.6">+ ${esc(s.readScope)}</span>`:""}</div>
+      <div class="st2"><span class="th" style="background:${dot}"></span><span>${esc(thr)}</span></div>
+      <div class="sa">approver <b>${appr?esc(appr.title):"—"}</b>${appr&&appr.apaleoRole?` · ${esc(appr.apaleoRole)}`:""}</div>
+    </button>`;
+  }).join("");
+}
+$("#scens").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-scen]");if(!b)return;
+  scenarioKey=b.dataset.scen;
+  renderScens();syncDrawer();loadQueue();loadLog();
+});
+/** Show only the selected scenario's trigger, so a presenter cannot fire the wrong one. */
+function syncDrawer(){
+  const s=curScen();
+  for(const sc of scenarios){
+    const el=document.getElementById(`trig-${sc.exceptionClass}`);
+    // With no scenario selected ("show all") every trigger stays available.
+    if(el)el.style.display=(!s||sc.key===s.key)?"":"none";
+  }
+  // Ceiling hints come from the loaded governance, never from a hardcoded number.
+  const ec=scenByClass()["early_checkout"],ro=scenByClass()["rate_override"],fp=scenByClass()["folio_post_charge"];
+  const hint=(el,sc)=>{const n=document.getElementById(el);if(n&&sc)n.textContent=sc.autonomous_ceiling!=null?`· autonomous ≤ ${sc.autonomous_ceiling}, above escalates`:"";};
+  hint("hintEarly",ec);hint("hintRate",ro);hint("hintCharge",fp);
+}
+
 // ── Pending queue ────────────────────────────────────────────────────────────
 async function loadQueue(){
   try{
     const j=await api(`/api/stay/hitl/pending?role_band=${role}&company_id=${companyId()}`);
-    $("#qCount").textContent=j.count;$("#sPending").textContent=j.count;
-    $("#queue").innerHTML=j.pending.length?j.pending.map(cardHtml).join(""):`<div class="muted">No ${roleName(role)} exceptions pending. The agent is handling routine work autonomously.</div>`;
+    const all=j.pending||[];
+    // Per-scenario pending counts, so the tabs show where work is waiting.
+    const byClass={};for(const t of all){const c=(t.payload||{}).exception_class;if(c)byClass[c]=(byClass[c]||0)+1;}
+    window.__pendingByClass=byClass;renderScens();
+
+    // Scenario switching FILTERS the queue. It never deletes cards: a pending HITL card
+    // is evidence of an unanswered governance question, and clearing the board between
+    // scenarios to make a demo tidy would be destroying exactly the record this product
+    // exists to keep. Cards outside the current scenario are counted and one click away.
+    const s=curScen();
+    const rows=s?all.filter(t=>(t.payload||{}).exception_class===s.exceptionClass):all;
+    const hidden=all.length-rows.length;
+    $("#qCount").textContent=rows.length;$("#sPending").textContent=all.length;
+    const other=hidden>0?`<div class="muted" style="padding:8px 0 0"><a href="#" id="showAll">${hidden} pending decision${hidden===1?"":"s"} in other scenarios — show all</a></div>`:"";
+    $("#queue").innerHTML=(rows.length
+      ? rows.map(cardHtml).join("")
+      : `<div class="muted">No ${roleName(role)} decision pending${s?` for ${esc(s.name)}`:""}. ${s&&s.never_autonomous?"This class always requires a human — nothing has been proposed yet.":"The agent is handling routine work autonomously."}</div>`)+other;
   }catch(e){$("#queue").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
 }
+$("#queue").addEventListener("click",e=>{
+  if(e.target.id==="showAll"){e.preventDefault();scenarioKey=null;renderScens();loadQueue();}
+});
 function cardHtml(t){
   const p=t.payload||{},cb=p.ceiling_band||{},sc=p.scenario||{};
   const plan=(p.action_plan||[]).map(s=>`<li>${esc(s)}</li>`).join("");
   const sops=(p.sop_refs||[]).map(c=>`<div class="clause"><b>SOP · ${esc(c.heading||c.anchor)}</b><br>${esc(c.text||"")}</div>`).join("");
   const guest=sc.guest||p.guest||(p.exception_class==="early_checkout"?"Early check-out":null);
-  const exposure=cb.requested_value!=null?`${esc(cb.requested_value)} ${esc(cb.ceiling_type||"")}`:"—";
+  // A class with no numeric ceiling (force-manage, feature enablement) has no "exposure"
+  // to state, and "within ceiling" is meaningless where there is no ceiling. Rendering
+  // "1 none · within ceiling" over a class that ALWAYS requires a human is the exact
+  // inversion of what the card is there to say, so both are suppressed instead.
+  const numericCeiling=cb.ceiling_type&&cb.ceiling_type!=="none";
+  const exposure=(numericCeiling&&cb.requested_value!=null)
+    ?`${esc(cb.requested_value)} ${esc(String(cb.ceiling_type).replace(/_/g," "))}`:null;
   const cl=ceilingText(p.exception_class);
   const within=cb.within_ceiling;
-  // role-appropriate actions — Ambassador has NO baseline control (absent)
-  const acts=[["approve","Approve","b-appr"],["deny","Deny","b-deny"],["escalate","Escalate","b-esc"]];
-  if(role==="mod")acts.push(["baseline","Baseline","b-base"]);
-  return `<div class="card" data-token="${t.token}">
+  // `sc` is already the card's scenario PAYLOAD above; this is the scenario CONFIG.
+  const scfg=scenByClass()[p.exception_class]||null;
+  // The FOUR responses. Every card, every scenario — the harness does not vary.
+  // Baseline stays MoD-only, because "make this the standing rule" is a governance act
+  // and the front line does not hold it. It is rendered DISABLED rather than removed:
+  // an Ambassador should see that the fourth option exists and is above their authority,
+  // which is the authority model working, not a missing button.
+  const acts=[
+    ["approve","Approve","b-appr","execute via Apaleo",true],
+    ["deny","Deny","b-deny","block · no call",true],
+    ["escalate","Escalate","b-esc","route upward",true],
+    ["baseline","Baseline","b-base",role==="mod"?"make standing rule":"MoD only",role==="mod"],
+  ];
+  return `<div class="card" data-token="${t.token}" data-class="${esc(p.exception_class||"")}" data-band="${esc(p.role_band||role)}">
     <div class="row"><span class="pill stage">${esc(p.stage||"")}</span><span class="pill cls">${esc(p.exception_class||"")}</span>
       <span class="spacer" style="flex:1"></span><span class="pill">${esc(p.current_phase||"crawl")}</span></div>
     ${guest?`<div class="guest">${esc(guest)}</div>`:""}
     <div class="kv"><b>Agent proposes:</b> ${esc(p.proposed_action||p.exception_class)}</div>
-    ${plan?`<div class="plan"><div class="t">Apaleo actions (one governed step)</div><ol>${plan}</ol></div>`:""}
-    <div class="kv"><b>Exposure:</b> ${exposure} ${cl?`· <span class="ceiling">${esc(cl)} ${within?'<span class="pill ok">within ceiling</span>':'<span class="pill no">over ceiling → escalate</span>'}</span>`:""}</div>
+    ${plan?`<div class="plan"><div class="t">Action plan (one governed step)</div><ol>${plan}</ol></div>`:""}
+    <div class="kv"><b>${exposure?"Exposure:":"Authority:"}</b> ${exposure?exposure+" ·":""} ${cl?`<span class="ceiling">${esc(cl)} ${numericCeiling?(within?'<span class="pill ok">within ceiling</span>':'<span class="pill no">over ceiling → escalate</span>'):'<span class="pill no">human decision required</span>'}</span>`:""}</div>
+    ${interceptPanel(scfg,p)}
+    ${chainPanel(scfg,p.role_band||role)}
     ${clauseSafe(p.clause_applied)?`<div class="clause"><b>Governing clause</b><br>${esc(clauseSafe(p.clause_applied))}</div>`:(p.clause_applied?`<div class="clause"><b>Governing clause</b><br>${DEGRADED_CLAUSE}</div>`:"")}
     ${artifactPanel(p.apaleo_data)}
     ${sops}
     <input class="reason" placeholder="reason (optional)" />
-    <div class="actions">${acts.map(a=>`<button class="${a[2]}" data-a="${a[0]}">${a[1]}</button>`).join("")}</div>
+    <div class="acts4">${acts.map(a=>`<button class="${a[2]}" data-a="${a[0]}"${a[4]?"":" disabled"}>${a[1]}<small>${esc(a[3])}</small></button>`).join("")}</div>
+    <div class="outcome"></div>
   </div>`;
 }
+
+/**
+ * Apaleo scope intercept — the threshold the HITL layer is sitting in front of.
+ *
+ * The scope and endpoint come from the server's scope map, which is asserted against the
+ * executor's own tool selection at request time. If that assertion ever fails the server
+ * suppresses this panel rather than letting it name a call the code would not make.
+ */
+function interceptPanel(sc,p){
+  if(!sc)return "";
+  if(!sc.scope){
+    // Scenario E. The honest statement is that there is nothing to intercept — which is
+    // the stronger claim: the harness is not an Apaleo wrapper, it gates any authority
+    // boundary, including one the property system has no opinion about.
+    return `<div class="icept gov"><div class="ih">Governance-layer intercept</div><div class="ib">
+      <div class="ir"><span class="ik">Apaleo scope</span><span class="iv">none — no property-system call exists</span></div>
+      <div class="ir"><span class="ik">What is gated</span><span class="iv">${esc(sc.summary)}</span></div>
+      <div class="ir"><span class="ik">Status</span><span class="iv wait">⏸ awaiting HITL approval — the change is not applied</span></div>
+    </div></div>`;
+  }
+  return `<div class="icept"><div class="ih">Apaleo scope intercept</div><div class="ib">
+    <div class="ir"><span class="ik">Intercepted before</span><span class="iv scope">${esc(sc.scope)}</span></div>
+    ${sc.readScope?`<div class="ir"><span class="ik">Reads under</span><span class="iv">${esc(sc.readScope)}</span></div>`:""}
+    <div class="ir"><span class="ik">Action</span><span class="iv">${esc(sc.endpoint||"—")}</span></div>
+    <div class="ir"><span class="ik">MCP tool</span><span class="iv">${esc(sc.tool||"—")}</span></div>
+    <div class="ir"><span class="ik">Status</span><span class="iv wait js-status">⏸ Awaiting HITL approval</span></div>
+  </div></div>`;
+}
+
+/**
+ * Authority chain — the escalation path for THIS class, walked from the governance file.
+ * Bands below the current approver render as done; the current one is highlighted; bands
+ * above are the path an escalation would take. Both names are always shown: the Apaleo
+ * role that holds the equivalent authority, and the citizenM title.
+ */
+function chainPanel(sc,curBand){
+  const chain=(sc&&sc.chain)||[];
+  if(!chain.length)return "";
+  const i=chain.findIndex(n=>n.band===curBand);
+  return `<div class="chain"><div class="t">Authority chain · from stay-agent.EXCEPTION_AUTHORITY.md</div>
+    ${chain.map((n,k)=>{
+      const state=i<0?"":k<i?"done":k===i?"cur":"";
+      const ceil=n.ceiling!=null?`≤ ${n.ceiling} ${(n.ceilingType||"").replace(/_/g," ")}`:(n.authority==="autonomous"?"no numeric ceiling":"terminal authority");
+      return `<div class="cn ${state}" data-band="${esc(n.band)}"><span class="cd"></span>
+        <span class="cl"><span class="ct">${esc(n.title)}</span>
+          <span class="cr">${n.apaleoRole?`Apaleo · <span class="ap">${esc(n.apaleoRole)}</span>`:`no Apaleo admin role — integration client`} · band <code>${esc(n.band)}</code></span>
+          <span class="cc">${esc(ceil)} · ${esc(n.authority)}</span></span>
+        ${state==="cur"?'<span class="now">CURRENT</span>':""}</div>`;
+    }).join("")}</div>`;
+}
+// A resolved card holds its outcome on screen before the queue refreshes. Without the
+// hold, the 6s poll wipes the result the moment it appears — the presenter clicks
+// Approve and the card simply vanishes, which shows the mechanism working but tells the
+// room nothing about what it did.
+let holdUntil=0;
+const holding=()=>Date.now()<holdUntil;
+
 $("#queue").addEventListener("click",async e=>{
-  const btn=e.target.closest("button[data-a]");if(!btn)return;
+  const btn=e.target.closest("button[data-a]");if(!btn||btn.disabled)return;
   const card=e.target.closest(".card"),token=card.dataset.token,reason=card.querySelector(".reason").value;
   const actor=role==="mod"?"MoD":"Amb";
-  btn.disabled=true;
+  const act=btn.dataset.a;
+  card.querySelectorAll(".acts4 button").forEach(b=>b.disabled=true);
+  const st=card.querySelector(".js-status");
+  if(st){st.className="iv wait js-status";st.textContent="⋯ contacting Apaleo…";}
   try{
-    const j=await api(`/api/stay/hitl/respond/${token}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({outcome:btn.dataset.a,reason,decided_by:actor})});
-    let m=`${btn.dataset.a} ✓`;
+    const j=await api(`/api/stay/hitl/respond/${token}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({outcome:act,reason,decided_by:actor})});
+    holdUntil=Date.now()+2600;
+    renderOutcome(card,act,j);
+    let m=`${act} ✓`;
     if(j.apaleo_execution)m+=` · Apaleo ${friendly(j.apaleo_execution.status)}`;
     if(j.baseline_id)m+=` · class baselined`;
-    if(j.to_band)m+=` → ${j.to_band}`;
-    toast(m);loadAll();
-  }catch(err){toast(err.message);btn.disabled=false;}
+    if(j.to_band)m+=` → ${esc(j.to_title||j.to_band)}`;
+    toast(m);
+    loadLog();loadBaselines();loadPhase();
+    setTimeout(loadQueue,2700);
+  }catch(err){
+    toast(err.message);
+    if(st){st.className="iv no js-status";st.textContent="✗ not resolved — "+err.message;}
+    card.querySelectorAll(".acts4 button").forEach(b=>{if(b.dataset.a!=="baseline"||role==="mod")b.disabled=false;});
+  }
 });
+
+/**
+ * Show what the response actually did, in the panel that claimed it would.
+ * Every branch states the scope outcome explicitly — invoked, blocked, staged or not
+ * reached. "Nothing shown" would leave the presenter asserting a result the screen does
+ * not support, which is the failure mode this whole surface exists to avoid.
+ */
+function renderOutcome(card,act,j){
+  const st=card.querySelector(".js-status");
+  const ex=j.apaleo_execution||null;
+  if(st){
+    if(act==="deny"){
+      st.className="iv no js-status";
+      st.textContent=`✗ Scope blocked — no Apaleo call made${j.apaleo_scope?` (${j.apaleo_scope} not invoked)`:""}`;
+    }else if(act==="escalate"){
+      st.className="iv wait js-status";
+      st.textContent="⏸ Still awaiting approval — escalation reaches for no scope";
+    }else if(ex&&ex.status==="EXECUTED"){
+      st.className="iv ok js-status";
+      st.textContent=`✓ Scope invoked — ${ex.tool} executed${ex.apaleoId?` · Apaleo id ${ex.apaleoId}`:""}`;
+    }else if(ex){
+      // The sandbox could not take the write. Say which, and why, verbatim — a staged
+      // write reported as success is the one lie this demo cannot afford in this room.
+      st.className="iv wait js-status";
+      st.textContent=`⏸ Approved · ${ex.tool||"write"} staged, not executed — ${ex.note||"sandbox"}`;
+    }else{
+      st.className="iv js-status";st.textContent="approved — no Apaleo write required";
+    }
+  }
+  const out=card.querySelector(".outcome");
+  if(act==="escalate"){
+    // Re-route the chain: the current node steps up. The card header re-heads to the new
+    // approver, so an escalation reads as movement through an authority ladder rather
+    // than as a card disappearing off a queue.
+    const nodes=[...card.querySelectorAll(".cn")];
+    const i=nodes.findIndex(n=>n.classList.contains("cur"));
+    if(i>=0&&nodes[i+1]){
+      nodes[i].classList.remove("cur");nodes[i].classList.add("done");
+      nodes[i].querySelector(".now")?.remove();
+      nodes[i+1].classList.add("cur");
+      const tag=document.createElement("span");tag.className="now";tag.textContent="CURRENT";
+      nodes[i+1].appendChild(tag);
+    }
+    if(out)out.innerHTML=`<div class="basenote" style="border-left-color:var(--amber);background:#1d1608">
+      <b>Escalated</b> → ${esc(j.to_title||j.to_band||"next authority")}${j.to_apaleo_role?` · Apaleo <b>${esc(j.to_apaleo_role)}</b>`:""}.
+      A new decision card was raised for that band; this one is closed as escalated. No Apaleo call was made.</div>`;
+    card.classList.add("rerouting");
+  }else if(act==="baseline"){
+    // Name the rule. A baseline in this system does not reinstate a default — it makes
+    // the approved exception the standing rule inside stated bounds. Saying "default
+    // reinstated" would invert what the button did, in the evidence trail's own words.
+    const b=j.baseline_bounds||{};
+    if(out)out.innerHTML=`<div class="basenote"><b>Baselined</b> — this class now auto-PASSes without a human, inside the bounds a Manager on Duty just set:
+      <b>${b.value_max!=null?esc(b.value_max)+" "+esc((b.ceiling_type||"").replace(/_/g," ")):"as approved"}</b>.
+      ${j.baseline_clause?`Pinned to the clause that governed this decision: <i>${esc(j.baseline_clause)}</i>`:""}
+      <br><span style="color:var(--dim)">Reversible from the Baselined classes panel; past auto-approvals stand.</span></div>`;
+  }else if(act==="deny"){
+    if(out)out.innerHTML=`<div class="basenote" style="border-left-color:var(--red);background:#1e0c0e">
+      <b>Denied</b> — the action was blocked and the refusal sealed to the Witness trail. The governing clause stands unchanged.</div>`;
+  }
+}
 
 // ── Made / evidence log ──────────────────────────────────────────────────────
 async function loadLog(){
@@ -397,10 +801,18 @@ function rowHtml(m){
   const b=sealBadge(m);
   const verb=b.act?` · ${b.c==="pending"?"drain & verify":"verify"}`:"";
   const seal=`<span class="sb ${b.c}${b.act?' act':''}" data-id="${m.id}" data-pending="${b.c==='pending'?1:0}" title="offline bundled-proof — zero calls to witness.getvda.ai">${b.t}${verb}</span>`;
+  // Framework category, DERIVED server-side from the sealed event_category. The stored
+  // value is never rewritten — a record sealed as `governed_escalate` is that forever;
+  // this badge classifies it for a reader. See lib/stayEventCategory.ts.
+  const cat=m.event_category||"AGENT_DECISION";
+  const catBadge=`<span class="evc ${esc(cat)}" title="Framework category, derived from the sealed event: ${esc(m.event||"")}">${esc(cat.replace(/_/g," "))}</span>`;
+  // The Apaleo authority boundary this row sits at, and whether it was reached.
+  const scopeChip=m.apaleo_scope?`<span class="scopechip" title="${esc(m.apaleo_endpoint||"")}">${m.apaleo_charge_id?"✓":"⏸"} ${esc(m.apaleo_scope)}</span>`:"";
+  const appr=m.approver_role?` · Apaleo <b>${esc(m.approver_role)}</b>`:"";
   return `<div class="r ${gov?'gov':''}"><span class="dot" style="background:${col}"></span>
-    <div class="m"><div class="top"><span class="what">${what}</span>${seal}</div>
+    <div class="m"><div class="top">${catBadge}<span class="what">${what}</span>${scopeChip}${seal}</div>
     <div class="sub">${clauseSafe(m.clause)?esc(friendly(clauseSafe(m.clause))):(m.clause?"Reasoning captured in the sealed record":"")}${chg}</div>
-    <div class="who">${m.governance_source==="baseline"?"auto-handled via baseline · ":""}by <b>${who}</b> · ${esc(String(m.at||"").slice(5,16).replace("T"," "))}</div>
+    <div class="who">${m.governance_source==="baseline"?"auto-handled via baseline · ":""}by <b>${who}</b>${appr} · ${esc(String(m.at||"").slice(5,16).replace("T"," "))}</div>
     <div class="vpwrap" id="vp-${m.id}"></div></div></div>`;
 }
 // Render the three-state verdict VERBATIM (never coerced to a boolean) + sub-signals + method.
@@ -498,8 +910,37 @@ $("#baselines").addEventListener("click",async e=>{
   catch(err){toast(err.message);}
 });
 
-// ── Phase tag ────────────────────────────────────────────────────────────────
-async function loadPhase(){try{const j=await api(`/api/phase/${companyId()}`);$("#agentTag").textContent=`agent live · Gemini · ${j.phase}`;}catch{}}
+// ── Operating phase ──────────────────────────────────────────────────────────
+// The phase is what the agent may do WITHOUT asking, so it belongs next to the role, not
+// buried in a status string. Crawl every proposal goes to a human; Walk below-ceiling
+// executes and above escalates; Run is autonomous within the mandate.
+const PHASE_TIP={
+  crawl:"CRAWL — shadow mode. Every proposal is routed to a human; nothing executes autonomously.",
+  walk:"WALK — below the autonomous ceiling executes; above it routes to HITL.",
+  run:"RUN — autonomous within the mandate ceiling. Classes no band holds autonomously still require a human.",
+};
+async function loadPhase(){
+  try{
+    const j=await api(`/api/phase/${companyId()}`);
+    curPhase=j.phase||"crawl";
+    $("#agentTag").textContent=`agent live · Gemini`;
+    const pill=$("#phasePill");
+    pill.className="phasepill "+curPhase;pill.textContent=curPhase.toUpperCase();
+    pill.title=PHASE_TIP[curPhase]||curPhase;
+    [...$("#phaseSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.phase===curPhase));
+  }catch{}
+}
+$("#phaseSeg").addEventListener("click",async e=>{
+  const b=e.target.closest("button[data-phase]");if(!b)return;
+  const phase=b.dataset.phase;
+  try{
+    // /demo-set, never /promote — see the route comment. It claims no criteria and the
+    // trail records it as set rather than earned.
+    await api(`/api/phase/${companyId()}/demo-set`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phase})});
+    toast(`phase set to ${phase} (demo setup — not a promotion)`);
+    loadPhase();loadLog();
+  }catch(err){toast(err.message);}
+});
 
 // ── Truthful tier badge — from OBSERVED anchor/record state, never a config flag ─
 async function loadTier(){
@@ -562,7 +1003,15 @@ $("#recBtn").addEventListener("click",async()=>{
     const j=await api(`/api/stay/records?company_id=${companyId()}`);
     lastReport=j;
     $("#mRich").innerHTML=`<div class="gbanner signed"><b>${esc(j.count)}</b> record(s) · chain <b>${esc(j.chainKey)}</b> · ${esc(j.isolation)}${j.anchoredThroughSeq!=null?` · anchored through seq ${esc(j.anchoredThroughSeq)}`:""}${j.account?` · account <code>${esc(String(j.account).slice(0,10))}…</code>`:""}</div>`
-      +(j.records||[]).map(r=>`<div class="rrow"><span class="rid">${esc(r.recordId||"—")}</span><span>seq ${esc(r.seq)} · <b>${esc(r.verdict||"—")}</b> · ${esc(r.ruleId||"")} · ${r.sealedState==="anchored"?'<span class="cov covered">Anchored ✓</span>':'<span class="cov partial">Sealed · anchoring pending</span>'} · ${esc(String(r.issuedAt||"").slice(0,19).replace("T"," "))}</span></div>`).join("")
+      +(j.records||[]).map(r=>{
+        // Category / scope / approver are OUR derived fields joined by recordId — never
+        // part of the signed record. Rendered as "—" when this deployment did not seal
+        // the record, so a gap in our own store shows as a gap rather than as absence.
+        const cat=r.event_category?`<span class="evc ${esc(r.event_category)}">${esc(r.event_category.replace(/_/g," "))}</span>`:"";
+        const sco=r.apaleo_scope?` · <span class="scopechip">${esc(r.apaleo_scope)}</span>`:"";
+        const ap=r.approver_role?` · approver <b>${esc(r.approver_role)}</b>`:"";
+        return `<div class="rrow"><span class="rid">${esc(r.recordId||"—")}</span><span>${cat} seq ${esc(r.seq)} · <b>${esc(r.verdict||"—")}</b> · ${esc(r.ruleId||"")}${sco}${ap} · ${r.sealedState==="anchored"?'<span class="cov covered">Anchored ✓</span>':'<span class="cov partial">Sealed · anchoring pending</span>'} · ${esc(String(r.issuedAt||"").slice(0,19).replace("T"," "))}</span></div>`;
+      }).join("")
       ||'<div class="muted">No records on this chain yet.</div>';
     $("#mBody").textContent=JSON.stringify(j,null,2);
   }catch(e){$("#mBody").textContent="Trail unavailable: "+e.message;}
@@ -663,20 +1112,89 @@ $("#modal").addEventListener("click",e=>{if(e.target.id==="modal")$("#modal").cl
 $("#mDownload").addEventListener("click",()=>{if(!lastReport)return;const blob=new Blob([JSON.stringify(lastReport,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`article12-evidence-report-co${companyId()}.json`;a.click();});
 
 // ── Demo drawer actions ──────────────────────────────────────────────────────
-$("#simRun").addEventListener("click",async()=>{
-  const booked=+$("#dBooked").value||7,night=+$("#dNight").value||5,early=+$("#dEarly").value||2;
-  const nonref=$("#dRate").value==="nonref",group=$("#dGroup").checked;
-  const body={company_id:companyId(),stage:"check_out",exception_context:{
-    exception_class:"early_checkout",requested_value:early,unit:"nights",role_band:role,
-    description:`Guest requests check-out ${early} night(s) early (after night ${night} of ${booked})`,
-    rate_type:nonref?"nonrefundable":"standard",refundable:!nonref,group,currency:"EUR",
-    scenario:{guest:$("#dGuest").value,room:($("#dGuest").value.match(/room\s*\w+/i)||[""])[0],nights_booked:booked,night_current:night,nights_early:early,folio_delta:+$("#dDelta").value||0,currency:"EUR",rate_type:nonref?"nonrefundable":"standard"}
-  },apaleo_ref:{propertyId:"BER"}};
-  $("#simOut").textContent="Agent evaluating…";
-  try{const j=await api(`/api/stay/decision`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    $("#simOut").innerHTML=`<b>${j.outcome}</b> · ${j.governance_source} · routed to <b>${roleName(j.role_band||"ambassador")}</b>${j.vda_witness?.record_id?` · sealed ✓`:""}`;
-    toast(`early check-out → ${j.outcome} (${j.governance_source})`);loadAll();}
-  catch(e){$("#simOut").textContent=e.message;}
+// The discount slider reads live so the presenter can show the threshold being crossed
+// before anything is submitted — below the ceiling it is green and autonomous, above it
+// the same harness raises a card. Same mechanism, different side of one number.
+$("#rSlider")?.addEventListener("input",()=>{
+  const v=+$("#rSlider").value;$("#rPct").textContent=v;
+  const sc=scenByClass()["rate_override"];
+  const ceil=sc&&sc.autonomous_ceiling!=null?+sc.autonomous_ceiling:null;
+  const h=$("#hintRate");
+  if(h&&ceil!=null)h.innerHTML=v<=ceil
+    ?`<span style="color:var(--green)">· ≤ ${ceil}% — executes autonomously</span>`
+    :`<span style="color:var(--amber)">· above ${ceil}% — raises a HITL card</span>`;
+});
+
+/**
+ * Build the decision request for a scenario. The five bodies differ only in the exception
+ * context they carry — the endpoint, the engine and the card are the same for all of
+ * them, which is the reuse claim stated in code rather than in a slide.
+ */
+function simBody(kind){
+  const co=companyId();
+  if(kind==="early_checkout"){
+    const booked=+$("#dBooked").value||7,night=+$("#dNight").value||5,early=+$("#dEarly").value||2;
+    const nonref=$("#dRate").value==="nonref",group=$("#dGroup").checked;
+    return {company_id:co,stage:"check_out",exception_context:{
+      exception_class:"early_checkout",requested_value:early,unit:"nights",role_band:role,
+      description:`Guest requests check-out ${early} night(s) early (after night ${night} of ${booked})`,
+      rate_type:nonref?"nonrefundable":"standard",refundable:!nonref,group,currency:"EUR",
+      scenario:{guest:$("#dGuest").value,room:($("#dGuest").value.match(/room\s*\w+/i)||[""])[0],nights_booked:booked,night_current:night,nights_early:early,folio_delta:+$("#dDelta").value||0,currency:"EUR",rate_type:nonref?"nonrefundable":"standard"}
+    },apaleo_ref:{propertyId:"BER"}};
+  }
+  if(kind==="rate_override"){
+    const pct=+$("#rSlider").value;
+    return {company_id:co,stage:"check_in",exception_context:{
+      exception_class:"rate_override",requested_value:pct,unit:"percent_below_bar",role_band:role,currency:"EUR",
+      description:`Guest requests a ${pct}% discount below the Best Available Rate on rate plan ${$("#rPlan").value}`,
+      rate_type:"standard",refundable:true,group:false,
+      scenario:{guest:$("#rGuest").value,discount_pct:pct,rate_plan:$("#rPlan").value,currency:"EUR"}
+    },apaleo_ref:{propertyId:"BER",ratePlanId:$("#rPlan").value}};
+  }
+  if(kind==="folio_post_charge"){
+    const amt=+$("#cAmount").value||0;
+    return {company_id:co,stage:"in_stay",exception_context:{
+      exception_class:"folio_post_charge",requested_value:amt,unit:"eur",role_band:role,currency:"EUR",
+      description:`Post a EUR ${amt} charge to the open guest folio: ${$("#cDesc").value}`,
+      rate_type:"standard",refundable:true,group:false,
+      scenario:{guest:$("#cGuest").value,room:($("#cGuest").value.match(/room\s*\w+/i)||[""])[0],amount:amt,currency:"EUR",description:$("#cDesc").value}
+    },apaleo_ref:{propertyId:"BER",folioId:($("#cFolio").value||"").trim()||undefined,reservationId:(($("#cFolio").value||"").match(/^(.+)-\d+$/)||[])[1]}};
+  }
+  if(kind==="force_manage_override"){
+    return {company_id:co,stage:"check_in",exception_context:{
+      exception_class:"force_manage_override",requested_value:1,unit:"override",role_band:role,currency:"EUR",
+      description:`Force-manage override requested: ${$("#fRestriction").value}. Justification: ${$("#fWhy").value}`,
+      rate_type:"standard",refundable:true,group:false,
+      scenario:{guest:$("#fGuest").value,restriction:$("#fRestriction").value,justification:$("#fWhy").value}
+    },apaleo_ref:{propertyId:"BER"}};
+  }
+  // feature_enablement — governance layer, no Apaleo ref to resolve.
+  return {company_id:co,stage:"in_stay",exception_context:{
+    exception_class:"feature_enablement",requested_value:1,unit:"capability",role_band:role,
+    description:`Enable in production: ${$("#eCap").value}. Replaces ${$("#ePrev").value}.`,
+    scenario:{capability:$("#eCap").value,previous_version:$("#ePrev").value}
+  }};
+}
+
+$("#drawer").addEventListener("click",async e=>{
+  const b=e.target.closest("button[data-sim]");if(!b)return;
+  const kind=b.dataset.sim;
+  b.disabled=true;
+  // Each decision is an LLM + property-system + seal round-trip, 5–12s, against a 60s
+  // function cap. They are fired ONE AT A TIME from the browser for that reason — a
+  // server-side loop over the five scenarios would exceed the cap and 504 mid-demo.
+  $("#simOut").textContent="Agent evaluating against governance…";
+  try{
+    const j=await api(`/api/stay/decision`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(simBody(kind))});
+    const sc=scenByClass()[kind];
+    $("#simOut").innerHTML=`<b>${esc(j.outcome)}</b> · ${esc(j.governance_source)} · routed to <b>${esc(roleName(j.role_band||"ambassador"))}</b>${j.vda_witness?.record_id?` · sealed ✓`:""}`;
+    toast(`${sc?sc.name:kind} → ${j.outcome} (${j.governance_source})`);
+    // Follow the decision to its own scenario, so the card the presenter just created is
+    // the one on screen — switching tabs by hand mid-demo is where a live run goes wrong.
+    if(sc){scenarioKey=sc.key;renderScens();syncDrawer();}
+    loadQueue();loadLog();loadPhase();
+  }catch(err){$("#simOut").innerHTML=`<span style="color:var(--red)">${esc(err.message)}</span>`;}
+  finally{b.disabled=false;}
 });
 $("#btnSeed").addEventListener("click",async()=>{try{await api(`/api/admin/seed-stay-agent`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:companyId()})});toast("governance seeded");loadAuthority();}catch(e){toast(e.message);}});
 $("#btnIngest").addEventListener("click",async()=>{try{const j=await api(`/api/sops/ingest`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})});toast(`ingested ${j.ingested?.length||0} SOP docs`);}catch(e){toast(e.message);}});
@@ -686,9 +1204,11 @@ $("#btnIngest").addEventListener("click",async()=>{try{const j=await api(`/api/s
   if(q.get("company"))$("#company").value=q.get("company");
   const r=q.get("role");if(r==="mod"||r==="ambassador"){role=r;[...$("#roleSeg").children].forEach(x=>x.classList.toggle("on",x.dataset.role===r));$("#roleLabel").textContent=roleName(r);}
 })();
-async function loadAll(){await loadAuthority();loadQueue();loadLog();loadBaselines();loadPhase();loadTier();}
+async function loadAll(){await loadAuthority();await loadScenarios();syncDrawer();loadQueue();loadLog();loadBaselines();loadPhase();loadTier();}
 loadAll();
-setInterval(()=>{loadQueue();loadLog();},6000);
+// The poll skips the queue while a resolved card is holding its outcome on screen —
+// otherwise the refresh erases the result the moment the presenter has shown it.
+setInterval(()=>{if(!holding())loadQueue();loadLog();},6000);
 </script>
 </body>
 </html>

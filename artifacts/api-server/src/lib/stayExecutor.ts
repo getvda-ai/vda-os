@@ -5,6 +5,7 @@
  * SANDBOX_NO_WRITE rather than faking success (per the brief).
  */
 import { isMcpConfigured, listMcpTools, callMcpTool } from "./apaleo-mcp.js";
+import { STAY_SCENARIOS, scenarioForClass } from "./stayScopeMap.js";
 import { logger } from "./logger.js";
 
 export interface StayExecution {
@@ -15,6 +16,14 @@ export interface StayExecution {
   note?: string;
   /** Real Apaleo id returned by the write (e.g. the folio charge id) when EXECUTED. */
   apaleoId?: string;
+  /**
+   * The Apaleo OAuth scope this write is performed under, and the REST endpoint that
+   * scope protects. Carried on the RESULT rather than assumed by the UI, so the console
+   * reports the scope that was actually reached for — including when the write staged.
+   * null for classes with no property-system call (governance-layer only).
+   */
+  scope?: string | null;
+  endpoint?: string | null;
 }
 
 /** Pull the Apaleo entity id out of an MCP result ({content:[{text:'{"data":{"id":...}}'}]}). */
@@ -84,24 +93,64 @@ function pickToolAndArgs(payload: Record<string, unknown>): { tool: string | nul
     // Early checkout = shorten the reservation (folio recalc + night release follow).
     return { tool: "AmendReservation", args: { id: reservationId } };
   }
+  // A discount below BAR is a rate write, not a reservation write — a different Apaleo
+  // scope (rates.manage) and a different endpoint, which is exactly the point the
+  // scenario is making. The rate-plan id is required; without one there is nothing to
+  // write to and the action stages rather than guessing at a rate plan.
+  if (cls === "rate_override") {
+    const ratePlanId = (ref.ratePlanId ?? apaleo.ratePlanId ?? payload.rate_plan_id) as string | undefined;
+    return { tool: "UpdateRatePlanRates", args: { id: ratePlanId, body: payload.rate_override_body ?? {} } };
+  }
+  // Force-manage amends a reservation THROUGH a restriction. Same tool as an ordinary
+  // amend, but the authority being exercised is reservations.force-manage, not
+  // reservations.manage — the scope is the difference, not the call.
+  if (cls === "force_manage_override") {
+    return { tool: "AmendReservation", args: { id: reservationId } };
+  }
+  // feature_enablement is governance-layer only: there is deliberately no property-system
+  // write to make. Falls through to `tool: null` with the rest.
   // Service requests etc. have no Apaleo write.
   return { tool: null, args: {} };
 }
 
+/**
+ * Fail loudly if the scope panel would name a tool this executor does not actually call.
+ * The console renders `STAY_SCENARIOS[].tool` as "the Apaleo call this approval makes";
+ * if that ever drifts from `pickToolAndArgs`, the demo asserts an integration point that
+ * does not exist — in front of the people who built the integration. Called at boot.
+ */
+export function assertExecutorAgreement(): void {
+  for (const sc of STAY_SCENARIOS) {
+    const { tool } = pickToolAndArgs({ stage: sc.stage, exception_class: sc.exceptionClass });
+    if (tool !== sc.tool) {
+      throw new Error(
+        `[stayExecutor] scope map disagrees with the executor for "${sc.exceptionClass}": ` +
+          `stayScopeMap says ${sc.tool ?? "null"}, pickToolAndArgs routes to ${tool ?? "null"}.`,
+      );
+    }
+  }
+}
+
 export async function executeStayAction(payload: Record<string, unknown>): Promise<StayExecution> {
   const { tool, args } = pickToolAndArgs(payload);
+  // The scope is a property of the CLASS, not of whether the write succeeded — a blocked
+  // or staged action still names the boundary it was stopped at. Resolved once here so
+  // every return path below carries it.
+  const sc = scenarioForClass(String(payload.exception_class ?? ""));
+  const scope = sc?.scope ?? null;
+  const endpoint = sc?.endpoint ?? null;
 
   if (!tool) {
-    return { status: "SANDBOX_NO_WRITE", tool: null, args: {}, note: "No Apaleo write is required for this exception class (operational only)." };
+    return { status: "SANDBOX_NO_WRITE", tool: null, args: {}, scope, endpoint, note: "No Apaleo write is required for this exception class (operational only)." };
   }
   if (!isMcpConfigured()) {
-    return { status: "SANDBOX_NO_WRITE", tool, args, note: "Apaleo MCP is not configured — intended mutation recorded, not executed." };
+    return { status: "SANDBOX_NO_WRITE", tool, args, scope, endpoint, note: "Apaleo MCP is not configured — intended mutation recorded, not executed." };
   }
   try {
     const tools = await listMcpTools();
     const available = tools.some((t) => t.name === tool);
     if (!available) {
-      return { status: "SANDBOX_NO_WRITE", tool, args, note: `Write tool ${tool} is not exposed by the connected Apaleo MCP surface — intended mutation recorded.` };
+      return { status: "SANDBOX_NO_WRITE", tool, args, scope, endpoint, note: `Write tool ${tool} is not exposed by the connected Apaleo MCP surface — intended mutation recorded.` };
     }
     const result = await callMcpTool(tool, args);
     // An MCP tool can return a structured error result without throwing. That is
@@ -113,11 +162,11 @@ export async function executeStayAction(payload: Record<string, unknown>): Promi
         .map((c) => c.text ?? "")
         .join(" ")
         .slice(0, 300);
-      return { status: "SANDBOX_NO_WRITE", tool, args, result, note: `Apaleo MCP rejected the write: ${detail}` };
+      return { status: "SANDBOX_NO_WRITE", tool, args, result, scope, endpoint, note: `Apaleo MCP rejected the write: ${detail}` };
     }
-    return { status: "EXECUTED", tool, args, result, apaleoId: extractApaleoId(result) };
+    return { status: "EXECUTED", tool, args, result, scope, endpoint, apaleoId: extractApaleoId(result) };
   } catch (err) {
     logger.warn({ err, tool, args }, "[stayExecutor] MCP write failed — marking SANDBOX_NO_WRITE");
-    return { status: "SANDBOX_NO_WRITE", tool, args, note: `MCP write failed: ${err instanceof Error ? err.message : String(err)}` };
+    return { status: "SANDBOX_NO_WRITE", tool, args, scope, endpoint, note: `MCP write failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 }

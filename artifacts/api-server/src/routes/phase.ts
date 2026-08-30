@@ -13,6 +13,7 @@ import { Router, type IRouter } from "express";
 import { db, agentPhases, hitlTokens, witnessEntries } from "@workspace/db";
 import { and, eq, desc, gte, sql } from "drizzle-orm";
 import { issueMandate } from "../lib/mandateIssuer.js";
+import { writeWitnessEntry } from "../lib/witnessWriter.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
@@ -103,6 +104,80 @@ router.get("/phase/:companyId", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "phase get error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load phase" });
+  }
+});
+
+// POST /api/phase/:companyId/demo-set { phase }
+//
+// Sets the operating phase DIRECTLY, for a presenter driving the cockpit through
+// Crawl → Walk → Run in a demo. It is deliberately NOT /promote and must never be
+// confused with it:
+//
+//   /promote   earns a phase — enforces the agreement/override/violation criteria,
+//              requires a named sign-off, and only ever moves forwards.
+//   /demo-set  asserts a phase — claims no criteria, names no signatory, and moves in
+//              either direction so a scenario can be replayed at a lower phase.
+//
+// A demo control that reused /promote would have to either bypass the criteria (making
+// the gate a lie) or fail on a fresh tenant with no decision history (making the demo
+// unrunnable). Keeping them apart lets the promotion gate stay honest AND the demo run.
+//
+// The distinction is carried into the evidence: this seals AGENT_LIFECYCLE with
+// `promotion: false` and a reason of "demo setup", so a reader of the trail can see the
+// phase was set rather than earned. It is never presented as a promotion.
+router.post("/phase/:companyId/demo-set", async (req, res) => {
+  try {
+    const companyId = Number(req.params.companyId);
+    const phase = String(req.body?.phase ?? "").trim();
+    if (Number.isNaN(companyId)) {
+      res.status(400).json({ error: "companyId must be a number" });
+      return;
+    }
+    if (!["crawl", "walk", "run"].includes(phase)) {
+      res.status(400).json({ error: "phase must be crawl | walk | run" });
+      return;
+    }
+    const row = await ensureStayPhase(companyId);
+    if (row.phase === phase) {
+      res.json({ ok: true, company_id: companyId, phase, unchanged: true, promotion: false });
+      return;
+    }
+    await db
+      .update(agentPhases)
+      .set({ phase, phaseChangedAt: new Date(), notes: `Demo setup: phase set ${row.phase}→${phase} (not a promotion; no criteria claimed)` })
+      .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, AGENT_SLUG)));
+
+    // Seal it. A phase change is what the agent is ALLOWED to do without asking — the
+    // single most consequential fact about its operating envelope. It belongs in the
+    // trail whether it was earned or asserted, and the record says which.
+    let witnessId: number | null = null;
+    try {
+      witnessId = await writeWitnessEntry({
+        companyId,
+        agent: AGENT_NAME,
+        decision: {
+          decision: "INFO",
+          clauseApplied: `Operating phase set to ${phase} as demo setup. Not a promotion: no promotion criteria were evaluated and no sign-off was recorded.`,
+          actionProposed: `Set operating phase ${row.phase} → ${phase}`,
+          exceptionApplied: false,
+          escalationTarget: null,
+          reasoning: `Presenter set the operating phase directly via /demo-set. The promotion gate (/promote) was not used and its criteria were neither met nor claimed.`,
+        },
+        fileReferenced: "stay-agent.AGENTS.md",
+        apaleoData: { art17: { event: "PHASE_CHANGED", from_phase: row.phase, to_phase: phase, promotion: false, source: "demo_set" } },
+        eventCategory: "AGENT_LIFECYCLE",
+        suppressAutoHitl: true,
+        skipC2pa: true,
+      });
+    } catch (wErr) {
+      logger.warn({ wErr }, "[phase] demo-set witness write failed (non-blocking)");
+    }
+
+    logger.info({ companyId, from: row.phase, to: phase }, "[phase] Stay Agent phase set (demo)");
+    res.json({ ok: true, company_id: companyId, from: row.phase, phase, promotion: false, witness_entry_id: witnessId });
+  } catch (err) {
+    logger.error({ err }, "phase demo-set error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to set phase" });
   }
 });
 

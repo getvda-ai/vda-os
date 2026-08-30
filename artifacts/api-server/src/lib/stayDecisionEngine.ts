@@ -23,6 +23,7 @@ import { writeWitnessEntry, type AgentDecision } from "./witnessWriter.js";
 import { apaleoFetch, buildQueryString } from "./apaleo.js";
 import { matchBaseline } from "./stayBaselines.js";
 import { executeStayAction } from "./stayExecutor.js";
+import { hasAutonomousBand } from "./stayScopeMap.js";
 import { enqueueSeal, buildSealBody, collectGuestPii } from "./sealOutbox.js";
 import { stayChainKey } from "./witnessChain.js";
 import { logger } from "./logger.js";
@@ -129,6 +130,54 @@ function buildEarlyCheckoutPlan(ctx: StayExceptionContext): string[] {
     `Release the room for the ${early} released night(s)`,
     `Notify housekeeping of the early departure`,
   ];
+}
+
+/**
+ * Plain-language action plan per exception class — the "one governed step" the card
+ * shows above the response buttons.
+ *
+ * These describe the INTENT of the action, in the operator's language. They are not a
+ * transcript of the Apaleo call: the call itself, its scope and its endpoint are shown
+ * separately in the scope-intercept panel, sourced from the executor's own result so the
+ * two can never disagree. A class with no meaningful plan returns undefined and the card
+ * simply omits the block, rather than rendering an empty list.
+ */
+function buildActionPlan(cls: string, ctx: StayExceptionContext): string[] | undefined {
+  const sc = (ctx.scenario ?? {}) as Record<string, unknown>;
+  const cur = String(sc.currency ?? ctx.currency ?? "EUR");
+  const val = ctx.requested_value;
+  switch (cls) {
+    case "early_checkout":
+      return buildEarlyCheckoutPlan(ctx);
+    case "rate_override":
+      return [
+        `Apply a ${val ?? "?"}% discount below the Best Available Rate`,
+        `Resolve the governing rate plan and BAR for the requested date range`,
+        `Write the adjusted rate to the rate plan`,
+        `Record the commercial rationale against the reservation`,
+      ];
+    case "folio_post_charge":
+    case "damage_incidental_charge":
+      return [
+        `Post a ${cur} ${val ?? "?"} charge to the open guest folio`,
+        `Confirm the folio is open for charges before posting`,
+        `Record the charge reason in the evidence trail`,
+      ];
+    case "force_manage_override":
+      return [
+        `Override the blocking restriction: ${String(sc.restriction ?? ctx.description ?? "rate-plan / availability rule")}`,
+        `Amend the reservation through the restriction under reservations.force-manage`,
+        `Record the justification and the rule that was overridden`,
+      ];
+    case "feature_enablement":
+      return [
+        `Enable: ${String(sc.capability ?? ctx.description ?? "new agent capability")}`,
+        `No property-system write — this changes what the agent may do, not a booking`,
+        `Record the previous version so it can be reinstated`,
+      ];
+    default:
+      return undefined;
+  }
 }
 
 const BAND_ORDER = ["ambassador", "mod", "compliance_officer"] as const;
@@ -441,7 +490,7 @@ export async function decideStay(input: StayDecisionInput): Promise<StayDecision
     apaleo_ref: input.apaleoRef,
     scenario: (exceptionContext.scenario as Record<string, unknown>) ?? undefined,
     context_attrs: { rate_type: exceptionContext.rate_type, refundable: exceptionContext.refundable, group: exceptionContext.group },
-    action_plan: exceptionClass === "early_checkout" ? buildEarlyCheckoutPlan(exceptionContext) : undefined,
+    action_plan: buildActionPlan(exceptionClass, exceptionContext),
   };
 
   if (!VALID_STAGES.includes(stage)) {
@@ -560,6 +609,16 @@ export async function decideStay(input: StayDecisionInput): Promise<StayDecision
 
   // 7. Phase gating + ceiling enforcement.
   const hardEscalate = isComplianceClass || exceptionClass === "chargeback_risk_flag" || exceptionClass === "policy_override";
+  // A class no band holds with `authority: autonomous` can NEVER auto-execute — not in
+  // Walk, and not in Run either, where the ceiling test alone would otherwise let a
+  // null-ceiling hitl_required rule through as "within ceiling". Scenarios D
+  // (force-manage) and E (feature enablement) declare "autonomous: never" on the card;
+  // this is what makes that a property of the engine rather than a caption.
+  //
+  // Behaviourally inert for every pre-existing class: all of them hold an `autonomous`
+  // ambassador rule, so `neverAutonomous` is false and this branch is not reached.
+  const neverAutonomous = !hasAutonomousBand(authority, exceptionClass);
+  const lowestBandHolding = ambRule ? "ambassador" : modRule ? "mod" : "compliance_officer";
   let outcome: StayDecisionResult["outcome"] = llm.decision;
   let routeBand: string;
 
@@ -569,6 +628,12 @@ export async function decideStay(input: StayDecisionInput): Promise<StayDecision
   } else if (llm.decision === "ESCALATE" || hardEscalate) {
     outcome = "ESCALATE";
     routeBand = hardEscalate ? "compliance_officer" : withinAmb ? "ambassador" : withinMod ? "mod" : "compliance_officer";
+  } else if (neverAutonomous) {
+    // Route to the LOWEST band that actually holds the class — "always HITL" means a
+    // named human decides, not that everything jumps to compliance.
+    outcome = "ESCALATE";
+    routeBand = lowestBandHolding;
+    base.reasoning = `[${phase.toUpperCase()}] ${base.reasoning} No role band holds "${exceptionClass}" autonomously — this class requires a human decision at every phase, including Run.`;
   } else {
     // LLM says PASS — apply phase gating.
     if (phase === "crawl") {
