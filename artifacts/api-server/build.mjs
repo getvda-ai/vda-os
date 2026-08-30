@@ -122,6 +122,7 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
 
 buildAll()
   .then(() => copyGovernanceFiles())
+  .then(() => copyPublic())
   .catch((err) => {
     console.error(err);
     process.exit(1);
@@ -133,4 +134,12 @@ async function copyGovernanceFiles() {
   await mkdir(dstDir, { recursive: true });
   await cp(srcDir, dstDir, { recursive: true });
   console.log("  Copied src/governance → dist/governance");
+}
+
+async function copyPublic() {
+  const srcDir = path.resolve(artifactDir, "src/public");
+  const dstDir = path.resolve(artifactDir, "dist/public");
+  await mkdir(dstDir, { recursive: true });
+  await cp(srcDir, dstDir, { recursive: true });
+  console.log("  Copied src/public → dist/public");
 }

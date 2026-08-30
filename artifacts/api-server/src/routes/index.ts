@@ -17,6 +17,10 @@ import euAiActRouter from "./euAiAct";
 import gdprRouter from "./gdpr";
 import ucpRouter from "./ucp";
 import billingRouter from "./billing";
+import sopsRouter from "./sops";
+import stayRouter from "./stay";
+import phaseRouter from "./phase";
+import vdaWitnessRouter from "./vdaWitness";
 
 const router: IRouter = Router();
 
@@ -38,5 +42,9 @@ router.use(euAiActRouter);
 router.use(gdprRouter);
 router.use(ucpRouter);
 router.use(billingRouter);
+router.use(sopsRouter);
+router.use(stayRouter);
+router.use(phaseRouter);
+router.use(vdaWitnessRouter);
 
 export default router;

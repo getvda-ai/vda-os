@@ -50,6 +50,18 @@ export interface WitnessEntryInput {
   agentDid?: string | null;
   /** AI model that produced the decision — defaults to platform model if omitted. */
   modelId?: string | null;
+  /**
+   * Suppress the automatic generic operational HITL token on ESCALATE. Set by
+   * callers (e.g. the Stay Agent) that create their own richly-routed card with
+   * a role_band + full payload, to avoid duplicate cards.
+   */
+  suppressAutoHitl?: boolean;
+  /**
+   * Skip the internal C2PA manifest. Set by the Stay Agent, whose evidence of
+   * record is the real VDA Witness seal (witness_seal_ref), not the internal
+   * C2PA provenance manifest.
+   */
+  skipC2pa?: boolean;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -159,7 +171,7 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
   // Resolve agent DID — caller may supply it directly; otherwise look up the
   // most recently issued (non-revoked) credential for this agent + company.
   let resolvedAgentDid: string | null = entry.agentDid ?? null;
-  if (!resolvedAgentDid && entry.companyId > 0) {
+  if (!entry.skipC2pa && !resolvedAgentDid && entry.companyId > 0) {
     try {
       const [cred] = await db
         .select({ did: agentCredentials.did })
@@ -180,16 +192,21 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
     }
   }
 
-  const c2paManifest = await buildC2PAManifest({
-    modelId: entry.modelId ?? PLATFORM_MODEL_ID,
-    agentDid: resolvedAgentDid,
-    governanceFileHash: entry.governanceFileHash ?? null,
-    filesConsulted,
-    decision: entry.decision.decision,
-    clauseApplied: entry.decision.clauseApplied,
-    agentName: entry.agent,
-    companyId: entry.companyId,
-  }) as unknown as Record<string, unknown>;
+  // Stay Agent's evidence of record is the real VDA Witness seal, not the
+  // internal C2PA manifest — skip it (also avoids the platform keypair on the
+  // serverless read-only FS).
+  const c2paManifest = entry.skipC2pa
+    ? null
+    : ((await buildC2PAManifest({
+        modelId: entry.modelId ?? PLATFORM_MODEL_ID,
+        agentDid: resolvedAgentDid,
+        governanceFileHash: entry.governanceFileHash ?? null,
+        filesConsulted,
+        decision: entry.decision.decision,
+        clauseApplied: entry.decision.clauseApplied,
+        agentName: entry.agent,
+        companyId: entry.companyId,
+      })) as unknown as Record<string, unknown>);
 
   let insertedRow: { id: number } | undefined;
   try {
@@ -249,7 +266,8 @@ export async function writeWitnessEntry(entry: WitnessEntryInput): Promise<numbe
   if (
     entry.decision.decision === "ESCALATE" &&
     entry.companyId > 0 &&
-    !entry.scenarioRunId
+    !entry.scenarioRunId &&
+    !entry.suppressAutoHitl
   ) {
     void createOperationalHitlToken(witnessId, entry);
   }

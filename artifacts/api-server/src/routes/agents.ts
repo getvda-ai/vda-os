@@ -330,6 +330,7 @@ export const POLICY_AGENT_ID_MAP: Record<string, string> = {
   folio_charge:  "folio-charge-agent",
   checkout:      "checkout-agent",
   revenue:       "revenue-reconciliation-agent",
+  stay:          "stay-agent",
 };
 
 // Agents that must inherit from Finance O2C shared services (cross-domain inheritance)

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const exceptionBaselines = pgTable("exception_baselines", {
@@ -21,6 +21,19 @@ export const exceptionBaselines = pgTable("exception_baselines", {
   sourceClause: text("source_clause"),
   activationRequestId: text("activation_request_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+
+  // ── Stay Agent bounds-based baselines (nullable; additive) ────────────────
+  // "Approve this one kind of task going forward" — scoped, revocable.
+  stage: text("stage"),
+  bounds: jsonb("bounds").$type<Record<string, unknown>>(),
+  apaleoScope: jsonb("apaleo_scope").$type<Record<string, unknown>>(),
+  contextHash: text("context_hash"),
+  authorisedBy: text("authorised_by"),
+  approvedHitlToken: text("approved_hitl_token"),
+  revoked: boolean("revoked").notNull().default(false),
+  revokedBy: text("revoked_by"),
+  revokedReason: text("revoked_reason"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
 
 export type ExceptionBaseline = typeof exceptionBaselines.$inferSelect;

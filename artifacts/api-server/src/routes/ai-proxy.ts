@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   anthropic,
+  AI_BACKEND,
   type Message,
   type MessageParam,
   type Tool,
@@ -15,11 +16,36 @@ const MODEL_MAP: Record<string, string> = {
   "claude-haiku-4-20250514": "claude-haiku-4-5",
 };
 
+/**
+ * Canonical → Vertex Model Garden model IDs. Vertex uses `<model>@<version>`
+ * publisher IDs, not the gateway aliases the rest of the codebase passes around.
+ * Each is overridable by env so the deployment can pin whatever is enabled in
+ * its Model Garden / region without a code change.
+ */
+const VERTEX_MODEL_MAP: Record<string, string> = {
+  "claude-opus-4-6": process.env.VERTEX_CLAUDE_OPUS || "claude-opus-4-1@20250805",
+  "claude-opus-4-5": process.env.VERTEX_CLAUDE_OPUS || "claude-opus-4-1@20250805",
+  "claude-opus-4-1": process.env.VERTEX_CLAUDE_OPUS || "claude-opus-4-1@20250805",
+  "claude-sonnet-4-6": process.env.VERTEX_CLAUDE_SONNET || "claude-sonnet-4-5@20250929",
+  "claude-sonnet-4-5": process.env.VERTEX_CLAUDE_SONNET || "claude-sonnet-4-5@20250929",
+  "claude-haiku-4-5": process.env.VERTEX_CLAUDE_HAIKU || "claude-haiku-4-5@20251001",
+};
+
 export function resolveModel(requested: string): string {
-  if (MODEL_MAP[requested]) return MODEL_MAP[requested];
-  const supported = ["claude-sonnet-4-6", "claude-sonnet-4-5", "claude-opus-4-6", "claude-opus-4-5", "claude-opus-4-1", "claude-haiku-4-5"];
-  if (supported.includes(requested)) return requested;
-  return "claude-sonnet-4-6";
+  // Normalise to a canonical gateway alias first.
+  let canonical: string;
+  if (MODEL_MAP[requested]) canonical = MODEL_MAP[requested];
+  else {
+    const supported = ["claude-sonnet-4-6", "claude-sonnet-4-5", "claude-opus-4-6", "claude-opus-4-5", "claude-opus-4-1", "claude-haiku-4-5"];
+    canonical = supported.includes(requested) ? requested : "claude-sonnet-4-6";
+  }
+  // On Vertex, translate the canonical alias into a Model Garden publisher ID.
+  if (AI_BACKEND === "vertex") {
+    // If the caller already passed a Vertex-style `<model>@<version>` id, honour it.
+    if (requested.includes("@")) return requested;
+    return VERTEX_MODEL_MAP[canonical] || VERTEX_MODEL_MAP["claude-sonnet-4-6"];
+  }
+  return canonical;
 }
 
 function toCacheableSystem(system: string | undefined) {
@@ -59,6 +85,8 @@ export async function callAIWithUsage(params: {
   messages: { role: "user" | "assistant"; content: string }[];
 }): Promise<{
   text: string;
+  /** "max_tokens" means the answer was CUT OFF — not that the model wrote nonsense. */
+  stopReason: string | null;
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
@@ -72,10 +100,15 @@ export async function callAIWithUsage(params: {
     messages: params.messages,
     ...(cachedSystem ? { system: cachedSystem } : {}),
   });
-  const block = response.content[0];
   const usage = response.usage as AnthropicUsageWithCache;
   return {
-    text: block?.type === "text" ? block.text : "",
+    // Join EVERY text block. Taking content[0] alone silently dropped the answer whenever
+    // the model emitted more than one text part.
+    text: response.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join(""),
+    // Surfaced so callers can tell a TRUNCATED answer from an unparseable one. Gemini bills
+    // thinking tokens against max_tokens, so a budget that looks generous can be spent
+    // entirely on reasoning, leaving a half-written JSON object and a stop of "max_tokens".
+    stopReason: (response as { stop_reason?: string | null }).stop_reason ?? null,
     inputTokens: usage?.input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
     cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,

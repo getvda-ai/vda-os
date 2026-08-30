@@ -12,3 +12,9 @@ export * from "./activationRequests";
 export * from "./agentValueEvents";
 export * from "./agentMandates";
 export * from "./companyCredits";
+export * from "./sopDocuments";
+export * from "./sopClauses";
+export * from "./sealOutbox";
+export * from "./witnessChainRecords";
+export * from "./witnessChainAnchors";
+// Stay Agent Witness seal references live on witness_entries (see witnessEntries.ts).

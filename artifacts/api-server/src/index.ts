@@ -7,6 +7,7 @@ import { seedVdaNativeAgents } from "./onboarding/seedVdaNativeAgents.js";
 import { backfillRoleBand } from "./lib/backfillRoleBand.js";
 import { seedPlatformGovernanceFiles } from "./routes/admin.js";
 import { seedCompanyGovernance } from "./routes/seed.js";
+import { seedStayAgentGovernance } from "./lib/seedStayAgent.js";
 import { reissueMandatesIfLegacy, recoverOrphanedMandates } from "./lib/mandateIssuer.js";
 
 const rawPort = process.env["PORT"];
@@ -48,6 +49,10 @@ app.listen(port, (err) => {
   // The CISO sandbox evaluates against companyId=0 — these files MUST exist at genesis.
   seedCompanyGovernance(0, "citizenM").catch(err =>
     logger.warn({ err }, "Platform VDA-MD canonical governance seed deferred")
+  );
+  // Stay Agent governance (AGENTS/SOP/SKILL/EXCEPTION_AUTHORITY) at platform baseline.
+  seedStayAgentGovernance(0).catch(err =>
+    logger.warn({ err }, "Stay Agent governance seed deferred")
   );
   reissueMandatesIfLegacy().catch(err =>
     logger.warn({ err }, "Mandate Ed25519 migration deferred")

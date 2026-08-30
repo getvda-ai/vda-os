@@ -1,0 +1,1214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>citizenM · Stay Agent — HITL Cockpit</title>
+<style>
+  :root{--bg:#07080a;--panel:#111318;--panel2:#171a21;--line:#232733;--txt:#f4f6fb;--dim:#9aa4b6;--accent:#7c9cff;--green:#4ade80;--red:#f87171;--amber:#f59e0b;--purple:#c084fc;--teal:#2dd4bf}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{position:sticky;top:0;z-index:20;background:#0a0c10ee;backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:.2px}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+  .brand small{color:var(--dim);font-weight:500}
+  .tag{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
+  .spacer{flex:1}
+  input,select,button{font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+  button{cursor:pointer}button:hover{border-color:#3a4152}
+  /* role switcher — the authority control */
+  .roleseg{display:inline-flex;border:1px solid #2b3550;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px #10131b}
+  .roleseg button{border:0;border-radius:0;background:transparent;padding:8px 16px;font-weight:600;color:var(--dim);display:flex;flex-direction:column;line-height:1.15;gap:1px}
+  .roleseg button small{font-size:10px;font-weight:500;opacity:.8}
+  .roleseg button.on{color:#06101f}
+  .roleseg button.on[data-role="ambassador"]{background:var(--accent)}
+  .roleseg button.on[data-role="mod"]{background:var(--amber)}
+  /* status strip */
+  .strip{max-width:1240px;margin:0 auto;padding:12px 18px 0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 14px;cursor:pointer;transition:border-color .15s,transform .05s}
+  .stat:hover{border-color:#3a4661}.stat:active{transform:translateY(1px)}
+  .stat .go{font-size:10px;color:var(--accent);opacity:0;transition:opacity .15s}
+  .stat:hover .go{opacity:.9}
+  .stat .n{font-size:22px;font-weight:680}
+  .stat .l{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .stat.sealed .n{color:var(--teal)}
+  main{max-width:1240px;margin:0 auto;padding:16px 18px 40px;display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
+  @media(max-width:940px){main{grid-template-columns:1fr}.strip{grid-template-columns:repeat(2,1fr)}}
+  .col{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .panel>h2{margin:0;padding:12px 15px;font-size:13px;font-weight:640;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .panel .body{padding:12px 14px;display:flex;flex-direction:column;gap:11px}
+  .count{font-size:11px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--dim)}
+  /* pending cards */
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px}
+  .card.gov{border-color:#3a2359}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .pill{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;border-radius:999px;padding:2px 8px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+  .pill.stage{color:var(--accent);border-color:#2b3550}.pill.cls{color:var(--amber);border-color:#3a2f13}
+  .pill.ok{color:var(--green)}.pill.no{color:var(--red)}
+  .guest{font-weight:640;font-size:14px;margin:8px 0 2px}
+  .plan{margin:8px 0;padding:9px 11px;background:#0c0e13;border-radius:9px;border:1px solid var(--line)}
+  .plan .t{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+  .plan ol{margin:0;padding-left:18px}.plan li{margin:2px 0;font-size:13px}
+  .clause{font-size:12px;background:#0c0e13;border-left:3px solid var(--purple);border-radius:0 8px 8px 0;padding:8px 10px;margin-top:8px;color:#cdd5e6}
+  .kv{font-size:12.5px;color:var(--dim);margin-top:6px}.kv b{color:var(--txt);font-weight:600}
+  .ceiling{font-size:12px;margin-top:6px}
+  .actions{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap}
+  .actions button{flex:1;min-width:74px;padding:8px 6px;font-size:12.5px;font-weight:600}
+  .b-appr{background:#0f2a17;border-color:#1c4a2a;color:var(--green)}
+  .b-deny{background:#2a1113;border-color:#4a1c22;color:var(--red)}
+  .b-esc{background:#2a2110;border-color:#4a3a17;color:var(--amber)}
+  .b-base{background:#211433;border-color:#3a2359;color:var(--purple)}
+  .reason{width:100%;margin-top:8px}
+  .muted{color:var(--dim);font-size:13px;text-align:center;padding:16px}
+  /* made / evidence log */
+  .made{display:flex;flex-direction:column}
+  .made .r{display:flex;gap:9px;padding:9px 4px;border-bottom:1px dashed var(--line);align-items:flex-start}
+  .made .r:last-child{border-bottom:0}
+  .made .r.gov{background:#160f22;border-radius:8px;padding:9px 8px;border-bottom:1px solid #2a1f3a}
+  .dot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex:0 0 auto}
+  .made .m{flex:1;min-width:0}
+  .made .m .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .made .what{font-weight:600;font-size:13px}
+  .made .sub{font-size:11.5px;color:#b7c0d0;margin-top:3px;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+  /* report modal */
+  #modal{position:fixed;inset:0;background:#000a;z-index:70;display:none;align-items:center;justify-content:center;padding:20px}
+  #modal.open{display:flex}
+  .mcard{background:#0c0e13;border:1px solid var(--line);border-radius:14px;width:720px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px #000b}
+  .mcard .mh{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .mcard .mh h3{margin:0;font-size:15px}
+  .mcard .mb{padding:14px 16px;overflow:auto}
+  .mcard pre{white-space:pre-wrap;word-break:break-word;font-size:11.5px;color:#cdd5e6;margin:0}
+  .mnote{font-size:11.5px;color:var(--dim);margin-bottom:10px;border-left:3px solid var(--teal);padding-left:9px}
+  .fchip{font-size:11px;color:var(--accent);border:1px solid #2b3550;border-radius:999px;padding:1px 8px;cursor:pointer}
+  .who{font-size:11px;color:var(--dim)}
+  .who b{color:var(--txt)}
+  .seal{font-size:11px;border:1px solid #14483f;background:#0c1f1b;color:var(--teal);border-radius:999px;padding:2px 8px;cursor:pointer;white-space:nowrap}
+  .seal.no{border-color:var(--line);background:transparent;color:var(--dim);cursor:default}
+  /* baselines */
+  .bl{border:1px solid #2a2340;border-radius:10px;padding:10px;background:var(--panel2)}
+  .bl.rev{opacity:.55}
+  .bl .hd{display:flex;align-items:center;gap:8px}
+  .mini{font-size:11px;color:var(--dim)}
+  .auto{font-size:11px;color:var(--teal);border:1px solid #14483f;border-radius:999px;padding:1px 8px}
+  /* demo drawer */
+  #drawer{position:fixed;top:0;right:0;height:100%;width:340px;max-width:88vw;background:#0c0e13;border-left:1px solid var(--line);z-index:40;transform:translateX(100%);transition:transform .2s;padding:16px;overflow:auto;box-shadow:-12px 0 40px #000a}
+  #drawer.open{transform:translateX(0)}
+  #drawer h3{margin:2px 0 4px;font-size:14px}
+  #drawer .sec{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;background:var(--panel)}
+  #drawer label{display:block;font-size:11px;color:var(--dim);margin:8px 0 3px}
+  #scrim{position:fixed;inset:0;background:#0007;z-index:39;display:none}
+  #scrim.open{display:block}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#12151c;border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-size:13px;z-index:60;box-shadow:0 8px 30px #000a;max-width:90vw}
+  a{color:var(--accent)}
+  /* seal-state badges (outbox status × verify verdict) */
+  .sb{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid;cursor:default;white-space:nowrap}
+  .sb.act{cursor:pointer}
+  .sb.pending{color:#c9b56a;border-color:#5a4d22;background:#231d0f}
+  .art2{margin:6px 0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:#0f1712}
+  .art2.unavail{background:#1a1410}
+  .art2 .t{font-size:9.5px;color:var(--dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
+  .art2 .ar{font-size:11.5px;margin-top:3px;line-height:1.5}
+  .art2 .pill{font-size:9.5px;padding:1px 5px;border-radius:6px;border:1px solid var(--line)}
+  .art2 .pill.ok{color:#7bd88f;border-color:#2e5a3a}
+  .art2 .pill.no{color:#e0a05a;border-color:#5a4522}
+  .sb.signed{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
+  .sb.anchored{color:#4ade80;border-color:#1f5a34;background:#0e2016}
+  .sb.broken{color:#fff;border-color:#a11;background:#c0202a;box-shadow:0 0 0 1px #c0202a,0 2px 12px #c0202a88}
+  .sb.dead{color:#ffb4a2;border-color:#7a2a1a;background:#2a120c}
+  /* offline verify verdict panel */
+  .vp{margin-top:7px;border:1px solid var(--line);border-radius:8px;padding:8px 9px;background:#0f131b;font-size:11px}
+  .vp.broken{border-color:#c0202a;background:#1e0c0e}
+  .vp .st{font-weight:800;font-size:12px;letter-spacing:.02em}
+  .vp .st.signed{color:var(--teal)} .vp .st.anchored{color:#4ade80} .vp .st.broken{color:#ff5a63}
+  .vp .sig{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
+  .vp .chk{font-size:10px;padding:1px 7px;border-radius:12px;border:1px solid var(--line);color:#b7c0d0}
+  .vp .chk.y{color:#4ade80;border-color:#1f5a34} .vp .chk.n{color:#ff8a8a;border-color:#7a2a1a}
+  .vp .meth{margin-top:5px;color:var(--dim);font-size:10px}
+  /* tier badge in header */
+  .tier{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid;white-space:nowrap}
+  .tier.anchored{color:#4ade80;border-color:#1f5a34;background:#0e2016}
+  .tier.sealed{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
+  .tier.notanchored{color:#b7c0d0;border-color:#33404f;background:#141a22}
+  .tier .mm{color:#ff8a8a;margin-left:5px}
+  /* report modal rich rendering */
+  #mRich{margin-bottom:10px}
+  .gbanner{border:1px solid;border-radius:9px;padding:9px 11px;margin-bottom:9px;font-size:12px}
+  .gbanner.demo{color:#c9b56a;border-color:#5a4d22;background:#231d0f}
+  .gbanner.signed{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
+  .gbanner.anchored{color:#4ade80;border-color:#1f5a34;background:#0e2016}
+  .gbanner.block{color:#ffb4a2;border-color:#7a2a1a;background:#2a120c}
+  .gbanner b{font-weight:800}
+  .gbanner .dl{display:block;margin-top:5px;font-size:11px;color:#cbb;opacity:.95}
+  .rrow{display:flex;gap:9px;padding:7px 4px;border-bottom:1px dashed var(--line);font-size:11.5px;align-items:baseline}
+  .rrow .rid{color:var(--dim);font-family:ui-monospace,monospace;font-size:10.5px;min-width:120px;overflow-wrap:anywhere}
+  .art{border:1px solid var(--line);border-radius:8px;padding:7px 9px;margin:6px 0;font-size:11.5px}
+  .art .ah{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .art .an{font-weight:700}
+  .art .p{margin-top:6px;line-height:1.5}
+  .art .p.ev{color:var(--dim);font-size:10.5px;margin-top:5px}
+  .art .p.ev code{font-size:10px}
+  .art .p:first-of-type{margin-top:7px}
+  .secttl{margin:12px 0 4px;font-weight:700;font-size:11.5px;letter-spacing:.02em;opacity:.9}
+  /* Raw response is a developer affordance — collapsed by default so a compliance reader
+     never sees a JSON dump. Never auto-open this for a product surface. */
+  .rawwrap{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
+  .rawwrap>summary{cursor:pointer;font-size:10.5px;color:var(--dim);list-style:none;user-select:none}
+  .rawwrap>summary::-webkit-details-marker{display:none}
+  .rawwrap>summary::before{content:"▸ ";opacity:.7}
+  .rawwrap[open]>summary::before{content:"▾ "}
+  .cov{font-size:10px;font-weight:700;padding:1px 7px;border-radius:12px;border:1px solid}
+  .cov.covered{color:#4ade80;border-color:#1f5a34} .cov.partial{color:#c9b56a;border-color:#5a4d22}
+  .cov.action{color:#8ab4ff;border-color:#274a7a} .cov.unev{color:#fff;border-color:#a11;background:#c0202a}
+  .cite{font-size:10.5px;color:var(--teal);font-family:ui-monospace,monospace;margin-top:3px;overflow-wrap:anywhere}
+  .cite.none{color:#ff8a8a}
+
+  /* ── Scenario selector — the harness, once per authority configuration ──────
+     Five tabs, identical in shape on purpose: the visual sameness IS the claim.
+     Same card, same four responses, same trail; only the scope, the ceiling and
+     the approver change between them. */
+  .scenbar{max-width:1240px;margin:0 auto;padding:14px 18px 0}
+  .scenbar .lead{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .scenbar .lead b{color:#cdd5e6;text-transform:none;letter-spacing:0;font-size:12px;font-weight:600}
+  /* The front-line note is a footnote, not a headline — it must not inherit the lead's
+     uppercase treatment, which turned one honest caveat into the loudest line on screen. */
+  #scenNote{text-transform:none;letter-spacing:0;font-weight:400;font-size:10.5px;color:#6f7889;max-width:640px;text-align:right;line-height:1.4}
+  .scens{display:flex;gap:9px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+  .scen{flex:0 0 auto;width:212px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .15s,background .15s;display:flex;flex-direction:column;gap:5px}
+  .scen:hover{border-color:#3a4661}
+  .scen.on{border-color:var(--accent);background:#131a2c;box-shadow:0 0 0 1px var(--accent)}
+  .scen .sh{display:flex;align-items:center;gap:7px}
+  .scen .si{font-size:15px;width:20px;text-align:center;flex:0 0 auto}
+  .scen .sn{font-weight:640;font-size:13px}
+  .scen .sk{font-size:9.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-left:auto}
+  .scen .sc{font-size:10.5px;font-family:ui-monospace,monospace;color:var(--teal);overflow-wrap:anywhere;line-height:1.35}
+  .scen .sc.gov{color:var(--purple)}
+  .scen .st2{font-size:11px;display:flex;align-items:center;gap:5px}
+  .scen .st2 .th{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .scen .sa{font-size:11px;color:var(--dim)}
+  .scen .sa b{color:#cdd5e6;font-weight:600}
+  .scen .sq{font-size:10px;color:var(--amber);font-weight:700}
+
+  /* ── Authority chain — the escalation path, walked from governance ───────── */
+  .chain{margin:9px 0;padding:9px 11px;background:#0c0e13;border:1px solid var(--line);border-radius:9px}
+  .chain .t{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
+  .cn{display:flex;gap:9px;align-items:flex-start;padding:3px 0;position:relative;transition:opacity .35s,transform .35s}
+  .cn .cd{width:9px;height:9px;border-radius:50%;border:2px solid #3a4152;margin-top:4px;flex:0 0 auto;background:transparent;transition:background .35s,border-color .35s,box-shadow .35s}
+  .cn.cur .cd{background:var(--accent);border-color:var(--accent);box-shadow:0 0 9px var(--accent)}
+  .cn.done .cd{background:#3a4152;border-color:#3a4152}
+  .cn .cl{flex:1;min-width:0;line-height:1.35}
+  .cn .ct{font-size:12.5px;font-weight:600;color:#7e8799}
+  .cn.cur .ct{color:var(--txt)}
+  .cn .cr{font-size:10.5px;color:var(--dim)}
+  .cn .cr .ap{color:#8ab4ff}
+  .cn .cc{font-size:10px;color:var(--dim);opacity:.85}
+  .cn .now{font-size:9.5px;font-weight:800;color:var(--accent);letter-spacing:.5px;white-space:nowrap;margin-left:auto;align-self:center}
+  .cn.done{opacity:.42}
+  /* the connecting rail between nodes */
+  .cn:not(:last-child)::before{content:"";position:absolute;left:4px;top:15px;bottom:-3px;width:1px;background:#2b3141}
+
+  /* ── Apaleo scope intercept — where the HITL layer actually sits ─────────── */
+  .icept{margin:9px 0;border:1px solid #1e3a4a;border-radius:9px;background:#0a1418;overflow:hidden}
+  .icept .ih{font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:#5fa8c7;padding:6px 11px;border-bottom:1px solid #16303d;background:#0b1a20}
+  .icept .ib{padding:8px 11px;display:flex;flex-direction:column;gap:4px}
+  .icept .ir{display:flex;gap:9px;font-size:11.5px;align-items:baseline}
+  .icept .ik{color:var(--dim);flex:0 0 118px;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+  .icept .iv{font-family:ui-monospace,monospace;color:#cdd5e6;overflow-wrap:anywhere;min-width:0}
+  .icept .iv.scope{color:var(--teal);font-weight:700}
+  .icept .iv.wait{color:var(--amber)}
+  .icept .iv.ok{color:var(--green)}
+  .icept .iv.no{color:var(--red)}
+  .icept.gov{border-color:#3a2359;background:#120c1c}
+  .icept.gov .ih{color:var(--purple);border-bottom-color:#2a1f3a;background:#150e21}
+
+  /* ── Four-response row — mobile-first, 48px touch targets ────────────────── */
+  .acts4{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}
+  @media(min-width:520px){.acts4{grid-template-columns:repeat(4,1fr)}}
+  .acts4 button{min-height:48px;padding:8px 6px;font-size:13px;font-weight:700;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.15}
+  .acts4 button small{font-size:9.5px;font-weight:600;opacity:.72;letter-spacing:.3px}
+  .acts4 button:disabled{opacity:.4;cursor:not-allowed}
+  .acts4 .b-base[disabled]{opacity:.28}
+  /* the card fades as it re-routes, so an escalation reads as movement not a refresh */
+  .card.rerouting{opacity:.45;transform:translateY(-4px);transition:opacity .4s,transform .4s}
+  .basenote{margin-top:9px;padding:8px 10px;border-left:3px solid var(--purple);background:#150e21;border-radius:0 8px 8px 0;font-size:11.5px;color:#cdd5e6}
+
+  /* ── Witness category badges ─────────────────────────────────────────────── */
+  .evc{font-size:9px;font-weight:800;letter-spacing:.4px;padding:2px 6px;border-radius:5px;border:1px solid;white-space:nowrap;text-transform:uppercase}
+  .evc.AGENT_DECISION{color:#8ab4ff;border-color:#274a7a;background:#0e1626}
+  .evc.COMPLIANCE_BOUNDARY{color:var(--amber);border-color:#5a4522;background:#1d1608}
+  .evc.FRAMEWORK_INTEGRITY{color:var(--purple);border-color:#3a2359;background:#150e21}
+  .evc.AGENT_LIFECYCLE{color:var(--teal);border-color:#1f4a48;background:#0f1f1e}
+  .scopechip{font-size:9.5px;font-family:ui-monospace,monospace;color:#5fa8c7;border:1px solid #1e3a4a;border-radius:5px;padding:1px 5px;white-space:nowrap}
+
+  /* ── Phase pill + selector ───────────────────────────────────────────────── */
+  .phasepill{font-size:9.5px;font-weight:800;letter-spacing:.6px;padding:3px 8px;border-radius:6px;border:1px solid;white-space:nowrap;cursor:help}
+  .phasepill.crawl{color:#c9b56a;border-color:#5a4d22;background:#231d0f}
+  .phasepill.walk{color:var(--accent);border-color:#2b3550;background:#111726}
+  .phasepill.run{color:var(--green);border-color:#1f5a34;background:#0e2016}
+  .phaseseg{display:flex;gap:6px;margin-top:6px}
+  .phaseseg button{flex:1;padding:8px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  .phaseseg button.on{background:var(--accent);border-color:var(--accent);color:#06101f}
+  .warnline{font-size:10.5px;color:#c9b56a;border-left:3px solid #5a4d22;padding-left:8px;margin-top:8px;line-height:1.45}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>citizenM · <span>Stay Agent</span> <small id="propTag">· BER</small></div>
+  <span class="tag" id="agentTag">agent live · Gemini</span>
+  <span class="tier sealed" id="tierBadge" title="Sealed / Anchored state — derived from the chain's observed anchor status, not a config flag">Sealed…</span>
+  <div class="spacer"></div>
+  <div class="roleseg" id="roleSeg">
+    <button data-role="ambassador" class="on">Ambassador<small>front-line</small></button>
+    <button data-role="mod">Manager on Duty<small>governs exceptions</small></button>
+  </div>
+  <span class="phasepill crawl" id="phasePill" title="Operating phase">CRAWL</span>
+  <label class="mini">co <input id="company" value="1" style="width:52px" /></label>
+  <button id="demoBtn" title="Demo controls">⚙ Demo</button>
+</header>
+
+<!-- ── The harness, five times over ───────────────────────────────────────────
+     One selector, five authority configurations. Everything below this strip is
+     identical between them: the same decision card, the same four responses, the
+     same Witness trail. Only the Apaleo scope being gated, the ceiling read from
+     governance, and the approver in the chain differ. -->
+<div class="scenbar">
+  <div class="lead">Authority boundary <b>· the same HITL harness, five configurations</b>
+    <span class="spacer" style="flex:1"></span><span class="mini" id="scenNote"></span></div>
+  <div class="scens" id="scens"><div class="muted" style="padding:8px">Loading scenarios…</div></div>
+</div>
+
+<div class="strip">
+  <div class="stat" data-nav="pending"><div class="n" id="sPending">0</div><div class="l">Pending now <span class="go">→ queue</span></div></div>
+  <div class="stat" data-nav="today"><div class="n" id="sMade">0</div><div class="l">Actioned today <span class="go">→ log</span></div></div>
+  <div class="stat" data-nav="baselines"><div class="n" id="sBase">0</div><div class="l">Active baselines <span class="go">→ panel</span></div></div>
+  <div class="stat sealed" data-nav="sealed"><div class="n" id="sSealed">0</div><div class="l">Witness sealed ✓ <span class="go">→ evidence</span></div></div>
+</div>
+
+<main>
+  <!-- LEFT: Pending HITL queue -->
+  <div class="col">
+    <div class="panel">
+      <h2>Pending — awaiting <span id="roleLabel">Ambassador</span> <span class="count" id="qCount">0</span></h2>
+      <div class="body" id="queue"><div class="muted">Loading…</div></div>
+    </div>
+  </div>
+  <!-- RIGHT: unified Made / evidence log + baselines -->
+  <div class="col">
+    <div class="panel" id="madePanel">
+      <h2>Made — decisions &amp; governance events <span class="count" id="mCount">0</span>
+        <span id="fchip" class="fchip" style="display:none"></span>
+        <span class="spacer" style="flex:1"></span>
+        <button id="recBtn" title="Account-isolated evidence trail from VDA Witness /records" style="font-size:11px">Evidence trail</button>
+        <button id="artBtn" title="Article-12 evidence report — generated by VDA Witness from the sealed trail" style="font-size:11px">Article 12</button>
+        <button id="euBtn" title="EU AI Act Article-by-Article — generated by C2MD (c2md.getvda.ai)" style="font-size:11px">EU AI Act ▸ C2MD</button></h2>
+      <div class="body"><div class="made" id="made"><div class="muted">—</div></div></div>
+    </div>
+    <div class="panel">
+      <h2>Baselined classes <span class="count" id="bCount">0</span>
+        <span class="spacer" style="flex:1"></span><span class="mini" id="baseHint"></span></h2>
+      <div class="body" id="baselines"><div class="muted">—</div></div>
+    </div>
+  </div>
+</main>
+
+<div id="modal"><div class="mcard">
+  <div class="mh"><h3 id="mTitle">Report</h3><span class="spacer" style="flex:1"></span>
+    <button id="mDownload" style="font-size:12px">Download JSON</button><button id="mClose" style="font-size:12px">Close</button></div>
+  <div class="mb"><div class="mnote" id="mNote"></div><div id="mRich"></div><details class="rawwrap"><summary>Raw response (developer)</summary><pre id="mBody">Loading…</pre></details></div>
+</div></div>
+
+<div id="scrim"></div>
+<div id="drawer">
+  <h3>Demo controls</h3>
+  <div class="mini">Drive the selected scenario. Not part of the operational view.</div>
+
+  <!-- Operating phase. Set directly, never presented as a promotion — /promote is
+       criteria-gated and forward-only, and reusing it here would mean either bypassing
+       its gate or failing on a tenant with no decision history. -->
+  <div class="sec">
+    <b style="font-size:13px">Operating phase</b>
+    <div class="mini">Crawl: every proposal goes to a human. Walk: below-ceiling executes, above escalates. Run: autonomous within mandate.</div>
+    <div class="phaseseg" id="phaseSeg">
+      <button data-phase="crawl">Crawl</button><button data-phase="walk">Walk</button><button data-phase="run">Run</button>
+    </div>
+    <div class="warnline">Set directly as demo setup — this is not a promotion. It claims no criteria and records none; the trail seals it as <code>PHASE_CHANGED · promotion: false</code>.</div>
+  </div>
+
+  <!-- ── Per-scenario triggers. Only the selected scenario's control is shown, so the
+       presenter cannot fire scenario C's charge while the cockpit is showing A. ── -->
+  <div class="sec" id="trig-early_checkout">
+    <b style="font-size:13px">A · Early check-out</b>
+    <label>Guest / room</label><input id="dGuest" value="A. Okafor · room 512" />
+    <label>Booked nights / departing after night</label>
+    <div class="row"><input id="dBooked" value="7" style="width:60px" /><input id="dNight" value="5" style="width:60px" /></div>
+    <label>Nights early <span id="hintEarly" class="mini"></span></label><input id="dEarly" value="2" style="width:70px" />
+    <label>Rate</label>
+    <select id="dRate"><option value="standard">standard · refundable</option><option value="nonref">non-refundable / prepaid</option></select>
+    <label><input type="checkbox" id="dGroup" style="width:auto"/> group / corporate block</label>
+    <label>Folio delta (€, released nights)</label><input id="dDelta" value="-240" style="width:80px" />
+    <button data-sim="early_checkout" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+
+  <div class="sec" id="trig-rate_override">
+    <b style="font-size:13px">B · Rate override</b>
+    <div class="mini">Guest or corporate account asks for a discount below the Best Available Rate.</div>
+    <label>Guest / account</label><input id="rGuest" value="Northwind GmbH · corporate" />
+    <label>Discount below BAR — <b id="rPct">6</b>% <span id="hintRate" class="mini"></span></label>
+    <input type="range" id="rSlider" min="0" max="20" value="6" style="width:100%;padding:0" />
+    <label>Rate plan</label><input id="rPlan" value="BER-FLEX-SGL" />
+    <button data-sim="rate_override" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+
+  <div class="sec" id="trig-folio_post_charge">
+    <b style="font-size:13px">C · Folio charge</b>
+    <div class="mini">A charge posted to an open guest folio.</div>
+    <label>Guest / room</label><input id="cGuest" value="M. Lindqvist · room township 208" />
+    <label>Charge amount (EUR) <span id="hintCharge" class="mini"></span></label><input id="cAmount" value="340" style="width:90px" />
+    <label>Description</label><input id="cDesc" value="Minibar and late F&B — three nights" />
+    <!-- A REAL open Apaleo folio. With it, an approval posts an actual charge and the
+         card shows the Apaleo id back; without it the write honestly reports as staged.
+         Re-discover one with: node scripts/find-open-folio.mjs BER <base-url> -->
+    <label>Apaleo folio (open) — a real one makes APPROVE post a real charge</label>
+    <input id="cFolio" value="MFCLCSZS-1-1" />
+    <button data-sim="folio_post_charge" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+
+  <div class="sec" id="trig-force_manage_override">
+    <b style="font-size:13px">D · Force-manage override</b>
+    <div class="mini">Never autonomous, at any phase — including Run.</div>
+    <label>Guest / account</label><input id="fGuest" value="R. Achterberg · walk-in" />
+    <label>Restriction being overridden</label>
+    <select id="fRestriction">
+      <option>Minimum advance booking (3 days) not met</option>
+      <option>No rate set for the requested date range</option>
+      <option>Unit group closed to arrival</option>
+      <option>Availability restriction — property at capacity</option>
+    </select>
+    <label>Justification</label><input id="fWhy" value="Displaced guest from partner property" />
+    <button data-sim="force_manage_override" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+
+  <div class="sec" id="trig-feature_enablement">
+    <b style="font-size:13px">E · Feature enablement</b>
+    <div class="mini">No Apaleo scope. The harness gates the agent's own capability change, before it applies.</div>
+    <label>Capability to enable</label>
+    <select id="eCap">
+      <option>Loyalty tier rule — auto-upgrade citizenM members at check-in</option>
+      <option>Auto-waive late-checkout fees under 2 hours</option>
+      <option>Autonomous folio settlement at departure</option>
+    </select>
+    <label>Replaces version</label><input id="ePrev" value="loyalty-rules v1.2" />
+    <button data-sim="feature_enablement" class="b-appr" style="width:100%;margin-top:10px">Present to HITL →</button>
+  </div>
+  <div id="simOut" class="mini" style="margin:0 0 12px"></div>
+  <div class="sec">
+    <b style="font-size:13px">Setup</b>
+    <div class="mini">Bind a demo tenant &amp; load governance/SOPs.</div>
+    <button id="btnSeed" style="width:100%;margin-top:8px">Seed stay-agent governance</button>
+    <button id="btnIngest" style="width:100%;margin-top:8px">Ingest citizenM /sops</button>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+let role="ambassador";
+let authority={};            // exception_class -> {ceiling, ceiling_type, ...} for current role (from governance)
+const sealedCache={};        // log id -> sealed_record (for verify)
+const chainKeyCache={};      // log id -> chain_key (records don't carry their own)
+let madeFilter="all";        // all | today | sealed — driven by status-tile drill-down
+// ── Harness state ───────────────────────────────────────────────────────────
+// `scenarios` is served whole by /api/stay/scenarios: scope + endpoint + the authority
+// chain WALKED FROM GOVERNANCE. The console never assembles a chain itself — a second
+// copy of the ladder here would eventually disagree with the engine that routes the card,
+// and the disagreement would surface as a confidently-drawn wrong answer.
+let scenarios=[];
+let scenarioKey="A";         // selected tab; null = show every pending card
+let curPhase="crawl";
+const scenByKey=()=>Object.fromEntries(scenarios.map(s=>[s.key,s]));
+const scenByClass=()=>Object.fromEntries(scenarios.map(s=>[s.exceptionClass,s]));
+const curScen=()=>scenByKey()[scenarioKey]||null;
+const friendly=s=>String(s??"").replace(/SANDBOX_NO_WRITE/g,"staged · sandbox");
+// Rendering-safety: a decision-support field must never surface an agent-fault marker
+// (a model parse failure) as if it were governance. Detect the marker → degraded state.
+const BAD_CLAUSE=/unable to parse|unparsed model|could not (parse|produce)|unable to determine governing clause/i;
+const clauseSafe=s=>{const v=String(s??"").trim();return v&&!BAD_CLAUSE.test(v)?v:null;};
+const DEGRADED_CLAUSE="Reasoning captured in the sealed record — route to Manager on Duty.";
+// Decision-basis panel: the system-of-record artifacts the Ambassador/MoD is deciding
+// against, at recommendation time. Real data when Apaleo resolved; an honest "unavailable"
+// line when the fetch failed — never a blank or a fabricated value.
+function artifactPanel(ad){
+  ad=ad||{};
+  const rs=ad.reservation;
+  const foArr=(ad.folios&&(ad.folios.folios||ad.folios))||null;
+  const folio=Array.isArray(foArr)?(foArr.find(f=>!f.isEmpty)||foArr[0]):null;
+  const money=b=>b?`${b.amount??0}${b.currency?" "+b.currency:""}`:"—";
+  if(!rs&&!folio){
+    return (ad.error||ad.note)?`<div class="art2 unavail"><div class="t">System of record</div><div class="ar muted">Apaleo read unavailable${ad.ref&&ad.ref.reservationId?` for ${esc(ad.ref.reservationId)}`:""} — decide from the clause + SOPs, or escalate.</div></div>`:"";
+  }
+  let h=`<div class="art2"><div class="t">System-of-record artifacts · at recommendation time</div>`;
+  if(rs){
+    const g=rs.debitor?[rs.debitor.firstName,rs.debitor.name].filter(Boolean).join(" "):(rs.primaryGuest?[rs.primaryGuest.firstName,rs.primaryGuest.lastName].filter(Boolean).join(" "):"");
+    h+=`<div class="ar"><b>Reservation</b> ${esc(rs.id||"—")} · <span class="pill">${esc(rs.status||"?")}</span> · room ${esc(rs.unit?rs.unit.name||rs.unit.id:"—")} · arr ${esc(String(rs.arrival||"").slice(0,10))} · bal ${esc(money(rs.balance))}${g?` · <b>${esc(g)}</b>`:""}</div>`;
+  }
+  if(folio){
+    const settled=(folio.balance&&folio.balance.amount)===0;
+    const guest=folio.debitor?[folio.debitor.title,folio.debitor.firstName,folio.debitor.name].filter(Boolean).join(" "):"";
+    h+=`<div class="ar"><b>Folio</b> ${esc(folio.id||"—")} · <span class="pill">${esc(folio.status||"?")}</span> · settled ${settled?'<span class="pill ok">YES</span>':'<span class="pill no">NO</span>'} · bal ${esc(money(folio.balance))}${guest?` · ${esc(guest)}`:""}</div>`;
+  }
+  return h+`</div>`;
+}
+const companyId=()=>Number($("#company").value||1);
+const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function toast(m){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3000);}
+async function api(p,o){const r=await fetch(p,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j;}
+const roleName=r=>r==="mod"?"Manager on Duty":r==="compliance_officer"?"Compliance":"Ambassador";
+
+// ── Role = authority boundary ────────────────────────────────────────────────
+$("#roleSeg").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;role=b.dataset.role;[...$("#roleSeg").children].forEach(x=>x.classList.toggle("on",x===b));$("#roleLabel").textContent=roleName(role);loadAll();});
+$("#company").addEventListener("change",loadAll);
+$("#demoBtn").addEventListener("click",()=>{$("#drawer").classList.add("open");$("#scrim").classList.add("open");});
+$("#scrim").addEventListener("click",()=>{$("#drawer").classList.remove("open");$("#scrim").classList.remove("open");});
+
+// ceilings come from governance (never hardcoded)
+async function loadAuthority(){
+  try{const j=await api(`/api/stay/authority?role_band=${role}&company_id=${companyId()}`);authority={};for(const e of j.exceptions)authority[e.exception_class]=e;}
+  catch{authority={};}
+}
+function ceilingText(cls){const a=authority[cls];if(!a)return null;if(a.ceiling==null||a.ceiling_type==="none")return `${roleName(role)} may act (no numeric ceiling)`;return `${roleName(role)} ceiling: ≤ ${a.ceiling} ${a.ceiling_type}`;}
+
+// ── Scenario selector — the harness, once per authority configuration ────────
+// Threshold and approver are rendered from the SERVER's reading of the governance file.
+// Nothing here is a UI constant: change stay-agent.EXCEPTION_AUTHORITY.md, re-seed, and
+// these tiles change with it. That is the point being demonstrated, so hardcoding even
+// one number would quietly undo the demo.
+async function loadScenarios(){
+  try{
+    const j=await api(`/api/stay/scenarios?company_id=${companyId()}`);
+    scenarios=j.scenarios||[];
+    $("#scenNote").textContent=j.front_line_note||"";
+    if(j.scope_map_verified===false){
+      // Rendering safety: a scope panel that might name a call the executor would not
+      // make is worse than no panel. Say so loudly rather than drawing it anyway.
+      $("#scenNote").innerHTML=`<span style="color:var(--red)">⚠ scope map disagrees with the executor — scope panels suppressed. ${esc(j.scope_map_error||"")}</span>`;
+    }
+    renderScens();
+  }catch(e){
+    scenarios=[];
+    $("#scens").innerHTML=`<div class="muted">Scenarios unavailable — ${esc(e.message)}</div>`;
+  }
+}
+function renderScens(){
+  if(!scenarios.length){$("#scens").innerHTML=`<div class="muted" style="padding:8px">No scenarios configured.</div>`;return;}
+  $("#scens").innerHTML=scenarios.map(s=>{
+    // Threshold colour: green while the request would be handled autonomously, amber
+    // once a human is required. A class no band holds autonomously is amber always.
+    const never=s.never_autonomous;
+    const thr=never?"HITL always":(s.autonomous_ceiling==null?"no numeric ceiling":`≤ ${s.autonomous_ceiling} ${(s.autonomous_ceiling_type||"").replace(/_/g," ")}`);
+    const dot=never?"var(--amber)":"var(--green)";
+    // The approver is the first node that requires a human — the one the card will
+    // actually land on, not simply the top of the chain.
+    const appr=(s.chain||[]).find(n=>n.authority!=="autonomous")||(s.chain||[])[0]||null;
+    const pending=(window.__pendingByClass||{})[s.exceptionClass]||0;
+    return `<button class="scen ${s.key===scenarioKey?'on':''}" data-scen="${esc(s.key)}">
+      <div class="sh"><span class="si">${esc(s.icon)}</span><span class="sn">${esc(s.name)}</span>
+        ${pending?`<span class="sq">${pending} pending</span>`:""}<span class="sk">${esc(s.key)}</span></div>
+      <div class="sc ${s.scope?"":"gov"}">${s.scope?esc(s.scope):"governance layer — no Apaleo scope"}${s.readScope?` <span style="opacity:.6">+ ${esc(s.readScope)}</span>`:""}</div>
+      <div class="st2"><span class="th" style="background:${dot}"></span><span>${esc(thr)}</span></div>
+      <div class="sa">approver <b>${appr?esc(appr.title):"—"}</b>${appr&&appr.apaleoRole?` · ${esc(appr.apaleoRole)}`:""}</div>
+    </button>`;
+  }).join("");
+}
+$("#scens").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-scen]");if(!b)return;
+  scenarioKey=b.dataset.scen;
+  renderScens();syncDrawer();loadQueue();loadLog();
+});
+/** Show only the selected scenario's trigger, so a presenter cannot fire the wrong one. */
+function syncDrawer(){
+  const s=curScen();
+  for(const sc of scenarios){
+    const el=document.getElementById(`trig-${sc.exceptionClass}`);
+    // With no scenario selected ("show all") every trigger stays available.
+    if(el)el.style.display=(!s||sc.key===s.key)?"":"none";
+  }
+  // Ceiling hints come from the loaded governance, never from a hardcoded number.
+  const ec=scenByClass()["early_checkout"],ro=scenByClass()["rate_override"],fp=scenByClass()["folio_post_charge"];
+  const hint=(el,sc)=>{const n=document.getElementById(el);if(n&&sc)n.textContent=sc.autonomous_ceiling!=null?`· autonomous ≤ ${sc.autonomous_ceiling}, above escalates`:"";};
+  hint("hintEarly",ec);hint("hintRate",ro);hint("hintCharge",fp);
+}
+
+// ── Pending queue ────────────────────────────────────────────────────────────
+async function loadQueue(){
+  try{
+    const j=await api(`/api/stay/hitl/pending?role_band=${role}&company_id=${companyId()}`);
+    const all=j.pending||[];
+    // Per-scenario pending counts, so the tabs show where work is waiting.
+    const byClass={};for(const t of all){const c=(t.payload||{}).exception_class;if(c)byClass[c]=(byClass[c]||0)+1;}
+    window.__pendingByClass=byClass;renderScens();
+
+    // Scenario switching FILTERS the queue. It never deletes cards: a pending HITL card
+    // is evidence of an unanswered governance question, and clearing the board between
+    // scenarios to make a demo tidy would be destroying exactly the record this product
+    // exists to keep. Cards outside the current scenario are counted and one click away.
+    const s=curScen();
+    const rows=s?all.filter(t=>(t.payload||{}).exception_class===s.exceptionClass):all;
+    const hidden=all.length-rows.length;
+    $("#qCount").textContent=rows.length;$("#sPending").textContent=all.length;
+    const other=hidden>0?`<div class="muted" style="padding:8px 0 0"><a href="#" id="showAll">${hidden} pending decision${hidden===1?"":"s"} in other scenarios — show all</a></div>`:"";
+    $("#queue").innerHTML=(rows.length
+      ? rows.map(cardHtml).join("")
+      : `<div class="muted">No ${roleName(role)} decision pending${s?` for ${esc(s.name)}`:""}. ${s&&s.never_autonomous?"This class always requires a human — nothing has been proposed yet.":"The agent is handling routine work autonomously."}</div>`)+other;
+  }catch(e){$("#queue").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
+}
+$("#queue").addEventListener("click",e=>{
+  if(e.target.id==="showAll"){e.preventDefault();scenarioKey=null;renderScens();loadQueue();}
+});
+function cardHtml(t){
+  const p=t.payload||{},cb=p.ceiling_band||{},sc=p.scenario||{};
+  const plan=(p.action_plan||[]).map(s=>`<li>${esc(s)}</li>`).join("");
+  const sops=(p.sop_refs||[]).map(c=>`<div class="clause"><b>SOP · ${esc(c.heading||c.anchor)}</b><br>${esc(c.text||"")}</div>`).join("");
+  const guest=sc.guest||p.guest||(p.exception_class==="early_checkout"?"Early check-out":null);
+  // A class with no numeric ceiling (force-manage, feature enablement) has no "exposure"
+  // to state, and "within ceiling" is meaningless where there is no ceiling. Rendering
+  // "1 none · within ceiling" over a class that ALWAYS requires a human is the exact
+  // inversion of what the card is there to say, so both are suppressed instead.
+  const numericCeiling=cb.ceiling_type&&cb.ceiling_type!=="none";
+  const exposure=(numericCeiling&&cb.requested_value!=null)
+    ?`${esc(cb.requested_value)} ${esc(String(cb.ceiling_type).replace(/_/g," "))}`:null;
+  const cl=ceilingText(p.exception_class);
+  const within=cb.within_ceiling;
+  // `sc` is already the card's scenario PAYLOAD above; this is the scenario CONFIG.
+  const scfg=scenByClass()[p.exception_class]||null;
+  // The FOUR responses. Every card, every scenario — the harness does not vary.
+  // Baseline stays MoD-only, because "make this the standing rule" is a governance act
+  // and the front line does not hold it. It is rendered DISABLED rather than removed:
+  // an Ambassador should see that the fourth option exists and is above their authority,
+  // which is the authority model working, not a missing button.
+  const acts=[
+    ["approve","Approve","b-appr","execute via Apaleo",true],
+    ["deny","Deny","b-deny","block · no call",true],
+    ["escalate","Escalate","b-esc","route upward",true],
+    ["baseline","Baseline","b-base",role==="mod"?"make standing rule":"MoD only",role==="mod"],
+  ];
+  return `<div class="card" data-token="${t.token}" data-class="${esc(p.exception_class||"")}" data-band="${esc(p.role_band||role)}">
+    <div class="row"><span class="pill stage">${esc(p.stage||"")}</span><span class="pill cls">${esc(p.exception_class||"")}</span>
+      <span class="spacer" style="flex:1"></span><span class="pill">${esc(p.current_phase||"crawl")}</span></div>
+    ${guest?`<div class="guest">${esc(guest)}</div>`:""}
+    <div class="kv"><b>Agent proposes:</b> ${esc(p.proposed_action||p.exception_class)}</div>
+    ${plan?`<div class="plan"><div class="t">Action plan (one governed step)</div><ol>${plan}</ol></div>`:""}
+    <div class="kv"><b>${exposure?"Exposure:":"Authority:"}</b> ${exposure?exposure+" ·":""} ${cl?`<span class="ceiling">${esc(cl)} ${numericCeiling?(within?'<span class="pill ok">within ceiling</span>':'<span class="pill no">over ceiling → escalate</span>'):'<span class="pill no">human decision required</span>'}</span>`:""}</div>
+    ${interceptPanel(scfg,p)}
+    ${chainPanel(scfg,p.role_band||role)}
+    ${clauseSafe(p.clause_applied)?`<div class="clause"><b>Governing clause</b><br>${esc(clauseSafe(p.clause_applied))}</div>`:(p.clause_applied?`<div class="clause"><b>Governing clause</b><br>${DEGRADED_CLAUSE}</div>`:"")}
+    ${artifactPanel(p.apaleo_data)}
+    ${sops}
+    <input class="reason" placeholder="reason (optional)" />
+    <div class="acts4">${acts.map(a=>`<button class="${a[2]}" data-a="${a[0]}"${a[4]?"":" disabled"}>${a[1]}<small>${esc(a[3])}</small></button>`).join("")}</div>
+    <div class="outcome"></div>
+  </div>`;
+}
+
+/**
+ * Apaleo scope intercept — the threshold the HITL layer is sitting in front of.
+ *
+ * The scope and endpoint come from the server's scope map, which is asserted against the
+ * executor's own tool selection at request time. If that assertion ever fails the server
+ * suppresses this panel rather than letting it name a call the code would not make.
+ */
+function interceptPanel(sc,p){
+  if(!sc)return "";
+  if(!sc.scope){
+    // Scenario E. The honest statement is that there is nothing to intercept — which is
+    // the stronger claim: the harness is not an Apaleo wrapper, it gates any authority
+    // boundary, including one the property system has no opinion about.
+    return `<div class="icept gov"><div class="ih">Governance-layer intercept</div><div class="ib">
+      <div class="ir"><span class="ik">Apaleo scope</span><span class="iv">none — no property-system call exists</span></div>
+      <div class="ir"><span class="ik">What is gated</span><span class="iv">${esc(sc.summary)}</span></div>
+      <div class="ir"><span class="ik">Status</span><span class="iv wait">⏸ awaiting HITL approval — the change is not applied</span></div>
+    </div></div>`;
+  }
+  return `<div class="icept"><div class="ih">Apaleo scope intercept</div><div class="ib">
+    <div class="ir"><span class="ik">Intercepted before</span><span class="iv scope">${esc(sc.scope)}</span></div>
+    ${sc.readScope?`<div class="ir"><span class="ik">Reads under</span><span class="iv">${esc(sc.readScope)}</span></div>`:""}
+    <div class="ir"><span class="ik">Action</span><span class="iv">${esc(sc.endpoint||"—")}</span></div>
+    <div class="ir"><span class="ik">MCP tool</span><span class="iv">${esc(sc.tool||"—")}</span></div>
+    <div class="ir"><span class="ik">Status</span><span class="iv wait js-status">⏸ Awaiting HITL approval</span></div>
+  </div></div>`;
+}
+
+/**
+ * Authority chain — the escalation path for THIS class, walked from the governance file.
+ * Bands below the current approver render as done; the current one is highlighted; bands
+ * above are the path an escalation would take. Both names are always shown: the Apaleo
+ * role that holds the equivalent authority, and the citizenM title.
+ */
+function chainPanel(sc,curBand){
+  const chain=(sc&&sc.chain)||[];
+  if(!chain.length)return "";
+  const i=chain.findIndex(n=>n.band===curBand);
+  return `<div class="chain"><div class="t">Authority chain · from stay-agent.EXCEPTION_AUTHORITY.md</div>
+    ${chain.map((n,k)=>{
+      const state=i<0?"":k<i?"done":k===i?"cur":"";
+      const ceil=n.ceiling!=null?`≤ ${n.ceiling} ${(n.ceilingType||"").replace(/_/g," ")}`:(n.authority==="autonomous"?"no numeric ceiling":"terminal authority");
+      return `<div class="cn ${state}" data-band="${esc(n.band)}"><span class="cd"></span>
+        <span class="cl"><span class="ct">${esc(n.title)}</span>
+          <span class="cr">${n.apaleoRole?`Apaleo · <span class="ap">${esc(n.apaleoRole)}</span>`:`no Apaleo admin role — integration client`} · band <code>${esc(n.band)}</code></span>
+          <span class="cc">${esc(ceil)} · ${esc(n.authority)}</span></span>
+        ${state==="cur"?'<span class="now">CURRENT</span>':""}</div>`;
+    }).join("")}</div>`;
+}
+// A resolved card holds its outcome on screen before the queue refreshes. Without the
+// hold, the 6s poll wipes the result the moment it appears — the presenter clicks
+// Approve and the card simply vanishes, which shows the mechanism working but tells the
+// room nothing about what it did.
+let holdUntil=0;
+const holding=()=>Date.now()<holdUntil;
+
+$("#queue").addEventListener("click",async e=>{
+  const btn=e.target.closest("button[data-a]");if(!btn||btn.disabled)return;
+  const card=e.target.closest(".card"),token=card.dataset.token,reason=card.querySelector(".reason").value;
+  const actor=role==="mod"?"MoD":"Amb";
+  const act=btn.dataset.a;
+  card.querySelectorAll(".acts4 button").forEach(b=>b.disabled=true);
+  const st=card.querySelector(".js-status");
+  if(st){st.className="iv wait js-status";st.textContent="⋯ contacting Apaleo…";}
+  try{
+    const j=await api(`/api/stay/hitl/respond/${token}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({outcome:act,reason,decided_by:actor})});
+    holdUntil=Date.now()+2600;
+    renderOutcome(card,act,j);
+    let m=`${act} ✓`;
+    if(j.apaleo_execution)m+=` · Apaleo ${friendly(j.apaleo_execution.status)}`;
+    if(j.baseline_id)m+=` · class baselined`;
+    if(j.to_band)m+=` → ${esc(j.to_title||j.to_band)}`;
+    toast(m);
+    loadLog();loadBaselines();loadPhase();
+    setTimeout(loadQueue,2700);
+  }catch(err){
+    toast(err.message);
+    if(st){st.className="iv no js-status";st.textContent="✗ not resolved — "+err.message;}
+    card.querySelectorAll(".acts4 button").forEach(b=>{if(b.dataset.a!=="baseline"||role==="mod")b.disabled=false;});
+  }
+});
+
+/**
+ * Show what the response actually did, in the panel that claimed it would.
+ * Every branch states the scope outcome explicitly — invoked, blocked, staged or not
+ * reached. "Nothing shown" would leave the presenter asserting a result the screen does
+ * not support, which is the failure mode this whole surface exists to avoid.
+ */
+function renderOutcome(card,act,j){
+  const st=card.querySelector(".js-status");
+  const ex=j.apaleo_execution||null;
+  if(st){
+    if(act==="deny"){
+      st.className="iv no js-status";
+      st.textContent=`✗ Scope blocked — no Apaleo call made${j.apaleo_scope?` (${j.apaleo_scope} not invoked)`:""}`;
+    }else if(act==="escalate"){
+      st.className="iv wait js-status";
+      st.textContent="⏸ Still awaiting approval — escalation reaches for no scope";
+    }else if(ex&&ex.status==="EXECUTED"){
+      st.className="iv ok js-status";
+      st.textContent=`✓ Scope invoked — ${ex.tool} executed${ex.apaleoId?` · Apaleo id ${ex.apaleoId}`:""}`;
+    }else if(ex){
+      // The sandbox could not take the write. Say which, and why, verbatim — a staged
+      // write reported as success is the one lie this demo cannot afford in this room.
+      st.className="iv wait js-status";
+      st.textContent=`⏸ Approved · ${ex.tool||"write"} staged, not executed — ${ex.note||"sandbox"}`;
+    }else{
+      st.className="iv js-status";st.textContent="approved — no Apaleo write required";
+    }
+  }
+  const out=card.querySelector(".outcome");
+  if(act==="escalate"){
+    // Re-route the chain: the current node steps up. The card header re-heads to the new
+    // approver, so an escalation reads as movement through an authority ladder rather
+    // than as a card disappearing off a queue.
+    const nodes=[...card.querySelectorAll(".cn")];
+    const i=nodes.findIndex(n=>n.classList.contains("cur"));
+    if(i>=0&&nodes[i+1]){
+      nodes[i].classList.remove("cur");nodes[i].classList.add("done");
+      nodes[i].querySelector(".now")?.remove();
+      nodes[i+1].classList.add("cur");
+      const tag=document.createElement("span");tag.className="now";tag.textContent="CURRENT";
+      nodes[i+1].appendChild(tag);
+    }
+    if(out)out.innerHTML=`<div class="basenote" style="border-left-color:var(--amber);background:#1d1608">
+      <b>Escalated</b> → ${esc(j.to_title||j.to_band||"next authority")}${j.to_apaleo_role?` · Apaleo <b>${esc(j.to_apaleo_role)}</b>`:""}.
+      A new decision card was raised for that band; this one is closed as escalated. No Apaleo call was made.</div>`;
+    card.classList.add("rerouting");
+  }else if(act==="baseline"){
+    // Name the rule. A baseline in this system does not reinstate a default — it makes
+    // the approved exception the standing rule inside stated bounds. Saying "default
+    // reinstated" would invert what the button did, in the evidence trail's own words.
+    const b=j.baseline_bounds||{};
+    if(out)out.innerHTML=`<div class="basenote"><b>Baselined</b> — this class now auto-PASSes without a human, inside the bounds a Manager on Duty just set:
+      <b>${b.value_max!=null?esc(b.value_max)+" "+esc((b.ceiling_type||"").replace(/_/g," ")):"as approved"}</b>.
+      ${j.baseline_clause?`Pinned to the clause that governed this decision: <i>${esc(j.baseline_clause)}</i>`:""}
+      <br><span style="color:var(--dim)">Reversible from the Baselined classes panel; past auto-approvals stand.</span></div>`;
+  }else if(act==="deny"){
+    if(out)out.innerHTML=`<div class="basenote" style="border-left-color:var(--red);background:#1e0c0e">
+      <b>Denied</b> — the action was blocked and the refusal sealed to the Witness trail. The governing clause stands unchanged.</div>`;
+  }
+}
+
+// ── Made / evidence log ──────────────────────────────────────────────────────
+async function loadLog(){
+  try{
+    const j=await api(`/api/stay/log?company_id=${companyId()}&limit=60`);
+    const all=j.made||[];const today=new Date().toISOString().slice(0,10);
+    $("#sMade").textContent=all.filter(m=>String(m.at||"").slice(0,10)===today).length;
+    $("#sSealed").textContent=all.filter(m=>m.sealed).length;
+    // apply drill-down filter
+    let rows=all;
+    if(madeFilter==="today")rows=all.filter(m=>String(m.at||"").slice(0,10)===today);
+    else if(madeFilter==="sealed")rows=all.filter(m=>m.sealed);
+    $("#mCount").textContent=rows.length;
+    const fc=$("#fchip");
+    if(madeFilter==="all"){fc.style.display="none";}
+    else{fc.style.display="";fc.textContent=`filter: ${madeFilter} ✕`;}
+    $("#made").innerHTML=rows.map(rowHtml).join("")||`<div class="muted">No ${madeFilter==="all"?"":madeFilter+" "}entries.</div>`;
+  }catch(e){$("#made").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
+}
+$("#fchip").addEventListener("click",()=>{madeFilter="all";loadLog();});
+// Seal-state badge = f(outbox status × verify verdict). "Sealed" and "verified"
+// are different truths; a pending row shows no verdict, a dead-letter is a visible
+// evidence gap, BROKEN is loud. Verdicts come from OBSERVED state (witness_state),
+// confirmed on demand by the offline Verify action.
+function sealBadge(m){
+  const st=m.seal_status, ws=m.witness_state;
+  if(st==="dead"||ws==="unsealed")return{t:"⚠ seal failed — dead-letter",c:"dead",act:false};
+  if(!m.sealed||st==="pending"||ws==="pending"||(!ws&&!m.external_record_id))return{t:"⏳ pending seal",c:"pending",act:true};
+  if(ws==="ANCHORED_VALID")return{t:"anchored ✓ audit-ready",c:"anchored",act:true};
+  if(ws==="BROKEN")return{t:"✗ verification failed",c:"broken",act:true};
+  // SIGNED_PENDING is what the OFFLINE verifier can prove: signature + hash-chain. It says
+  // nothing about the anchor either way — the verifier never checked one (Witness publishes
+  // no Rekor/TSA bundle over REST). Claiming "pending anchor" here understated records that
+  // are in fact anchored; claiming "anchored" would overclaim from a check we didn't run.
+  // State only what was proven; the anchor's authoritative state lives in the Witness tab.
+  return{t:"sealed ✓ signed + chained",c:"signed",act:true}; // SIGNED_PENDING
+}
+function rowHtml(m){
+  if(m.sealed&&m.sealed_record)sealedCache[m.id]=m.sealed_record.record||m.sealed_record;
+  // A Witness record does NOT carry its own chainKey, so the row's chain_key is the only
+  // way to verify against the RIGHT chain. Rows on the retired chain (BER:stay-agent) must
+  // not be checked against the current one — that mismatch reads as a broken chain.
+  if(m.chain_key)chainKeyCache[m.id]=m.chain_key;
+  const gov=m.kind==="governance";
+  const col=m.decision==="PASS"?"var(--green)":m.decision==="ESCALATE"?"var(--amber)":m.decision==="FAIL"?"var(--red)":gov?"var(--purple)":"var(--dim)";
+  const who=m.decided_by==="Stay Agent"?"Stay Agent · auto":`${esc(m.decided_by)}${m.role_band?" · "+roleName(m.role_band):""}`;
+  const what=gov?(m.event==="BASELINE_SET"?"⚖ Baselined class "+esc(m.exception_class):"⚖ Unbaselined class"):(esc(m.event||m.decision)+(m.exception_class?" · "+esc(m.exception_class):""));
+  const chg=m.apaleo_charge_id?` · Apaleo ${esc(m.apaleo_charge_id)}`:"";
+  const b=sealBadge(m);
+  const verb=b.act?` · ${b.c==="pending"?"drain & verify":"verify"}`:"";
+  const seal=`<span class="sb ${b.c}${b.act?' act':''}" data-id="${m.id}" data-pending="${b.c==='pending'?1:0}" title="offline bundled-proof — zero calls to witness.getvda.ai">${b.t}${verb}</span>`;
+  // Framework category, DERIVED server-side from the sealed event_category. The stored
+  // value is never rewritten — a record sealed as `governed_escalate` is that forever;
+  // this badge classifies it for a reader. See lib/stayEventCategory.ts.
+  const cat=m.event_category||"AGENT_DECISION";
+  const catBadge=`<span class="evc ${esc(cat)}" title="Framework category, derived from the sealed event: ${esc(m.event||"")}">${esc(cat.replace(/_/g," "))}</span>`;
+  // The Apaleo authority boundary this row sits at, and whether it was reached.
+  const scopeChip=m.apaleo_scope?`<span class="scopechip" title="${esc(m.apaleo_endpoint||"")}">${m.apaleo_charge_id?"✓":"⏸"} ${esc(m.apaleo_scope)}</span>`:"";
+  const appr=m.approver_role?` · Apaleo <b>${esc(m.approver_role)}</b>`:"";
+  return `<div class="r ${gov?'gov':''}"><span class="dot" style="background:${col}"></span>
+    <div class="m"><div class="top">${catBadge}<span class="what">${what}</span>${scopeChip}${seal}</div>
+    <div class="sub">${clauseSafe(m.clause)?esc(friendly(clauseSafe(m.clause))):(m.clause?"Reasoning captured in the sealed record":"")}${chg}</div>
+    <div class="who">${m.governance_source==="baseline"?"auto-handled via baseline · ":""}by <b>${who}</b>${appr} · ${esc(String(m.at||"").slice(5,16).replace("T"," "))}</div>
+    <div class="vpwrap" id="vp-${m.id}"></div></div></div>`;
+}
+// Render the three-state verdict VERBATIM (never coerced to a boolean) + sub-signals + method.
+function renderVerdict(id,v){
+  const wrap=$(`#vp-${id}`);if(!wrap)return;
+  const st=String(v.state||"UNKNOWN");
+  const c=v.checks||{},an=c.anchor||{};
+  const chk=(lab,val)=>`<span class="chk ${val?'y':'n'}">${lab}: ${val?'✓':'✗'}</span>`;
+  // BROKEN/"chain" has TWO opposite meanings and they look identical in `checks`:
+  //   chain.checked=false → the predecessors were never supplied. A missing input. Neutral.
+  //   chain.checked=true  → a genesis-rooted chain WAS supplied and the linkage failed.
+  //                         A record was altered, deleted or reordered. This is a TAMPER.
+  // Only the server knows which; it tells us via chain.checked. Inferring from `checks`
+  // alone would either cry wolf over a missing input or, far worse, render a real forgery
+  // as a benign shrug. Never soften a chain failure that was actually tested.
+  const chainChecked = !!(v.__chain && v.__chain.checked);
+  const chainOnly = st==="BROKEN" && v.reason==="chain" && c.signature===true && c.keyValidAtSigningTime===true && !chainChecked;
+  const tampered = st==="BROKEN" && !chainOnly;   // signature, key, anchor, or a TESTED chain failure
+  const proven = c.signature===true && c.chain===true;   // verified locally, end-to-end from genesis
+  const cls = st==="ANCHORED_VALID"?"anchored" : chainOnly?"signed" : tampered?"broken" : "signed";
+  const headline = chainOnly ? "SEALED · chain not assembled (continuity unproven)" : esc(st);
+  // Never claim "anchored" off the offline verifier when it did not check an anchor
+  // (anchor.attempted=false). Witness's REST API does not publish the Rekor entry / TSA
+  // tokens the SDK needs, so the anchor is attested by Witness's own external verification
+  // — a separate source, named as such — while signature + chain are proven right here.
+  // ANCHORED_VALID is now EARNED offline: Rekor + TSA quorum verified against pinned roots,
+  // from our own stored bundle. When the quorum could not be COMPLETED (no openssl, or no TSA
+  // tokens) we say exactly that instead of claiming anchored — or crying tamper.
+  const anote = v.__anchor && v.__anchor.note ? `<span class="chk">${esc(v.__anchor.note)}</span>` : "";
+  const badgeNote = st==="ANCHORED_VALID"?'<span class="chk y">externally anchored — Rekor + TSA quorum verified offline against pinned roots · audit-ready</span>'
+    : (st==="SIGNED_PENDING"&&proven)?`<span class="chk y">signature + hash-chain verified locally from genesis</span>${anote||'<span class="chk">anchor not re-checked here — attested by Witness (see anchor status)</span>'}`
+    : st==="SIGNED_PENDING"?'<span class="chk">validly signed · anchoring pending</span>'
+    : chainOnly?'<span class="chk">signature ✓ · predecessors unavailable — continuity not established</span>'
+    : (tampered&&v.reason==="chain")?'<span class="chk n">DO NOT TRUST — hash-chain broken: a record was altered, deleted or reordered</span>'
+    : tampered?'<span class="chk n">DO NOT TRUST — signature/verification failed</span>':'';
+  // Zero-call is claimed only when it is TRUE: the chain came from our own store. A chain
+  // fetched from Witness is an evidence read (the verdict is still computed locally).
+  const src=(v.__chain&&v.__chain.source)||"";
+  const prov = src==="local-db" ? "offline — 0 calls to witness.getvda.ai (chain from local store)"
+    : src==="witness-records" ? "verdict computed locally; chain fetched from Witness as evidence"
+    : src==="caller-supplied" ? "offline — chain supplied by the caller"
+    : "offline — bundled proof";
+  wrap.innerHTML=`<div class="vp ${cls==='broken'?'broken':''}">
+    <span class="st ${cls}">${headline}</span> ${badgeNote}
+    <div class="sig">${chk("signature",c.signature)}${chk("chain",c.chain)}${chk("keyValidAtSigningTime",c.keyValidAtSigningTime)}${chk("anchor.attempted",an.attempted)}${an.quorumMet!=null?chk("anchor.quorumMet",an.quorumMet):""}</div>
+    <div class="meth">verdict: ${esc(st)} · method: ${esc(v.verificationMethod||"—")} · ${esc(v.verifierVersion||"")} · ${esc(prov)}${v.__chain&&v.__chain.length?` · chain: ${esc(v.__chain.length)} record(s)`:""}${v.reason?(" · "+esc(v.reason)):""}</div>
+  </div>`;
+}
+$("#made").addEventListener("click",async e=>{
+  const s=e.target.closest(".sb.act[data-id]");if(!s)return;
+  const id=s.dataset.id;
+  // A pending row has no sealed record yet → drain-on-read first (server-side drain
+  // via /stay/log), then verify. Never show a verdict for an unsealed record.
+  if(s.dataset.pending==="1"){
+    $(`#vp-${id}`).innerHTML='<div class="vp">draining outbox (drain-on-read)…</div>';
+    await loadLog();
+    if(!sealedCache[id]){const w=$(`#vp-${id}`);if(w)w.innerHTML='<div class="vp">still pending — enqueued, not yet sealed. No verdict shown.</div>';return;}
+  }
+  const rec=sealedCache[id];if(!rec){toast("no sealed record");return;}
+  $(`#vp-${id}`).innerHTML='<div class="vp">verifying offline (bundled-proof)…</div>';
+  try{
+    // The server assembles the ordered chain from genesis (own store first, zero-call) so
+    // continuity is genuinely checked — a lone record can only ever prove its signature.
+    const j=await api(`/api/stay/verify`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record:rec,company_id:companyId(),chain_key:chainKeyCache[id]})});
+    const vd=j.verdict||{state:"BROKEN",reason:"no verdict returned"};
+    vd.__chain=j.chain||null;   // provenance of the chain used — drives the zero-call claim
+    vd.__anchor=j.anchor||null; // why the anchor did/didn't complete — never inferred in the UI
+    renderVerdict(id,vd);
+  }catch(err){renderVerdict(id,{state:"BROKEN",reason:err.message,checks:{}});}
+});
+
+// ── Baselines ────────────────────────────────────────────────────────────────
+async function loadBaselines(){
+  try{
+    const j=await api(`/api/baselines?company_id=${companyId()}`);
+    $("#bCount").textContent=j.active.length;$("#sBase").textContent=j.active.length;
+    $("#baseHint").textContent=role==="mod"?"MoD may unbaseline":"MoD-only controls";
+    const render=b=>{
+      const scope=Object.entries(b.apaleo_scope||{}).map(([k,v])=>`${k}=${v}`).join(", ")||"any";
+      const bnd=b.bounds?.value_max!=null?`≤ ${b.bounds.value_max} ${b.bounds.ceiling_type||""}`:"any";
+      const un=(role==="mod"&&!b.revoked)?`<button data-un="${b.id}" style="padding:3px 9px;font-size:11px" class="b-base">Unbaseline</button>`:"";
+      return `<div class="bl ${b.revoked?'rev':''}"><div class="hd"><span class="pill" style="color:var(--purple);border-color:#3a2359">${esc(b.exception_class)}</span>
+        <b style="font-size:12px">${esc(bnd)}</b><span class="spacer" style="flex:1"></span>
+        ${b.revoked?'<span class="pill no">unbaselined</span>':`<span class="auto">${b.auto_handled||0} auto-handled</span>`} ${un}</div>
+        <div class="mini" style="margin-top:5px">scope: ${esc(scope)} · by ${esc(b.authorised_by||"—")} ${b.revoked?`· revoked by ${esc(b.revoked_by||"")}`:""}</div></div>`;
+    };
+    const all=[...j.active,...j.revoked];
+    $("#baselines").innerHTML=all.length?all.map(render).join(""):`<div class="muted">No baselines. Repeated safe decisions can be baselined by a Manager on Duty.</div>`;
+  }catch(e){$("#baselines").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
+}
+$("#baselines").addEventListener("click",async e=>{
+  const b=e.target.closest("button[data-un]");if(!b)return;
+  const reason=prompt("Unbaseline reason? (future matching requests return to HITL; past auto-approvals stand)");if(reason==null)return;
+  try{await api(`/api/baselines/${b.dataset.un}/revoke`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({revoked_by:"MoD",revoked_reason:reason||"policy change",company_id:companyId()})});toast("class unbaselined — future requests return to HITL");loadAll();}
+  catch(err){toast(err.message);}
+});
+
+// ── Operating phase ──────────────────────────────────────────────────────────
+// The phase is what the agent may do WITHOUT asking, so it belongs next to the role, not
+// buried in a status string. Crawl every proposal goes to a human; Walk below-ceiling
+// executes and above escalates; Run is autonomous within the mandate.
+const PHASE_TIP={
+  crawl:"CRAWL — shadow mode. Every proposal is routed to a human; nothing executes autonomously.",
+  walk:"WALK — below the autonomous ceiling executes; above it routes to HITL.",
+  run:"RUN — autonomous within the mandate ceiling. Classes no band holds autonomously still require a human.",
+};
+async function loadPhase(){
+  try{
+    const j=await api(`/api/phase/${companyId()}`);
+    curPhase=j.phase||"crawl";
+    $("#agentTag").textContent=`agent live · Gemini`;
+    const pill=$("#phasePill");
+    pill.className="phasepill "+curPhase;pill.textContent=curPhase.toUpperCase();
+    pill.title=PHASE_TIP[curPhase]||curPhase;
+    [...$("#phaseSeg").children].forEach(b=>b.classList.toggle("on",b.dataset.phase===curPhase));
+  }catch{}
+}
+$("#phaseSeg").addEventListener("click",async e=>{
+  const b=e.target.closest("button[data-phase]");if(!b)return;
+  const phase=b.dataset.phase;
+  try{
+    // /demo-set, never /promote — see the route comment. It claims no criteria and the
+    // trail records it as set rather than earned.
+    await api(`/api/phase/${companyId()}/demo-set`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phase})});
+    toast(`phase set to ${phase} (demo setup — not a promotion)`);
+    loadPhase();loadLog();
+  }catch(err){toast(err.message);}
+});
+
+// ── Truthful tier badge — from OBSERVED anchor/record state, never a config flag ─
+async function loadTier(){
+  const el=$("#tierBadge");
+  try{
+    const j=await api(`/api/stay/anchor-status?company_id=${companyId()}`);
+    // Key-health RED (rejected key / account mismatch) overrides everything — the
+    // agent is NOT sealing into the pinned account, so the trail is compromised.
+    if(j.keyRed){
+      el.className="tier";el.style.cssText="color:#fff;border-color:#a11;background:#c0202a";
+      el.innerHTML=`⛔ key ${esc(j.keyHealth||"rejected")}`;
+      el.title=`Witness key health: ${j.keyHealth}. Seals are failing loud (dead-letter) — NOT scattering into a new account. Fix WITNESS_API_KEY / WITNESS_EXPECTED_ACCOUNT.`;
+      return;
+    }
+    // Badge driven by Witness's sealedState (Sealed / Anchored vocabulary) — never a
+    // config flag, never the deprecated tier/compliance fields.
+    const ob=j.observed||{};
+    const ss=j.sealedState;
+    let cls,label,tip;
+    if(ss==="anchored"){
+      cls="anchored";label="Anchored ✓ — externally committed, audit-ready";
+      tip=`Head is externally anchored (Rekor + TSA quorum) and verifies ANCHORED_VALID — provable even against VDA. Anchored through seq ${esc(ob.anchoredThroughSeq??"")}.`;
+    }else if(ss==="not_anchored"){
+      cls="notanchored";label=`Sealed — not anchored${j.sealedStateReason?" ("+esc(j.sealedStateReason)+")":""}`;
+      tip=`Records are Ed25519-signed, hash-chained and offline-verifiable (SIGNED_PENDING), but external anchoring is not enabled for this account. ${j.sealedStateReason?"Reason: "+esc(j.sealedStateReason)+".":""} Anchoring is concierge-gated, never self-serve.`;
+    }else{ // anchoring_pending (transient, correct — the anchor job runs ~hourly)
+      cls="sealed";label="Sealed ✓ — signed, anchoring pending";
+      tip=`${esc(ob.pendingAnchor??"")} record(s) sealed and signed (SIGNED_PENDING), awaiting the ~hourly anchor tick${j.sealedStateReason?" ("+esc(j.sealedStateReason)+")":""}. This is the correct transient state, not an error. Will read Anchored once committed.`;
+    }
+    el.style.cssText="";el.className="tier "+cls;
+    // Account binding — three EXPLICIT states, never null-vs-expected.
+    const bind=j.accountBinding;
+    let acctChip="";
+    if(bind==="resolved"&&j.account)acctChip=` · acct ${esc(String(j.account).slice(0,14))}`;
+    else if(bind==="unresolved")acctChip=' <span class="mm" style="color:#8b93a3;border:0" title="key→account binding resolves on first seal/health probe — nothing is wrong">· binding pending</span>';
+    else if(bind==="mismatch")acctChip='<span class="mm">⚠ account mismatch</span>';
+    const pendChip=(ss!=="anchored"&&ob.pendingAnchor)?` <span class="mm" style="color:#8b93a3;border:0" title="Sealed records awaiting the anchor tick — SIGNED_PENDING is the correct state">· ${esc(ob.pendingAnchor)} pending anchor</span>`:"";
+    el.innerHTML=label
+      +(ss==="anchored"&&ob.anchoredThroughSeq!=null?` · seq ≤ ${esc(ob.anchoredThroughSeq)}`:"")+acctChip+pendChip;
+    el.title=tip+(j.account?`\nSeals bound to account ${j.account}${j.expectedAccount?` (expected ${j.expectedAccount})`:""}.`:"\nAccount binding resolves on the first seal or health probe.");
+  }catch{el.className="tier sealed";el.textContent="Sealed state — unavailable";}
+}
+
+// ── Status tiles → drill-down (numbers are navigable) ────────────────────────
+document.querySelectorAll(".stat[data-nav]").forEach(t=>t.addEventListener("click",()=>{
+  const nav=t.dataset.nav;
+  if(nav==="pending"){document.querySelector("#queue").closest(".panel").scrollIntoView({behavior:"smooth",block:"start"});}
+  else if(nav==="baselines"){$("#baselines").closest(".panel").scrollIntoView({behavior:"smooth",block:"start"});}
+  else{madeFilter=nav==="today"?"today":nav==="sealed"?"sealed":"all";loadLog();$("#madePanel").scrollIntoView({behavior:"smooth",block:"start"});}
+}));
+
+// ── Reports: Evidence trail (/records), Article-12 (/report), EU AI Act (C2MD) ──
+let lastReport=null;
+function openModal(title,note){$("#modal").classList.add("open");$("#mTitle").textContent=title;$("#mNote").innerHTML=note||"";$("#mRich").innerHTML="";$("#mBody").textContent="Loading…";document.querySelector(".rawwrap")?.removeAttribute("open");lastReport=null;}
+
+// Evidence trail — account-isolated records from VDA Witness /records (no accountId).
+$("#recBtn").addEventListener("click",async()=>{
+  openModal("Evidence trail — VDA Witness /records","Account-isolated by the API key (the key <b>is</b> the account — no accountId is ever sent). One chain per property.");
+  try{
+    const j=await api(`/api/stay/records?company_id=${companyId()}`);
+    lastReport=j;
+    $("#mRich").innerHTML=`<div class="gbanner signed"><b>${esc(j.count)}</b> record(s) · chain <b>${esc(j.chainKey)}</b> · ${esc(j.isolation)}${j.anchoredThroughSeq!=null?` · anchored through seq ${esc(j.anchoredThroughSeq)}`:""}${j.account?` · account <code>${esc(String(j.account).slice(0,10))}…</code>`:""}</div>`
+      +(j.records||[]).map(r=>{
+        // Category / scope / approver are OUR derived fields joined by recordId — never
+        // part of the signed record. Rendered as "—" when this deployment did not seal
+        // the record, so a gap in our own store shows as a gap rather than as absence.
+        const cat=r.event_category?`<span class="evc ${esc(r.event_category)}">${esc(r.event_category.replace(/_/g," "))}</span>`:"";
+        const sco=r.apaleo_scope?` · <span class="scopechip">${esc(r.apaleo_scope)}</span>`:"";
+        const ap=r.approver_role?` · approver <b>${esc(r.approver_role)}</b>`:"";
+        return `<div class="rrow"><span class="rid">${esc(r.recordId||"—")}</span><span>${cat} seq ${esc(r.seq)} · <b>${esc(r.verdict||"—")}</b> · ${esc(r.ruleId||"")}${sco}${ap} · ${r.sealedState==="anchored"?'<span class="cov covered">Anchored ✓</span>':'<span class="cov partial">Sealed · anchoring pending</span>'} · ${esc(String(r.issuedAt||"").slice(0,19).replace("T"," "))}</span></div>`;
+      }).join("")
+      ||'<div class="muted">No records on this chain yet.</div>';
+    $("#mBody").textContent=JSON.stringify(j,null,2);
+  }catch(e){$("#mBody").textContent="Trail unavailable: "+e.message;}
+});
+
+// Article-12 evidence report — generated by VDA Witness from the sealed trail.
+$("#artBtn").addEventListener("click",async()=>{
+  openModal("Article 12 Evidence Report — VDA Witness","Generated by <b>VDA Witness</b> from the sealed, hash-chained trail, scoped to the customer-facing chain. Rendered verbatim — lifecycle & disclaimer shown as-is, never softened.");
+  try{
+    const j=await api(`/api/stay/report`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})});
+    const rep=j.report??j;lastReport=rep;
+    const lc=rep.lifecycle||"—";const cls=/ANCHOR/i.test(lc)?"anchored":/DEMO|PENDING|SIGNED/i.test(lc)?"demo":"signed";
+    const scopeCk=rep.queryScope?.chainKey||j.chainKey||"—";
+    // Integrity is an object {chainValid,recordCount,verifiedCount,errors} — the old code read
+    // .verified/.status (neither exists) so it rendered blank. Show what's actually there.
+    const intg=rep.integrity||{},cov=rep.coverage||{},entries=Array.isArray(rep.entries)?rep.entries:[];
+    const integrityTxt = intg.chainValid!==undefined
+      ? `chain ${intg.chainValid?"valid ✓":"BROKEN ✗"} · ${esc(intg.verifiedCount??"?")}/${esc(intg.recordCount??"?")} verified${(intg.errors||[]).length?` · ${(intg.errors||[]).length} error(s)`:""}`
+      : "";
+    const vcls=v=>/PASS/i.test(v)?"covered":/FAIL/i.test(v)?"action":/ESCALATE|CORRECTION/i.test(v)?"partial":"unev";
+    let html=`<div class="gbanner ${cls}"><b>${esc(rep.title||rep.reportType||"Article 12 Evidence Report")}</b> · lifecycle: <b>${esc(lc)}</b> · scope: <b>${esc(scopeCk)}</b>${integrityTxt?` · integrity: ${integrityTxt}`:""}${rep.anchoringStatus?` · <b>${esc(rep.anchoringStatus)}</b>`:""}
+      ${rep.disclaimer?`<span class="dl">⚠ ${esc(typeof rep.disclaimer==="string"?rep.disclaimer:JSON.stringify(rep.disclaimer))}</span>`:""}</div>
+      <div class="mini">${esc(entries.length)} entr${entries.length===1?"y":"ies"}${cov.firstSeq!==undefined?` · seq ${esc(cov.firstSeq)}–${esc(cov.lastSeq)}`:""}${cov.periodFrom?` · ${esc(String(cov.periodFrom).slice(0,10))} → ${esc(String(cov.periodTo||"").slice(0,10))}`:""} on <b>${esc(scopeCk)}</b> — retired/dev chains excluded.</div>`;
+    // Article 12 sub-requirement mapping, when present.
+    if(Array.isArray(rep.art12Mapping)&&rep.art12Mapping.length){
+      html+=`<div class="secttl">Article 12 requirement mapping</div>`;
+      html+=rep.art12Mapping.map(m=>{const st=m.status??(m.covered===true?"covered":m.covered===false?"not covered":"");
+        return `<div class="art"><div class="ah"><span class="an">${esc(m.requirement||m.article||m.id||"requirement")}</span>${st?`<span class="cov ${/cover|satisf|yes|met|true/i.test(String(st))?"covered":"partial"}">${esc(String(st))}</span>`:""}</div>${m.detail||m.description?`<div class="p">${esc(String(m.detail||m.description))}</div>`:""}</div>`;}).join("");
+    }
+    // The evidence ITSELF — every sealed record, rendered in full. This is the report; it must
+    // never live only in the raw-JSON drawer. (It did, which is why collapsing that drawer to
+    // fix the C2MD assessment's JSON dump made this report look empty.)
+    html+=`<div class="secttl">Sealed records (${esc(entries.length)})</div>`;
+    html+=entries.map(e=>{
+      const sig=e.signatureValid===true?'<span class="cov covered">signature ✓</span>':e.signatureValid===false?'<span class="cov action">signature ✗</span>':"";
+      return `<div class="art"><div class="ah"><span class="an">seq ${esc(e.seq)}</span><span class="cov ${vcls(e.verdict)}">${esc(e.verdict||"—")}</span>${e.ruleId?`<code>${esc(e.ruleId)}</code>`:""}${sig}</div>`
+        +`${e.ruleText?`<div class="p">${esc(String(e.ruleText))}</div>`:""}`
+        +`<div class="p ev">by ${esc(e.agent||"—")} · ${esc(String(e.issuedAt||"").slice(0,19).replace("T"," "))} · record <code>${esc(String(e.recordId||"").slice(0,8))}</code>${e.bodyHash?` · body <code>${esc(String(e.bodyHash).replace(/^sha256:/,"").slice(0,12))}</code>`:""}${e.custody?` · ${esc(e.custody)}`:""}</div></div>`;
+    }).join("")||`<div class="muted">No records on this chain.</div>`;
+    $("#mRich").innerHTML=html;
+    $("#mBody").textContent=JSON.stringify(rep,null,2);
+  }catch(e){$("#mBody").textContent="Report unavailable: "+e.message;}
+});
+
+// EU AI Act Article-by-Article — generated by C2MD (NOT rebuilt here). Key-safe.
+const COVCLS=s=>/partial/i.test(s)?"partial":/action/i.test(s)?"action":/cover|satisf/i.test(s)?"covered":"unev";
+$("#euBtn").addEventListener("click",async()=>{
+  openModal("EU AI Act — Risk & Readiness (C2MD)","Assessment owned by <b>C2MD</b> (c2md.getvda.ai), skill <code>assess_agent_risk</code>. Authenticated with the VDA Witness suite key (<code>witness_bearer</code>) — validated against Witness, sent only as an auth header, never as a parameter. Diagnostic only; a compliance officer signs off.");
+  // C2MD's assessment is an LLM generation that runs ~55s (plus a possible cold start), so show
+  // a live waiting state with an elapsed timer — silence here would read as a hang or a failure.
+  const t0=Date.now();
+  $("#mRich").innerHTML='<div class="gbanner signed"><b>Assessing…</b> <span class="dl">C2MD is generating the EU AI Act + GDPR assessment — a full multi-framework analysis, ~55s, not a lookup. <span id="euElapsed">0s</span> elapsed.</span></div>';
+  $("#mBody").textContent="";
+  const tick=setInterval(()=>{const el=$("#euElapsed");if(el)el.textContent=Math.round((Date.now()-t0)/1000)+"s";},1000);
+  try{
+    const j=await api(`/api/stay/eu-ai-act-assessment`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})});
+    clearInterval(tick);
+    lastReport=j;
+    const secs=Math.round((j.latencyMs||(Date.now()-t0))/1000);
+    if(!j.ok){
+      $("#mRich").innerHTML=`<div class="gbanner block"><b>Assessment not produced.</b>
+        <span class="dl">${esc(j.blocked||j.error||"")}</span>
+        ${j.error?`<span class="dl">C2MD said, verbatim: <code>${esc(j.error)}</code></span>`:""}
+        <span class="dl">C2MD contract — endpoint: <code>${esc(j.contract?.endpoint||"")}</code> · auth: ${esc(j.contract?.auth||"")}</span></div>`;
+      $("#mBody").textContent=JSON.stringify(j,null,2);return;
+    }
+    // Render the diagnostic assessment verbatim — no coverage is claimed, this is a scope map.
+    const a=j.assessment||{},ai=a.ai_act_assessment||{},gd=a.gdpr_assessment||{},del=a.required_formal_deliverables||{},caps=a.required_operational_capabilities||[];
+    const risk=String(ai.risk_category||"?"),rcls=/high/i.test(risk)?"action":/limited|minimal/i.test(risk)?"covered":"partial";
+    const yn=v=>v?'<span class="cov action">required</span>':'<span class="cov covered">not required</span>';
+    let head=`<div class="gbanner ${rcls}"><b>Risk: ${esc(risk.replace(/_/g," ").toUpperCase())}</b>${ai.annex_reference?` · <span class="dl">${esc(ai.annex_reference)}</span>`:""}
+        <span class="dl">role: <b>${esc(ai.provider_or_deployer_role||"?")}</b> · applicable articles: ${(ai.applicable_articles||[]).map(esc).join(", ")||"—"} · assessed in ${esc(secs)}s</span></div>
+      <div class="gbanner signed"><b>Formal deliverables</b> · DPIA ${yn(del.dpia)} · FRIA ${yn(del.fria)} · conformity ${yn(del.conformity_assessment)}${del.ce_marking!==undefined?` · CE mark ${yn(del.ce_marking)}`:""}${del.eu_database_registration!==undefined?` · EU DB reg ${yn(del.eu_database_registration)}`:""}</div>`;
+    // GDPR — rendered IN FULL. This is a compliance document: the lawful-basis analysis, DPIA
+    // reasoning and transfer notes are shown complete, never clipped to a summary length. (The
+    // previous .slice(0,200) truncated the lawful-basis text mid-sentence.)
+    head+=`<div class="art"><div class="ah"><span class="an">GDPR assessment</span>${(gd.special_category_flags||[]).length?`<span class="cov action">special category: ${(gd.special_category_flags||[]).map(esc).join(", ")}</span>`:'<span class="cov covered">no special-category data flagged</span>'}</div>`;
+    if(gd.lawful_basis_analysis)head+=`<div class="p"><b>Lawful basis.</b> ${esc(String(gd.lawful_basis_analysis))}</div>`;
+    if(gd.dpia_required!==undefined)head+=`<div class="p"><b>DPIA.</b> ${gd.dpia_required?"Required":"Not required"}${gd.dpia_reasoning?` — ${esc(String(gd.dpia_reasoning))}`:""}</div>`;
+    if(Array.isArray(gd.cross_border_transfer_issues)&&gd.cross_border_transfer_issues.length)head+=`<div class="p"><b>Cross-border transfers.</b> ${gd.cross_border_transfer_issues.map(x=>esc(String(x))).join(" ")}</div>`;
+    if(gd.automated_decision_making_article_22!==undefined)head+=`<div class="p"><b>Art. 22 (solely automated decisions).</b> ${gd.automated_decision_making_article_22?"Applies — additional safeguards required":"Does not apply — meaningful human involvement"}</div>`;
+    head+=`</div>`;
+    if(Array.isArray(caps)&&caps.length){
+      head+=`<div class="secttl">Required operational capabilities</div>`;
+      head+=caps.map(c=>`<div class="art"><div class="ah"><span class="an">${esc(c.capability||"capability")}</span><span class="cov covered">${(c.framework_drivers||[]).map(esc).join(" · ")}</span></div><div class="p">${esc(c.description||"")}</div></div>`).join("");
+    }
+    if(a.synthesis)head+=`<div class="art"><div class="ah"><span class="an">Synthesis</span></div>${esc(String(a.synthesis)).split(/\n{2,}/).map(p=>`<div class="p">${p.replace(/\n/g," ")}</div>`).join("")}</div>`;
+    if(a.assessment_disclaimer)head+=`<div class="mini">⚠ ${esc(String(a.assessment_disclaimer))}</div>`;
+    $("#mRich").innerHTML=head;
+    $("#mBody").textContent=JSON.stringify(j,null,2);
+  }catch(e){clearInterval(tick);
+    $("#mRich").innerHTML=`<div class="gbanner block"><b>Assessment unavailable.</b> <span class="dl">${esc(e.message)}</span>
+      <span class="dl">If this timed out near 60s, the ~55s C2MD call exceeded the serverless function limit — a cold-start assessment can breach the Hobby-plan 60s cap. Retry (the instance is now warm), or raise maxDuration on Pro.</span></div>`;
+    $("#mBody").textContent="EU AI Act assessment unavailable: "+e.message;}
+});
+$("#mClose").addEventListener("click",()=>$("#modal").classList.remove("open"));
+$("#modal").addEventListener("click",e=>{if(e.target.id==="modal")$("#modal").classList.remove("open");});
+$("#mDownload").addEventListener("click",()=>{if(!lastReport)return;const blob=new Blob([JSON.stringify(lastReport,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`article12-evidence-report-co${companyId()}.json`;a.click();});
+
+// ── Demo drawer actions ──────────────────────────────────────────────────────
+// The discount slider reads live so the presenter can show the threshold being crossed
+// before anything is submitted — below the ceiling it is green and autonomous, above it
+// the same harness raises a card. Same mechanism, different side of one number.
+$("#rSlider")?.addEventListener("input",()=>{
+  const v=+$("#rSlider").value;$("#rPct").textContent=v;
+  const sc=scenByClass()["rate_override"];
+  const ceil=sc&&sc.autonomous_ceiling!=null?+sc.autonomous_ceiling:null;
+  const h=$("#hintRate");
+  if(h&&ceil!=null)h.innerHTML=v<=ceil
+    ?`<span style="color:var(--green)">· ≤ ${ceil}% — executes autonomously</span>`
+    :`<span style="color:var(--amber)">· above ${ceil}% — raises a HITL card</span>`;
+});
+
+/**
+ * Build the decision request for a scenario. The five bodies differ only in the exception
+ * context they carry — the endpoint, the engine and the card are the same for all of
+ * them, which is the reuse claim stated in code rather than in a slide.
+ */
+function simBody(kind){
+  const co=companyId();
+  if(kind==="early_checkout"){
+    const booked=+$("#dBooked").value||7,night=+$("#dNight").value||5,early=+$("#dEarly").value||2;
+    const nonref=$("#dRate").value==="nonref",group=$("#dGroup").checked;
+    return {company_id:co,stage:"check_out",exception_context:{
+      exception_class:"early_checkout",requested_value:early,unit:"nights",role_band:role,
+      description:`Guest requests check-out ${early} night(s) early (after night ${night} of ${booked})`,
+      rate_type:nonref?"nonrefundable":"standard",refundable:!nonref,group,currency:"EUR",
+      scenario:{guest:$("#dGuest").value,room:($("#dGuest").value.match(/room\s*\w+/i)||[""])[0],nights_booked:booked,night_current:night,nights_early:early,folio_delta:+$("#dDelta").value||0,currency:"EUR",rate_type:nonref?"nonrefundable":"standard"}
+    },apaleo_ref:{propertyId:"BER"}};
+  }
+  if(kind==="rate_override"){
+    const pct=+$("#rSlider").value;
+    return {company_id:co,stage:"check_in",exception_context:{
+      exception_class:"rate_override",requested_value:pct,unit:"percent_below_bar",role_band:role,currency:"EUR",
+      description:`Guest requests a ${pct}% discount below the Best Available Rate on rate plan ${$("#rPlan").value}`,
+      rate_type:"standard",refundable:true,group:false,
+      scenario:{guest:$("#rGuest").value,discount_pct:pct,rate_plan:$("#rPlan").value,currency:"EUR"}
+    },apaleo_ref:{propertyId:"BER",ratePlanId:$("#rPlan").value}};
+  }
+  if(kind==="folio_post_charge"){
+    const amt=+$("#cAmount").value||0;
+    return {company_id:co,stage:"in_stay",exception_context:{
+      exception_class:"folio_post_charge",requested_value:amt,unit:"eur",role_band:role,currency:"EUR",
+      description:`Post a EUR ${amt} charge to the open guest folio: ${$("#cDesc").value}`,
+      rate_type:"standard",refundable:true,group:false,
+      scenario:{guest:$("#cGuest").value,room:($("#cGuest").value.match(/room\s*\w+/i)||[""])[0],amount:amt,currency:"EUR",description:$("#cDesc").value}
+    },apaleo_ref:{propertyId:"BER",folioId:($("#cFolio").value||"").trim()||undefined,reservationId:(($("#cFolio").value||"").match(/^(.+)-\d+$/)||[])[1]}};
+  }
+  if(kind==="force_manage_override"){
+    return {company_id:co,stage:"check_in",exception_context:{
+      exception_class:"force_manage_override",requested_value:1,unit:"override",role_band:role,currency:"EUR",
+      description:`Force-manage override requested: ${$("#fRestriction").value}. Justification: ${$("#fWhy").value}`,
+      rate_type:"standard",refundable:true,group:false,
+      scenario:{guest:$("#fGuest").value,restriction:$("#fRestriction").value,justification:$("#fWhy").value}
+    },apaleo_ref:{propertyId:"BER"}};
+  }
+  // feature_enablement — governance layer, no Apaleo ref to resolve.
+  return {company_id:co,stage:"in_stay",exception_context:{
+    exception_class:"feature_enablement",requested_value:1,unit:"capability",role_band:role,
+    description:`Enable in production: ${$("#eCap").value}. Replaces ${$("#ePrev").value}.`,
+    scenario:{capability:$("#eCap").value,previous_version:$("#ePrev").value}
+  }};
+}
+
+$("#drawer").addEventListener("click",async e=>{
+  const b=e.target.closest("button[data-sim]");if(!b)return;
+  const kind=b.dataset.sim;
+  b.disabled=true;
+  // Each decision is an LLM + property-system + seal round-trip, 5–12s, against a 60s
+  // function cap. They are fired ONE AT A TIME from the browser for that reason — a
+  // server-side loop over the five scenarios would exceed the cap and 504 mid-demo.
+  $("#simOut").textContent="Agent evaluating against governance…";
+  try{
+    const j=await api(`/api/stay/decision`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(simBody(kind))});
+    const sc=scenByClass()[kind];
+    $("#simOut").innerHTML=`<b>${esc(j.outcome)}</b> · ${esc(j.governance_source)} · routed to <b>${esc(roleName(j.role_band||"ambassador"))}</b>${j.vda_witness?.record_id?` · sealed ✓`:""}`;
+    toast(`${sc?sc.name:kind} → ${j.outcome} (${j.governance_source})`);
+    // Follow the decision to its own scenario, so the card the presenter just created is
+    // the one on screen — switching tabs by hand mid-demo is where a live run goes wrong.
+    if(sc){scenarioKey=sc.key;renderScens();syncDrawer();}
+    loadQueue();loadLog();loadPhase();
+  }catch(err){$("#simOut").innerHTML=`<span style="color:var(--red)">${esc(err.message)}</span>`;}
+  finally{b.disabled=false;}
+});
+$("#btnSeed").addEventListener("click",async()=>{try{await api(`/api/admin/seed-stay-agent`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:companyId()})});toast("governance seeded");loadAuthority();}catch(e){toast(e.message);}});
+$("#btnIngest").addEventListener("click",async()=>{try{const j=await api(`/api/sops/ingest`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:companyId()})});toast(`ingested ${j.ingested?.length||0} SOP docs`);}catch(e){toast(e.message);}});
+
+// Deep-link support: /stay?company=N&role=ambassador|mod
+(function(){const q=new URLSearchParams(location.search);
+  if(q.get("company"))$("#company").value=q.get("company");
+  const r=q.get("role");if(r==="mod"||r==="ambassador"){role=r;[...$("#roleSeg").children].forEach(x=>x.classList.toggle("on",x.dataset.role===r));$("#roleLabel").textContent=roleName(r);}
+})();
+async function loadAll(){await loadAuthority();await loadScenarios();syncDrawer();loadQueue();loadLog();loadBaselines();loadPhase();loadTier();}
+loadAll();
+// The poll skips the queue while a resolved card is holding its outcome on screen —
+// otherwise the refresh erases the result the moment the presenter has shown it.
+setInterval(()=>{if(!holding())loadQueue();loadLog();},6000);
+</script>
+</body>
+</html>

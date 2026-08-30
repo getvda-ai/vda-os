@@ -20,6 +20,10 @@ export const witnessEntries = pgTable("witness_entries", {
   eventCategory: varchar("event_category"),
   mandateId: text("mandate_id"),
   c2paManifest: jsonb("c2pa_manifest"),
+  // VDA Witness seal — the tamper-evident evidence artifact for stay-agent
+  // (replaces the internal C2PA manifest as the evidence of record).
+  witnessSealRef: jsonb("witness_seal_ref").$type<Record<string, unknown>>(),
+  witnessState: text("witness_state"), // ANCHORED_VALID | SIGNED_PENDING | BROKEN | pending | unsealed
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

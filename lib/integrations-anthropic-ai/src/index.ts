@@ -1,4 +1,4 @@
-export { anthropic } from "./client";
+export { anthropic, AI_BACKEND } from "./client";
 export { batchProcess, batchProcessWithSSE, isRateLimitError, type BatchOptions } from "./batch";
 export type {
   Message,

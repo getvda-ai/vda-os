@@ -29,12 +29,25 @@ import { vcDocumentLoader, VDA_CONTEXT_URL } from "./vcDocumentLoader.js";
 import { logger } from "./logger.js";
 
 // Persistent credential store — stable across builds, gitignored
-// process.cwd() = artifacts/api-server/ in all run modes (dev and built)
-const CRED_DIR = join(process.cwd(), "agent-credentials");
+// Writable credential dir. Defaults to cwd/agent-credentials; override with
+// CRED_DIR (e.g. /tmp/agent-credentials on serverless read-only filesystems).
+const CRED_DIR = process.env.CRED_DIR || join(process.cwd(), "agent-credentials");
 
 function ensureCredDir(): void {
-  if (!existsSync(CRED_DIR)) {
-    mkdirSync(CRED_DIR, { recursive: true });
+  try {
+    if (!existsSync(CRED_DIR)) mkdirSync(CRED_DIR, { recursive: true });
+  } catch (err) {
+    // Read-only FS (serverless) — keys are cached in-memory for the instance.
+    logger.warn({ err, CRED_DIR }, "[VC] credential dir not writable — using in-memory keys");
+  }
+}
+
+/** Best-effort persist — never throws (serverless FS may be read-only). */
+function safeWrite(path: string, data: string): void {
+  try {
+    writeFileSync(path, data);
+  } catch (err) {
+    logger.warn({ err, path }, "[VC] could not persist key/credential — continuing in-memory");
   }
 }
 
@@ -67,7 +80,7 @@ async function loadOrGenerateAgentKeypair(
   key.id = `${did}#${key.fingerprint()}`;
   key.controller = did;
   const exported = await key.export({ publicKey: true, privateKey: true });
-  writeFileSync(keypairPath, JSON.stringify(exported, null, 2));
+  safeWrite(keypairPath, JSON.stringify(exported, null, 2));
   logger.info({ did, agentId, companyId }, "[VC] New stable agent keypair generated and saved");
   return key;
 }
@@ -119,7 +132,7 @@ export async function rotatePlatformIssuer(): Promise<PlatformIssuerKey> {
   _platformIssuer = { key, did, createdAt };
   // Persist keypair to disk (excluded from git via .gitignore)
   const exported = await key.export({ publicKey: true, privateKey: true });
-  writeFileSync(ISSUER_KEYPAIR_PATH, JSON.stringify({ ...exported, createdAt: createdAt.toISOString() }, null, 2));
+  safeWrite(ISSUER_KEYPAIR_PATH, JSON.stringify({ ...exported, createdAt: createdAt.toISOString() }, null, 2));
   logger.info({ did }, "[VC] Platform issuer key rotated and saved to disk");
   return _platformIssuer;
 }
