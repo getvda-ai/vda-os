@@ -198,6 +198,24 @@
     return out;
   }
 
+  // A snapshot the engine fabricated because Apaleo was unreachable must never read
+  // as live evidence. The engine already flags it; hiding the flag at the last step
+  // would be the more damaging half of the same mistake.
+  function evidenceNote(it){
+    var out = "";
+    if(it.demoData){
+      out += '<div class="result warn"><b>Not live Apaleo data.</b> The property snapshot behind ' +
+        'this card is a placeholder the engine substituted because the Apaleo read did not ' +
+        'return. Decide on it only if the facts are known from elsewhere.</div>';
+    }
+    if(it.noSopCoverage){
+      out += '<div class="result"><b>No SOP covers this case.</b> It escalated on the ' +
+        'fallback rule — do not improvise — rather than on a ceiling. The governing clause ' +
+        'below is that fallback, not a rule written for this situation.</div>';
+    }
+    return out;
+  }
+
   function delegationNote(it){
     var routed = it.roleBand, model = it.apaleo.bandFromApaleoModel;
     if(!model || !routed || routed === model) return "";
@@ -247,8 +265,10 @@
         '<dt>Apaleo call</dt><dd>'+(it.apaleo.endpoint
             ? '<code>'+esc(it.apaleo.endpoint)+'</code> via MCP <code>'+esc(it.apaleo.tool)+'</code>'
             : 'none — no property-system write')+'</dd>' +
-        (it.proposedAction ? '<dt>Agent proposes</dt><dd>'+esc(it.proposedAction)+'</dd>' : '') +
+        (it.actionPlan ? '<dt>Action plan</dt><dd>'+esc(it.actionPlan)+'</dd>' : '') +
+        (it.reasoning ? '<dt>Agent reasoning</dt><dd>'+esc(it.reasoning)+'</dd>' : '') +
       '</dl>' +
+      evidenceNote(it) +
       delegationNote(it) +
       '<div class="actions">' +
         '<button class="primary" data-o="approve">Approve</button>' +

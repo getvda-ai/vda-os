@@ -133,28 +133,55 @@ router.get('/apaleo-one/ladder', (_req, res) => {
  * forgot to check would otherwise render an approvable card over an empty basis — and the
  * approval would be indistinguishable, in the seal, from an informed one.
  */
-const ERROR_MARKERS = [
-  'unable to parse',
-  'parse failure',
-  'agent_error',
-  'undefined',
-  'null',
-  '[object object]',
-];
+// Substrings that mean the field carries a FAULT, not content. Kept narrow on
+// purpose: 'unable to parse' in a governing clause is a model-parse marker that
+// once shipped as if it were the rule, but a legitimate statement may well contain
+// the word 'null', so the bare sentinel values are matched WHOLE, never as
+// substrings. An over-eager check that blocks good cards teaches operators to
+// distrust the block, which costs more than it saves.
+const ERROR_SUBSTRINGS = ['unable to parse', 'parse failure', 'agent_error', '[object object]'];
+const ERROR_EXACT = ['null', 'undefined', 'n/a', '-'];
 
-function basisState(statement: string, clause: string): { actionable: boolean; reason: string | null } {
+/**
+ * The decision basis, read from the fields the card ACTUALLY carries.
+ *
+ * There is no `statement` field on a Stay HITL payload — the human-readable ask is
+ * `proposed_action`, with `action_plan` and `reasoning` behind it. Guessing a field
+ * name here does not fail loudly; it fails as every card rendering 'not actionable',
+ * which reads as a broken queue rather than as a bug in this function.
+ */
+function decisionBasis(payload: Record<string, unknown>): {
+  statement: string;
+  clause: string;
+  reasoning: string;
+  actionable: boolean;
+  reason: string | null;
+} {
+  const pick = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = payload[k];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return '';
+  };
   const bad = (v: string): boolean => {
     const t = v.trim().toLowerCase();
     if (!t) return true;
-    return ERROR_MARKERS.some((m) => t.includes(m));
+    if (ERROR_EXACT.includes(t)) return true;
+    return ERROR_SUBSTRINGS.some((m) => t.includes(m));
   };
+
+  const statement = pick('proposed_action', 'action_plan', 'description');
+  const clause = pick('clause_applied');
+  const reasoning = pick('reasoning');
+
   if (bad(statement)) {
-    return { actionable: false, reason: "The decision statement is missing or unreadable." };
+    return { statement, clause, reasoning, actionable: false, reason: 'No readable proposed action is recorded on this decision.' };
   }
   if (bad(clause)) {
-    return { actionable: false, reason: "No governing clause is recorded against this decision." };
+    return { statement, clause, reasoning, actionable: false, reason: 'No governing clause is recorded against this decision.' };
   }
-  return { actionable: true, reason: null };
+  return { statement, clause, reasoning, actionable: true, reason: null };
 }
 
 // ── GET /api/apaleo-one/queue ────────────────────────────────────────────────
@@ -179,9 +206,7 @@ router.get('/apaleo-one/queue', async (req, res) => {
     const items = rows.map((row) => {
       const payload = (row.payload ?? {}) as Record<string, unknown>;
       const exceptionClass = String(payload.exception_class ?? '');
-      const statement = String(payload.statement ?? payload.summary ?? '');
-      const clause = String(payload.clause_applied ?? '');
-      const basis = basisState(statement, clause);
+      const basis = decisionBasis(payload);
       const scenario = scenarioForClass(exceptionClass);
       const scope = scenario?.scope ?? null;
       return {
@@ -190,13 +215,18 @@ router.get('/apaleo-one/queue', async (req, res) => {
         roleBand: row.roleBand,
         exceptionClass,
         stage: payload.stage ?? null,
-        statement: basis.actionable ? statement : null,
-        clauseApplied: basis.actionable ? clause : null,
+        statement: basis.actionable ? basis.statement : null,
+        clauseApplied: basis.actionable ? basis.clause : null,
+        reasoning: basis.actionable ? basis.reasoning || null : null,
+        // Demo data is carried, never hidden: a snapshot the engine fabricated
+        // because Apaleo was unreachable must not read as live evidence.
+        demoData: payload.demo_data === true,
+        noSopCoverage: payload.no_sop_coverage === true,
         // Not a rendering hint — a governance verdict. False means this card must
         // not present an Approve control at all; escalation is the only safe move.
         actionable: basis.actionable,
         degradedReason: basis.reason,
-        proposedAction: payload.action_plan ?? null,
+        actionPlan: payload.action_plan ?? null,
         financialExposure: payload.financial_exposure ?? null,
         currency: payload.currency ?? null,
         // The Apaleo authority boundary this card sits at. Carried from the scope
