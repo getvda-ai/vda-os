@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HITL Authority — Apaleo One</title>
+<style>
+  :root{
+    --bg:#fff; --ink:#16191d; --muted:#5f6874; --line:#e3e6ea; --soft:#f6f7f9;
+    --accent:#0b63ce; --accent-soft:#eaf2fd;
+    --ok:#0f7b4f; --ok-soft:#e8f5ee; --warn:#8a5a00; --warn-soft:#fdf3e0;
+    --stop:#b3261e; --stop-soft:#fdeceb;
+    --radius:8px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#14171a; --ink:#e9edf2; --muted:#9aa5b1; --line:#2a3038; --soft:#1b1f24;
+      --accent:#6aa9f5; --accent-soft:#16263c;
+      --ok:#5cc38f; --ok-soft:#12291f; --warn:#e0b055; --warn-soft:#2b2313;
+      --stop:#f2857c; --stop-soft:#2e1917;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px 18px 64px}
+  h1{font-size:19px;margin:0 0 2px;font-weight:650;letter-spacing:-.01em}
+  h2{font-size:13px;margin:26px 0 10px;font-weight:650;text-transform:uppercase;
+     letter-spacing:.06em;color:var(--muted)}
+  .sub{color:var(--muted);font-size:13px;margin:0}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .spread{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;
+        font-size:11.5px;font-weight:600;border:1px solid var(--line);background:var(--soft);
+        color:var(--muted);white-space:nowrap}
+  .chip.scope{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:500;
+              background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+  .chip.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+  .chip.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+  .chip.stop{background:var(--stop-soft);color:var(--stop);border-color:transparent}
+
+  .panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--bg)}
+  .banner{padding:11px 13px;border-radius:var(--radius);font-size:13px;margin:14px 0 0;
+          border:1px solid var(--line);background:var(--soft)}
+  .banner.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+  .banner.stop{background:var(--stop-soft);border-color:transparent;color:var(--stop)}
+  .banner b{font-weight:650}
+
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:15px;margin-bottom:12px;
+        background:var(--bg)}
+  .card h3{margin:0 0 3px;font-size:15px;font-weight:640;letter-spacing:-.01em}
+  .exposure{font-variant-numeric:tabular-nums;font-weight:650}
+  .grid{display:grid;grid-template-columns:132px 1fr;gap:5px 14px;margin:12px 0 0;font-size:13px}
+  .grid dt{color:var(--muted)}
+  .grid dd{margin:0}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+
+  button{font:inherit;font-weight:600;padding:7px 13px;border-radius:6px;cursor:pointer;
+         border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+  button:hover:not(:disabled){border-color:var(--muted)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.danger{color:var(--stop);border-color:var(--stop)}
+  .actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center}
+
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+  tr:last-child td{border-bottom:none}
+  .scroll{overflow-x:auto}
+
+  .empty{padding:28px 16px;text-align:center;color:var(--muted);border:1px dashed var(--line);
+         border-radius:var(--radius)}
+  .note{font-size:12.5px;color:var(--muted);margin-top:8px}
+  details{margin-top:12px}
+  summary{cursor:pointer;color:var(--accent);font-size:12.5px;font-weight:600}
+  .result{margin-top:12px;padding:10px 12px;border-radius:6px;font-size:12.5px;background:var(--soft)}
+  .result.ok{background:var(--ok-soft);color:var(--ok)}
+  .result.warn{background:var(--warn-soft);color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="spread">
+    <div>
+      <h1>HITL Authority</h1>
+      <p class="sub" id="ctxline">Reading the Apaleo One context…</p>
+    </div>
+    <div class="row" id="ctxchips"></div>
+  </div>
+
+  <div id="banner"></div>
+
+  <h2>Decisions waiting on you</h2>
+  <div id="queue"><div class="empty">Loading…</div></div>
+
+  <h2>The authority ladder</h2>
+  <p class="sub" id="ladderclaim"></p>
+  <div class="panel scroll" style="margin-top:10px">
+    <table id="ladder"><tbody><tr><td>Loading…</td></tr></tbody></table>
+  </div>
+  <p class="note" id="laddernote"></p>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ── Apaleo One frame context ───────────────────────────────────────────────
+  // Apaleo appends these to the integration URL. They are forwarded verbatim to
+  // our API, which re-validates them — the browser is not trusted to have kept
+  // them honest, and the server resolves the tenant itself.
+  var Q = new URLSearchParams(location.search);
+  var CTX = ["accountCode","propertyId","subjectId","lang","token"]
+    .filter(function(k){ return Q.get(k); })
+    .map(function(k){ return encodeURIComponent(k)+"="+encodeURIComponent(Q.get(k)); })
+    .join("&");
+
+  function api(path){ return path + (path.indexOf("?")>-1 ? "&" : "?") + CTX; }
+  function esc(s){
+    return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function el(id){ return document.getElementById(id); }
+
+  // ── Apaleo One client API ──────────────────────────────────────────────────
+  // The parent window accepts message-based commands. Using its own toast and
+  // navigation rather than rolling our own is the difference between an app
+  // hosted in Apaleo and an app that behaves like part of it.
+  function toApaleo(msg){
+    try { window.parent.postMessage(JSON.stringify(msg), "*"); } catch (e) {}
+  }
+  function notify(kind, text){
+    // kind ∈ success | alert | error
+    toApaleo({ from:"[integration]", message:"notification", type:kind, text:text });
+  }
+  function openReservation(reservationId){
+    if(!reservationId) return;
+    toApaleo({ from:"[integration]", message:"navigate", to:"reservation", id:reservationId });
+  }
+
+  var embedded = window.parent !== window;
+
+  // ── Context ────────────────────────────────────────────────────────────────
+  function renderRefusal(r, status){
+    el("ctxline").textContent = "Not available for this context.";
+    var cls = status === 403 ? "stop" : "warn";
+    el("banner").innerHTML =
+      '<div class="banner '+cls+'"><b>'+esc(r.reason ? r.reason.replace(/_/g," ") : "unavailable")+'</b> — '+
+      esc(r.message||"")+'</div>';
+    el("queue").innerHTML = '<div class="empty">No queue is shown.</div>';
+  }
+
+  function renderContext(c){
+    el("ctxline").textContent = "Property " + c.propertyId + " · account " + c.accountCode;
+    var verified = c.identity.assurance === "verified";
+    el("ctxchips").innerHTML =
+      '<span class="chip">'+esc(c.subjectId)+'</span>' +
+      '<span class="chip '+(verified?"ok":"warn")+'">identity: '+esc(c.identity.assurance)+'</span>' +
+      (c.identity.integrationTokenChecked ? '<span class="chip ok">integration verified</span>' : '');
+
+    // The honest banner. It is deliberately not dismissible and deliberately not
+    // phrased as a warning about a bug: it describes what the sealed record will
+    // say, so nobody learns the difference from an auditor months later.
+    if(!verified){
+      el("banner").innerHTML =
+        '<div class="banner warn"><b>Decisions here are sealed as asserted identity.</b> ' +
+        esc(c.identity.note) + ' Completing an Apaleo Identity sign-in for this session is what ' +
+        'upgrades every approval below to authenticated.</div>';
+    } else {
+      el("banner").innerHTML = '<div class="banner"><b>Identity verified.</b> '+esc(c.identity.note)+'</div>';
+    }
+    if(!embedded){
+      el("banner").insertAdjacentHTML("beforeend",
+        '<div class="banner">Opened outside Apaleo One. Notifications and navigation into the ' +
+        'property system are unavailable in this window.</div>');
+    }
+  }
+
+  // ── Queue ──────────────────────────────────────────────────────────────────
+  function scopeBlock(a){
+    if(!a.scope){
+      return '<span class="chip">no Apaleo scope — governance layer only</span>';
+    }
+    var auth = a.authority || {};
+    var out = '<span class="chip scope">'+esc(a.scope)+'</span>';
+    if(auth.governed){
+      out += ' <span class="chip">'+esc(auth.role)+' · '+esc(auth.title)+'</span>';
+    } else {
+      // Never render an unplaced scope as if it were cleared. It is unknown, and
+      // unknown is not permission.
+      out += ' <span class="chip stop">not on the ladder — ungoverned</span>';
+    }
+    return out;
+  }
+
+  function delegationNote(it){
+    var routed = it.roleBand, model = it.apaleo.bandFromApaleoModel;
+    if(!model || !routed || routed === model) return "";
+    return '<div class="result warn"><b>Delegated authority.</b> Governance routed this to <code>'+
+      esc(routed)+'</code>, while Apaleo\'s own role model places <code>'+esc(it.apaleo.scope)+
+      '</code> with <code>'+esc(model)+'</code>. That gap is the ceiling being exercised — a bounded '+
+      'slice of a higher role\'s scope, delegated and revocable.</div>';
+  }
+
+  // A card whose decision basis did not render is NOT presented as approvable.
+  // CLAUDE.md: acting on a card with missing or error-valued reasoning is a
+  // governance failure, not a display glitch — so the control simply is not there,
+  // and escalation to the Manager on Duty is the only move offered.
+  function degradedCard(it){
+    return '<div class="card" data-token="'+esc(it.token)+'">' +
+      '<div class="spread">' +
+        '<div><h3>'+esc(it.exceptionClass.replace(/_/g," "))+'</h3>' +
+        '<p class="sub">Decision basis unavailable.</p></div>' +
+        '<div class="row"><span class="chip stop">not actionable</span>'+scopeBlock(it.apaleo)+'</div>' +
+      '</div>' +
+      '<div class="result warn"><b>This card cannot be approved here.</b> ' +
+        esc(it.degradedReason||"The decision basis did not render.") +
+        ' Approving a decision whose basis is missing would be sealed as an informed ' +
+        'approval and be indistinguishable from one. It routes to the Manager on Duty instead.</div>' +
+      '<div class="actions">' +
+        '<button data-o="escalate">Escalate to Manager on Duty</button>' +
+        '<span class="note" data-status></span>' +
+      '</div>' +
+      '<div data-result></div>' +
+    '</div>';
+  }
+
+  function cardHtml(it){
+    if(!it.actionable) return degradedCard(it);
+    var money = (it.financialExposure != null)
+      ? '<span class="exposure">'+esc(it.currency||"EUR")+" "+esc(it.financialExposure)+'</span>' : "—";
+    return '<div class="card" data-token="'+esc(it.token)+'">' +
+      '<div class="spread">' +
+        '<div><h3>'+esc(it.exceptionClass.replace(/_/g," "))+'</h3>' +
+        '<p class="sub">'+esc(it.statement)+'</p></div>' +
+        '<div class="row">'+scopeBlock(it.apaleo)+'</div>' +
+      '</div>' +
+      '<dl class="grid">' +
+        '<dt>Exposure</dt><dd>'+money+'</dd>' +
+        '<dt>Governing clause</dt><dd>'+esc(it.clauseApplied)+'</dd>' +
+        '<dt>Routed to</dt><dd><code>'+esc(it.roleBand||"—")+'</code></dd>' +
+        '<dt>Apaleo call</dt><dd>'+(it.apaleo.endpoint
+            ? '<code>'+esc(it.apaleo.endpoint)+'</code> via MCP <code>'+esc(it.apaleo.tool)+'</code>'
+            : 'none — no property-system write')+'</dd>' +
+        (it.proposedAction ? '<dt>Agent proposes</dt><dd>'+esc(it.proposedAction)+'</dd>' : '') +
+      '</dl>' +
+      delegationNote(it) +
+      '<div class="actions">' +
+        '<button class="primary" data-o="approve">Approve</button>' +
+        '<button data-o="escalate">Escalate</button>' +
+        '<button data-o="baseline">Baseline</button>' +
+        '<button class="danger" data-o="deny">Deny</button>' +
+        '<span class="note" data-status></span>' +
+      '</div>' +
+      '<div data-result></div>' +
+    '</div>';
+  }
+
+  function loadQueue(){
+    fetch(api("/api/apaleo-one/queue")).then(function(r){
+      return r.json().then(function(j){ return {status:r.status, body:j}; });
+    }).then(function(res){
+      if(res.status !== 200){ renderRefusal(res.body, res.status); return; }
+      var items = res.body.items || [];
+      el("queue").innerHTML = items.length
+        ? items.map(cardHtml).join("")
+        : '<div class="empty">Nothing waiting. Decisions inside the agent\'s autonomous ceiling ' +
+          'execute without arriving here — that is the ceiling working, not an empty queue.</div>';
+      wireCards();
+    }).catch(function(e){
+      el("queue").innerHTML = '<div class="empty">Could not load the queue: '+esc(e.message)+'</div>';
+    });
+  }
+
+  function wireCards(){
+    Array.prototype.forEach.call(document.querySelectorAll(".card"), function(card){
+      var token = card.getAttribute("data-token");
+      var status = card.querySelector("[data-status]");
+      var result = card.querySelector("[data-result]");
+      Array.prototype.forEach.call(card.querySelectorAll("button[data-o]"), function(btn){
+        btn.addEventListener("click", function(){
+          var outcome = btn.getAttribute("data-o");
+          var buttons = card.querySelectorAll("button");
+          Array.prototype.forEach.call(buttons, function(b){ b.disabled = true; });
+          status.textContent = "Recording " + outcome + "…";
+
+          fetch(api("/api/apaleo-one/resolve/"+encodeURIComponent(token)), {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({ outcome: outcome, reason: "" })
+          }).then(function(r){
+            return r.json().then(function(j){ return {status:r.status, body:j}; });
+          }).then(function(res){
+            if(res.status !== 200){
+              status.textContent = "";
+              result.innerHTML = '<div class="result warn">'+esc(res.body.error||res.body.message||"Failed")+'</div>';
+              notify("error", "HITL: " + (res.body.error || "could not record the decision"));
+              Array.prototype.forEach.call(buttons, function(b){ b.disabled = false; });
+              return;
+            }
+            status.textContent = "";
+            renderOutcome(result, outcome, res.body);
+          }).catch(function(e){
+            status.textContent = "";
+            result.innerHTML = '<div class="result warn">'+esc(e.message)+'</div>';
+            Array.prototype.forEach.call(buttons, function(b){ b.disabled = false; });
+          });
+        });
+      });
+    });
+  }
+
+  // The write result is reported exactly as the executor reported it. A staged
+  // write says staged: claiming EXECUTED for a mutation that never reached Apaleo
+  // would be the single most damaging lie this surface could tell.
+  function renderOutcome(node, outcome, body){
+    var ex = body.apaleo_execution || {};
+    var wit = body.witness_entry_id;
+    var executed = ex.status === "EXECUTED";
+    var line;
+    var trail = wit ? ' <span class="note">Witness entry <code>'+esc(wit)+'</code>.</span>' : '';
+    if(outcome !== "approve" && outcome !== "baseline"){
+      line = '<div class="result">Recorded <b>'+esc(outcome)+'</b>. No Apaleo call was made.'+trail+'</div>';
+      notify("success", "HITL: " + outcome + " recorded");
+    } else if(executed){
+      line = '<div class="result ok"><b>Executed in Apaleo.</b> ' +
+        esc(ex.tool||"") + (ex.apaleoId ? ' → <code>'+esc(ex.apaleoId)+'</code>' : '') +
+        (ex.scope ? ' under <code>'+esc(ex.scope)+'</code>' : '') + trail + '</div>';
+      notify("success", "HITL approved — written to Apaleo" + (ex.apaleoId ? " ("+ex.apaleoId+")" : ""));
+    } else {
+      line = '<div class="result warn"><b>Approved, not written.</b> ' +
+        esc(ex.note || "The write did not reach Apaleo.") +
+        ' The intended mutation is recorded in the trail rather than reported as success.'+trail+'</div>';
+      notify("alert", "HITL approved — write staged, not executed");
+    }
+    node.innerHTML = line;
+  }
+
+  // ── Ladder ─────────────────────────────────────────────────────────────────
+  function loadLadder(){
+    fetch("/api/apaleo-one/ladder").then(function(r){ return r.json(); }).then(function(j){
+      el("ladderclaim").textContent = j.claim;
+      var rows = j.ladder.map(function(r){
+        return "<tr>" +
+          "<td><b>"+esc(r.apaleoRole)+"</b><div class='note'>"+esc(r.permits)+"</div></td>" +
+          "<td>"+esc(r.title)+"</td>" +
+          "<td><code>"+esc(r.band)+"</code></td>" +
+          "<td>"+r.scopes.map(function(s){ return '<span class="chip scope">'+esc(s)+'</span>'; }).join(" ")+"</td>" +
+        "</tr>";
+      }).join("");
+      el("ladder").innerHTML =
+        "<thead><tr><th>Apaleo role</th><th>Operator title</th><th>Band</th>" +
+        "<th>Scopes it is the lowest holder of</th></tr></thead><tbody>"+rows+"</tbody>";
+      el("laddernote").textContent =
+        "Source: " + j.source + ". Each scope is listed against the lowest role permitted to " +
+        "exercise it, because that rung is where an agent's autonomy stops and a human's " +
+        "judgement starts.";
+    }).catch(function(e){
+      el("ladder").innerHTML = "<tbody><tr><td>Could not load the ladder: "+esc(e.message)+"</td></tr></tbody>";
+    });
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────────────
+  fetch(api("/api/apaleo-one/context")).then(function(r){
+    return r.json().then(function(j){ return {status:r.status, body:j}; });
+  }).then(function(res){
+    if(res.status !== 200){ renderRefusal(res.body, res.status); loadLadder(); return; }
+    renderContext(res.body);
+    loadQueue();
+    loadLadder();
+  }).catch(function(e){
+    el("ctxline").textContent = "Could not read the context: " + e.message;
+  });
+})();
+</script>
+</body>
+</html>

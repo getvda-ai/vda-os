@@ -24,6 +24,7 @@
  * chain is governance, and governance is the thing this product refuses to hardcode.
  */
 import type { ExceptionAuthority, ExceptionRule } from "./exceptionAuthorityReader.js";
+import { bandForScope } from "./apaleoAuthority.js";
 
 /** A demo scenario — one authority configuration of the same HITL harness. */
 export interface StayScenario {
@@ -162,6 +163,20 @@ export interface ChainNode {
   band: string;
   /** Apaleo role holding the equivalent authority, or null at the front line. */
   apaleoRole: string | null;
+  /**
+   * The Apaleo OAuth scope this rung acts under, verbatim from governance (v1.2).
+   * Null means no property-system call exists to intercept — a governance-layer-only
+   * rung, which must render as such rather than as an unnamed scope.
+   */
+  apaleoScope: string | null;
+  /**
+   * The band Apaleo's OWN role model puts that scope in, independent of the band
+   * governance routed to. Equal in the ordinary case; different when governance has
+   * delegated a slice of a higher role's scope down to the front line. Surfacing the
+   * difference is the point — a delegation nobody can see is indistinguishable from
+   * a permissions bug.
+   */
+  bandFromApaleoModel: string | null;
   /** citizenM title shown to the operator. */
   title: string;
   /** Ceiling for this class at this band, verbatim from governance. */
@@ -199,9 +214,12 @@ export function buildAuthorityChain(
     const rule = findRule(band);
     if (!rule) break;
     const apaleoRole = (rule as { apaleo_role?: string | null }).apaleo_role ?? null;
+    const apaleoScope = (rule as { apaleo_scope?: string | null }).apaleo_scope ?? null;
     nodes.push({
       band,
       apaleoRole,
+      apaleoScope,
+      bandFromApaleoModel: bandForScope(apaleoScope),
       title: (apaleoRole && CITIZENM_TITLE[apaleoRole]) || BAND_TITLE[band] || band,
       ceiling: rule.ceiling ?? null,
       ceilingType: rule.ceiling_type ?? null,

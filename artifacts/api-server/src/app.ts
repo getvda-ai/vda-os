@@ -24,6 +24,24 @@ function serveConsole(_req: express.Request, res: express.Response) {
     res.status(404).send("Stay Agent console not found");
   }
 }
+// ── Apaleo One UI integration (iframe target: PropertyMenuApps) ─────────────
+// Served as its own page rather than a mode of the console: the console is a
+// presenter cockpit that chooses its tenant, and this is an operator queue that
+// is TOLD its tenant by the frame. Same API, same seal, different reader.
+//
+// No X-Frame-Options / CSP frame-ancestors is set anywhere in this app, which is
+// what allows Apaleo One to embed it. If a CSP is ever added, it must allow
+// frame-ancestors https://app.apaleo.com or the integration goes blank with no
+// error the operator can see.
+function serveApaleoOne(_req: express.Request, res: express.Response) {
+  try {
+    res.type("html").send(readFileSync(path.join(PUBLIC_DIR, "apaleo-one.html"), "utf-8"));
+  } catch {
+    res.status(404).send("Apaleo One integration not found");
+  }
+}
+app.get("/apaleo-one", serveApaleoOne);
+
 app.get("/", (_req, res) => res.redirect("/stay"));
 app.get("/stay", serveConsole);
 

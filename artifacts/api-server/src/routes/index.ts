@@ -19,6 +19,7 @@ import ucpRouter from "./ucp";
 import billingRouter from "./billing";
 import sopsRouter from "./sops";
 import stayRouter from "./stay";
+import apaleoOneRouter from "./apaleoOne";
 import phaseRouter from "./phase";
 import vdaWitnessRouter from "./vdaWitness";
 
@@ -44,6 +45,7 @@ router.use(ucpRouter);
 router.use(billingRouter);
 router.use(sopsRouter);
 router.use(stayRouter);
+router.use(apaleoOneRouter);
 router.use(phaseRouter);
 router.use(vdaWitnessRouter);
 

@@ -13,6 +13,16 @@ import { logger } from "./logger.js";
 export interface ExceptionRule {
   exception_class: string;
   description?: string;
+  /**
+   * The Apaleo OAuth scope this action is performed under, and the Apaleo role that
+   * OWNS that scope (see lib/apaleoAuthority.ts). Added in EXCEPTION_AUTHORITY v1.2.
+   *
+   * On the ambassador band, apaleo_role is the role DELEGATING a bounded slice of its
+   * authority, not a claim that the front line holds the scope. The governance file's
+   * own header explains why; do not collapse the two readings here.
+   */
+  apaleo_scope?: string | null;
+  apaleo_role?: string | null;
   ceiling?: string | number | null;
   ceiling_type?: string;
   conditions?: string[];
