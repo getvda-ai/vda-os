@@ -1,4 +1,5 @@
 import { logger } from "./logger.js";
+import { getApaleoToken } from "./apaleo-auth.js";
 
 export interface McpToolDefinition {
   name: string;
@@ -11,11 +12,20 @@ export interface McpToolCallResult {
   isError?: boolean;
 }
 
-// Auth is intentionally delegated to the /api/mcp transparent proxy
-// (mcp-proxy.ts), which injects the Apaleo bearer token.
-// This module calls the local proxy — no auth header is added here.
-const PORT = process.env.PORT ?? "8080";
-const APALEO_MCP_URL = `http://localhost:${PORT}/api/mcp`;
+// Calls Apaleo's MCP server DIRECTLY, injecting the bearer itself.
+//
+// It used to self-call the transparent proxy at http://localhost:${PORT}/api/mcp,
+// which is where mcp-proxy.ts adds the token. That works on a long-lived server
+// and FAILS ON SERVERLESS: on Vercel there is no localhost listener for the
+// function to call back into, so every write died as "fetch failed" and the
+// executor — correctly — recorded SANDBOX_NO_WRITE. The demo's headline claim,
+// that a Witness entry carries a real Apaleo id, was therefore unreachable from
+// the deployed environment while looking like an Apaleo sandbox limitation.
+//
+// The proxy still exists and is still the right thing for EXTERNAL MCP clients
+// that need auth injected. It was never the right thing for this process, which
+// already holds the credentials and was paying a network hop to borrow them.
+const APALEO_MCP_URL = process.env.APALEO_MCP_URL ?? "https://mcp.apaleo.com/mcp";
 const MCP_TOOLS_CACHE_TTL_MS = 5 * 60_000;
 
 let mcpSessionId: string | null = null;
@@ -23,14 +33,26 @@ let mcpToolsCache: McpToolDefinition[] | null = null;
 let mcpToolsCacheTime = 0;
 let mcpRequestId = 1;
 
+/**
+ * Whether an Apaleo MCP call can even be attempted.
+ *
+ * This returned a bare `true` while auth lived in the proxy, which meant "not
+ * configured" was indistinguishable from "configured and broken" — the executor
+ * would report a write as attempted-and-failed when no credential existed at all.
+ * Now that this module holds the credential, it can answer honestly.
+ */
 export function isMcpConfigured(): boolean {
-  return true;
+  return Boolean(process.env.APALEO_CLIENT_ID && process.env.APALEO_CLIENT_SECRET);
 }
 
 async function mcpPost(body: object): Promise<unknown> {
+  // Apaleo's MCP is on the session-based revision (Mcp-Session-Id, 2024-11-05),
+  // not the 2026-07-28 stateless one. The session header below is not legacy
+  // clutter — it is what that server requires.
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
+    Authorization: `Bearer ${await getApaleoToken()}`,
   };
 
   if (mcpSessionId) {
