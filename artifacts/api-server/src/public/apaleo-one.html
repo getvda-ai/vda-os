@@ -250,8 +250,10 @@
 
   function cardHtml(it){
     if(!it.actionable) return degradedCard(it);
-    var money = (it.financialExposure != null)
-      ? '<span class="exposure">'+esc(it.currency||"EUR")+" "+esc(it.financialExposure)+'</span>' : "—";
+    // Formatted server-side, in the unit the decision is actually measured in.
+    // The client must not re-derive it: a percentage rendered with a currency
+    // prefix misstates the magnitude, which is the number an approver reads first.
+    var money = '<span class="exposure">'+esc(it.exposure.display)+'</span>';
     return '<div class="card" data-token="'+esc(it.token)+'">' +
       '<div class="spread">' +
         '<div><h3>'+esc(it.exceptionClass.replace(/_/g," "))+'</h3>' +
@@ -265,7 +267,11 @@
         '<dt>Apaleo call</dt><dd>'+(it.apaleo.endpoint
             ? '<code>'+esc(it.apaleo.endpoint)+'</code> via MCP <code>'+esc(it.apaleo.tool)+'</code>'
             : 'none — no property-system write')+'</dd>' +
-        (it.actionPlan ? '<dt>Action plan</dt><dd>'+esc(it.actionPlan)+'</dd>' : '') +
+        (it.actionPlan && it.actionPlan.length
+            ? '<dt>Action plan</dt><dd><ol style="margin:0;padding-left:18px">' +
+              it.actionPlan.map(function(step){ return '<li>'+esc(step)+'</li>'; }).join("") +
+              '</ol></dd>'
+            : '') +
         (it.reasoning ? '<dt>Agent reasoning</dt><dd>'+esc(it.reasoning)+'</dd>' : '') +
       '</dl>' +
       evidenceNote(it) +

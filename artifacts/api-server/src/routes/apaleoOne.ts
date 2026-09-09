@@ -184,6 +184,44 @@ function decisionBasis(payload: Record<string, unknown>): {
   return { statement, clause, reasoning, actionable: true, reason: null };
 }
 
+/**
+ * What the approver is being asked to authorise, in the unit it is actually measured in.
+ *
+ * The card payload records `financial_exposure` and `currency: "EUR"` for EVERY class,
+ * including ones measured in percent, hours or nights. A 22%-below-BAR rate override
+ * therefore arrives as financial_exposure 22 / currency EUR, and rendering that naively
+ * puts "EUR 22" in front of a Manager on Duty for a decision that is not about 22 euros.
+ * Magnitude is the single number an approver reads fastest; getting its unit wrong is
+ * worse than omitting it.
+ *
+ * The unit is recovered from the scenario map, which is the right source: it is asserted
+ * against the executor, so the unit shown belongs to the same definition as the scope and
+ * the tool. When no scenario matches, the value is shown WITHOUT a unit rather than with
+ * a guessed currency.
+ */
+const MONEY_UNITS = new Set(['eur', 'eur_per_night']);
+
+function exposureOf(
+  payload: Record<string, unknown>,
+  scenarioUnit: string | null,
+): { value: number | null; unit: string | null; isMoney: boolean; display: string } {
+  const band = (payload.ceiling_band ?? {}) as Record<string, unknown>;
+  const raw = band.requested_value ?? payload.financial_exposure;
+  const value = typeof raw === 'number' ? raw : null;
+  if (value === null) return { value: null, unit: null, isMoney: false, display: '—' };
+
+  const ceilingType = typeof band.ceiling_type === 'string' ? band.ceiling_type : null;
+  const unit = ceilingType ?? scenarioUnit;
+  const isMoney = unit ? MONEY_UNITS.has(unit.toLowerCase()) : false;
+
+  if (isMoney) {
+    const currency = typeof payload.currency === 'string' ? payload.currency : 'EUR';
+    const suffix = unit && unit.toLowerCase() === 'eur_per_night' ? ' per night' : '';
+    return { value, unit, isMoney, display: `${currency} ${value}${suffix}` };
+  }
+  return { value, unit: unit ?? null, isMoney, display: unit ? `${value} ${unit}` : String(value) };
+}
+
 // ── GET /api/apaleo-one/queue ────────────────────────────────────────────────
 // Open decisions for THIS property, each annotated with the Apaleo scope it is
 // gating and the role that scope belongs to.
@@ -226,9 +264,15 @@ router.get('/apaleo-one/queue', async (req, res) => {
         // not present an Approve control at all; escalation is the only safe move.
         actionable: basis.actionable,
         degradedReason: basis.reason,
-        actionPlan: payload.action_plan ?? null,
-        financialExposure: payload.financial_exposure ?? null,
-        currency: payload.currency ?? null,
+        // action_plan is an ARRAY of steps. Joining it into one string — which is what
+        // a naive render does — produces run-on text with no separators; it is a list and
+        // must reach the client as one.
+        actionPlan: Array.isArray(payload.action_plan)
+          ? (payload.action_plan as unknown[]).map(String).filter(Boolean)
+          : typeof payload.action_plan === 'string' && payload.action_plan.trim()
+            ? [payload.action_plan.trim()]
+            : [],
+        exposure: exposureOf(payload, scenario?.unit ?? null),
         // The Apaleo authority boundary this card sits at. Carried from the scope
         // map, which is asserted against the executor — so the scope shown is the
         // scope that would actually be invoked, not a caption over it.
