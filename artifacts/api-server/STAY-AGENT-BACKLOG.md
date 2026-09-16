@@ -30,7 +30,7 @@ Once both land, the Stay Agent's existing anchor path reaches `ANCHORED_VALID` o
 
 ---
 
-## BL-2 — C2MD `assess_agent_risk` latency (~51–99s) vs serverless function limits (OPEN, C2MD-side + config)
+## BL-2 — C2MD `assess_agent_risk` latency vs serverless function limits (FIXED in tree 2026-09-16, awaiting deploy)
 
 **Owner:** C2MD (generation latency) + Stay Agent deploy config.
 **Found:** 2026-07-15, C2MD tier-1 first-caller verification.
@@ -42,10 +42,38 @@ A successful `skills/assess_agent_risk` call is a full multi-framework LLM gener
 - Exceeds common HTTP client defaults (30s) — our client uses a 150s timeout.
 - **Exceeds the Vercel Hobby function cap (60s).** A synchronous route will 504 before C2MD answers, routinely (not just on cold start), given the 99s tail.
 
-### Mitigation / options
-- `build-vercel.mjs` now sets `maxDuration` (default 60 = Hobby ceiling; `VERCEL_MAX_DURATION=300` on Pro).
-- **Reliable fix needs Pro** (300s cap) for a synchronous route, **or** an async job pattern (kick off → poll) if staying on Hobby.
-- Console shows a live elapsed-time waiting state and, on timeout, explains the cap rather than implying failure.
+### Resolution (2026-09-16)
+
+**"60s is the Hobby ceiling" was stale, and that stale belief WAS the bug.** Under Fluid
+Compute (default for projects created after 2025-04-23) Hobby's default AND maximum are
+both **300s**. No Pro upgrade is or ever was required.
+
+`build-vercel.mjs` now defaults `MAX_DURATION` to **300** (still overridable via
+`VERCEL_MAX_DURATION`). Verified in the prebuilt output: `.vc-config.json` carries
+`"maxDuration": 300`.
+
+**Prerequisite:** Fluid Compute must be ON for the `stay-agent` Vercel project. It is the
+default for this project's creation date, but it is the one thing not verifiable through
+the API — if a deploy rejects `maxDuration: 300`, the fix is Settings → Functions → enable
+Fluid Compute, NOT upgrading to Pro.
+
+### Re-measured latency (2026-09-16, prod, WARM — supersedes the ~51–55s figure)
+
+Three warm anonymous calls to `c2md.getvda.ai`: **58s / 71s / 73s**. One real authenticated
+`/a2a` call from this app: **79s server-side, HTTP 200**. No cold start and no validation
+retries in any sample — the latency is structural. Breakdown from C2MD's prod logs:
+Model Armor ~120ms, pass 1 `gemini-2.5-flash` 11–25s, pass 2 `gemini-2.5-pro` 38–58s.
+
+So the true warm range is **60–80s**, not ~55s. A 60s cap sat below the median, which is
+why this 504'd routinely rather than only on cold start.
+
+### Still open (optional, C2MD-side)
+A 60–80s synchronous hold is poor UX for a free diagnostic. C2MD already has proven async
+rails — `generate_compliance_bundle` is `long_running` (submit → Cloud Tasks → poll via
+`tasks/*` on A2A, `get_task` on MCP), and both dispatch paths exist on C2MD's `main`.
+Making assess `long_running` would remove the hold, but it changes the skill's public
+contract and would break anonymous MCP assess (`get_task` is not an anonymous tool), so it
+needs a product decision on C2MD's side — not a Stay Agent change.
 
 ### Flag to C2MD
 The ~10s cold-start-to-validation-error is a poor first-caller signal (a client with a tight timeout gives up before learning its params were wrong). Consider validating params at the edge / keeping a warm instance for the assess skill.

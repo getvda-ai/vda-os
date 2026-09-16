@@ -53,12 +53,16 @@ await cp(path.join(repoRoot, "sops"), path.join(funcDir, "sops"), { recursive: t
 
 // Vercel Node function config — default export of index.mjs is the Express app.
 //
-// maxDuration: C2MD's assess_agent_risk is an LLM generation that runs ~55s (measured live),
-// plus ~10s cold-start on a scaled-to-zero instance. Without this the function inherits the
-// platform default (~10-15s) and 504s long before C2MD answers. 60 is the HOBBY-plan ceiling:
-// a warm assess (~55s) fits; a cold-start assess (~65s) can still exceed it and 504. For
-// reliable headroom move the project to Pro and raise this to 300 (VERCEL_MAX_DURATION).
-const MAX_DURATION = Number(process.env.VERCEL_MAX_DURATION || 60);
+// maxDuration: C2MD's assess_agent_risk is an LLM generation. Re-measured against prod on
+// 2026-09-16, WARM — no cold start, no validation retries: 58s / 71s / 73s across three calls,
+// and a real /a2a call from this app took 79s server-side (pass 1 gemini-2.5-flash 11-25s,
+// pass 2 gemini-2.5-pro 38-58s). Budget for ~80s, not ~55s.
+//
+// 60 was NOT the Hobby ceiling. That belief was stale and is exactly what caused the 504s:
+// under Fluid Compute (default for projects created after 2025-04-23) Hobby's default AND
+// maximum are both 300s, so no Pro upgrade is needed to clear this. The one prerequisite is
+// that Fluid Compute is ON for the project — without it the legacy 60s cap applies again.
+const MAX_DURATION = Number(process.env.VERCEL_MAX_DURATION || 300);
 await writeFile(
   path.join(funcDir, ".vc-config.json"),
   JSON.stringify({ runtime: "nodejs22.x", handler: "index.mjs", launcherType: "Nodejs", shouldAddHelpers: false, maxDuration: MAX_DURATION }, null, 2),

@@ -1135,7 +1135,7 @@ $("#euBtn").addEventListener("click",async()=>{
     $("#mBody").textContent=JSON.stringify(j,null,2);
   }catch(e){clearInterval(tick);
     $("#mRich").innerHTML=`<div class="gbanner block"><b>Assessment unavailable.</b> <span class="dl">${esc(e.message)}</span>
-      <span class="dl">If this timed out near 60s, the ~55s C2MD call exceeded the serverless function limit — a cold-start assessment can breach the Hobby-plan 60s cap. Retry (the instance is now warm), or raise maxDuration on Pro.</span></div>`;
+      <span class="dl">The EU AI Act assessment is generated live by the C2MD Compliance Agent and takes 60–80 seconds. No assessment has been produced — nothing above is a partial or provisional result. Retry once; if it fails again, escalate rather than proceeding without it.</span></div>`;
     $("#mBody").textContent="EU AI Act assessment unavailable: "+e.message;}
 });
 $("#mClose").addEventListener("click",()=>$("#modal").classList.remove("open"));
@@ -1271,6 +1271,9 @@ const RESET_SCENARIOS=[
   {cls:"room_assignment",rooms:3,guest:"The Ravensberg family · 2 adults, 2 children",unit:"rooms 411, 412, 414",
    why:"Family of three rooms asking to be together on one floor",
    clean:true,inGroup:true,adjacency:true,adjacencySatisfiable:true,expect:"mod"},
+  {cls:"room_assignment",rooms:1,guest:"B. Tanaka · arriving 17:30",unit:"room 909",
+   why:"Guest asked for a high floor away from the lift; nothing matching is free",
+   clean:true,inGroup:true,adjacency:true,adjacencySatisfiable:false,expect:"ambassador"},
   {cls:"room_assignment",rooms:1,guest:"D. Okonkwo · arriving 16:20",unit:"room 512",
    why:"Guest asked for the same floor as a colleague; no unit free on that floor",
    clean:true,inGroup:true,adjacency:true,adjacencySatisfiable:false,
@@ -1293,6 +1296,9 @@ const RESET_SCENARIOS=[
   {cls:"early_checkout",early:1,booked:3,night:2,rate:"nonref",group:false,delta:-150,
    guest:"A. Bianchi · room 145",why:"One night early on a prepaid, non-refundable rate",settled:true,
    expect:"ambassador"},
+  {cls:"early_checkout",early:5,booked:8,night:3,rate:"standard",group:true,delta:-720,
+   guest:"Conference block · room 703",why:"Conference block releasing rooms five nights early",
+   settled:true,expect:"mod"},
   // -- Folio charge (in-stay). ----------------------------------------------
   {cls:"folio_post_charge",amount:45,guest:"T. Lindqvist · room 308",
    why:"Minibar and breakfast, signed for at the desk",currentStay:true,expect:"pass"},

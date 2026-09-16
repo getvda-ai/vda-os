@@ -31,9 +31,11 @@
  *                      C2MD our own chain-proof bundle (no key in the body) and it verifies the
  *                      evidence offline. Full bundle generation needs the ANCHORED tier.
  *
- * LATENCY (measured live, flag for callers): a successful assess LLM call takes ~51-55s, plus
- * ~10s cold-start on a scaled-to-zero C2MD instance. Client timeouts and any serverless
- * function maxDuration MUST budget for this or the call 504s before C2MD answers.
+ * LATENCY (re-measured against prod 2026-09-16, WARM — no cold start, no retries): 58s / 71s /
+ * 73s across three calls, and a real call from this app took 79s server-side. Pass 1 is
+ * gemini-2.5-flash (11-25s), pass 2 gemini-2.5-pro (38-58s). Budget ~80s, NOT ~55s. The client
+ * timeout AND the serverless function maxDuration must both clear that or the call 504s before
+ * C2MD answers — a 60s maxDuration is below the median and 504s most calls.
  */
 import { logger } from "./logger.js";
 import { fetchChainProof, fetchReport, currentWitnessKey } from "./witnessClient.js";
@@ -104,8 +106,8 @@ export interface C2mdAssessResult {
  * Authenticated with the Witness suite key via the Authorization header (see c2mdAuthHeader).
  * Nothing is fabricated on failure: the reason is returned verbatim and no assessment is shown.
  *
- * Latency budget is deliberately large (~55s generation + ~10s cold-start observed live). The
- * caller's own timeout — and any serverless maxDuration — must exceed this or the call 504s.
+ * Latency budget is deliberately large (60-80s warm, measured 2026-09-16). The caller's own
+ * timeout — and any serverless maxDuration — must exceed this or the call 504s.
  */
 export async function assessAgentRisk(input: {
   agentDescription: string;
@@ -165,7 +167,7 @@ export async function assessAgentRisk(input: {
     const latencyMs = Date.now() - t0;
     const msg = err instanceof Error ? err.message : String(err);
     const blocked = /timeout|abort/i.test(msg)
-      ? `The C2MD call did not return within the client timeout (${latencyMs}ms elapsed). assess_agent_risk runs ~55s; if this recurs the timeout — or a serverless function's maxDuration — is set too low.`
+      ? `The C2MD call did not return within the client timeout (${latencyMs}ms elapsed). assess_agent_risk runs 60-80s warm; if this recurs the timeout — or a serverless function's maxDuration — is set too low.`
       : "The C2MD call failed. No assessment produced.";
     return { ok: false, skill: "assess_agent_risk", error: msg, blocked, latencyMs, contract: C2MD_CONTRACT };
   }
