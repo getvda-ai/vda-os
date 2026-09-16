@@ -1311,8 +1311,8 @@ const RESET_SCENARIOS=[
   {cls:"rate_override",pct:22,guest:"Corporate · Hasenclever GmbH",
    why:"Corporate account requesting 22% below BAR for a 3-night stay",expect:"mod"},
   // -- The two classes no band holds autonomously. --------------------------
-  {cls:"force_manage_override",guest:"J. Weber · booking outside min-stay restriction",
-   why:"Partner asking to book through a 2-night minimum-stay closure",
+  {cls:"force_manage_override",guest:"J. Weber · corporate partner, 1 night",
+   why:"Long-standing corporate account needs a single night inside a 2-night minimum-stay closure; the restriction is named and the commercial reason is recorded, and the request is submitted for Manager on Duty authorisation rather than applied",
    restriction:"min_length_of_stay",expect:"mod"},
   {cls:"feature_enablement",guest:"Agent capability · auto-assign on arrival",
    why:"Enable autonomous single-room assignment on arrival for BER",expect:"mod"},
