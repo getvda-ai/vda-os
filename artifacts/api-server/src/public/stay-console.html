@@ -454,6 +454,12 @@ let madeFilter="all";        // all | today | sealed — driven by status-tile d
 // and the disagreement would surface as a confidently-drawn wrong answer.
 let scenarios=[];
 let scenarioKey="A";         // selected tab; null = show every pending card
+// ...but the opening tab FOLLOWS THE SCENARIO ORDER rather than a fixed key, adopted from
+// the server list on first load (and only then, so switching tabs sticks). It was pinned to
+// "A" while A happened to be first; adding Room assignment ahead of it left the console
+// opening on Early checkout, with the headline scenario sitting one unexplained click away
+// and reading as "there is no room assignment card".
+let scenarioKeyPinned=false;
 let curPhase="crawl";
 const scenByKey=()=>Object.fromEntries(scenarios.map(s=>[s.key,s]));
 const scenByClass=()=>Object.fromEntries(scenarios.map(s=>[s.exceptionClass,s]));
@@ -520,6 +526,7 @@ async function loadScenarios(){
   try{
     const j=await api(`/api/stay/scenarios?company_id=${companyId()}`);
     scenarios=j.scenarios||[];
+    if(!scenarioKeyPinned&&scenarios.length){scenarioKey=scenarios[0].key;scenarioKeyPinned=true;}
     $("#scenNote").textContent=j.front_line_note||"";
     if(j.scope_map_verified===false){
       // Rendering safety: a scope panel that might name a call the executor would not
