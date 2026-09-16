@@ -64,15 +64,13 @@ export const STAY_SCENARIOS: StayScenario[] = [
     exceptionClass: "room_assignment",
     stage: "check_in",
     scope: "reservations.manage",
-    // The assignment is written as a reservation amendment, which is what
-    // AmendReservation does and what this codebase has actually executed. Apaleo also
-    // exposes a dedicated unit-assignment route (PUT /booking/v1/reservations/{id}/units)
-    // under the same scope; it is NOT named here because the MCP tool behind it has not
-    // been verified against the live catalogue, and this map's whole job is to refuse to
-    // claim an integration point the executor would not call. Swap both fields together
-    // once the tool name is confirmed — assertExecutorAgreement() enforces the pairing.
-    endpoint: "PATCH /booking/v1/reservations/{id}",
-    tool: "AmendReservation",
+    // VERIFIED against the live catalogue (255 tools) and exercised against the sandbox on
+    // 2026-09-16: assigning a unit is its own action, not a reservation amendment. An
+    // earlier version of this entry claimed AmendReservation because the tool name had not
+    // been checked — the conservative guess, but the wrong one, and wrong in the panel that
+    // exists to tell Apaleo which of their endpoints is being gated.
+    endpoint: "PUT /booking/v1/reservation-actions/{id}/assign-unit",
+    tool: "AssignUnit",
     summary: "An arriving reservation needs units. One room the Ambassador can place; a family or group taking several rooms on one floor is a Manager on Duty decision.",
     trigger: "room_assignment",
     unit: "rooms",

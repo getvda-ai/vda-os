@@ -947,4 +947,33 @@ router.post("/admin/reset-stay-demo", async (req, res) => {
   }
 });
 
+// --- POST /api/admin/reset-stay-sandbox --------------------------------------
+// Put the connected Apaleo sandbox into the state the seeded cards describe, and hand back
+// the reservation/folio ids they bind to. See lib/stayDemoSandbox.ts for why it reuses and
+// repairs rather than recreating.
+//
+// SEPARATE from reset-stay-demo on purpose: an Apaleo outage must degrade the system-of-
+// record panel, not take the whole reset down. The console calls this as its own progress
+// step and carries on with synthetic refs if it fails.
+router.post("/admin/reset-stay-sandbox", async (req, res) => {
+  const rawCompany = req.body?.company_id ?? req.body?.companyId;
+  const companyId = Number(rawCompany);
+  const propertyId = String(req.body?.property_id ?? req.body?.propertyId ?? "BER");
+  if (!Number.isInteger(companyId) || companyId <= 0) {
+    res.status(400).json({
+      error: "company_id is required and must be a positive integer.",
+      why: "The sandbox tag carries the tenant. Without it this demo's reset would repair and cancel the other demo's reservations in the same Apaleo account.",
+    });
+    return;
+  }
+  try {
+    const { ensureStayDemoSandbox } = await import("../lib/stayDemoSandbox.js");
+    const out = await ensureStayDemoSandbox(companyId, propertyId);
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    logger.error({ err }, "admin/reset-stay-sandbox error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Sandbox provisioning failed" });
+  }
+});
+
 export default router;

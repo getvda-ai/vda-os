@@ -471,7 +471,11 @@ function artifactPanel(ad){
   ad=ad||{};
   const rs=ad.reservation;
   const foArr=(ad.folios&&(ad.folios.folios||ad.folios))||null;
-  const folio=Array.isArray(foArr)?(foArr.find(f=>!f.isEmpty)||foArr[0]):null;
+  // `ad.folio` (singular) is what the engine sets when the card supplied a folioId; the
+  // plural is the unfiltered list it falls back to. Reading only the plural meant a card
+  // bound to a real folio fetched it and then rendered nothing — data present, panel blank,
+  // which is the failure CLAUDE.md's rendering-safety principle exists to stop.
+  const folio=ad.folio||(Array.isArray(foArr)?(foArr.find(f=>!f.isEmpty)||foArr[0]):null);
   const money=b=>b?`${b.amount??0}${b.currency?" "+b.currency:""}`:"—";
   if(!rs&&!folio){
     return (ad.error||ad.note)?`<div class="art2 unavail"><div class="t">System of record</div><div class="ar muted">Apaleo read unavailable${ad.ref&&ad.ref.reservationId?` for ${esc(ad.ref.reservationId)}`:""} — decide from the clause + SOPs, or escalate.</div></div>`:"";
@@ -1261,60 +1265,71 @@ $("#drawer").addEventListener("click",async e=>{
 // mean the autonomous side of the demo never appears. Supplying the facts is not loosening
 // a rule; it is giving the agent what the person at the desk can see.
 const RESET_SCENARIOS=[
+  // `slot` binds the card to a REAL reservation in the Apaleo sandbox, provisioned by
+  // /api/admin/reset-stay-sandbox (see lib/stayDemoSandbox.ts). Without it the engine has
+  // nothing to read and every card renders "System of record — Apaleo read unavailable",
+  // which is honest but is the weak version of this demo: in front of Apaleo the
+  // system-of-record artifacts are most of the point.
+  //
+  // Every guest arrives TODAY, so the narrative is always "night 1 of N" — Apaleo refuses
+  // to create a booking with an arrival in the past. What makes an early departure askable
+  // is that the departure is still in the future.
+  //
   // -- Room assignment (check-in). The Munich MVP business event. ------------
-  {cls:"room_assignment",rooms:1,guest:"L. Ferrand · arriving 14:05",unit:"room 306",
-   why:"Single king, booked category, released by Housekeeping",
+  {cls:"room_assignment",slot:"ra_pass",rooms:1,guest:"L. Ferrand \u00b7 arriving today",
+   why:"Single double, booked category, released by Housekeeping",
    clean:true,inGroup:true,adjacency:false,adjacencySatisfiable:true,expect:"pass"},
   // The headline card: a family taking three rooms is over the Ambassador's 1-room
-  // ceiling, so the Manager on Duty decides. Never pre-worked - this is the one the
-  // presenter walks through live.
-  {cls:"room_assignment",rooms:3,guest:"The Ravensberg family · 2 adults, 2 children",unit:"rooms 411, 412, 414",
+  // ceiling, so the Manager on Duty decides. Never pre-worked — this is the one the
+  // presenter walks through live. Its slot books THREE reservations.
+  {cls:"room_assignment",slot:"ra_family",rooms:3,guest:"The Ravensberg family \u00b7 2 adults, 2 children",
    why:"Family of three rooms asking to be together on one floor",
    clean:true,inGroup:true,adjacency:true,adjacencySatisfiable:true,expect:"mod"},
-  {cls:"room_assignment",rooms:1,guest:"B. Tanaka · arriving 17:30",unit:"room 909",
-   why:"Guest asked for a high floor away from the lift; nothing matching is free",
-   clean:true,inGroup:true,adjacency:true,adjacencySatisfiable:false,expect:"ambassador"},
-  {cls:"room_assignment",rooms:1,guest:"D. Okonkwo · arriving 16:20",unit:"room 512",
+  {cls:"room_assignment",slot:"ra_okonkwo",rooms:1,guest:"D. Okonkwo \u00b7 arriving today",
    why:"Guest asked for the same floor as a colleague; no unit free on that floor",
    clean:true,inGroup:true,adjacency:true,adjacencySatisfiable:false,
    expect:"ambassador",preApprove:"ambassador"},
-  // Declining, not escalating: the agent will not assign a unit Housekeeping has not
-  // released and there is nothing for a human to weigh. Either a FAIL or an Ambassador
-  // card is a correct reading of that, so nothing downstream depends on which it gives -
-  // it is here so the log shows the agent refusing as well as acting.
-  {cls:"room_assignment",rooms:1,guest:"S. Mbeki · arriving 15:40",unit:"room 228",
+  {cls:"room_assignment",slot:"ra_tanaka",rooms:1,guest:"B. Tanaka \u00b7 arriving today",
+   why:"Guest asked for a high floor away from the lift; nothing matching is free",
+   clean:true,inGroup:true,adjacency:true,adjacencySatisfiable:false,expect:"ambassador"},
+  // Expected FAIL, not an escalation: the agent will not assign a unit Housekeeping has
+  // not released, and there is nothing for a human to weigh. It makes no card — it is
+  // here so the log shows the agent declining as well as acting.
+  {cls:"room_assignment",slot:"ra_mbeki",rooms:1,guest:"S. Mbeki \u00b7 arriving today",
    why:"Booked category free but Housekeeping has not released the unit",
    clean:false,inGroup:true,adjacency:false,adjacencySatisfiable:true,expect:"decline"},
   // -- Early checkout (check-out). ------------------------------------------
-  {cls:"early_checkout",early:1,booked:4,night:3,rate:"standard",group:false,delta:-180,
-   guest:"K. Adeyemi · room 214",why:"Flight brought forward by a day",settled:true,expect:"pass"},
-  {cls:"early_checkout",early:4,booked:6,night:2,rate:"nonref",group:false,delta:-540,
-   guest:"R. Moreau · room 407",why:"Family emergency, prepaid rate",settled:true,
+  {cls:"early_checkout",slot:"ec_pass",early:1,booked:4,night:1,rate:"standard",group:false,delta:-150,
+   guest:"K. Adeyemi",why:"Flight brought forward by a day",settled:true,expect:"pass"},
+  {cls:"early_checkout",slot:"ec_moreau",early:4,booked:6,night:1,rate:"nonref",group:false,delta:-540,
+   guest:"R. Moreau",why:"Family emergency, prepaid rate",settled:true,
    expect:"mod",preApprove:"mod"},
-  {cls:"early_checkout",early:2,booked:5,night:3,rate:"standard",group:false,delta:-260,
-   guest:"P. Nowak · room 634",why:"Folio unsettled, no card on file",settled:false,expect:"ambassador"},
-  {cls:"early_checkout",early:1,booked:3,night:2,rate:"nonref",group:false,delta:-150,
-   guest:"A. Bianchi · room 145",why:"One night early on a prepaid, non-refundable rate",settled:true,
+  {cls:"early_checkout",slot:"ec_nowak",early:2,booked:5,night:1,rate:"standard",group:false,delta:-260,
+   guest:"P. Nowak",why:"Folio unsettled, no card on file",settled:false,expect:"ambassador"},
+  {cls:"early_checkout",slot:"ec_bianchi",early:1,booked:3,night:1,rate:"nonref",group:false,delta:-150,
+   guest:"A. Bianchi",why:"One night early on a prepaid, non-refundable rate",settled:true,
    expect:"ambassador"},
-  {cls:"early_checkout",early:5,booked:8,night:3,rate:"standard",group:true,delta:-720,
-   guest:"Conference block · room 703",why:"Conference block releasing rooms five nights early",
+  {cls:"early_checkout",slot:"ec_block",early:5,booked:8,night:1,rate:"standard",group:true,delta:-720,
+   guest:"Conference block",why:"Conference block releasing rooms five nights early",
    settled:true,expect:"mod"},
   // -- Folio charge (in-stay). ----------------------------------------------
-  {cls:"folio_post_charge",amount:45,guest:"T. Lindqvist · room 308",
+  {cls:"folio_post_charge",slot:"fo_pass",amount:45,guest:"T. Lindqvist",
    why:"Minibar and breakfast, signed for at the desk",currentStay:true,expect:"pass"},
-  {cls:"folio_post_charge",amount:60,guest:"H. Ibrahim · room 119",
+  {cls:"folio_post_charge",slot:"fo_ibrahim",amount:60,guest:"H. Ibrahim",
    why:"Laundry billed from the guest's PREVIOUS stay, not this one",currentStay:false,
    expect:"ambassador"},
-  {cls:"folio_post_charge",amount:210,guest:"M. Costa · room 502",
+  {cls:"folio_post_charge",slot:"fo_costa",amount:210,guest:"M. Costa",
    why:"Restaurant group bill posted to the room",currentStay:true,expect:"mod"},
   // -- Rate override (check-in). --------------------------------------------
-  {cls:"rate_override",pct:22,guest:"Corporate · Hasenclever GmbH",
+  {cls:"rate_override",slot:"ro_corporate",pct:22,guest:"Corporate \u00b7 Hasenclever GmbH",
    why:"Corporate account requesting 22% below BAR for a 3-night stay",expect:"mod"},
   // -- The two classes no band holds autonomously. --------------------------
-  {cls:"force_manage_override",guest:"J. Weber · corporate partner, 1 night",
+  {cls:"force_manage_override",slot:"fm_weber",guest:"J. Weber \u00b7 corporate partner, 1 night",
    why:"Long-standing corporate account needs a single night inside a 2-night minimum-stay closure; the restriction is named and the commercial reason is recorded, and the request is submitted for Manager on Duty authorisation rather than applied",
    restriction:"min_length_of_stay",expect:"mod"},
-  {cls:"feature_enablement",guest:"Agent capability · auto-assign on arrival",
+  // No slot: feature enablement is governance-layer only. There is deliberately no
+  // property-system record to intercept, so this card SHOULD show no Apaleo artifacts.
+  {cls:"feature_enablement",guest:"Agent capability \u00b7 auto-assign on arrival",
    why:"Enable autonomous single-room assignment on arrival for BER",expect:"mod"},
 ];
 
@@ -1359,7 +1374,28 @@ async function runReset(){
       `${c.witness_entries||0} log entries, ${c.hitl_tokens||0} cards, ${c.stay_baselines||0} baselines · Witness chain untouched`);
     if(r.chain&&r.chain.ok===false)rpStep("Chain re-mirror incomplete","warn",r.chain.detail||"");
 
-    // 2. Replay the shift through the real engine.
+    // 2. Put the Apaleo sandbox into the state these cards describe, and collect the
+    //    reservation/folio ids they bind to. Deliberately NOT part of the tenant reset: an
+    //    Apaleo failure must degrade the system-of-record panel, not take the replay down.
+    let bindings={};
+    const sbStep=rpStep("Apaleo sandbox","pend","provisioning reservations\u2026");
+    try{
+      const sb=await api(`/api/admin/reset-stay-sandbox`,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({company_id:co,property_id:"BER"})});
+      bindings=sb.bindings||{};
+      const n=Object.keys(bindings).length;
+      const bits=[`${n} records ready`];
+      if((sb.created||[]).length)bits.push(`${sb.created.length} created`);
+      if((sb.reused||[]).length)bits.push(`${sb.reused.length} reused`);
+      if((sb.repaired||[]).length)bits.push(`${sb.repaired.length} repaired`);
+      rpUpdate(sbStep,"Apaleo sandbox",(sb.errors||[]).length?"warn":"ok",
+        bits.join(" \u00b7 ")+((sb.errors||[]).length?` \u00b7 ${sb.errors.length} slot(s) failed`:""));
+    }catch(e){
+      rpUpdate(sbStep,"Apaleo sandbox","warn",
+        `${e.message} \u2014 cards will decide from clause + SOPs with no property record`);
+    }
+
+    // 3. Replay the shift through the real engine.
     const cards=[];
     for(let i=0;i<RESET_SCENARIOS.length;i++){
       const sc=RESET_SCENARIOS[i];
@@ -1368,7 +1404,7 @@ async function runReset(){
       const st=rpStep(label,"pend","agent evaluating…");
       try{
         const j=await api(`/api/stay/decision`,{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify(buildScenarioBody(sc,co))});
+          body:JSON.stringify(buildScenarioBody(sc,co,bindings))});
         const who=roleName(j.role_band||"ambassador");
         const sealed=j.vda_witness&&j.vda_witness.record_id;
         // Say when the engine routed somewhere the set did not expect. Not an error - the
@@ -1383,7 +1419,7 @@ async function runReset(){
       }catch(e){rpUpdate(st,label,"warn",e.message);}
     }
 
-    // 3. Let each band have already worked part of its queue, so the console opens on a
+    // 4. Let each band have already worked part of its queue, so the console opens on a
     //    shift in progress. Which card is pre-worked is named on the scenario, never taken
     //    by index: the family-of-three assignment is the one the presenter walks through
     //    live, and an index-based pick would eventually approve it before they got there.
@@ -1408,7 +1444,7 @@ async function runReset(){
       }catch(e){rpUpdate(st,lbl,"warn",e.message);}
     }
 
-    // 4. Land any delayed seals. /api/stay/seal/drain is CRON_SECRET-guarded in production
+    // 5. Land any delayed seals. /api/stay/seal/drain is CRON_SECRET-guarded in production
     //    and the UI must never hold that secret, so use the drain-on-read path: reading the
     //    log drains 8 outbox rows at a time. Loop until empty rather than assuming one pass
     //    covered it, and report what is genuinely still queued.
@@ -1447,8 +1483,12 @@ async function runReset(){
 // list the governance file sets on that class - the agent is told which of them hold, and
 // decides for itself what that means. `scenario` is the operator-visible detail the card
 // and the seal are rendered from.
-function buildScenarioBody(sc,co){
-  const ref={propertyId:"BER"};
+function buildScenarioBody(sc,co,bindings){
+  // The real reservation/folio for this card, when the sandbox step supplied one. A card
+  // with no binding still runs — it just decides from clause + SOPs and says so.
+  const b=(bindings||{})[sc.slot];
+  const ref=b?{propertyId:b.propertyId,reservationId:b.reservationId,folioId:b.folioId||undefined}
+            :{propertyId:"BER"};
   const base={company_id:co,apaleo_ref:ref};
   const room=g=>(String(g).match(/room\s*\w+/i)||[""])[0];
   if(sc.cls==="room_assignment"){
