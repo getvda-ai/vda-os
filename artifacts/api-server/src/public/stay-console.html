@@ -582,8 +582,14 @@ function syncDrawer(){
 // ── Pending queue ────────────────────────────────────────────────────────────
 async function loadQueue(){
   try{
-    const j=await api(`/api/stay/hitl/pending?role_band=${role}&company_id=${companyId()}`);
-    const all=j.pending||[];
+    // Fetched for BOTH bands and partitioned here. Role-filtering at the API meant the
+    // console could not say "that one is with the Manager on Duty" — and a card routed to
+    // the other band looks exactly like a card that was never created.
+    const j=await api(`/api/stay/hitl/pending?company_id=${companyId()}`);
+    const everyone=j.pending||[];
+    const all=everyone.filter(t=>(t.roleBand||t.role_band)===role);
+    const otherRole=role==="ambassador"?"mod":"ambassador";
+    const elsewhere=everyone.filter(t=>(t.roleBand||t.role_band)===otherRole);
     // Per-scenario pending counts, so the tabs show where work is waiting.
     const byClass={};for(const t of all){const c=(t.payload||{}).exception_class;if(c)byClass[c]=(byClass[c]||0)+1;}
     window.__pendingByClass=byClass;renderScens();
@@ -597,13 +603,25 @@ async function loadQueue(){
     const hidden=all.length-rows.length;
     $("#qCount").textContent=rows.length;$("#sPending").textContent=all.length;
     const other=hidden>0?`<div class="muted" style="padding:8px 0 0"><a href="#" id="showAll">${hidden} pending decision${hidden===1?"":"s"} in other scenarios — show all</a></div>`:"";
+
+    // Same scenario, other band. This is the line that explains the demo's central move:
+    // the request was not refused and it did not vanish, it went UP — which is the whole
+    // claim the ceiling in the governance file is making.
+    const upstairs=s?elsewhere.filter(t=>(t.payload||{}).exception_class===s.exceptionClass):elsewhere;
+    const otherBand=upstairs.length
+      ? `<div class="muted" style="padding:8px 0 0">${upstairs.length} ${esc(s?s.name:"decision")} request${upstairs.length===1?" is":"s are"} above this band's ceiling and waiting with the <a href="#" id="goOtherBand"><b>${esc(roleName(otherRole))}</b></a>.</div>`
+      : "";
     $("#queue").innerHTML=(rows.length
       ? rows.map(cardHtml).join("")
-      : `<div class="muted">No ${roleName(role)} decision pending${s?` for ${esc(s.name)}`:""}. ${s&&s.never_autonomous?"This class always requires a human — nothing has been proposed yet.":"The agent is handling routine work autonomously."}</div>`)+other;
+      : `<div class="muted">No ${roleName(role)} decision pending${s?` for ${esc(s.name)}`:""}. ${s&&s.never_autonomous?"This class always requires a human — nothing has been proposed yet.":"The agent is handling routine work autonomously."}</div>`)+otherBand+other;
   }catch(e){$("#queue").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
 }
 $("#queue").addEventListener("click",e=>{
   if(e.target.id==="showAll"){e.preventDefault();scenarioKey=null;renderScens();loadQueue();}
+  const ob=e.target.closest("#goOtherBand");
+  if(ob){e.preventDefault();const next=role==="ambassador"?"mod":"ambassador";
+    role=next;[...$("#roleSeg").children].forEach(x=>x.classList.toggle("on",x.dataset.role===next));
+    $("#roleLabel").textContent=roleName(next);loadAll();}
 });
 function cardHtml(t){
   const p=t.payload||{},cb=p.ceiling_band||{},sc=p.scenario||{};
