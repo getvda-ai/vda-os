@@ -44,19 +44,39 @@ export interface StayScenario {
   /** One line on what the agent is asking to do. */
   summary: string;
   /** How the presenter triggers it. Drives which control the demo drawer renders. */
-  trigger: "early_checkout" | "discount_slider" | "charge_amount" | "force_manage" | "feature_toggle";
+  trigger: "early_checkout" | "discount_slider" | "charge_amount" | "force_manage" | "feature_toggle" | "room_assignment";
   /** Unit shown next to the autonomous threshold. */
   unit: string;
 }
 
 /**
- * The five scenarios. Each is the SAME harness — propose → evaluate against governance
+ * The six scenarios. Each is the SAME harness — propose → evaluate against governance
  * → route past the ceiling → approve/deny/escalate/baseline → seal — with a different
  * authority configuration. That reuse is the whole architectural claim; keep these
  * uniform in shape so a reader can see that nothing scenario-specific exists in the
  * mechanism itself.
  */
 export const STAY_SCENARIOS: StayScenario[] = [
+  {
+    key: "F",
+    name: "Room assignment",
+    icon: "⌗",
+    exceptionClass: "room_assignment",
+    stage: "check_in",
+    scope: "reservations.manage",
+    // The assignment is written as a reservation amendment, which is what
+    // AmendReservation does and what this codebase has actually executed. Apaleo also
+    // exposes a dedicated unit-assignment route (PUT /booking/v1/reservations/{id}/units)
+    // under the same scope; it is NOT named here because the MCP tool behind it has not
+    // been verified against the live catalogue, and this map's whole job is to refuse to
+    // claim an integration point the executor would not call. Swap both fields together
+    // once the tool name is confirmed — assertExecutorAgreement() enforces the pairing.
+    endpoint: "PATCH /booking/v1/reservations/{id}",
+    tool: "AmendReservation",
+    summary: "An arriving reservation needs units. One room the Ambassador can place; a family or group taking several rooms on one floor is a Manager on Duty decision.",
+    trigger: "room_assignment",
+    unit: "rooms",
+  },
   {
     key: "A",
     name: "Early checkout",

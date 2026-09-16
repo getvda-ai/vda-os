@@ -7,11 +7,11 @@
  * No policy text is hardcoded in route code — all content is read from static files at seed time.
  */
 import { Router, type IRouter } from "express";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
-import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents, agentMandates } from "@workspace/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { db, governanceFiles, governanceFileVersions, companies, witnessEntries, agentPhases, hitlTokens, onboardingRequests, a2aTasks, exceptionBaselines, activationRequests, agentCredentials, agentValueEvents, agentMandates, sealOutbox } from "@workspace/db";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { issueMandate } from "../lib/mandateIssuer.js";
 import { buildRateOffer } from "../lib/ucpOffer.js";
 import { getOnboardingPolicy } from "../lib/exceptionAuthorityReader.js";
@@ -791,6 +791,158 @@ router.post("/admin/reset-demo", async (_req, res) => {
     res.json({ ok: true, message: "Demo reset — all agent progress cleared. Governance files preserved." });
   } catch (err) {
     logger.error({ err }, "admin/reset-demo error");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Reset failed" });
+  }
+});
+
+// --- POST /api/admin/reset-stay-demo -----------------------------------------
+// Return the citizenM Stay console to a known mid-shift start state.
+//
+// WHAT THIS DOES NOT DO: it does not un-seal anything. The Witness chain is remote and
+// append-only; every record this demo ever sealed is still on it, still signed. Sequence
+// numbers are assigned by the Witness, so "resetting" by deleting local rows and re-sealing
+// from zero is not available - the next seal would come back as seq N+1 with no local
+// predecessors and /stay/verify would report BROKEN against evidence that is intact. A
+// false tamper alarm on a governance demo is worse than a demo that admits what it is.
+// So this clears the CONSOLE VIEW and re-mirrors the chain from the Witness.
+//
+// TENANCY - the reason this endpoint looks paranoid. citizenM (company 1) and A Hotel
+// Berlin (company 30) live in the SAME database, and /api/admin/reset-demo above is
+// GLOBAL: it deletes every company's rows. An unscoped reset here once destroyed 109
+// witness entries belonging to the other demo. So: company_id is REQUIRED, must already
+// exist, and every delete below carries it. No default, no resolve-by-name, no create.
+// Refusing is the correct behaviour - a reset that guesses its tenant is the bug.
+router.post("/admin/reset-stay-demo", async (req, res) => {
+  const rawCompany = req.body?.company_id ?? req.body?.companyId;
+  const companyId = Number(rawCompany);
+  const propertyId = String(req.body?.property_id ?? req.body?.propertyId ?? "BER");
+
+  if (rawCompany === undefined || rawCompany === null || rawCompany === "" || !Number.isInteger(companyId) || companyId <= 0) {
+    res.status(400).json({
+      error: "company_id is required and must be a positive integer.",
+      why: "This database holds more than one demo tenant. A reset that defaults its company would clear another hotel's console.",
+    });
+    return;
+  }
+
+  try {
+    const [company] = await db
+      .select({ id: companies.id, name: companies.companyName })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
+    if (!company) {
+      res.status(404).json({ error: `No company with id ${companyId}. Reset never creates a tenant.` });
+      return;
+    }
+
+    // 1. Governance must be present for the decision engine preflight to pass. Idempotent.
+    const seededGovernance = await seedStayAgentGovernance(companyId);
+
+    // 2. Ingest the SOPs. Governance files supply the authority ceilings; the engine also
+    //    needs ingested SOP clauses per stage to cite. Without them every decision correctly
+    //    returns NO_SOP_COVERAGE and escalates - a demo where nothing is ever decided at the
+    //    front desk. Idempotent per (company, filename).
+    const sopsIngested: string[] = [];
+    try {
+      const { resolveSopsDir, ingestDocument, TEXT_EXTS } = await import("./sops.js");
+      const dir = resolveSopsDir();
+      if (dir) {
+        for (const f of readdirSync(dir).filter((f: string) => TEXT_EXTS.has(path.extname(f).toLowerCase()))) {
+          try {
+            await ingestDocument({ companyId, filename: f, content: readFileSync(path.join(dir, f), "utf-8"), sourceType: path.extname(f).slice(1) || "md" });
+            sopsIngested.push(f);
+          } catch (e) {
+            logger.warn({ e, f }, "[reset-stay-demo] SOP ingest failed for one file");
+          }
+        }
+      } else {
+        logger.warn("[reset-stay-demo] no /sops folder resolved - decisions will report NO_SOP_COVERAGE");
+      }
+    } catch (err) {
+      logger.error({ err }, "[reset-stay-demo] SOP ingestion failed");
+    }
+
+    // 3. Put the tenant in Walk. In Crawl EVERY decision escalates for human confirmation
+    //    even when comfortably inside the Ambassador ceiling - correct behaviour, but it
+    //    means the front desk never acts autonomously and the Ambassador/MoD split cannot
+    //    be shown at all. This is a DEMO SETUP step, set directly and reported as such: it
+    //    claims none of the Walk criteria and does not go through /api/phase/:id/promote,
+    //    which still enforces them for a real tenant.
+    const DEMO_PHASE = "walk";
+    const [phaseRow] = await db
+      .select({ id: agentPhases.id })
+      .from(agentPhases)
+      .where(and(eq(agentPhases.companyId, companyId), eq(agentPhases.agentId, "stay-agent")))
+      .limit(1);
+    if (phaseRow) {
+      await db.update(agentPhases).set({ phase: DEMO_PHASE }).where(eq(agentPhases.id, phaseRow.id));
+    } else {
+      await db.insert(agentPhases).values({ companyId, agentId: "stay-agent", phase: DEMO_PHASE, activatedAt: new Date() });
+    }
+
+    const cleared: Record<string, number> = {};
+    const count = (r: unknown): number => (r as { rowCount?: number })?.rowCount ?? 0;
+
+    cleared.witness_entries = count(await db.delete(witnessEntries).where(eq(witnessEntries.companyId, companyId)));
+    cleared.hitl_tokens = count(await db.delete(hitlTokens).where(eq(hitlTokens.companyId, companyId)));
+    cleared.agent_value_events = count(await db.delete(agentValueEvents).where(eq(agentValueEvents.companyId, companyId)));
+    cleared.seal_outbox = count(await db.delete(sealOutbox).where(eq(sealOutbox.companyId, companyId)));
+
+    // Bounds-based baselines ONLY. A governance ceiling and a baseline share this table;
+    // authority:"baseline" plus a non-null stage is what createStayBaseline writes and is
+    // the only thing that may be removed. Deleting the rest would delete the authority
+    // model itself and the console would show no ceilings at all.
+    //
+    // This clear is load-bearing for the demo, not housekeeping: baseline a class in one
+    // run and, without it, that class auto-PASSes on the next run and its queue is empty
+    // again - the exact "it worked the first time" failure the reset exists to prevent.
+    cleared.stay_baselines = count(
+      await db.delete(exceptionBaselines).where(
+        and(
+          eq(exceptionBaselines.agentId, "stay-agent"),
+          eq(exceptionBaselines.companyId, companyId),
+          eq(exceptionBaselines.authority, "baseline"),
+          isNotNull(exceptionBaselines.stage),
+        ),
+      ),
+    );
+
+    // Re-mirror the chain so verification still resolves from genesis with zero calls out
+    // after the local seal refs above were dropped. Best-effort: a demo reset must not fail
+    // because the Witness is briefly unreachable, but say so rather than implying success.
+    let chain: Record<string, unknown>;
+    const { stayChainKey } = await import("../lib/witnessChain.js");
+    const chainKey = stayChainKey(propertyId, companyId);
+    try {
+      const { backfillChain } = await import("../lib/witnessChainProof.js");
+      const filled = await backfillChain(chainKey);
+      chain = { chainKey, remirrored: filled.added.length, held: filled.alreadyHeld.length, ok: filled.ok, detail: filled.detail };
+    } catch (err) {
+      chain = { chainKey, ok: false, detail: `chain re-mirror skipped: ${err instanceof Error ? err.message : String(err)}` };
+    }
+
+    logger.info({ companyId, cleared, chain }, "[reset-stay-demo] demo view reset");
+    res.json({
+      ok: true,
+      companyId,
+      companyName: company.name,
+      seededGovernance,
+      sopsIngested,
+      phase: DEMO_PHASE,
+      phaseNote:
+        "Set directly as demo setup - not a promotion, and not a claim the Walk criteria were met. " +
+        "In Crawl every decision escalates, so the Ambassador/MoD split would never be visible.",
+      propertyId,
+      cleared,
+      chain,
+      preserved: ["governance_files", "companies", "agent_phases", "exception_authority_ceilings"],
+      note:
+        "Console view reset. Nothing was un-sealed - the Witness chain is append-only and still " +
+        "holds every prior record; it has been re-mirrored locally so verification resolves from genesis.",
+    });
+  } catch (err) {
+    logger.error({ err }, "admin/reset-stay-demo error");
     res.status(500).json({ error: err instanceof Error ? err.message : "Reset failed" });
   }
 });

@@ -20,10 +20,10 @@ import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 
-const TEXT_EXTS = new Set([".md", ".markdown", ".txt"]);
+export const TEXT_EXTS = new Set([".md", ".markdown", ".txt"]);
 
 // ── /sops folder resolution (repo root). Operators drop SOP files here. ──────
-function resolveSopsDir(): string | null {
+export function resolveSopsDir(): string | null {
   const candidates = [
     process.env.SOPS_DIR,
     path.join(process.cwd(), "sops"),
@@ -114,7 +114,7 @@ function chunkClauses(body: string, docTitle: string): ParsedClause[] {
 }
 
 // ── Ingest one document (idempotent per company+filename) ────────────────────
-async function ingestDocument(params: {
+export async function ingestDocument(params: {
   companyId: number;
   filename: string;
   content: string;

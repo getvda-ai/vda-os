@@ -14,6 +14,29 @@ grant up to 3 hours early at their discretion; earlier arrivals are held in the
 living room with a welcome drink and escalated to the Manager on Duty. Never
 release a room that Housekeeping has not confirmed clean in Apaleo.
 
+## Room Assignment
+Every arriving reservation is assigned a unit from the booked unit group. An
+Ambassador may assign a single room themselves once Housekeeping has released it
+as clean in Apaleo and the unit carries no rate-affecting upgrade. Never assign a
+unit that Housekeeping has not confirmed, and never assign out of the booked group
+to solve an availability problem — that is an upgrade, and it is governed as one.
+
+A party booking more than one room is not a series of single assignments. Families
+and groups travelling together are placed on the same floor wherever the house
+allows it, and adjacent where it does not; where a party includes children the
+rooms must be adjacent or directly opposite, never split across floors. Because
+holding a floor for one party affects every other arrival that day, a multi-room
+assignment is a Manager on Duty decision — the Ambassador prepares the proposal
+and the MoD weighs it against the arrivals board. The same applies to a single
+room when a same-floor or adjacency request on the booking cannot be met from the
+units actually free: the guest has asked for something the inventory will not give,
+and a human decides what to offer instead rather than the agent quietly ignoring
+the request.
+
+Record the party size, the requested adjacency and the floor chosen with every
+multi-room assignment. An allocation without a recorded reason cannot be reviewed
+when the next group arrives.
+
 ## Room Upgrade at Check-in
 An upgrade is a hospitality gesture, not an entitlement. Ambassadors may offer a
 complimentary upgrade when the nightly uplift is modest and inventory is

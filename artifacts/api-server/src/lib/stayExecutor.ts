@@ -89,6 +89,13 @@ function pickToolAndArgs(payload: Record<string, unknown>): { tool: string | nul
       },
     };
   }
+  // Assigning units to an arriving reservation is a reservation write under
+  // reservations.manage — the same tool as an amend. Multi-room parties still resolve to
+  // ONE reservation id here; the party's other reservations are amended by the same call
+  // shape, which is why the class carries the room count rather than a room list.
+  if (cls === "room_assignment") {
+    return { tool: "AmendReservation", args: { id: reservationId } };
+  }
   if (cls === "room_upgrade_checkin" || cls === "room_move_rekey" || cls === "stay_extension" || cls === "early_checkout") {
     // Early checkout = shorten the reservation (folio recalc + night release follow).
     return { tool: "AmendReservation", args: { id: reservationId } };

@@ -2,9 +2,23 @@
 file_type: EXCEPTION_AUTHORITY
 agent_id: stay-agent
 owner: Manager on Duty
-version: "1.1"
+version: "1.1.1"
 approved_by: Compliance Officer
 approved_at: 2026-07-07
+revision_1_1_1:
+  changed_at: 2026-09-16
+  approved_by: PENDING
+  summary: >-
+    Adds the room_assignment class at both operating bands. The Ambassador may
+    assign a single unit autonomously when Housekeeping has released it, the unit
+    is in the booked group, and any adjacency request can be met. A multi-room
+    party — or an adjacency request that free inventory cannot satisfy — exceeds
+    the front-line ceiling and is a Manager on Duty decision. The patch revision
+    does not inherit the 2026-07-07 sign-off for the new class.
+  note: >-
+    A patch number, not 1.2: the apaleo-one branch carries a different v1.2 of
+    this file (all 35 rules annotated with apaleo_scope/apaleo_role) and two
+    unrelated documents must not share a version string.
 domain: Operations
 journey_stage_axis: Stay
 apaleo_api: "Reservations API, Folio API, Finance API, Inventory/Unit API, Availability API"
@@ -35,6 +49,19 @@ role_bands:
           - No same-day group arrival blocking the floor
         authority: autonomous
         escalate_to: mod
+        must_log: true
+      - exception_class: room_assignment
+        stage: check_in
+        description: Assign property units to an arriving reservation
+        ceiling: 1
+        ceiling_type: rooms
+        conditions:
+          - Unit confirmed clean and released by Housekeeping in Apaleo
+          - Assigned unit is in the booked unit group, with no rate-affecting upgrade
+          - Any adjacency or same-floor request on the booking is satisfiable from available units
+        authority: autonomous
+        escalate_to: mod
+        apaleo_role: "Junior Front Desk"
         must_log: true
       - exception_class: room_upgrade_checkin
         stage: check_in
@@ -211,6 +238,19 @@ role_bands:
 
   mod:
     exceptions:
+      - exception_class: room_assignment
+        stage: check_in
+        description: Assign units for a multi-room party, or where an adjacency request cannot be met from free inventory
+        ceiling: 8
+        ceiling_type: rooms
+        conditions:
+          - Party size and the adjacency request confirmed against the booking
+          - Floor capacity checked against same-day arrivals and existing allocations
+          - Any resulting upgrade or rate impact documented before approval
+        authority: hitl_required
+        escalate_to: compliance_officer
+        apaleo_role: "Senior Reservation Manager"
+        must_log: true
       - exception_class: room_upgrade_checkin
         stage: check_in
         description: Higher-value complimentary upgrade at check-in (MoD discretion)
